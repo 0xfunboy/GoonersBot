@@ -170,8 +170,9 @@ model for everyday banter. Set `LLM_NSFW_MODEL` (e.g. an amoral/uncensored model
 backend). Routing is decided **before** generation (no extra-LLM-call latency) and is **gated
 per-chat** by an admin:
 
-- `/nsfw off` — never use the NSFW model (default).
-- `/nsfw base` (or `on`) — the whole chat uses the uncensored model.
+- `/nsfw base` (or `on`) — the whole chat uses the uncensored model. **This is the default** when
+  `LLM_NSFW_MODEL` is set (override with `LLM_NSFW_DEFAULT_MODE`).
+- `/nsfw off` — never use the NSFW model.
 - `/nsfw smart` — per-message: an instant lexicon picks the uncensored model for NSFW-looking
   turns; for the rest, the default model runs with a **buffered refusal backstop** — if it starts
   to refuse, GoonerBot silently switches to the uncensored model and never shows the refusal.

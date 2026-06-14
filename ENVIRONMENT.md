@@ -50,7 +50,7 @@ Copy [.env.example](./.env.example) to `.env` and fill it in. `.env` is gitignor
 | Variable | Default | Description |
 |---|---|---|
 | `LLM_NSFW_MODEL` | — | Uncensored model for adult/NSFW text. Empty => NSFW routing disabled. |
-| `LLM_NSFW_DEFAULT_MODE` | `off` | Initial per-chat NSFW mode for new chats: `off` \| `base` \| `smart`. |
+| `LLM_NSFW_DEFAULT_MODE` | `base` | Initial per-chat NSFW mode for new chats: `off` \| `base` \| `smart`. `base` is inert unless `LLM_NSFW_MODEL` is set. |
 | `LLM_NSFW_LEXICON` | — | Extra comma-separated trigger terms appended to the built-in lexicon (smart mode). |
 | `LLM_REFUSAL_FALLBACK` | `true` | Buffered backstop: if the default model refuses, silently retry with the NSFW model. |
 | `LLM_REFUSAL_BUFFER_CHARS` | `160` | Leading chars buffered before deciding a reply is a refusal. |
