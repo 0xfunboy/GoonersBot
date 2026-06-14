@@ -12,7 +12,11 @@ export const introduceCommand: CommandSpec = {
   async handle({ services, context, person, args }) {
     const introduction = args.join(' ').trim();
     if (introduction.length === 0) return { text: 'inappropriate_introduction' };
-    const ok = await services.facts.addIntroduction(context.chatId, person.userHandle, introduction);
+    const ok = await services.facts.addIntroduction(
+      context.chatId,
+      person.userHandle,
+      introduction,
+    );
     if (!ok) return { text: 'inappropriate_introduction' };
     return { text: 'introduction_added', vars: { user_handle: person.userHandle } };
   },

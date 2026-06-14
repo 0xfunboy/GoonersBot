@@ -62,7 +62,9 @@ export async function createBot(config: AppConfig, services: Services): Promise<
     .sort((a, b) => a.priority - b.priority || a.command.localeCompare(b.command))
     .map((c) => ({
       command: c.command,
-      description: services.localizer.t(`${c.command}_description`, {}, config.env.DEFAULT_LANGUAGE) ?? 'GoonerBot command',
+      description:
+        services.localizer.t(`${c.command}_description`, {}, config.env.DEFAULT_LANGUAGE) ??
+        'GoonerBot command',
     }));
   await bot.api.setMyCommands(menu).catch((err) => log.warn({ err }, 'setMyCommands failed'));
 

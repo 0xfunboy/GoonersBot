@@ -47,6 +47,12 @@ export class OpenAICompatibleProvider implements LLMProvider {
   readonly capabilities: ProviderCapabilities;
   protected readonly opts: OpenAICompatibleOptions;
 
+  // Capability methods exist as own properties ONLY when configured, so callers can
+  // feature-detect via `typeof provider.visionCompletion === 'function'`.
+  visionCompletion?: (req: VisionRequest) => Promise<ChatResult>;
+  transcribeAudio?: (req: TranscribeRequest) => Promise<string>;
+  generateImage?: (req: ImageRequest) => Promise<ImageResult>;
+
   constructor(opts: OpenAICompatibleOptions) {
     this.opts = opts;
     this.name = opts.name;
@@ -57,11 +63,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
       imageGeneration: Boolean(opts.imageModel),
       tts: Boolean(opts.ttsModel),
     };
-    // vision/transcription/image/tts methods are removed when unsupported so callers can
-    // feature-detect via `typeof provider.visionCompletion === 'function'`.
-    if (!this.capabilities.vision) delete (this as Partial<LLMProvider>).visionCompletion;
-    if (!this.capabilities.transcription) delete (this as Partial<LLMProvider>).transcribeAudio;
-    if (!this.capabilities.imageGeneration) delete (this as Partial<LLMProvider>).generateImage;
+    if (this.capabilities.vision) this.visionCompletion = (req) => this.doVision(req);
+    if (this.capabilities.transcription) this.transcribeAudio = (req) => this.doTranscribe(req);
+    if (this.capabilities.imageGeneration) this.generateImage = (req) => this.doGenerateImage(req);
   }
 
   protected headers(extra: Record<string, string> = {}): Record<string, string> {
@@ -117,7 +121,11 @@ export class OpenAICompatibleProvider implements LLMProvider {
       text,
       model,
       usage: usage
-        ? { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens, estimated: false }
+        ? {
+            inputTokens: usage.prompt_tokens,
+            outputTokens: usage.completion_tokens,
+            estimated: false,
+          }
         : {
             inputTokens: estimateTokens(messages.map((m) => m.content).join('\n')),
             outputTokens: estimateTokens(text),
@@ -188,7 +196,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     return out;
   }
 
-  async visionCompletion(req: VisionRequest): Promise<ChatResult> {
+  private async doVision(req: VisionRequest): Promise<ChatResult> {
     const model = this.opts.visionModel;
     if (!model) throw new CapabilityUnavailableError('vision');
     const content = [
@@ -216,12 +224,16 @@ export class OpenAICompatibleProvider implements LLMProvider {
       text,
       model,
       usage: json.usage
-        ? { inputTokens: json.usage.prompt_tokens, outputTokens: json.usage.completion_tokens, estimated: false }
+        ? {
+            inputTokens: json.usage.prompt_tokens,
+            outputTokens: json.usage.completion_tokens,
+            estimated: false,
+          }
         : { outputTokens: estimateTokens(text), estimated: true },
     };
   }
 
-  async transcribeAudio(req: TranscribeRequest): Promise<string> {
+  private async doTranscribe(req: TranscribeRequest): Promise<string> {
     const model = this.opts.transcriptionModel;
     if (!model) throw new CapabilityUnavailableError('transcription');
     const form = new FormData();
@@ -242,7 +254,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     return json.text ?? '';
   }
 
-  async generateImage(req: ImageRequest): Promise<ImageResult> {
+  private async doGenerateImage(req: ImageRequest): Promise<ImageResult> {
     const model = this.opts.imageModel;
     if (!model) throw new CapabilityUnavailableError('imageGeneration');
     const body: Record<string, unknown> = {

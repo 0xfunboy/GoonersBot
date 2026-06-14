@@ -190,7 +190,7 @@ export const translations: TranslationMap = {
     spanish: 'Dato sobre {user_handle} guardado.',
   },
   inappropriate_fact: {
-    english: "Not saving that one. Keep facts safe and non-creepy.",
+    english: 'Not saving that one. Keep facts safe and non-creepy.',
     russian: 'Такой факт не сохраню.',
     spanish: 'Ese dato no lo guardo.',
   },
@@ -337,7 +337,8 @@ export const translations: TranslationMap = {
   terms_declined: {
     english: 'Terms declined. Your stored data was cleared. Accept the terms to use GoonerBot.',
     russian: 'Условия отклонены. Твои данные удалены. Прими условия, чтобы пользоваться GoonerBot.',
-    spanish: 'Términos rechazados. Tus datos fueron borrados. Acepta los términos para usar GoonerBot.',
+    spanish:
+      'Términos rechazados. Tus datos fueron borrados. Acepta los términos para usar GoonerBot.',
   },
   terms_already_accepted: {
     english: 'You already accepted the terms. All good. 🤝',

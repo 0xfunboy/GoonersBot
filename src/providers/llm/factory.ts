@@ -44,7 +44,9 @@ export function createLLMProvider(cfg: LLMConfig): LLMProvider {
     'LLM provider initialized',
   );
   if (!provider.capabilities.chat) {
-    log.warn('LLM chat model is not configured (LLM_MODEL/DEEPSEEK_MODEL). Text replies will fail until set.');
+    log.warn(
+      'LLM chat model is not configured (LLM_MODEL/DEEPSEEK_MODEL). Text replies will fail until set.',
+    );
   }
   for (const cap of ['vision', 'transcription', 'imageGeneration', 'tts'] as const) {
     if (!provider.capabilities[cap]) {

@@ -53,13 +53,21 @@ async function prepare(
   return { input };
 }
 
-export async function runCommand(ctx: GrammyContext, spec: CommandSpec, deps: DispatchDeps): Promise<void> {
+export async function runCommand(
+  ctx: GrammyContext,
+  spec: CommandSpec,
+  deps: DispatchDeps,
+): Promise<void> {
   const args = parseArgs(ctx.message?.text ?? '');
   const prepared = await prepare(ctx, deps, spec.permissions, spec.needsTermsAccepted, args);
   await finish(ctx, deps, prepared, (input) => spec.handle(input));
 }
 
-export async function runCallback(ctx: GrammyContext, spec: CallbackSpec, deps: DispatchDeps): Promise<void> {
+export async function runCallback(
+  ctx: GrammyContext,
+  spec: CallbackSpec,
+  deps: DispatchDeps,
+): Promise<void> {
   await ctx.answerCallbackQuery().catch(() => undefined);
   const data = ctx.callbackQuery?.data ?? '';
   const { args } = parseCallbackData(data);

@@ -63,13 +63,7 @@ export class Services {
       userCooldownSeconds: env.AUTOENGAGE_USER_COOLDOWN_SECONDS,
       minConfidence: env.AUTOENGAGE_MIN_CONFIDENCE,
     });
-    this.reply = new ReplyService(
-      llm,
-      this.media,
-      this.conversation,
-      this.facts,
-      2048,
-    );
+    this.reply = new ReplyService(llm, this.media, this.conversation, this.facts, 2048);
   }
 
   /** Ensure baseline records exist for this person/chat. Idempotent; runs before each handler. */

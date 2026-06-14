@@ -238,7 +238,9 @@ async function streamAndPersist(
       model: result.model,
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
-      estimatedTokens: result.usage.estimated ? result.usage.inputTokens + result.usage.outputTokens : 0,
+      estimatedTokens: result.usage.estimated
+        ? result.usage.inputTokens + result.usage.outputTokens
+        : 0,
       imageCalls: result.imageCalls,
       transcriptionCalls: result.transcriptionCalls,
       visionCalls: result.visionCalls,
@@ -270,7 +272,9 @@ async function streamAndPersist(
     }
   } catch (err) {
     log.error({ err }, 'reply generation failed');
-    const localized = await localizeResponse(services, context.chatId, { text: 'generation_failed' });
+    const localized = await localizeResponse(services, context.chatId, {
+      text: 'generation_failed',
+    });
     await sendResponse(ctx, localized).catch(() => undefined);
   }
 }

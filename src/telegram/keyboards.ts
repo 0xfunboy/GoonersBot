@@ -22,10 +22,16 @@ export function buildInlineKeyboard(keyboard: KeyboardResponse, pageIndex = 0): 
 
   const nav: Array<{ label: string; data: string }> = [];
   if (start > 0) {
-    nav.push({ label: '«', data: `${keyboard.callback}|${keyboard.buttonAction}|${pageIndex - 1}` });
+    nav.push({
+      label: '«',
+      data: `${keyboard.callback}|${keyboard.buttonAction}|${pageIndex - 1}`,
+    });
   }
   if (end < keyboard.options.length) {
-    nav.push({ label: '»', data: `${keyboard.callback}|${keyboard.buttonAction}|${pageIndex + 1}` });
+    nav.push({
+      label: '»',
+      data: `${keyboard.callback}|${keyboard.buttonAction}|${pageIndex + 1}`,
+    });
   }
   if (nav.length > 0) {
     for (const n of nav) kb.text(n.label, n.data);

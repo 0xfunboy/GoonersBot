@@ -100,7 +100,10 @@ export function buildUserInput(person: Person, message: TranscribedMessage): str
 
 export function buildGroupFacts(facts: Array<{ handle: string; fact: string }>): string {
   if (facts.length === 0) return 'No group facts stored yet.';
-  return 'Known facts about people in this chat:\n' + facts.map((f) => `- ${f.handle}: ${f.fact}`).join('\n');
+  return (
+    'Known facts about people in this chat:\n' +
+    facts.map((f) => `- ${f.handle}: ${f.fact}`).join('\n')
+  );
 }
 
 export function buildUserFacts(handle: string, facts: string[]): string {

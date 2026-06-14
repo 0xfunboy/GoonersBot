@@ -17,7 +17,12 @@ export class UsageService {
    * Cheap pre-flight check: estimated cost of this turn + current usage must be under the limit.
    * Image/audio inputs add a flat surcharge to the estimate.
    */
-  async isUnderLimit(handle: string, text: string, hasImage: boolean, hasAudio: boolean): Promise<boolean> {
+  async isUnderLimit(
+    handle: string,
+    text: string,
+    hasImage: boolean,
+    hasAudio: boolean,
+  ): Promise<boolean> {
     const estimate = estimateTokens(text) + (hasImage ? 500 : 0) + (hasAudio ? 500 : 0);
     const [usage, limit] = await Promise.all([
       this.storage.usage.getUsage(handle),

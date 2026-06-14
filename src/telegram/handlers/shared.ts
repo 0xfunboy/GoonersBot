@@ -11,8 +11,14 @@ export const SHOW_LANGUAGES_CALLBACK = 'show_chat_languages';
 export function termsKeyboard(services: Services, language: string): KeyboardResponse {
   return {
     options: [
-      { id: 'accept', label: services.localizer.t('terms_accept_button', {}, language) ?? 'Accept' },
-      { id: 'decline', label: services.localizer.t('terms_decline_button', {}, language) ?? 'Decline' },
+      {
+        id: 'accept',
+        label: services.localizer.t('terms_accept_button', {}, language) ?? 'Accept',
+      },
+      {
+        id: 'decline',
+        label: services.localizer.t('terms_decline_button', {}, language) ?? 'Decline',
+      },
     ],
     callback: TERMS_CALLBACK,
     buttonAction: TERMS_CALLBACK,

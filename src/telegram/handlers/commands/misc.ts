@@ -21,7 +21,10 @@ export const languageCommand: CommandSpec = {
   needsTermsAccepted: false,
   priority: Priority.DEFAULT,
   async handle({ services }) {
-    return { text: 'choose_language', keyboard: languagesKeyboard(services, SET_LANGUAGE_CALLBACK) };
+    return {
+      text: 'choose_language',
+      keyboard: languagesKeyboard(services, SET_LANGUAGE_CALLBACK),
+    };
   },
 };
 

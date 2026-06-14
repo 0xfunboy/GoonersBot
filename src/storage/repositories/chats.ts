@@ -21,7 +21,11 @@ export class ChatsRepo {
   }
 
   /** Create the chat document with default toggles if it does not exist yet. */
-  async createIfNotExists(chatId: number, chatName: string | undefined, defaults: ChatDefaults): Promise<void> {
+  async createIfNotExists(
+    chatId: number,
+    chatName: string | undefined,
+    defaults: ChatDefaults,
+  ): Promise<void> {
     const now = new Date();
     await this.col.updateOne(
       { chatId },
@@ -84,7 +88,10 @@ export class ChatsRepo {
   }
 
   /** Toggle a boolean flag and return the new value. */
-  private async toggle(chatId: number, field: 'conversationTracker' | 'autoFact' | 'autoengage'): Promise<boolean> {
+  private async toggle(
+    chatId: number,
+    field: 'conversationTracker' | 'autoFact' | 'autoengage',
+  ): Promise<boolean> {
     const current = await this.col.findOne({ chatId }, { projection: { [field]: 1 } });
     const next = !(current?.[field] ?? false);
     await this.col.updateOne({ chatId }, { $set: { [field]: next, updatedAt: new Date() } });

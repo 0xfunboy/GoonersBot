@@ -37,7 +37,12 @@ export class FactsRepo {
       return true;
     } catch (err) {
       // Duplicate key => fact already exists.
-      if (err && typeof err === 'object' && 'code' in err && (err as { code: number }).code === 11000) {
+      if (
+        err &&
+        typeof err === 'object' &&
+        'code' in err &&
+        (err as { code: number }).code === 11000
+      ) {
         return false;
       }
       throw err;

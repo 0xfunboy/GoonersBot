@@ -22,7 +22,10 @@ export function buildPerson(ctx: Context): Person | null {
 }
 
 /** True if the bot is addressed: private chat, reply-to-bot, or @mention in text. */
-export function isBotAddressed(ctx: Context, botUsername: string): { mentioned: boolean; replyToBot: boolean } {
+export function isBotAddressed(
+  ctx: Context,
+  botUsername: string,
+): { mentioned: boolean; replyToBot: boolean } {
   const msg = ctx.message;
   if (!msg) return { mentioned: false, replyToBot: false };
   const isPrivate = ctx.chat?.type === 'private';
@@ -31,7 +34,8 @@ export function isBotAddressed(ctx: Context, botUsername: string): { mentioned: 
   const hasMention = text.toLowerCase().includes(mentionTag.toLowerCase());
   const replyToBot =
     msg.reply_to_message?.from?.is_bot === true &&
-    msg.reply_to_message.from.username?.toLowerCase() === botUsername.replace(/^@/, '').toLowerCase();
+    msg.reply_to_message.from.username?.toLowerCase() ===
+      botUsername.replace(/^@/, '').toLowerCase();
   return { mentioned: isPrivate || hasMention || replyToBot, replyToBot };
 }
 
@@ -47,7 +51,10 @@ export async function isGroupAdmin(ctx: Context): Promise<boolean> {
   }
 }
 
-export async function buildChatContext(ctx: Context, botUsername: string): Promise<ChatContext | null> {
+export async function buildChatContext(
+  ctx: Context,
+  botUsername: string,
+): Promise<ChatContext | null> {
   const chat = ctx.chat;
   if (!chat) return null;
   const { mentioned, replyToBot } = isBotAddressed(ctx, botUsername);
@@ -91,7 +98,10 @@ async function downloadFile(ctx: Context, fileId: string): Promise<Buffer | null
  * Build the IncomingMessage. Media (photo/voice) is downloaded only when the bot is addressed,
  * mirroring the original behaviour (avoids spending bandwidth/vision on every group image).
  */
-export async function buildIncomingMessage(ctx: Context, addressed: boolean): Promise<IncomingMessage> {
+export async function buildIncomingMessage(
+  ctx: Context,
+  addressed: boolean,
+): Promise<IncomingMessage> {
   const msg = ctx.message;
   const text = msg?.text ?? msg?.caption ?? '';
   const timestamp = msg?.date ? new Date(msg.date * 1000) : new Date();

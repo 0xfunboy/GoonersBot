@@ -68,7 +68,10 @@ export class ModesRepo {
 
   async getNameById(chatId: number, modeId: string): Promise<string | null> {
     if (!ObjectId.isValid(modeId)) return null;
-    const doc = await this.col.findOne({ chatId, _id: new ObjectId(modeId) }, { projection: { name: 1 } });
+    const doc = await this.col.findOne(
+      { chatId, _id: new ObjectId(modeId) },
+      { projection: { name: 1 } },
+    );
     return doc?.name ?? null;
   }
 
@@ -91,7 +94,12 @@ export class ModesRepo {
   /**
    * Add a custom mode. Returns false if a mode with that name already exists in the chat.
    */
-  async add(chatId: number, name: string, description: string, createdByHandle: string): Promise<boolean> {
+  async add(
+    chatId: number,
+    name: string,
+    description: string,
+    createdByHandle: string,
+  ): Promise<boolean> {
     const existing = await this.col.findOne({ chatId, name });
     if (existing) return false;
     await this.col.insertOne({

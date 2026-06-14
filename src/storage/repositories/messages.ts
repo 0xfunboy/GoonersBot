@@ -43,7 +43,12 @@ export class MessagesRepo {
     );
   }
 
-  async add(chatId: number, handle: string, isBot: boolean, message: TranscribedMessage): Promise<void> {
+  async add(
+    chatId: number,
+    handle: string,
+    isBot: boolean,
+    message: TranscribedMessage,
+  ): Promise<void> {
     const now = new Date();
     await this.col.insertOne({
       chatId,
