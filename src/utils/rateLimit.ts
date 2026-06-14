@@ -20,6 +20,11 @@ export class Cooldown {
     return true;
   }
 
+  /** Check whether the key is ready WITHOUT recording an action. */
+  isReady(key: string, now: number = Date.now()): boolean {
+    return this.remainingMs(key, now) === 0;
+  }
+
   /** Milliseconds remaining before the key is allowed again (0 if allowed now). */
   remainingMs(key: string, now: number = Date.now()): number {
     const prev = this.last.get(key);
