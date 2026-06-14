@@ -1,0 +1,153 @@
+import { config as loadDotenv } from 'dotenv';
+import { z } from 'zod';
+
+loadDotenv();
+
+/**
+ * Coerce common truthy/falsy string env values into booleans.
+ */
+const boolFromString = (def: boolean) =>
+  z
+    .string()
+    .optional()
+    .transform((v) => {
+      if (v === undefined || v === '') return def;
+      return ['1', 'true', 'yes', 'on'].includes(v.trim().toLowerCase());
+    });
+
+const intFromString = (def: number) =>
+  z
+    .string()
+    .optional()
+    .transform((v) => {
+      if (v === undefined || v === '') return def;
+      const n = Number.parseInt(v, 10);
+      return Number.isNaN(n) ? def : n;
+    });
+
+const csvHandles = z
+  .string()
+  .optional()
+  .transform((v): string[] | null => {
+    if (v === undefined) return null;
+    const trimmed = v.trim();
+    if (trimmed === '' || trimmed === '*') return null; // null => no restriction
+    return trimmed
+      .split(',')
+      .map((h) => h.trim())
+      .filter((h) => h.length > 0)
+      .map((h) => (h.startsWith('@') ? h : `@${h}`));
+  });
+
+/**
+ * Provider enum kept open via `custom_openai_compatible` for arbitrary backends.
+ */
+export const llmProviderEnum = z.enum([
+  'solclawn',
+  'openai',
+  'deepseek',
+  'ollama',
+  'custom_openai_compatible',
+]);
+
+export type LLMProviderName = z.infer<typeof llmProviderEnum>;
+
+const envSchema = z.object({
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+
+  // Telegram
+  TELEGRAM_BOT_TOKEN: z.string().min(1, 'TELEGRAM_BOT_TOKEN is required'),
+  BOT_USERNAME: z.string().default('GoonerBot'),
+
+  // Access control (handles normalized to @handle; null => unrestricted)
+  ALLOWED_HANDLES: csvHandles,
+  ADMIN_HANDLES: csvHandles,
+
+  // MongoDB
+  MONGO_URI: z.string().default('mongodb://127.0.0.1:27017/goonerbot'),
+  MONGO_DB: z.string().default('goonerbot'),
+
+  // LLM provider selection
+  LLM_PROVIDER: llmProviderEnum.default('ollama'),
+  LLM_BASE_URL: z.string().optional(),
+  LLM_API_KEY: z.string().optional(),
+  LLM_MODEL: z.string().optional(),
+  LLM_VISION_MODEL: z.string().optional(),
+  LLM_IMAGE_MODEL: z.string().optional(),
+  LLM_TRANSCRIPTION_MODEL: z.string().optional(),
+  LLM_TTS_MODEL: z.string().optional(),
+  LLM_REQUEST_TIMEOUT_MS: intFromString(60_000),
+
+  // DeepSeek-specific (used when LLM_PROVIDER=deepseek)
+  DEEPSEEK_API_KEY: z.string().optional(),
+  DEEPSEEK_BASE_URL: z.string().default('https://api.deepseek.com'),
+  DEEPSEEK_MODEL: z.string().optional(),
+
+  // Behaviour defaults (per-chat toggles seed values)
+  DEFAULT_LANGUAGE: z.string().default('english'),
+  AUTOENGAGE_DEFAULT_ENABLED: boolFromString(false),
+  CONVERSATION_TRACKER_DEFAULT_ENABLED: boolFromString(false),
+  AUTOFACT_DEFAULT_ENABLED: boolFromString(false),
+
+  // Autoengage limits / cooldowns
+  MAX_REPLIES_PER_CHAT_PER_HOUR: intFromString(15),
+  AUTOENGAGE_MIN_COOLDOWN_SECONDS: intFromString(45),
+  AUTOENGAGE_USER_COOLDOWN_SECONDS: intFromString(20),
+  AUTOENGAGE_MIN_CONFIDENCE: z
+    .string()
+    .optional()
+    .transform((v) => {
+      if (v === undefined || v === '') return 0.6;
+      const n = Number.parseFloat(v);
+      return Number.isNaN(n) ? 0.6 : n;
+    }),
+
+  // Conversation memory / retention
+  MESSAGE_HISTORY_RETENTION_DAYS: intFromString(30),
+  MAX_CONTEXT_MESSAGES: intFromString(25),
+  MAX_STORED_MESSAGES_PER_CHAT: intFromString(500),
+
+  // Usage limits (points). Large default => effectively unlimited unless configured.
+  DEFAULT_USAGE_LIMIT: intFromString(1_000_000_000),
+
+  // Default ban duration in seconds when /ban is used without an explicit duration.
+  // 0 => permanent.
+  DEFAULT_BAN_SECONDS: intFromString(0),
+
+  // Telegram streaming UX
+  ENABLE_MESSAGE_STREAMING: boolFromString(true),
+  STREAM_EDIT_INTERVAL_MS: intFromString(1200),
+
+  // Anti-spam: minimum seconds between accepted command invocations per user.
+  COMMAND_RATE_LIMIT_SECONDS: intFromString(1),
+});
+
+export type Env = z.infer<typeof envSchema>;
+
+let cached: Env | null = null;
+
+/**
+ * Parse and validate process.env. Fails fast (throws) on invalid required config.
+ * Optional capabilities (vision/image/transcription models, provider keys) never fail here.
+ */
+export function loadEnv(raw: NodeJS.ProcessEnv = process.env): Env {
+  const parsed = envSchema.safeParse(raw);
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((i) => `  - ${i.path.join('.') || '(root)'}: ${i.message}`)
+      .join('\n');
+    throw new Error(`Invalid environment configuration:\n${issues}`);
+  }
+  return parsed.data;
+}
+
+export function getEnv(): Env {
+  if (!cached) cached = loadEnv();
+  return cached;
+}
+
+/** Test helper to reset the cached env. */
+export function resetEnvCache(): void {
+  cached = null;
+}
