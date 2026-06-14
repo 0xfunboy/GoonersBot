@@ -14,7 +14,9 @@ describe('loadEnv', () => {
     expect(env.BOT_USERNAME).toBe('GoonerBot');
     expect(env.LLM_PROVIDER).toBe('ollama');
     expect(env.MAX_CONTEXT_MESSAGES).toBe(25);
-    expect(env.AUTOENGAGE_DEFAULT_ENABLED).toBe(false);
+    expect(env.AUTOENGAGE_DEFAULT_ENABLED).toBe(true);
+    expect(env.CONVERSATION_TRACKER_DEFAULT_ENABLED).toBe(true);
+    expect(env.AUTOFACT_DEFAULT_ENABLED).toBe(false);
     expect(env.MONGO_DB).toBe('goonerbot');
   });
 

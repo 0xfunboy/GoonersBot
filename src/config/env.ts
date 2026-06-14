@@ -98,8 +98,8 @@ const envSchema = z.object({
 
   // Behaviour defaults (per-chat toggles seed values)
   DEFAULT_LANGUAGE: z.string().default('italian'),
-  AUTOENGAGE_DEFAULT_ENABLED: boolFromString(false),
-  CONVERSATION_TRACKER_DEFAULT_ENABLED: boolFromString(false),
+  AUTOENGAGE_DEFAULT_ENABLED: boolFromString(true),
+  CONVERSATION_TRACKER_DEFAULT_ENABLED: boolFromString(true),
   AUTOFACT_DEFAULT_ENABLED: boolFromString(false),
 
   // Autoengage limits / cooldowns
