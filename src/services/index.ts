@@ -4,6 +4,7 @@ import type { ChatContext, Person } from '../domain/types.js';
 import type { LLMProvider } from '../providers/llm/types.js';
 import { MediaProcessor } from '../providers/media/index.js';
 import type { Storage } from '../storage/index.js';
+import { Cooldown } from '../utils/rateLimit.js';
 import { AutoEngageScorer } from './autoengage.js';
 import { BanService } from './bans.js';
 import { ModelRouter } from './modelRouter.js';
@@ -44,6 +45,8 @@ export class Services {
   readonly reply: ReplyService;
   readonly media: MediaProcessor;
   readonly modelRouter: ModelRouter;
+  /** per-user, per-chat anti-spam cooldown for command invocations */
+  readonly commandRateLimit: Cooldown;
 
   constructor(
     readonly config: AppConfig,
@@ -74,6 +77,7 @@ export class Services {
       refusalFallback: env.LLM_REFUSAL_FALLBACK,
       refusalBufferChars: env.LLM_REFUSAL_BUFFER_CHARS,
     });
+    this.commandRateLimit = new Cooldown(env.COMMAND_RATE_LIMIT_SECONDS * 1000);
   }
 
   /** Ensure baseline records exist for this person/chat. Idempotent; runs before each handler. */

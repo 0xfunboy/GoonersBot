@@ -1,96 +1,94 @@
-# GoonerBot 🤖
+<p align="center">
+  <img src="assets/banner.svg" alt="GoonerBot — the group gremlin" width="100%">
+</p>
 
-A **group-native entertainment, roleplay, meme, banter and memory** AI bot for the **Gooners**
-Telegram community.
+<p align="center">
+  <img src="https://img.shields.io/badge/Node-%E2%89%A522-3c873a?logo=node.js&logoColor=white" alt="Node >= 22">
+  <img src="https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white" alt="TypeScript strict">
+  <img src="https://img.shields.io/badge/Telegram-grammY-2aabee?logo=telegram&logoColor=white" alt="grammY">
+  <img src="https://img.shields.io/badge/MongoDB-6.x-47a248?logo=mongodb&logoColor=white" alt="MongoDB">
+  <img src="https://img.shields.io/badge/tests-vitest-6e9f18?logo=vitest&logoColor=white" alt="vitest">
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
+  <img src="https://img.shields.io/badge/docker-not%20required-555?logo=docker&logoColor=white" alt="no docker">
+</p>
 
-GoonerBot is **not** a personal assistant and **not** a corporate productivity agent. It's a chat
-character that knows the group culture: it listens to the conversation, remembers group and user
-lore, jumps in when it's funny or useful, runs roleplay/chat modes, and keeps the group alive
-without being a spammy menace.
+<h1 align="center">GoonerBot 🤖</h1>
 
-> GoonerBot is a full TypeScript reimplementation and rebrand of the open-source
-> [Flagro/TelegramRPBot](https://github.com/Flagro/TelegramRPBot) (Python). See
-> [MIGRATION_AUDIT.md](./MIGRATION_AUDIT.md) and [FEATURE_PARITY.md](./FEATURE_PARITY.md) for the
-> complete mapping — every original feature was ported.
-
----
-
-## Features
-
-- **Group chat character** — reads the room, replies in context, stays short and punchy.
-- **Chat-bounded modes** — per-chat personalities you can add / select / delete at runtime.
-- **Built-in Gooners modes** — `default`, `roast`, `hype`, `lorekeeper`, `chaos`, `market_degen`, `meme_recorder`.
-- **Memory** — manual + automatic facts about users and the group, self-introductions, group lore.
-- **Auto-engage** — an `AutoEngageScorer` decides when to intervene (cooldowns, hourly caps, confidence, risk — never chain-spams).
-- **Conversation tracking** — optional passive listening with configurable retention.
-- **Media** — image input (vision), voice input (transcription), text output, image output, optional TTS — all capability-gated and degrade gracefully.
-- **Usage tracking & limits** — per user / chat / provider, token + call + cost accounting.
-- **Permissions, bans, terms of use, multi-language** (English / Russian / Spanish).
-- **Pluggable LLM backends** — solclawn, OpenAI, DeepSeek, Ollama, or any OpenAI-compatible host.
-
-## Commands
-
-| Command | Who | What |
-|---|---|---|
-| `/start` | admin | wake GoonerBot in this chat |
-| `/stop` | admin | put GoonerBot to sleep |
-| `/reset` | admin | wipe conversation memory |
-| `/mode` | admin | pick a mode |
-| `/addmode <description>` | admin/allowed | add a custom mode |
-| `/deletemode` | admin | delete a mode |
-| `/introduce <text>` | anyone* | tell GoonerBot who you are |
-| `/fact @handle <fact>` | anyone* | save a fact about a Gooner |
-| `/facts [@handle]` | anyone | show stored facts |
-| `/clearfacts [@handle]` | self / admin | clear facts (self anytime; others = admin) |
-| `/usage` | anyone | your usage & limits |
-| `/language` | admin | set chat language |
-| `/terms` | anyone | terms of use + acceptance |
-| `/conversationtracker` | admin | toggle passive tracking |
-| `/autofact` | admin | toggle automatic fact extraction |
-| `/autoengage` | admin | toggle auto-engage |
-| `/nsfw [off\|base\|smart]` | admin | NSFW model routing for this chat |
-| `/ban @handle [seconds]` | bot admin | ban a Gooner (reply-aware; duration optional) |
-| `/unban @handle` | bot admin | unban a Gooner |
-| `/help` | anyone | help |
-
-\* requires accepting `/terms` first.
+<p align="center">
+  <b>A group-native entertainment, roleplay, meme, banter & memory AI bot for the <i>Gooners</i> Telegram community.</b><br>
+  Not an assistant. Not ChatGPT dropped into a chat. A chat <i>character</i> that knows the group culture —
+  it listens, remembers group & user lore, jumps in when it's funny or useful, runs roleplay/chat modes,
+  and keeps the group alive without being a spammy menace.
+</p>
 
 ---
 
-## Requirements
+## Table of contents
 
-- **Node.js 23.3** (preferred — see `.nvmrc`) or the latest LTS (Node 22/24+). No Python, no Docker.
-- **pnpm** (`npm i -g pnpm`).
-- A running **MongoDB** instance (local is fine).
+- [Highlights](#highlights)
+- [Quick start (no Docker)](#quick-start-no-docker)
+- [Telegram setup & Privacy Mode](#telegram-setup--privacy-mode)
+- [LLM providers](#llm-providers)
+- [NSFW / adult content routing](#nsfw--adult-content-routing)
+- [Commands](#commands)
+- [Built-in modes](#built-in-modes)
+- [How it works](#how-it-works)
+- [Configuration (all env vars)](#configuration-all-env-vars)
+- [Memory & data model](#memory--data-model)
+- [Security](#security)
+- [Development & testing](#development--testing)
+- [Troubleshooting](#troubleshooting)
+- [Origins](#origins)
+- [License](#license)
 
-## Quick start (local, no Docker)
+---
+
+## Highlights
+
+- 🗣️ **Group chat character** — reads the room, replies in context, short & punchy.
+- 🎭 **Chat-bounded modes** — per-chat personalities you add / select / delete at runtime.
+- 🔥 **Built-in Gooners modes** — `default`, `roast`, `hype`, `lorekeeper`, `chaos`, `market_degen`, `meme_recorder`.
+- 🧠 **Memory** — manual + automatic facts about users and the group, self-introductions, lore.
+- ⚡ **Auto-engage** — an `AutoEngageScorer` decides *when* to intervene (cooldowns, hourly caps, confidence, risk; never chain-spams).
+- 👂 **Conversation tracking** — optional passive listening with configurable retention (TTL).
+- 🖼️ **Media** — image input (vision), voice input (transcription), text output, image output, optional TTS — all capability-gated and degrade gracefully.
+- 🔞 **NSFW routing** — route adult turns to a separate uncensored model, decided *before* generation (low latency) + a buffered refusal backstop.
+- 📊 **Usage tracking & limits** — per user / chat / provider, token + call + cost accounting.
+- 🛡️ **Permissions, bans (with expiry), terms of use**, multi-language (🇮🇹 default · 🇬🇧 · 🇷🇺 · 🇪🇸).
+- 🔌 **Pluggable LLM backends** — solclawn, OpenAI, DeepSeek, Ollama, or any OpenAI-compatible host.
+- 🧰 **No Docker, no Python** — Node + a local MongoDB. Strict TypeScript, ESM, eslint/prettier, vitest.
+
+---
+
+## Quick start (no Docker)
+
+> Requirements: **Node.js 23.3** (preferred — see `.nvmrc`) or latest LTS (Node 22/24+), **pnpm**, and a running **MongoDB**.
 
 ```bash
-# 1. Node version
-nvm use            # picks up .nvmrc (23.3.0); or `nvm install 23.3.0`
+# 1. Node
+nvm use                      # picks up .nvmrc (23.3.0); or `nvm install 23.3.0`
 
-# 2. Install deps
+# 2. Install
 pnpm install
 
-# 3. MongoDB — run a local instance (any one of these)
-#    a) system service:        sudo systemctl start mongod
-#    b) standalone, no auth:    mongod --dbpath ./.mongo-data
-#    (set MONGO_URI accordingly; default is mongodb://127.0.0.1:27017/goonerbot)
+# 3. MongoDB (any local instance). A helper script for a user-local, auth-enabled mongod is included:
+#    (downloads nothing — expects a mongod binary; see scripts/mongo-local.sh)
+scripts/mongo-local.sh start         # or: sudo systemctl start mongod  / mongod --dbpath ./.mongo-data
 
 # 4. Configure
 cp .env.example .env
-# edit .env: set TELEGRAM_BOT_TOKEN and your LLM provider settings
+#   edit .env: set TELEGRAM_BOT_TOKEN, MONGO_URI, and your LLM provider
 
 # 5. Run
-pnpm dev           # watch mode (tsx)
-# or for production:
+pnpm dev                     # watch mode (tsx)
+# or production:
 pnpm build && pnpm start
 ```
 
-## Scripts
+### Scripts
 
 | Script | Purpose |
-|---|---|
+| --- | --- |
 | `pnpm dev` | run with hot reload (tsx) |
 | `pnpm build` | compile TypeScript to `dist/` |
 | `pnpm start` | run the compiled bot (`node dist/main.js`) |
@@ -101,108 +99,339 @@ pnpm build && pnpm start
 
 ---
 
-## Telegram setup
+## Telegram setup & Privacy Mode
 
-1. Create a bot with [@BotFather](https://t.me/BotFather) and copy the token into
-   `TELEGRAM_BOT_TOKEN`.
+1. Create a bot with [@BotFather](https://t.me/BotFather), copy the token into `TELEGRAM_BOT_TOKEN`.
 2. Add the bot to your group.
+3. Set who controls it: put the deployer's `@handle` in **`ADMIN_HANDLES`** so they can run control
+   commands anywhere (even without being a group admin). `ALLOWED_HANDLES=*` lets everyone chat.
 
-### Privacy Mode (important for groups)
+### ⚠️ Privacy Mode (required for passive features)
 
-By default, Telegram bots run with **Privacy Mode ON**, which means the bot only receives:
-messages that start with a `/command`, replies to its own messages, and messages that
-`@mention` it. It does **not** see ordinary group chatter.
+By default Telegram bots run with **Privacy Mode ON** — the bot only receives: `/commands`, replies
+to its own messages, and messages that `@mention` it. It does **not** see ordinary group chatter.
 
-GoonerBot's passive features — **conversation tracking** and **auto-engage** — need to see all
-group messages. To enable them you must do one of:
+**Conversation tracking** and **auto-engage** need to see all messages. Enable them with either:
 
-- **Disable Privacy Mode** in @BotFather: `/setprivacy` → select your bot → **Disable**.
-  *(Then remove and re-add the bot to the group for it to take effect.)*, **or**
-- Make the bot a **group admin** (admins always receive all messages).
+- **Disable Privacy Mode** in @BotFather: `/setprivacy` → your bot → **Disable**, then **remove &
+  re-add** the bot to the group, **or**
+- Make the bot a **group admin** (admins receive all messages).
 
-If Privacy Mode stays ON and the bot is not an admin, GoonerBot still works fully for commands,
-@mentions and replies — it just can't passively track the conversation or auto-engage.
-GoonerBot never hardcodes a group ID; it works in any chat it's added to.
+With Privacy Mode ON and the bot not an admin, GoonerBot still fully works for commands, @mentions and
+replies — it just can't passively track or auto-engage. No group ID is ever hardcoded.
 
 ---
 
-## LLM provider configuration
+## LLM providers
 
-Pick a provider with `LLM_PROVIDER`. The base URL and model are configurable — nothing is
-hardcoded in the business logic. Media capabilities (vision/image/transcription/TTS) activate
-only when you set the corresponding model env var; if unset, that capability is disabled and the
-bot degrades gracefully (a clean message, never a crash).
+Pick a provider with `LLM_PROVIDER`. The base URL and model are configurable — nothing is hardcoded in
+business logic. Media capabilities activate only when you set the corresponding model var; if unset,
+that capability is disabled and the bot degrades gracefully (a clean message, never a crash).
 
-### solclawn (default OpenAI-compatible LeakRouter surface)
+<details>
+<summary><b>solclawn</b> — OpenAI-compatible router (default)</summary>
 
 ```env
 LLM_PROVIDER=solclawn
 LLM_BASE_URL=https://llm.solclawn.com/v1
-LLM_API_KEY=<your LeakRouter client bearer token>
-LLM_MODEL=<an Ollama model name exposed by the router, e.g. gpt-oss:20b>
-# optional:
+LLM_API_KEY=<router client bearer token>
+LLM_MODEL=<a model exposed by the router, e.g. gpt-oss:latest>
+# optional media models:
 LLM_VISION_MODEL=
 LLM_IMAGE_MODEL=
 LLM_TRANSCRIPTION_MODEL=
 ```
+Uses the OpenAI-compatible adapter against `LLM_BASE_URL` with `Authorization: Bearer ${LLM_API_KEY}`
+(`/v1/chat/completions`, model = the router's model name).
+</details>
 
-`solclawn` uses the generic OpenAI-compatible adapter against `LLM_BASE_URL` with
-`Authorization: Bearer ${LLM_API_KEY}` — matching the LeakRouter OpenAI surface
-(`/v1/chat/completions`, model = Ollama model name).
-
-### DeepSeek
+<details>
+<summary><b>DeepSeek</b></summary>
 
 ```env
 LLM_PROVIDER=deepseek
-DEEPSEEK_API_KEY=<your deepseek key>
+DEEPSEEK_API_KEY=<key>
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-chat
 ```
+</details>
 
-### Ollama (local), OpenAI, or any custom OpenAI-compatible host
+<details>
+<summary><b>Ollama / OpenAI / custom OpenAI-compatible</b></summary>
 
-See [.env.example](./.env.example) options C/D/E.
+```env
+# Ollama (local)
+LLM_PROVIDER=ollama
+LLM_BASE_URL=http://127.0.0.1:11434/v1
+LLM_MODEL=llama3.1
 
-### NSFW / adult content routing
+# OpenAI
+LLM_PROVIDER=openai
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_API_KEY=sk-...
+LLM_MODEL=gpt-4o-mini
 
-GoonerBot can route adult/NSFW turns to a separate **uncensored** model while keeping a normal
-model for everyday banter. Set `LLM_NSFW_MODEL` (e.g. an amoral/uncensored model exposed by your
-backend). Routing is decided **before** generation (no extra-LLM-call latency) and is **gated
-per-chat** by an admin:
+# anything OpenAI-compatible
+LLM_PROVIDER=custom_openai_compatible
+LLM_BASE_URL=https://your-host/v1
+LLM_API_KEY=...
+LLM_MODEL=...
+```
+</details>
 
-- `/nsfw base` (or `on`) — the whole chat uses the uncensored model. **This is the default** when
-  `LLM_NSFW_MODEL` is set (override with `LLM_NSFW_DEFAULT_MODE`).
-- `/nsfw off` — never use the NSFW model.
-- `/nsfw smart` — per-message: an instant lexicon picks the uncensored model for NSFW-looking
-  turns; for the rest, the default model runs with a **buffered refusal backstop** — if it starts
-  to refuse, GoonerBot silently switches to the uncensored model and never shows the refusal.
-
-A custom mode created with a leading `[nsfw]` tag (e.g. `/addmode [nsfw] Filth. very explicit`)
-always routes to the uncensored model in NSFW-enabled chats. Hard limits always apply (no minors,
-no real-person sexual content without consent, nothing illegal, no doxxing) regardless of model.
-NSFW is opt-in per chat and intended for private, consenting adult communities.
+The provider exposes **capabilities** (`chat`, `vision`, `transcription`, `imageGeneration`, `tts`).
+A missing capability logs once and is skipped — one missing media feature never crashes the bot.
 
 ---
 
-## How it works (high level)
+## NSFW / adult content routing
 
-```
+GoonerBot can route adult/NSFW turns to a separate **uncensored** model while keeping a normal model
+for everyday banter. Set `LLM_NSFW_MODEL` (an uncensored model exposed by your backend). Routing is
+decided **before** generation (no extra-LLM-call latency) and gated **per-chat** by an admin.
+
+| `/nsfw <mode>` | behaviour |
+| --- | --- |
+| `base` (or `on`) | the whole chat uses the uncensored model. **Default** when `LLM_NSFW_MODEL` is set. |
+| `off` | never use the uncensored model. |
+| `smart` | per-message: an instant lexicon picks the uncensored model for NSFW-looking turns; for the rest, the default model runs with a **buffered refusal backstop** — if it starts to refuse, GoonerBot silently switches and never shows the refusal. |
+
+- A custom mode created with a leading `[nsfw]` tag (e.g. `/addmode [nsfw] Filth. very explicit`)
+  always routes to the uncensored model in NSFW-enabled chats.
+- **Hard limits always apply** regardless of model/mode: nothing involving minors, no real-world
+  non-consent, no sexual content about real named people without consent, nothing illegal, no doxxing.
+- NSFW is opt-in per chat and intended for **private, consenting adult** communities. If
+  `LLM_NSFW_MODEL` is empty, all routing is inert and the default model is always used.
+
+---
+
+## Commands
+
+| Command | Who | What |
+| --- | --- | --- |
+| `/start` | admin¹ | wake GoonerBot in this chat |
+| `/stop` | admin¹ | put it to sleep |
+| `/reset` | admin¹ | wipe conversation memory |
+| `/mode` | admin¹ | pick a mode |
+| `/addmode <description>` | admin¹ | add a custom mode (`[nsfw]` prefix flags it adult) |
+| `/deletemode` | admin¹ | delete a mode |
+| `/introduce <text>` | anyone² | tell GoonerBot who you are |
+| `/fact @handle <fact>` | anyone² | save a fact about a Gooner |
+| `/facts [@handle]` | anyone | show stored facts |
+| `/clearfacts [@handle]` | self / admin | clear facts (self anytime; others = admin) |
+| `/usage` | anyone | your usage & limits |
+| `/language` | admin¹ | set chat language (it / en / ru / es) |
+| `/terms` | anyone | terms of use + acceptance |
+| `/conversationtracker` | admin¹ | toggle passive tracking |
+| `/autofact` | admin¹ | toggle automatic fact extraction |
+| `/autoengage` | admin¹ | toggle auto-engage |
+| `/nsfw [off\|base\|smart]` | admin¹ | NSFW model routing |
+| `/ban @handle [seconds]` | bot admin³ | ban a Gooner (reply-aware; duration optional, 0 = permanent) |
+| `/unban @handle` | bot admin³ | unban a Gooner |
+| `/help` | anyone | help |
+
+¹ **admin** = group admin **OR** bot admin (`ADMIN_HANDLES`). · ² requires accepting `/terms` first. ·
+³ **bot admin** = listed in `ADMIN_HANDLES`.
+
+---
+
+## Built-in modes
+
+| Mode | Vibe |
+| --- | --- |
+| 😎 `default` | natural group participant — funny, short, contextual |
+| 🔥 `roast` | light roast & banter, never hateful, no protected categories |
+| 🚀 `hype` | hypes the group: raids, announcements, wins, updates |
+| 📜 `lorekeeper` | tracks recurring jokes, group/user facts, lore, callbacks |
+| 🌀 `chaos` | unpredictable but rate-limited and safe |
+| 📈 `market_degen` | crypto/degen vibes — jokes & vibes, **never** financial advice as certainty |
+| 🎞️ `meme_recorder` | turns funny moments into quote/meme candidates and remembers them |
+
+Add your own: `/addmode <description>` (the mode name is the first sentence). Prefix with `[nsfw]` to
+make it adult.
+
+---
+
+## How it works
+
+```text
 Telegram (grammY) → adapter/handlers → domain services → repositories (MongoDB)
-                                     ↘ LLM provider (OpenAI-compatible / DeepSeek)
+                                     ↘ LLM providers (OpenAI-compatible / DeepSeek)
+                                     ↘ ModelRouter (SFW vs NSFW, pre-generation)
                                      ↘ prompt builders
                                      ↘ jobs (retention cleanup)
 ```
 
-Handlers parse input, run permission + terms gates, call services, and return abstract responses
-that are localized and rendered. Business logic lives in services, never in handlers. See
-[ARCHITECTURE.md](./ARCHITECTURE.md).
+Clean layers, platform-agnostic core (the Telegram adapter is thin; business logic lives in services):
 
-## Documentation
+- **`src/config`** — zod env validation, app config, default modes, i18n.
+- **`src/domain`** — platform-agnostic types + Mongo entity shapes.
+- **`src/storage`** — Mongo connection + one repository per collection + index setup.
+- **`src/providers/llm`** — `LLMProvider` abstraction + OpenAI-compatible/DeepSeek adapters + factory.
+- **`src/providers/media`** — capability-gated vision/transcription/image routing.
+- **`src/prompts`** — composable prompt builders (identity, mode, facts, safety, autoengage, extraction).
+- **`src/services`** — permissions, terms, bans, modes, facts, usage, conversation, autoengage, reply, model-router.
+- **`src/telegram`** — context builders, keyboards, render, dispatch, command/callback/message handlers.
+- **`src/jobs`** — in-process scheduler + retention cleanup.
 
-- [MIGRATION_AUDIT.md](./MIGRATION_AUDIT.md) — full inventory of the original + migration checklist.
-- [FEATURE_PARITY.md](./FEATURE_PARITY.md) — original feature → TypeScript implementation table.
-- [ARCHITECTURE.md](./ARCHITECTURE.md) — layers, data flow, key decisions.
-- [ENVIRONMENT.md](./ENVIRONMENT.md) — every env var explained.
+**Message flow:** permission gate → chat-started + tracking/mention gate → terms gate → `AutoEngageScorer`
+decides (mention/reply ⇒ almost always; passive ⇒ LLM-scored + cooldowns + hourly cap) → not engaging
+but tracking ⇒ store as context → engaging ⇒ usage check → `ModelRouter` picks the model → **streamed**
+reply (throttled edits) + optional generated image → persist user/bot messages → record usage → inline
+auto-fact extraction (if `/autofact`).
+
+---
+
+## Configuration (all env vars)
+
+Validated with **zod** at startup; the bot **fails fast** on a missing/invalid required var. Optional
+capabilities never block startup. Copy `.env.example` → `.env` (gitignored; never commit secrets).
+
+### Core
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `TELEGRAM_BOT_TOKEN` | — | **Required.** Token from @BotFather. |
+| `BOT_USERNAME` | `GoonerBot` | Default/hint; real username resolved from Telegram at boot. |
+| `ALLOWED_HANDLES` | unrestricted | Comma `@handles` allowed to use the bot. Empty or `*` ⇒ everyone. |
+| `ADMIN_HANDLES` | none | Comma `@handles` that are bot admins (control commands anywhere, `/ban`). |
+| `MONGO_URI` | `mongodb://127.0.0.1:27017/goonerbot` | Connection string. |
+| `MONGO_DB` | `goonerbot` | Database name. |
+| `NODE_ENV` | `development` | `production` ⇒ JSON logs. |
+| `LOG_LEVEL` | `info` | pino level. |
+
+### LLM
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `LLM_PROVIDER` | `ollama` | `solclawn\|openai\|deepseek\|ollama\|custom_openai_compatible`. |
+| `LLM_BASE_URL` | per-provider | OpenAI-compatible base URL. |
+| `LLM_API_KEY` | — | Bearer token. |
+| `LLM_MODEL` | — | Chat model (required for text replies). |
+| `LLM_VISION_MODEL` | — | Enables image input. Unset ⇒ disabled. |
+| `LLM_IMAGE_MODEL` | — | Enables image output. Unset ⇒ disabled. |
+| `LLM_TRANSCRIPTION_MODEL` | — | Enables voice input. Unset ⇒ disabled. |
+| `LLM_TTS_MODEL` | — | Enables TTS output. Unset ⇒ disabled. |
+| `LLM_REQUEST_TIMEOUT_MS` | `60000` | Per-request timeout. |
+| `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` | — / `https://api.deepseek.com` / — | DeepSeek block. |
+
+### NSFW routing
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `LLM_NSFW_MODEL` | — | Uncensored model. Empty ⇒ NSFW routing disabled. |
+| `LLM_NSFW_DEFAULT_MODE` | `base` | Initial per-chat mode for new chats: `off\|base\|smart` (inert without an NSFW model). |
+| `LLM_NSFW_LEXICON` | — | Extra comma-separated trigger terms (smart mode). |
+| `LLM_REFUSAL_FALLBACK` | `true` | Buffered backstop: retry on the NSFW model if the default refuses. |
+| `LLM_REFUSAL_BUFFER_CHARS` | `160` | Leading chars buffered before deciding a refusal. |
+
+### Behaviour, limits & memory
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DEFAULT_LANGUAGE` | `italian` | `italian\|english\|russian\|spanish`; per-chat via `/language`. |
+| `AUTOENGAGE_DEFAULT_ENABLED` | `true` | Initial `/autoengage` for new chats. |
+| `CONVERSATION_TRACKER_DEFAULT_ENABLED` | `true` | Initial `/conversationtracker`. |
+| `AUTOFACT_DEFAULT_ENABLED` | `false` | Initial `/autofact`. |
+| `MAX_REPLIES_PER_CHAT_PER_HOUR` | `15` | Hard cap on bot replies/chat/hour (mentions included). |
+| `AUTOENGAGE_MIN_COOLDOWN_SECONDS` | `45` | Min seconds between passive replies per chat. |
+| `AUTOENGAGE_USER_COOLDOWN_SECONDS` | `20` | Min seconds between passive replies per user. |
+| `AUTOENGAGE_MIN_CONFIDENCE` | `0.6` | Min scorer confidence (0–1) to passively engage. |
+| `MESSAGE_HISTORY_RETENTION_DAYS` | `30` | TTL for raw stored messages (0 disables). |
+| `MAX_CONTEXT_MESSAGES` | `25` | Recent messages fed to the prompt. |
+| `MAX_STORED_MESSAGES_PER_CHAT` | `500` | Hard cap per chat (oldest trimmed). |
+| `DEFAULT_USAGE_LIMIT` | `1000000000` | Usage points/user/month. |
+| `DEFAULT_BAN_SECONDS` | `0` | Default `/ban` duration; `0` ⇒ permanent. |
+| `COMMAND_RATE_LIMIT_SECONDS` | `1` | Min seconds between accepted commands per user (anti-spam). |
+| `ENABLE_MESSAGE_STREAMING` | `true` | Stream replies via progressive edits. |
+| `STREAM_EDIT_INTERVAL_MS` | `1200` | Min ms between streaming edits. |
+
+---
+
+## Memory & data model
+
+MongoDB collections (all indexed): `chats`, `users`, `chat_members`, `modes`, `facts`, `messages`,
+`usage` (+ `usage_events`), `bans`, `terms_acceptance`, `media`, `jobs`.
+
+- **Facts** are one-doc-per-fact with a `manual | auto | introduction` source and a dedupe unique index.
+- **Messages** carry a TTL index on `createdAt` (retention) plus a per-chat cap.
+- **Bans** honour `bannedUntil` (timed bans auto-expire).
+- **Usage** resets per UTC month and tracks tokens / image / vision / transcription calls per
+  provider+model.
+- Indexes cover `chatId`, `handle`, `createdAt`, `chatId+userHandle`, and analytics keys.
+
+**Fact safety:** a built-in filter rejects obviously sensitive facts (passwords, addresses, etc.); the
+automatic extractor is told to keep only durable, useful, non-sensitive group/user facts.
+
+---
+
+## Security
+
+GoonerBot is built for an authorized, self-hosted deployment. Summary of the security posture
+(audited): see the table below.
+
+| Area | Posture |
+| --- | --- |
+| **Secrets** | Only in `.env` (gitignored). No hardcoded tokens/keys in source or git history. The LLM API key is sent as a Bearer header and never logged. |
+| **Logging** | Structured (pino). The bot token, LLM key and Mongo URI are never logged. |
+| **Auth / permissions** | Centralized `PermissionService` (AND-composition). Control commands require group-admin **or** bot-admin; `/ban` requires bot-admin. Callback queries are permission-checked too. |
+| **Banned users** | Gated by `not_banned` on commands and in the message handler; bans honour expiry. |
+| **NoSQL injection** | All Mongo queries use fixed field names with user input only as scalar **values** (never as keys/operators); no `$where`/`eval`; `ObjectId.isValid` guards ids. |
+| **Rate limiting / DoS** | Per-user command cooldown (`COMMAND_RATE_LIMIT_SECONDS`); autoengage per-chat/per-user cooldowns + hourly cap; usage limits; media download size cap (20 MB). |
+| **Media / SSRF** | Inbound files fetched only from Telegram's own file API using bot-provided `file_path` (not user URLs). Outbound base URLs are operator-configured, not user input. |
+| **MongoDB** | Run it bound to `127.0.0.1` with `--auth` and a least-privilege app user (the included `scripts/mongo-local.sh` + README do exactly this). |
+| **Content safety** | NSFW is opt-in per chat with non-negotiable hard limits in the system prompt (no minors, no non-consent, no real-person, nothing illegal, no doxxing). |
+| **Dependencies** | `pnpm audit` clean at release; minimal dependency surface; native `fetch` (no LLM SDK lock-in). |
+
+**Known residual risks (inherent to LLM bots):** prompt-injection / jailbreak attempts in user
+messages are mitigated by system-prompt guardrails but not eliminated; treat model output as
+untrusted. Keep `ADMIN_HANDLES` tight and your Mongo not exposed to the network.
+
+To report a vulnerability, open a private security advisory on the repository.
+
+---
+
+## Development & testing
+
+```bash
+pnpm typecheck      # strict TS
+pnpm lint           # eslint
+pnpm format:check   # prettier
+pnpm test           # vitest (no live Mongo needed — unit tests use fakes)
+```
+
+Two optional integration harnesses (need a real Mongo + a configured LLM) live in `scripts/`:
+
+```bash
+pnpm tsx scripts/smoke-integration.ts   # storage + LLM + reply + routing, end-to-end
+pnpm tsx scripts/smoke-telegram.ts       # drives synthetic Telegram updates through the real bot
+```
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+| --- | --- |
+| `/start` → "you can't do that here" | You're not a group admin and not in `ADMIN_HANDLES`. Add your `@handle` to `ADMIN_HANDLES`. |
+| Bot ignores normal messages | Privacy Mode is ON. Disable it in @BotFather (then re-add the bot) or make the bot a group admin. |
+| Replies in the wrong language | Existing chats keep their stored language; run `/language`. New chats use `DEFAULT_LANGUAGE`. |
+| "capability not available" message | The relevant `LLM_*_MODEL` isn't set (vision/image/transcription). Set it or ignore. |
+| Bot won't start | Check the fail-fast error — usually a missing `TELEGRAM_BOT_TOKEN` or unreachable `MONGO_URI`. |
+| Toggles seem off in an existing chat | Defaults apply to **new** chats; toggle once with the relevant command. |
+
+---
+
+## Origins
+
+GoonerBot is a full **TypeScript reimplementation and rebrand** of the open-source Python project
+[Flagro/TelegramRPBot](https://github.com/Flagro/TelegramRPBot). Every original feature was ported
+(commands, callbacks, modes, facts, media, usage, permissions, i18n), the OpenAI-only AI stack was
+replaced by a provider abstraction, MongoDB gained proper indexes, several original bugs were fixed
+(ban expiry, usage reset, upsert conflicts), and the whole thing was rebranded to the group-native
+GoonerBot / Gooners voice.
+
+---
 
 ## License
 

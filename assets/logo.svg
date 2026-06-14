@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="GoonerBot logo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b1036"/>
+      <stop offset="1" stop-color="#0b0a1f"/>
+    </linearGradient>
+    <linearGradient id="head" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2350"/>
+      <stop offset="1" stop-color="#171232"/>
+    </linearGradient>
+    <linearGradient id="neon" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#36f0c4"/>
+      <stop offset="1" stop-color="#7c5cff"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="8" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="84" fill="none" stroke="url(#neon)" stroke-width="4" opacity="0.5"/>
+
+  <!-- antenna -->
+  <line x1="256" y1="96" x2="256" y2="150" stroke="url(#neon)" stroke-width="10" stroke-linecap="round" filter="url(#glow)"/>
+  <circle cx="256" cy="84" r="16" fill="url(#neon)" filter="url(#glow)"/>
+
+  <!-- head -->
+  <rect x="116" y="150" width="280" height="230" rx="56" fill="url(#head)" stroke="url(#neon)" stroke-width="6"/>
+
+  <!-- eyes (sly, half-closed gremlin look) -->
+  <g filter="url(#glow)">
+    <path d="M168 252 q40 -34 80 0" fill="none" stroke="#36f0c4" stroke-width="18" stroke-linecap="round"/>
+    <path d="M264 252 q40 -34 80 0" fill="none" stroke="#36f0c4" stroke-width="18" stroke-linecap="round"/>
+  </g>
+
+  <!-- grin -->
+  <path d="M180 300 q76 70 152 0" fill="none" stroke="#7c5cff" stroke-width="16" stroke-linecap="round" filter="url(#glow)"/>
+  <line x1="214" y1="312" x2="214" y2="332" stroke="#7c5cff" stroke-width="10" stroke-linecap="round"/>
+  <line x1="256" y1="318" x2="256" y2="340" stroke="#7c5cff" stroke-width="10" stroke-linecap="round"/>
+  <line x1="298" y1="312" x2="298" y2="332" stroke="#7c5cff" stroke-width="10" stroke-linecap="round"/>
+
+  <!-- side ears -->
+  <rect x="96" y="226" width="24" height="70" rx="12" fill="url(#neon)" opacity="0.85"/>
+  <rect x="392" y="226" width="24" height="70" rx="12" fill="url(#neon)" opacity="0.85"/>
+
+  <!-- chat dot -->
+  <circle cx="404" cy="392" r="34" fill="#0b0a1f" stroke="url(#neon)" stroke-width="6"/>
+  <circle cx="392" cy="392" r="5" fill="#36f0c4"/>
+  <circle cx="406" cy="392" r="5" fill="#36f0c4"/>
+  <circle cx="420" cy="392" r="5" fill="#36f0c4"/>
+</svg>

@@ -58,6 +58,12 @@ export async function runCommand(
   spec: CommandSpec,
   deps: DispatchDeps,
 ): Promise<void> {
+  // Anti-spam: drop commands over the per-user/per-chat rate limit BEFORE any DB/LLM work.
+  const rlKey = `${ctx.chat?.id ?? 0}:${ctx.from?.id ?? 0}`;
+  if (!deps.services.commandRateLimit.tryAcquire(rlKey)) {
+    log.debug({ key: rlKey, command: spec.command }, 'command rate-limited');
+    return;
+  }
   const args = parseArgs(ctx.message?.text ?? '');
   const prepared = await prepare(ctx, deps, spec.permissions, spec.needsTermsAccepted, args);
   await finish(ctx, deps, prepared, (input) => spec.handle(input));
