@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { modeCommand, addmodeCommand } from '../src/telegram/handlers/commands/modes.js';
 import { clearfactsCommand } from '../src/telegram/handlers/commands/facts.js';
+import { nsfwCommand } from '../src/telegram/handlers/commands/nsfw.js';
 import { callbackHandlers } from '../src/telegram/handlers/callbacks/index.js';
 import type { HandlerInput } from '../src/telegram/handlers/types.js';
 import type { ChatContext, Person } from '../src/domain/types.js';
@@ -97,6 +98,59 @@ describe('terms callback', () => {
     const res = await terms.handle(input(services, ['decline']));
     expect(decline).toHaveBeenCalledWith('@bob');
     expect(res?.text).toBe('terms_declined');
+  });
+});
+
+describe('/nsfw command', () => {
+  function nsfwServices(opts: { configured: boolean; current?: string }) {
+    return {
+      modelRouter: { nsfwConfigured: opts.configured },
+      storage: {
+        chats: {
+          getNsfwMode: vi.fn().mockResolvedValue(opts.current ?? 'off'),
+          setNsfwMode: vi.fn().mockResolvedValue(undefined),
+        },
+      },
+      config: { env: { LLM_NSFW_DEFAULT_MODE: 'off' } },
+    };
+  }
+
+  it('reports unavailable when no NSFW model configured', async () => {
+    const services = nsfwServices({ configured: false });
+    const res = await nsfwCommand.handle(
+      input(services, ['base'], context({ isGroupAdmin: true })),
+    );
+    expect(res?.text).toBe('nsfw_unavailable');
+  });
+
+  it('sets base mode (on => base)', async () => {
+    const services = nsfwServices({ configured: true });
+    const res = await nsfwCommand.handle(input(services, ['on'], context({ isGroupAdmin: true })));
+    expect(res?.text).toBe('nsfw_set_base');
+    expect(services.storage.chats.setNsfwMode).toHaveBeenCalledWith(-1, 'base');
+  });
+
+  it('sets smart mode', async () => {
+    const services = nsfwServices({ configured: true });
+    const res = await nsfwCommand.handle(
+      input(services, ['smart'], context({ isGroupAdmin: true })),
+    );
+    expect(res?.text).toBe('nsfw_set_smart');
+  });
+
+  it('rejects invalid arg', async () => {
+    const services = nsfwServices({ configured: true });
+    const res = await nsfwCommand.handle(
+      input(services, ['maybe'], context({ isGroupAdmin: true })),
+    );
+    expect(res?.text).toBe('nsfw_invalid');
+  });
+
+  it('reports status with no arg', async () => {
+    const services = nsfwServices({ configured: true, current: 'smart' });
+    const res = await nsfwCommand.handle(input(services, [], context({ isGroupAdmin: true })));
+    expect(res?.text).toBe('nsfw_status');
+    expect(res?.vars).toEqual({ mode: 'smart' });
   });
 });
 

@@ -8,6 +8,7 @@ import { loadConfig } from '../src/config/index.js';
 import { createLLMProvider } from '../src/providers/llm/index.js';
 import { Storage } from '../src/storage/index.js';
 import { Services } from '../src/services/index.js';
+import { isRefusal } from '../src/services/modelRouter.js';
 import type { ChatContext, Person } from '../src/domain/types.js';
 
 let pass = 0;
@@ -183,6 +184,59 @@ async function main(): Promise<void> {
     false,
   );
   check('mention => shouldReply', decision.shouldReply, decision.reason);
+
+  console.log('\n[5] NSFW model routing');
+  const router = services.modelRouter;
+  check('nsfw configured', router.nsfwConfigured, router.nsfwModel);
+  check(
+    'off => default model',
+    router.route({ chatNsfwMode: 'off', modeNsfw: false, messageText: 'send nudes' }).model ===
+      config.llm.model,
+  );
+  check(
+    'base => nsfw model',
+    router.route({ chatNsfwMode: 'base', modeNsfw: false, messageText: 'gm' }).model ===
+      router.nsfwModel,
+  );
+  const smartHit = router.route({
+    chatNsfwMode: 'smart',
+    modeNsfw: false,
+    messageText: 'say something erotic',
+  });
+  check('smart + lexicon => nsfw model', smartHit.model === router.nsfwModel && smartHit.nsfw);
+  const smartMiss = router.route({
+    chatNsfwMode: 'smart',
+    modeNsfw: false,
+    messageText: 'what time is the raid',
+  });
+  check(
+    'smart miss => default + backstop armed',
+    smartMiss.model === config.llm.model && smartMiss.allowRefusalFallback,
+  );
+
+  if (router.nsfwModel) {
+    let nsfwText = '';
+    const ng = services.reply.streamReply({
+      person,
+      context,
+      message: { messageText: 'In one short flirty line, hype me up', timestamp: new Date() },
+      botUsername: 'TeGemAI_bot',
+      language: 'english',
+      modeName: 'Default',
+      modeDescription: 'flirty hype',
+      model: router.nsfwModel,
+      nsfw: true,
+      nsfwModel: router.nsfwModel,
+      allowRefusalFallback: false,
+    });
+    let ngn = await ng.next();
+    while (!ngn.done) {
+      nsfwText += ngn.value;
+      ngn = await ng.next();
+    }
+    const out = ngn.value.text || nsfwText;
+    check('nsfw model produced a non-refusal reply', out.length > 0 && !isRefusal(out), out.slice(0, 80));
+  }
 
   await storage.close();
   console.log(`\nRESULT: ${pass} passed, ${fail} failed`);

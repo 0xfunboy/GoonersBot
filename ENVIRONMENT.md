@@ -45,6 +45,22 @@ Copy [.env.example](./.env.example) to `.env` and fill it in. `.env` is gitignor
 | `LLM_TTS_MODEL` | — | Enables TTS output. Unset => disabled. |
 | `LLM_REQUEST_TIMEOUT_MS` | `60000` | Per-request timeout (ms). |
 
+### NSFW model routing
+
+| Variable | Default | Description |
+|---|---|---|
+| `LLM_NSFW_MODEL` | — | Uncensored model for adult/NSFW text. Empty => NSFW routing disabled. |
+| `LLM_NSFW_DEFAULT_MODE` | `off` | Initial per-chat NSFW mode for new chats: `off` \| `base` \| `smart`. |
+| `LLM_NSFW_LEXICON` | — | Extra comma-separated trigger terms appended to the built-in lexicon (smart mode). |
+| `LLM_REFUSAL_FALLBACK` | `true` | Buffered backstop: if the default model refuses, silently retry with the NSFW model. |
+| `LLM_REFUSAL_BUFFER_CHARS` | `160` | Leading chars buffered before deciding a reply is a refusal. |
+
+Routing is **hybrid and per-chat gated** (admin `/nsfw off\|base\|smart`): a mode flagged `[nsfw]`
+always uses the NSFW model; `base` routes the whole chat to it; `smart` decides per message via the
+lexicon and arms the refusal backstop for the rest. `off` (or no `LLM_NSFW_MODEL`) never routes to,
+nor upgrades to, the NSFW model. The decision is made **before** generation, so there's no
+extra-LLM-call latency in the common path.
+
 ### DeepSeek (when `LLM_PROVIDER=deepseek`)
 
 | Variable | Default | Description |

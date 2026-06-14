@@ -18,6 +18,8 @@ export interface LLMConfig {
   imageModel: string | undefined;
   transcriptionModel: string | undefined;
   ttsModel: string | undefined;
+  /** uncensored model used for NSFW routing; undefined => NSFW routing disabled */
+  nsfwModel: string | undefined;
   requestTimeoutMs: number;
 }
 
@@ -46,6 +48,7 @@ export function resolveLLMConfig(env: Env): LLMConfig {
       imageModel: env.LLM_IMAGE_MODEL,
       transcriptionModel: env.LLM_TRANSCRIPTION_MODEL,
       ttsModel: env.LLM_TTS_MODEL,
+      nsfwModel: env.LLM_NSFW_MODEL,
       requestTimeoutMs: env.LLM_REQUEST_TIMEOUT_MS,
     };
   }
@@ -60,6 +63,7 @@ export function resolveLLMConfig(env: Env): LLMConfig {
     imageModel: env.LLM_IMAGE_MODEL,
     transcriptionModel: env.LLM_TRANSCRIPTION_MODEL,
     ttsModel: env.LLM_TTS_MODEL,
+    nsfwModel: env.LLM_NSFW_MODEL,
     requestTimeoutMs: env.LLM_REQUEST_TIMEOUT_MS,
   };
 }

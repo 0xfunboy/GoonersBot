@@ -7,6 +7,7 @@ export interface ModeView {
   name: string;
   description: string;
   isActive: boolean;
+  nsfw: boolean;
 }
 
 export class ModesRepo {
@@ -35,6 +36,7 @@ export class ModesRepo {
             description: mode.description,
             isBuiltin: true,
             isActive: false,
+            nsfw: mode.nsfw ?? false,
             createdByHandle: null,
             createdAt: now,
           },
@@ -50,6 +52,7 @@ export class ModesRepo {
       name: doc.name,
       description: doc.description,
       isActive: doc.isActive,
+      nsfw: doc.nsfw ?? false,
     };
   }
 
@@ -99,6 +102,7 @@ export class ModesRepo {
     name: string,
     description: string,
     createdByHandle: string,
+    nsfw = false,
   ): Promise<boolean> {
     const existing = await this.col.findOne({ chatId, name });
     if (existing) return false;
@@ -108,6 +112,7 @@ export class ModesRepo {
       description,
       isBuiltin: false,
       isActive: false,
+      nsfw,
       createdByHandle,
       createdAt: new Date(),
     });

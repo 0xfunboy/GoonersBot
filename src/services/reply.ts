@@ -9,6 +9,8 @@ import {
   buildSystemPrompt,
   buildFactExtractionContext,
 } from '../prompts/index.js';
+import { isRefusal } from './modelRouter.js';
+import type { ChatRequest, ChatResult } from '../providers/llm/types.js';
 import { childLogger } from '../utils/logger.js';
 
 const log = childLogger('reply');
@@ -21,6 +23,16 @@ export interface ReplyContext {
   language: string;
   modeName: string;
   modeDescription: string;
+  /** model to use for this turn (from ModelRouter); undefined => provider default */
+  model?: string | undefined;
+  /** treat this turn as NSFW (relaxes system prompt) */
+  nsfw?: boolean | undefined;
+  /** NSFW model to upgrade to if the default model refuses (buffered backstop) */
+  nsfwModel?: string | undefined;
+  /** arm the buffered refusal backstop for this turn */
+  allowRefusalFallback?: boolean | undefined;
+  /** how many leading chars to buffer before deciding refusal */
+  refusalBufferChars?: number | undefined;
 }
 
 export interface ReplyResult {
@@ -101,13 +113,6 @@ export class ReplyService {
       this.facts.getIntroduction(ctx.context.chatId, ctx.person.userHandle),
     ]);
 
-    const system = buildSystemPrompt({
-      botUsername: ctx.botUsername,
-      chatName: ctx.context.chatName,
-      language: ctx.language,
-      modeName: ctx.modeName,
-      modeDescription: ctx.modeDescription,
-    });
     const userPrompt = buildReplyUserPrompt({
       person: ctx.person,
       message: transcribed,
@@ -118,29 +123,98 @@ export class ReplyService {
       botLabel: BOT_LABEL,
     });
 
-    let text = '';
-    let usage = { inputTokens: 0, outputTokens: 0, estimated: true };
-    let model: string | null = null;
-    const stream = this.llm.streamChatCompletion({
-      system,
+    const buildReq = (model: string | undefined, nsfw: boolean): ChatRequest => ({
+      system: buildSystemPrompt({
+        botUsername: ctx.botUsername,
+        chatName: ctx.context.chatName,
+        language: ctx.language,
+        modeName: ctx.modeName,
+        modeDescription: ctx.modeDescription,
+        nsfw,
+      }),
       messages: [{ role: 'user', content: userPrompt }],
       temperature: 0.8,
       maxTokens: this.maxReplyTokens,
+      ...(model ? { model } : {}),
     });
-    let next = await stream.next();
-    while (!next.done) {
-      text += next.value;
-      yield next.value;
-      next = await stream.next();
+
+    let text = '';
+    let final: ChatResult;
+    const fallbackArmed = Boolean(
+      ctx.allowRefusalFallback && ctx.nsfwModel && ctx.model !== ctx.nsfwModel,
+    );
+
+    if (fallbackArmed) {
+      // Buffer the opening of the default-model reply; if it's a refusal, silently switch to the
+      // NSFW model and restart. Only the first ~buffer chars are withheld, so latency cost is tiny
+      // and the user never sees the refusal.
+      const bufN = ctx.refusalBufferChars ?? 160;
+      const stream = this.llm.streamChatCompletion(buildReq(ctx.model, ctx.nsfw ?? false));
+      let buffer = '';
+      let decided = false;
+      let refused = false;
+      let pendingFinal: ChatResult | null = null;
+      let n = await stream.next();
+      while (!n.done) {
+        buffer += n.value;
+        if (!decided && buffer.length >= bufN) {
+          decided = true;
+          if (isRefusal(buffer)) {
+            refused = true;
+            break;
+          }
+          text += buffer;
+          yield buffer;
+          buffer = '';
+        } else if (decided) {
+          text += n.value;
+          yield n.value;
+        }
+        n = await stream.next();
+      }
+      if (!refused) {
+        pendingFinal = n.done ? n.value : null;
+        if (!decided) {
+          // stream ended before the buffer threshold (short reply)
+          if (isRefusal(buffer)) {
+            refused = true;
+          } else if (buffer) {
+            text += buffer;
+            yield buffer;
+          }
+        }
+      }
+      if (refused) {
+        log.info('default model refused — upgrading turn to the NSFW model');
+        text = '';
+        const ns = this.llm.streamChatCompletion(buildReq(ctx.nsfwModel, true));
+        let m = await ns.next();
+        while (!m.done) {
+          text += m.value;
+          yield m.value;
+          m = await ns.next();
+        }
+        pendingFinal = m.value;
+      }
+      final = pendingFinal ?? { text, model: ctx.model ?? '', usage: { estimated: true } };
+    } else {
+      const stream = this.llm.streamChatCompletion(buildReq(ctx.model, ctx.nsfw ?? false));
+      let n = await stream.next();
+      while (!n.done) {
+        text += n.value;
+        yield n.value;
+        n = await stream.next();
+      }
+      final = n.value;
     }
-    const final = next.value;
+
     text = final.text || text;
-    usage = {
+    const usage = {
       inputTokens: final.usage.inputTokens ?? 0,
       outputTokens: final.usage.outputTokens ?? 0,
       estimated: final.usage.estimated,
     };
-    model = final.model;
+    const model: string | null = final.model || null;
 
     // Optional image output: only when explicitly requested AND capability exists.
     let imageUrl: string | undefined;

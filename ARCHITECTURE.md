@@ -76,6 +76,18 @@ media capability logs and returns a clean message instead of crashing.
 The provider host (e.g. `llm.solclawn.com`) is supplied via `LLMConfig.baseUrl` from env and is
 never hardcoded in business logic.
 
+### NSFW model routing (`ModelRouter` + buffered backstop)
+
+`ModelRouter` (services/modelRouter.ts) picks the model for each turn **before** generation, so the
+common path adds no extra LLM call. Hybrid priority: mode flagged `[nsfw]` → NSFW model; chat
+`base` → NSFW model for everything; chat `smart` → an instant lexicon decides, else the default
+model with the refusal backstop armed; `off` (or no `LLM_NSFW_MODEL`) → default, never upgraded.
+The decision (`model`, `nsfw`, `allowRefusalFallback`) flows into `ReplyService.streamReply`, which
+swaps in the NSFW-aware system prompt for NSFW turns. The **buffered backstop**: when armed,
+`streamReply` withholds the first ~`LLM_REFUSAL_BUFFER_CHARS` of the default model's stream; if
+`isRefusal()` matches, it discards and silently restarts on the NSFW model — the user never sees a
+refusal, and only the buffered prefix costs latency. NSFW is gated per-chat by an admin (`/nsfw`).
+
 ## Storage
 
 One repository per collection (`chats`, `users`, `chat_members`, `modes`, `facts`, `messages`,

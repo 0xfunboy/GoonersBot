@@ -124,6 +124,23 @@ export async function handleMessage(
   }
 
   const language = await services.getLanguage(context.chatId);
+
+  // Decide which model serves this turn (hybrid NSFW routing, zero extra LLM calls).
+  const chatNsfwMode = await services.storage.chats.getNsfwMode(
+    context.chatId,
+    env.LLM_NSFW_DEFAULT_MODE,
+  );
+  const route = services.modelRouter.route({
+    chatNsfwMode,
+    modeNsfw: mode?.nsfw ?? false,
+    messageText: message.messageText,
+    contextText: history.map((h) => h.message.messageText ?? '').join(' '),
+  });
+  log.debug(
+    { chatId: context.chatId, model: route.model, nsfw: route.nsfw, reason: route.reason },
+    'model route',
+  );
+
   await streamAndPersist(ctx, person, context, message, {
     services,
     env,
@@ -131,6 +148,7 @@ export async function handleMessage(
     language,
     modeName,
     modeDescription,
+    route,
   });
 
   services.autoengage.noteReply(context.chatId, person.userHandle);
@@ -143,6 +161,7 @@ interface StreamCtx {
   language: string;
   modeName: string;
   modeDescription: string;
+  route: import('../../services/index.js').RouteDecision;
 }
 
 async function streamAndPersist(
@@ -169,6 +188,11 @@ async function streamAndPersist(
     language: sc.language,
     modeName: sc.modeName,
     modeDescription: sc.modeDescription,
+    model: sc.route.model,
+    nsfw: sc.route.nsfw,
+    nsfwModel: services.modelRouter.nsfwModel,
+    allowRefusalFallback: sc.route.allowRefusalFallback,
+    refusalBufferChars: services.modelRouter.refusalBufferChars,
   });
 
   let accumulated = '';

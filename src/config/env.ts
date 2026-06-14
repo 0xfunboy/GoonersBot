@@ -79,6 +79,16 @@ const envSchema = z.object({
   LLM_TTS_MODEL: z.string().optional(),
   LLM_REQUEST_TIMEOUT_MS: intFromString(60_000),
 
+  // NSFW model routing (hybrid: mode flag > per-chat nsfw mode > lexicon > default model)
+  LLM_NSFW_MODEL: z.string().optional(),
+  // initial per-chat NSFW mode: off (never) | base (whole chat uses NSFW model) | smart (per-message lexicon)
+  LLM_NSFW_DEFAULT_MODE: z.enum(['off', 'base', 'smart']).default('off'),
+  // optional extra comma-separated NSFW trigger terms appended to the built-in lexicon
+  LLM_NSFW_LEXICON: z.string().optional(),
+  // buffered refusal backstop: if the default model refuses, silently retry with the NSFW model
+  LLM_REFUSAL_FALLBACK: boolFromString(true),
+  LLM_REFUSAL_BUFFER_CHARS: intFromString(160),
+
   // DeepSeek-specific (used when LLM_PROVIDER=deepseek)
   DEEPSEEK_API_KEY: z.string().optional(),
   DEEPSEEK_BASE_URL: z.string().default('https://api.deepseek.com'),

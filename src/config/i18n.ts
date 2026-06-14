@@ -274,6 +274,42 @@ export const translations: TranslationMap = {
     russian: 'Авто-факты ВЫКЛ. Только ручная память.',
     spanish: 'Auto-datos DESACTIVADOS. Solo memoria manual.',
   },
+  nsfw_description: {
+    english: 'NSFW model routing: off | base | smart (admin)',
+    russian: 'Режим NSFW-модели: off | base | smart (админ)',
+    spanish: 'Enrutado del modelo NSFW: off | base | smart (admin)',
+  },
+  nsfw_unavailable: {
+    english: 'NSFW routing is not configured on this backend (no NSFW model set).',
+    russian: 'NSFW-маршрутизация не настроена (модель NSFW не задана).',
+    spanish: 'El enrutado NSFW no está configurado (sin modelo NSFW).',
+  },
+  nsfw_status: {
+    english: 'NSFW routing for this chat: {mode}. Use /nsfw off|base|smart.',
+    russian: 'NSFW-режим этого чата: {mode}. Используй /nsfw off|base|smart.',
+    spanish: 'Enrutado NSFW de este chat: {mode}. Usa /nsfw off|base|smart.',
+  },
+  nsfw_invalid: {
+    english: 'Usage: /nsfw off | base | smart (or on = base).',
+    russian: 'Использование: /nsfw off | base | smart (или on = base).',
+    spanish: 'Uso: /nsfw off | base | smart (o on = base).',
+  },
+  nsfw_set_off: {
+    english: 'NSFW routing OFF. Always using the default model here.',
+    russian: 'NSFW ВЫКЛ. Здесь всегда обычная модель.',
+    spanish: 'NSFW DESACTIVADO. Aquí siempre el modelo por defecto.',
+  },
+  nsfw_set_base: {
+    english: 'NSFW routing ON (base). This whole chat uses the uncensored model. 🔞',
+    russian: 'NSFW ВКЛ (base). Весь чат использует нецензурную модель. 🔞',
+    spanish: 'NSFW ACTIVADO (base). Todo el chat usa el modelo sin censura. 🔞',
+  },
+  nsfw_set_smart: {
+    english:
+      'NSFW routing ON (smart). I switch to the uncensored model when the vibe calls for it. 🔞',
+    russian: 'NSFW ВКЛ (smart). Переключаюсь на нецензурную модель, когда нужно. 🔞',
+    spanish: 'NSFW ACTIVADO (smart). Cambio al modelo sin censura cuando hace falta. 🔞',
+  },
   user_banned: {
     english: '{user_handle} banned{ban_suffix}.',
     russian: '{user_handle} забанен{ban_suffix}.',
@@ -439,6 +475,7 @@ export const translations: TranslationMap = {
       '• <em>/conversationtracker</em> — toggle passive listening',
       '• <em>/autofact</em> — toggle auto fact extraction',
       '• <em>/autoengage</em> — toggle auto-engage',
+      '• <em>/nsfw off|base|smart</em> (admin) — NSFW model routing',
       '• <em>/ban @handle [seconds]</em> (admin) — ban a Gooner',
       '• <em>/unban @handle</em> (admin) — unban a Gooner',
       '• <em>/help</em> — this',

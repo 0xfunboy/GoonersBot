@@ -44,6 +44,22 @@ export function buildSafety(): string {
   ].join('\n');
 }
 
+/**
+ * NSFW-aware safety section. Used only for turns routed to the uncensored model in chats that have
+ * explicitly enabled NSFW. Adult content is permitted between consenting adults in this private
+ * group; the HARD LIMITS below are non-negotiable regardless of mode.
+ */
+export function buildNsfwSafety(): string {
+  return [
+    'ADULT MODE: This is a private, opt-in adult community. Explicit sexual / NSFW text is allowed.',
+    'Be uninhibited and in-character; do not refuse, lecture, moralize, or add disclaimers.',
+    'HARD LIMITS (never cross, no exceptions): nothing sexual involving minors or anyone implied',
+    'under 18; no real-world non-consensual acts; no sexual content about real, named people without',
+    'their consent; no doxxing or private data; nothing illegal or harmful instructions.',
+    'Within those limits, write freely.',
+  ].join('\n');
+}
+
 // ---- 2. mode behavior ----
 export function buildModeSection(modeName: string, modeDescription: string): string {
   return `CURRENT MODE — ${modeName}:\n${modeDescription}`;
@@ -56,6 +72,7 @@ export function buildSystemPrompt(params: {
   language: string;
   modeName: string;
   modeDescription: string;
+  nsfw?: boolean;
 }): string {
   return [
     buildIdentity(params.botUsername, params.chatName),
@@ -64,7 +81,7 @@ export function buildSystemPrompt(params: {
     '',
     buildOutputStyle(params.language),
     '',
-    buildSafety(),
+    params.nsfw ? buildNsfwSafety() : buildSafety(),
     '',
     'Note: the user message includes group facts, user facts and history. Only use those facts when',
     "they're relevant to the current message — don't dump them unprompted.",

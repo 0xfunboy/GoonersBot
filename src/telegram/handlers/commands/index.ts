@@ -3,6 +3,7 @@ import { startCommand, stopCommand, resetCommand } from './lifecycle.js';
 import { modeCommand, addmodeCommand, deletemodeCommand } from './modes.js';
 import { introduceCommand, factCommand, factsCommand, clearfactsCommand } from './facts.js';
 import { conversationtrackerCommand, autofactCommand, autoengageCommand } from './toggles.js';
+import { nsfwCommand } from './nsfw.js';
 import { banCommand, unbanCommand } from './moderation.js';
 import { usageCommand, languageCommand, termsCommand, helpCommand } from './misc.js';
 
@@ -21,6 +22,7 @@ export const commandHandlers: CommandSpec[] = [
   conversationtrackerCommand,
   autofactCommand,
   autoengageCommand,
+  nsfwCommand,
   banCommand,
   unbanCommand,
   usageCommand,

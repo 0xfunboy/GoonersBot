@@ -6,6 +6,7 @@ import { MediaProcessor } from '../providers/media/index.js';
 import type { Storage } from '../storage/index.js';
 import { AutoEngageScorer } from './autoengage.js';
 import { BanService } from './bans.js';
+import { ModelRouter } from './modelRouter.js';
 import { ConversationService } from './conversation.js';
 import { FactService } from './facts.js';
 import { ModeService } from './modes.js';
@@ -23,6 +24,7 @@ export * from './usage.js';
 export * from './conversation.js';
 export * from './autoengage.js';
 export * from './reply.js';
+export * from './modelRouter.js';
 
 /**
  * Service container. Built once at boot and shared by all handlers. Holds every domain service
@@ -41,6 +43,7 @@ export class Services {
   readonly autoengage: AutoEngageScorer;
   readonly reply: ReplyService;
   readonly media: MediaProcessor;
+  readonly modelRouter: ModelRouter;
 
   constructor(
     readonly config: AppConfig,
@@ -64,6 +67,13 @@ export class Services {
       minConfidence: env.AUTOENGAGE_MIN_CONFIDENCE,
     });
     this.reply = new ReplyService(llm, this.media, this.conversation, this.facts, 2048);
+    this.modelRouter = new ModelRouter({
+      defaultModel: config.llm.model,
+      nsfwModel: config.llm.nsfwModel,
+      extraLexicon: env.LLM_NSFW_LEXICON,
+      refusalFallback: env.LLM_REFUSAL_FALLBACK,
+      refusalBufferChars: env.LLM_REFUSAL_BUFFER_CHARS,
+    });
   }
 
   /** Ensure baseline records exist for this person/chat. Idempotent; runs before each handler. */
@@ -74,6 +84,7 @@ export class Services {
       conversationTracker: env.CONVERSATION_TRACKER_DEFAULT_ENABLED,
       autoFact: env.AUTOFACT_DEFAULT_ENABLED,
       autoengage: env.AUTOENGAGE_DEFAULT_ENABLED,
+      nsfwMode: env.LLM_NSFW_DEFAULT_MODE,
     });
     await Promise.all([
       this.modes.seedDefaults(context.chatId),

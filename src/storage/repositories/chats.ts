@@ -1,11 +1,12 @@
 import type { Collection, Db } from 'mongodb';
-import type { ChatDoc } from '../../domain/entities.js';
+import type { ChatDoc, NsfwMode } from '../../domain/entities.js';
 
 export interface ChatDefaults {
   language: string;
   conversationTracker: boolean;
   autoFact: boolean;
   autoengage: boolean;
+  nsfwMode: NsfwMode;
 }
 
 export class ChatsRepo {
@@ -39,6 +40,7 @@ export class ChatsRepo {
           conversationTracker: defaults.conversationTracker,
           autoFact: defaults.autoFact,
           autoengage: defaults.autoengage,
+          nsfwMode: defaults.nsfwMode,
           createdAt: now,
         },
         $set: { updatedAt: now, ...(chatName ? { chatName } : {}) },
@@ -86,6 +88,15 @@ export class ChatsRepo {
   async getAutoengage(chatId: number): Promise<boolean> {
     const doc = await this.col.findOne({ chatId }, { projection: { autoengage: 1 } });
     return doc?.autoengage ?? false;
+  }
+
+  async getNsfwMode(chatId: number, fallback: NsfwMode): Promise<NsfwMode> {
+    const doc = await this.col.findOne({ chatId }, { projection: { nsfwMode: 1 } });
+    return doc?.nsfwMode ?? fallback;
+  }
+
+  async setNsfwMode(chatId: number, mode: NsfwMode): Promise<void> {
+    await this.col.updateOne({ chatId }, { $set: { nsfwMode: mode, updatedAt: new Date() } });
   }
 
   /** Toggle a boolean flag and return the new value. */

@@ -4,6 +4,9 @@
  * usage, bans, terms_acceptance, media, jobs.
  */
 
+/** NSFW routing mode for a chat. off => never; base => whole chat uses NSFW model; smart => per-message lexicon. */
+export type NsfwMode = 'off' | 'base' | 'smart';
+
 export interface ChatDoc {
   chatId: number;
   chatName?: string;
@@ -12,6 +15,7 @@ export interface ChatDoc {
   conversationTracker: boolean;
   autoFact: boolean;
   autoengage: boolean;
+  nsfwMode: NsfwMode;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -40,6 +44,8 @@ export interface ModeDoc {
   description: string;
   isBuiltin: boolean;
   isActive: boolean;
+  /** when true, this mode always routes to the NSFW model (subject to chat allowing NSFW) */
+  nsfw: boolean;
   createdByHandle: string | null;
   createdAt: Date;
 }

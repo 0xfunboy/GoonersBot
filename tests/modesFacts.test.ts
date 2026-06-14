@@ -10,7 +10,15 @@ describe('ModeService.add (name heuristic)', () => {
     const svc = new ModeService(fakeStorage({ modes: { add } }));
     const name = await svc.add(-1, 'Roast mode. Be funny and mean-ish but never hateful.', '@bob');
     expect(name).toBe('Roast mode');
-    expect(add).toHaveBeenCalledWith(-1, 'Roast mode', expect.any(String), '@bob');
+    expect(add).toHaveBeenCalledWith(-1, 'Roast mode', expect.any(String), '@bob', false);
+  });
+
+  it('flags an [nsfw]-prefixed custom mode', async () => {
+    const add = vi.fn().mockResolvedValue(true);
+    const svc = new ModeService(fakeStorage({ modes: { add } }));
+    const name = await svc.add(-1, '[nsfw] Filth. very explicit', '@bob');
+    expect(name).toBe('Filth');
+    expect(add).toHaveBeenCalledWith(-1, 'Filth', expect.any(String), '@bob', true);
   });
   it('returns null for empty description', async () => {
     const svc = new ModeService(fakeStorage({ modes: { add: vi.fn() } }));

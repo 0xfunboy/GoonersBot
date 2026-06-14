@@ -14,6 +14,8 @@ export interface BuiltinMode {
   name: string;
   /** behaviour description injected into the prompt */
   description: string;
+  /** when true this mode always routes to the NSFW model (default false) */
+  nsfw?: boolean;
 }
 
 export const DEFAULT_MODE_KEY = 'default';

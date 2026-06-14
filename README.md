@@ -48,6 +48,7 @@ without being a spammy menace.
 | `/conversationtracker` | admin | toggle passive tracking |
 | `/autofact` | admin | toggle automatic fact extraction |
 | `/autoengage` | admin | toggle auto-engage |
+| `/nsfw [off\|base\|smart]` | admin | NSFW model routing for this chat |
 | `/ban @handle [seconds]` | bot admin | ban a Gooner (reply-aware; duration optional) |
 | `/unban @handle` | bot admin | unban a Gooner |
 | `/help` | anyone | help |
@@ -161,6 +162,24 @@ DEEPSEEK_MODEL=deepseek-chat
 ### Ollama (local), OpenAI, or any custom OpenAI-compatible host
 
 See [.env.example](./.env.example) options C/D/E.
+
+### NSFW / adult content routing
+
+GoonerBot can route adult/NSFW turns to a separate **uncensored** model while keeping a normal
+model for everyday banter. Set `LLM_NSFW_MODEL` (e.g. an amoral/uncensored model exposed by your
+backend). Routing is decided **before** generation (no extra-LLM-call latency) and is **gated
+per-chat** by an admin:
+
+- `/nsfw off` — never use the NSFW model (default).
+- `/nsfw base` (or `on`) — the whole chat uses the uncensored model.
+- `/nsfw smart` — per-message: an instant lexicon picks the uncensored model for NSFW-looking
+  turns; for the rest, the default model runs with a **buffered refusal backstop** — if it starts
+  to refuse, GoonerBot silently switches to the uncensored model and never shows the refusal.
+
+A custom mode created with a leading `[nsfw]` tag (e.g. `/addmode [nsfw] Filth. very explicit`)
+always routes to the uncensored model in NSFW-enabled chats. Hard limits always apply (no minors,
+no real-person sexual content without consent, nothing illegal, no doxxing) regardless of model.
+NSFW is opt-in per chat and intended for private, consenting adult communities.
 
 ---
 
