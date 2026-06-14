@@ -27,6 +27,8 @@ export class ChatsRepo {
     defaults: ChatDefaults,
   ): Promise<void> {
     const now = new Date();
+    // `updatedAt` lives only in $set (always), `createdAt` only in $setOnInsert — keeping them in
+    // separate operators avoids Mongo's "would create a conflict" error on upsert.
     await this.col.updateOne(
       { chatId },
       {
@@ -38,9 +40,8 @@ export class ChatsRepo {
           autoFact: defaults.autoFact,
           autoengage: defaults.autoengage,
           createdAt: now,
-          updatedAt: now,
         },
-        ...(chatName ? { $set: { chatName, updatedAt: now } } : {}),
+        $set: { updatedAt: now, ...(chatName ? { chatName } : {}) },
       },
       { upsert: true },
     );

@@ -16,7 +16,7 @@ module.exports = {
     node: true,
     es2023: true,
   },
-  ignorePatterns: ['dist/', 'node_modules/', '_tg_rp_bot_source/', '*.cjs'],
+  ignorePatterns: ['dist/', 'node_modules/', '_tg_rp_bot_source/', 'scripts/', '*.cjs'],
   rules: {
     '@typescript-eslint/no-unused-vars': [
       'error',
