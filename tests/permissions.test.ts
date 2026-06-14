@@ -38,6 +38,20 @@ describe('PermissionService', () => {
     expect(await svc({ admins: null }).check('bot_admin', person, ctx())).toBe(false);
     expect(await svc({ admins: ['@bob'] }).check('bot_admin', person, ctx())).toBe(true);
   });
+  it('admin passes for group admins OR bot admins', async () => {
+    // group admin, not a bot admin
+    expect(await svc({ admins: null }).check('admin', person, ctx({ isGroupAdmin: true }))).toBe(
+      true,
+    );
+    // bot admin, not a group admin
+    expect(
+      await svc({ admins: ['@bob'] }).check('admin', person, ctx({ isGroupAdmin: false })),
+    ).toBe(true);
+    // neither
+    expect(await svc({ admins: null }).check('admin', person, ctx({ isGroupAdmin: false }))).toBe(
+      false,
+    );
+  });
   it('not_banned fails for banned users', async () => {
     expect(await svc({ banned: ['@bob'] }).check('not_banned', person, ctx())).toBe(false);
     expect(await svc({ banned: [] }).check('not_banned', person, ctx())).toBe(true);

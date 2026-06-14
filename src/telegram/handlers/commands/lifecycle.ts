@@ -4,7 +4,7 @@ import { Priority } from '../types.js';
 /** /start — wake the bot in this chat (admin-gated). */
 export const startCommand: CommandSpec = {
   command: 'start',
-  permissions: ['group_admin', 'allowed_user', 'not_banned'],
+  permissions: ['admin', 'allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.FIRST,
   async handle({ services, context }) {
@@ -16,7 +16,7 @@ export const startCommand: CommandSpec = {
 /** /stop — put the bot to sleep in this chat (admin-gated). */
 export const stopCommand: CommandSpec = {
   command: 'stop',
-  permissions: ['group_admin', 'allowed_user', 'not_banned'],
+  permissions: ['admin', 'allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.FIRST,
   async handle({ services, context }) {
@@ -28,7 +28,7 @@ export const stopCommand: CommandSpec = {
 /** /reset — wipe conversation memory for this chat. */
 export const resetCommand: CommandSpec = {
   command: 'reset',
-  permissions: ['group_admin', 'allowed_user', 'not_banned'],
+  permissions: ['admin', 'allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.DEFAULT,
   async handle({ services, context }) {

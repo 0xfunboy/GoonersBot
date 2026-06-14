@@ -4,7 +4,7 @@ import { Priority } from '../types.js';
 /** /conversationtracker — toggle passive conversation tracking. */
 export const conversationtrackerCommand: CommandSpec = {
   command: 'conversationtracker',
-  permissions: ['group_admin', 'allowed_user', 'not_banned'],
+  permissions: ['admin', 'allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.DEFAULT,
   async handle({ services, context }) {
@@ -16,7 +16,7 @@ export const conversationtrackerCommand: CommandSpec = {
 /** /autofact — toggle automatic fact extraction. */
 export const autofactCommand: CommandSpec = {
   command: 'autofact',
-  permissions: ['group_admin', 'allowed_user', 'not_banned'],
+  permissions: ['admin', 'allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.DEFAULT,
   async handle({ services, context }) {
@@ -28,7 +28,7 @@ export const autofactCommand: CommandSpec = {
 /** /autoengage — toggle auto-engage. */
 export const autoengageCommand: CommandSpec = {
   command: 'autoengage',
-  permissions: ['group_admin', 'allowed_user', 'not_banned'],
+  permissions: ['admin', 'allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.DEFAULT,
   async handle({ services, context }) {

@@ -11,7 +11,7 @@ import {
 /** set_chat_mode|<modeId> — activate a mode. */
 const setChatMode: CallbackSpec = {
   action: SET_MODE_CALLBACK,
-  permissions: ['group_admin', 'allowed_user', 'not_banned'],
+  permissions: ['admin', 'allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   async handle({ services, context, args }) {
     const modeId = args[0];
@@ -26,7 +26,7 @@ const setChatMode: CallbackSpec = {
 /** delete_chat_mode|<modeId> — delete a mode. */
 const deleteChatMode: CallbackSpec = {
   action: DELETE_MODE_CALLBACK,
-  permissions: ['group_admin', 'allowed_user', 'not_banned'],
+  permissions: ['admin', 'allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   async handle({ services, context, args }) {
     const modeId = args[0];
@@ -41,7 +41,7 @@ const deleteChatMode: CallbackSpec = {
 /** set_chat_language|<lang> — set the chat language. */
 const setChatLanguage: CallbackSpec = {
   action: SET_LANGUAGE_CALLBACK,
-  permissions: ['group_admin', 'allowed_user', 'not_banned'],
+  permissions: ['admin', 'allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   async handle({ services, context, args }) {
     const language = args[0];

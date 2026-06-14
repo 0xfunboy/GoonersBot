@@ -72,7 +72,8 @@ export const clearfactsCommand: CommandSpec = {
   async handle({ services, context, person, args }) {
     const target = args[0] ? normalizeHandle(args[0]) : person.userHandle;
     const isSelf = target === person.userHandle;
-    if (!isSelf && !context.isGroupAdmin) {
+    const isAdmin = context.isGroupAdmin || services.permissions.isBotAdmin(person.userHandle);
+    if (!isSelf && !isAdmin) {
       return { text: 'clearfacts_forbidden' };
     }
     await services.facts.clearForUser(context.chatId, target);

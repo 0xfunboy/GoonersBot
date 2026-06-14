@@ -155,8 +155,10 @@ describe('/nsfw command', () => {
 });
 
 describe('clearfacts permission adaptation', () => {
+  const notBotAdmin = { isBotAdmin: () => false };
+
   it('blocks clearing another user’s facts without admin', async () => {
-    const services = { facts: { clearForUser: vi.fn() } };
+    const services = { facts: { clearForUser: vi.fn() }, permissions: notBotAdmin };
     const res = await clearfactsCommand.handle(
       input(services, ['@alice'], context({ isGroupAdmin: false })),
     );
@@ -166,7 +168,7 @@ describe('clearfacts permission adaptation', () => {
 
   it('allows self-clear for anyone', async () => {
     const clearForUser = vi.fn().mockResolvedValue(0);
-    const services = { facts: { clearForUser } };
+    const services = { facts: { clearForUser }, permissions: notBotAdmin };
     const res = await clearfactsCommand.handle(
       input(services, [], context({ isGroupAdmin: false })),
     );
@@ -176,11 +178,20 @@ describe('clearfacts permission adaptation', () => {
 
   it('allows admins to clear others', async () => {
     const clearForUser = vi.fn().mockResolvedValue(2);
-    const services = { facts: { clearForUser } };
+    const services = { facts: { clearForUser }, permissions: notBotAdmin };
     const res = await clearfactsCommand.handle(
       input(services, ['@alice'], context({ isGroupAdmin: true })),
     );
     expect(res?.text).toBe('facts_cleared');
     expect(clearForUser).toHaveBeenCalledWith(-1, '@alice');
+  });
+
+  it('allows a bot admin to clear others even without group admin', async () => {
+    const clearForUser = vi.fn().mockResolvedValue(1);
+    const services = { facts: { clearForUser }, permissions: { isBotAdmin: () => true } };
+    const res = await clearfactsCommand.handle(
+      input(services, ['@alice'], context({ isGroupAdmin: false })),
+    );
+    expect(res?.text).toBe('facts_cleared');
   });
 });

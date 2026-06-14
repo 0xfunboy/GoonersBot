@@ -17,7 +17,7 @@ export const usageCommand: CommandSpec = {
 /** /language — show the language picker. */
 export const languageCommand: CommandSpec = {
   command: 'language',
-  permissions: ['group_admin', 'allowed_user', 'not_banned'],
+  permissions: ['admin', 'allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.DEFAULT,
   async handle({ services }) {

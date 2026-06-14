@@ -9,11 +9,13 @@ const log = childLogger('permissions');
  * - allowed_user : ALLOWED_HANDLES is null (unrestricted) or handle is listed
  * - group_admin  : the user is an admin of the current chat (private chat => always admin)
  * - bot_admin    : ADMIN_HANDLES is set and the handle is listed
+ * - admin        : group_admin OR bot_admin (so the deployer in ADMIN_HANDLES can control the bot
+ *                  anywhere, even without being a group admin). Used for control commands.
  * - not_banned   : the user is not currently banned (honours ban expiry)
  *
  * Centralized here so admin/ban checks are never scattered across handlers.
  */
-export type Permission = 'allowed_user' | 'group_admin' | 'bot_admin' | 'not_banned';
+export type Permission = 'allowed_user' | 'group_admin' | 'bot_admin' | 'admin' | 'not_banned';
 
 export class PermissionService {
   constructor(
@@ -42,6 +44,8 @@ export class PermissionService {
         return context.isGroupAdmin;
       case 'bot_admin':
         return this.isBotAdmin(person.userHandle);
+      case 'admin':
+        return context.isGroupAdmin || this.isBotAdmin(person.userHandle);
       case 'not_banned':
         return !(await this.isBanned(person.userHandle));
       default: {

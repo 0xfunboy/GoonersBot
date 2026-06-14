@@ -12,7 +12,7 @@ import { Priority } from '../types.js';
  */
 export const nsfwCommand: CommandSpec = {
   command: 'nsfw',
-  permissions: ['group_admin', 'allowed_user', 'not_banned'],
+  permissions: ['admin', 'allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.ADMIN,
   adminOnly: true,
