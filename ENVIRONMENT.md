@@ -73,7 +73,7 @@ extra-LLM-call latency in the common path.
 
 | Variable | Default | Description |
 |---|---|---|
-| `DEFAULT_LANGUAGE` | `english` | Default chat language (`english\|russian\|spanish`). |
+| `DEFAULT_LANGUAGE` | `italian` | Default chat language (`italian\|english\|russian\|spanish`); changeable per chat with `/language`. |
 | `AUTOENGAGE_DEFAULT_ENABLED` | `false` | Initial `/autoengage` state for a new chat. |
 | `CONVERSATION_TRACKER_DEFAULT_ENABLED` | `false` | Initial `/conversationtracker` state. |
 | `AUTOFACT_DEFAULT_ENABLED` | `false` | Initial `/autofact` state. |
