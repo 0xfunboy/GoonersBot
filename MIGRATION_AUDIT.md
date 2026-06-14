@@ -9,6 +9,11 @@
 
 Legend: `[ ]` todo · `[~]` partial / adapted · `[x]` done · 🔁 rebrand required · ⚠️ behaviour change documented in §9
 
+> **STATUS: migration complete.** All commands, callbacks, the message engine, media, LLM
+> abstraction, storage, prompts, jobs, tests and docs are implemented. Build + lint + typecheck +
+> 73 vitest tests are green. Per-feature status lives in [FEATURE_PARITY.md](./FEATURE_PARITY.md);
+> the checkboxes below are kept as the original plan of record.
+
 ---
 
 ## 0. High-level summary of the original
@@ -488,35 +493,35 @@ silently dropped; each has a GoonerBot decision.
 
 - [x] Clone & study original
 - [x] **MIGRATION_AUDIT.md** (this file)
-- [ ] FEATURE_PARITY.md (table: feature · original file/fn · new TS impl · status · notes)
-- [ ] ARCHITECTURE.md
-- [ ] ENVIRONMENT.md
-- [ ] README.md (rebranded; Privacy Mode; provider setup for solclawn & DeepSeek; run + test instructions)
-- [ ] .env.example (GoonerBot, no secrets)
-- [ ] src/main.ts
-- [ ] src/config (zod)
-- [ ] src/telegram (adapter + handlers, thin)
-- [ ] src/domain (Person/Context/Message/entities)
-- [ ] src/services (permission, modes, facts, usage, autoengage, conversation, terms, ban)
-- [ ] src/providers/llm (+ adapters: solclawn/openai/deepseek/ollama/custom)
-- [ ] src/providers/media
-- [ ] src/storage (Mongo repositories + indexes)
-- [ ] src/prompts
-- [ ] src/jobs (autofact batch, retention cleanup, cooldown)
-- [ ] src/utils
-- [ ] tests (vitest, §18)
-- [ ] Docker + compose (§16)
-- [ ] eslint + prettier + tsconfig (strict) + pino logger
-- [ ] Run: `pnpm install && pnpm build && pnpm start` · Tests: `pnpm test` · Lint: `pnpm lint`
-- [ ] Final summary (ported / rebranded / Telegram setup / solclawn config / DeepSeek switch / run / test / limitations)
+- [x] FEATURE_PARITY.md (table: feature · original file/fn · new TS impl · status · notes)
+- [x] ARCHITECTURE.md
+- [x] ENVIRONMENT.md
+- [x] README.md (rebranded; Privacy Mode; provider setup for solclawn & DeepSeek; run + test instructions)
+- [x] .env.example (GoonerBot, no secrets)
+- [x] src/main.ts
+- [x] src/config (zod)
+- [x] src/telegram (adapter + handlers, thin)
+- [x] src/domain (Person/Context/Message/entities)
+- [x] src/services (permission, modes, facts, usage, autoengage, conversation, terms, ban)
+- [x] src/providers/llm (+ adapters: solclawn/openai/deepseek/ollama/custom)
+- [x] src/providers/media
+- [x] src/storage (Mongo repositories + indexes)
+- [x] src/prompts
+- [x] src/jobs (retention cleanup, scheduler; inline autofact)
+- [x] src/utils
+- [x] tests (vitest, §18 — 73 tests)
+- [x] ~~Docker + compose~~ → **per project decision, no Docker**: Node 23.3 directly + local MongoDB (README)
+- [x] eslint + prettier + tsconfig (strict) + pino logger
+- [x] Run: `pnpm install && pnpm build && pnpm start` · Tests: `pnpm test` · Lint: `pnpm lint`
+- [x] Final summary (in the delivery message)
 
 ---
 
 ## 21. Build order (migration process, spec §1–22)
 
-1. [x] Clone original · 2. [x] Audit · 3. [x] MIGRATION_AUDIT.md · 4. [ ] TS architecture (ARCHITECTURE.md)
-5. [ ] Scaffold (pnpm, tsconfig strict, eslint/prettier, vitest, pino, zod) · 6. [ ] Mongo schema + repositories + indexes
-7. [ ] Telegram handlers (thin) · 8. [ ] LLMProvider abstraction · 9. [ ] solclawn adapter
-10. [ ] deepseek/openai/ollama/custom adapters · 11. [ ] prompts · 12. [ ] conversation tracking
-13. [ ] facts (manual + auto) · 14. [ ] autoengage scorer · 15. [ ] media · 16. [ ] usage tracking
-17. [ ] docker-compose · 18. [ ] .env.example · 19. [ ] tests · 20. [ ] README · 21. [ ] lint+typecheck+test · 22. [ ] document deviations (§19)
+1. [x] Clone original · 2. [x] Audit · 3. [x] MIGRATION_AUDIT.md · 4. [x] TS architecture (ARCHITECTURE.md)
+5. [x] Scaffold (pnpm, tsconfig strict, eslint/prettier, vitest, pino, zod) · 6. [x] Mongo schema + repositories + indexes
+7. [x] Telegram handlers (thin) · 8. [x] LLMProvider abstraction · 9. [x] solclawn adapter
+10. [x] deepseek/openai/ollama/custom adapters · 11. [x] prompts · 12. [x] conversation tracking
+13. [x] facts (manual + auto) · 14. [x] autoengage scorer · 15. [x] media · 16. [x] usage tracking
+17. [x] ~~docker-compose~~ (no Docker; local Node+Mongo) · 18. [x] .env.example · 19. [x] tests · 20. [x] README · 21. [x] lint+typecheck+test · 22. [x] document deviations (§19)
