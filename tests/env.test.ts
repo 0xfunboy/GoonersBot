@@ -18,6 +18,7 @@ describe('loadEnv', () => {
     expect(env.CONVERSATION_TRACKER_DEFAULT_ENABLED).toBe(true);
     expect(env.AUTOFACT_DEFAULT_ENABLED).toBe(false);
     expect(env.LLM_NSFW_DEFAULT_MODE).toBe('smart');
+    expect(env.REPLY_CANDIDATE_COUNT).toBe(1);
     expect(env.MONGO_DB).toBe('goonerbot');
   });
 

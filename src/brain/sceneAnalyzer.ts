@@ -23,7 +23,7 @@ export interface SceneAnalyzerConfig {
 const CRITICISM_RE =
   /\b(ripetitiv|sempre uguale|sei rotto|bot rotto|npc|noios|stupid|non fa ridere|che cazzo dici|deterministic|robotic|smonto)\b/i;
 const DANGEROUS_RE =
-  /\b(come (si fa|faccio) (la|una) bomba|costruire una bomba|how to make a bomb|uccidere|ammazzare davvero|suicid|dox|indirizzo di casa|home address|child|minore|cp\b)\b/i;
+  /\b(come (si fa|faccio) (la|una) (bomba|lean)|costruire una bomba|how to make (a bomb|lean)|ricetta (lean|sizzurp)|purple drank|sizzurp|codeine|prometazina|promethazine|dextromethorphan|destrometorfano|dxm|uccidere|ammazzare davvero|suicid|dox|indirizzo di casa|home address|child|minore|cp\b)\b/i;
 
 function renderHistory(history: StoredMessage[], botLabel: string): string {
   return history

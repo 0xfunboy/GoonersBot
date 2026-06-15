@@ -292,14 +292,14 @@ behaves like a real group member, not a deterministic bot:
 
 ```text
 message → Scene Analyzer → Memory Retriever → Reply Planner → Style Engine →
-          Response Generator (N candidates) → Ranker → Repetition Guard (regenerate) →
+          Response Generator (1+ candidates) → Ranker → Repetition Guard (regenerate) →
           Safety Gate → reply  +  (background) Memory Mining & Feedback Learning
 ```
 
 - **Scene Analyzer** reads what's happening (topic, energy, intent, is-the-bot-being-roasted) — LLM with a deterministic fallback.
 - **Memory Retriever** pulls **only** the few memories relevant to this turn (scored by handle/keyword/topic/salience), excludes recently-used ones (cooldowns), and returns **nothing** when the chat is roasting the bot for repetition.
 - **Reply Planner + Style Engine** pick intent, tone, length and one of 10 voice variants; a dynamic banned-openings list kills repeated tics.
-- **Generator** produces several candidates (high temperature + frequency/presence penalties); the **Ranker** + **Repetition Guard** drop assistant-tone, repeated, or verbatim-memory replies and **regenerate** if needed.
+- **Generator** produces one candidate by default for speed (configurable); the **Ranker** + **Repetition Guard** drop assistant-tone, repeated, or verbatim-memory replies and **regenerate** if needed.
 - **Memory** lives in `memory_items` (mined lore with confidence/salience/toxicity), not raw text. Use it via `/fact`, `/setfact`, `/facts`, `/lore`, `/forget`. Background jobs **mine lore while the bot is silent** (`/autofact` chats) and **learn from feedback** (reactions/criticism adjust memory salience and make autoengage more conservative after bad turns).
 - **Debug:** admins use `/brain` (readable last-turn summary) and `/debuglast` (JSON) to see exactly why the bot answered the way it did.
 
@@ -355,7 +355,7 @@ capabilities never block startup. Copy `.env.example` → `.env` (gitignored; ne
 | `SCENE_MODEL` / `PLANNER_MODEL` / `REPLY_MODEL` / `RANKER_MODEL` / `MEMORY_MODEL` / `SAFETY_MODEL` | `LLM_MODEL` | Per-stage model overrides; empty ⇒ fall back to `LLM_MODEL`. |
 | `REPLY_TEMPERATURE` | `0.95` | Generation temperature (higher = less robotic). |
 | `REPLY_TOP_P` / `REPLY_FREQUENCY_PENALTY` / `REPLY_PRESENCE_PENALTY` | `0.95` / `0.6` / `0.4` | Sampling/anti-repetition penalties. |
-| `REPLY_CANDIDATE_COUNT` | `3` | Candidates generated per reply (ranked). |
+| `REPLY_CANDIDATE_COUNT` | `1` | Candidates generated per reply (ranked). Keep at `1` for fast chat; raise only if you want extra sampling. |
 | `REPLY_MAX_REGENERATIONS` | `2` | Regenerations when the repetition guard blocks. |
 | `MAX_REPLY_LINES` / `MAX_REPLY_CHARS` | `3` / `420` | Reply length caps. |
 | `REPETITION_SIMILARITY_THRESHOLD` | `0.72` | Block a reply too similar to recent ones. |

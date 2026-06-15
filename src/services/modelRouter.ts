@@ -68,6 +68,20 @@ const BUILTIN_LEXICON = [
   'gooner',
   'goon',
   'edging',
+  // Vice/substance triggers: route to the less-censored voice model in smart mode, while the
+  // generator/safety prompts still block operational illegal or self-harm instructions.
+  'lean',
+  'purple drank',
+  'sizzurp',
+  'codeine',
+  'promethazine',
+  'prometazina',
+  'dextromethorphan',
+  'destrometorfano',
+  'dxm',
+  'xanax',
+  'opioid',
+  'oppioid',
 ];
 
 /**

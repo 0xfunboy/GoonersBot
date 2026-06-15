@@ -8,6 +8,34 @@ const ASSISTANT_TELLS = [
   /\bnon posso aiutarti\b/i,
 ];
 
+const STOPWORDS = new Set([
+  'come',
+  'cosa',
+  'che',
+  'chi',
+  'quando',
+  'dove',
+  'perche',
+  'perché',
+  'fare',
+  'faccio',
+  'fai',
+  'una',
+  'uno',
+  'del',
+  'della',
+  'the',
+  'how',
+  'what',
+  'why',
+  'make',
+  'tell',
+  'you',
+]);
+
+const FACTUAL_MARKERS =
+  /\b(è|sono|significa|vuol dire|in pratica|tipicamente|di solito|risch|pericol|overdose|dose|legale|illegale|farmac|oppioid|codeina|prometazina|destrometorfano|dextromethorphan|respir|mix|mischi|mescol)\b/i;
+
 function normalize(s: string): string {
   return s.toLowerCase().replace(/\s+/g, ' ').trim();
 }
@@ -25,9 +53,14 @@ export class ResponseRanker {
       plan: ReplyPlan;
       memories: RetrievedMemory[];
       maxChars: number;
+      userMessage?: string;
     },
   ): RankedReply[] {
     const recentNorms = opts.recent.slice(0, 8).map((r) => r.normalizedText || normalize(r.text));
+    const questionTerms = extractTerms(opts.userMessage ?? '');
+    const mustAnswer =
+      opts.plan.replyIntent === 'answer_question' ||
+      opts.plan.replyIntent === 'deflect_dangerous_request';
     const ranked = candidates.map((text, index) => {
       const problems: string[] = [];
       let score = 1;
@@ -75,9 +108,46 @@ export class ResponseRanker {
       // punch: short and ends without trailing fluff
       if (len > 0 && len < 200) score += 0.2;
 
+      // Serious/technical turns must not win with pure banter or empty deflection.
+      if (mustAnswer) {
+        const overlap = coverage(norm, questionTerms);
+        if (questionTerms.length > 0 && overlap < 0.34) {
+          score -= 0.9;
+          problems.push('misses question');
+        } else if (overlap >= 0.34) {
+          score += 0.35;
+        }
+        if (FACTUAL_MARKERS.test(text)) score += 0.35;
+        else {
+          score -= 0.45;
+          problems.push('low factual content');
+        }
+      }
+
       return { index, score, reason: problems.length ? problems.join(', ') : 'clean', problems };
     });
     ranked.sort((a, b) => b.score - a.score);
     return ranked;
   }
+}
+
+function extractTerms(text: string): string[] {
+  return [
+    ...new Set(
+      normalize(text)
+        .normalize('NFD')
+        .replace(/\p{Diacritic}/gu, '')
+        .split(/[^a-z0-9_]+/i)
+        .filter((t) => t.length > 2 && !STOPWORDS.has(t)),
+    ),
+  ].slice(0, 8);
+}
+
+function coverage(candidateNorm: string, terms: string[]): number {
+  if (terms.length === 0) return 1;
+  let hits = 0;
+  for (const term of terms) {
+    if (candidateNorm.includes(term)) hits += 1;
+  }
+  return hits / terms.length;
 }

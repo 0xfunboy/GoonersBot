@@ -166,7 +166,7 @@ const envSchema = z.object({
   MEMORY_TEMPERATURE: floatFromString(0.1),
 
   // Reply generation
-  REPLY_CANDIDATE_COUNT: intFromString(3),
+  REPLY_CANDIDATE_COUNT: intFromString(1),
   REPLY_MAX_REGENERATIONS: intFromString(2),
   REPLY_TOP_P: floatFromString(0.95),
   REPLY_FREQUENCY_PENALTY: floatFromString(0.6),

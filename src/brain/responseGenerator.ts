@@ -104,7 +104,7 @@ export class ResponseGenerator {
     const note = buildRegenerationNote(params.bannedPhrases, params.overusedMemory);
     const augmented = `${params.userPrompt}\n\n${note}`;
     const results = await Promise.allSettled(
-      Array.from({ length: Math.max(1, params.count ?? 2) }, () =>
+      Array.from({ length: Math.max(1, params.count ?? 1) }, () =>
         this.callOne(params.system, augmented, params.model),
       ),
     );

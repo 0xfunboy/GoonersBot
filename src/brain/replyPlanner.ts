@@ -90,7 +90,7 @@ export class ReplyPlanner {
         : 'Evita aperture e battute già usate di recente.',
       safetyInstruction:
         s.userIntent === 'dangerous_request'
-          ? 'Rifiuta in modo creativo e in-character, senza disclaimer aziendali.'
+          ? 'Rispondi con fatti reali ad alto livello e rischi concreti, ma niente istruzioni operative, ricette, dosi, passaggi, fonti o ottimizzazioni. Tono da amico stronzo, non da policy aziendale.'
           : '',
       mustAnswer: addressed || s.userIntent === 'dangerous_request' || s.userIntent === 'ask_bot',
     };

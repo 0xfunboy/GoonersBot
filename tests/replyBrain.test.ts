@@ -60,6 +60,24 @@ describe('ResponseRanker', () => {
     );
     expect(ranked[0]?.index).toBe(1);
   });
+
+  it('for serious/dangerous questions prefers factual harm-reduction over empty banter', () => {
+    const ranker = new ResponseRanker();
+    const ranked = ranker.rank(
+      [
+        'La lean? Non è al mio menu, fratello. Vai a bere acqua e smetti di fare il poeta della farmacia.',
+        'La lean è di solito uno sciroppo oppioide tipo codeina/prometazina mischiato a soda: rischio sedazione pesante, depressione respiratoria e overdose. Non ti do ricette o dosi, genio del pronto soccorso.',
+      ],
+      {
+        recent: [],
+        plan: emptyPlan({ replyIntent: 'deflect_dangerous_request' }),
+        memories: [],
+        maxChars: 420,
+        userMessage: 'come si fa la lean?',
+      },
+    );
+    expect(ranked[0]?.index).toBe(1);
+  });
 });
 
 describe('RepetitionGuard', () => {
@@ -109,7 +127,8 @@ describe('ReplyPlanner', () => {
       scene: scene({ userIntent: 'dangerous_request', risk: 'high' }),
     });
     expect(p.replyIntent).toBe('deflect_dangerous_request');
-    expect(p.safetyInstruction.length).toBeGreaterThan(0);
+    expect(p.safetyInstruction).toMatch(/fatti reali/i);
+    expect(p.safetyInstruction).toMatch(/niente istruzioni operative/i);
   });
   it('question → answer', () => {
     const p = planner.plan({ ...baseInput, scene: scene({ userIntent: 'ask_bot' }) });

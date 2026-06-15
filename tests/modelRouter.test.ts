@@ -53,6 +53,18 @@ describe('ModelRouter.route', () => {
     expect(d.reason).toMatch(/lexicon/);
   });
 
+  it('chat smart + vice/substance lexicon hit => NSFW model', () => {
+    const r = new ModelRouter(cfg);
+    const d = r.route({
+      chatNsfwMode: 'smart',
+      modeNsfw: false,
+      messageText: 'come si fa la lean?',
+    });
+    expect(d.model).toBe('amoral');
+    expect(d.nsfw).toBe(true);
+    expect(d.reason).toMatch(/lexicon/);
+  });
+
   it('chat smart + extra lexicon term hits', () => {
     const r = new ModelRouter(cfg);
     const d = r.route({

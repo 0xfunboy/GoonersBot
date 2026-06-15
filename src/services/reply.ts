@@ -224,6 +224,7 @@ export class ReplyService {
         plan,
         memories: retrieved,
         maxChars: this.config.env.MAX_REPLY_CHARS,
+        userMessage: transcribed.messageText ?? '',
       });
       const topIdx = ranked[0]?.index ?? 0;
       best = candidates[topIdx] ?? '';
@@ -279,6 +280,7 @@ export class ReplyService {
           plan,
           memories: retrieved,
           maxChars: this.config.env.MAX_REPLY_CHARS,
+          userMessage: transcribed.messageText ?? '',
         });
         best = ns.candidates[r[0]?.index ?? 0] ?? best;
         allCandidates.push(...ns.candidates);
