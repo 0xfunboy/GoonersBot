@@ -30,7 +30,7 @@ export class ReplyPlanner {
     let replyIntent: ReplyIntent;
     switch (s.userIntent) {
       case 'dangerous_request':
-        replyIntent = 'deflect_dangerous_request';
+        replyIntent = 'answer_question';
         break;
       case 'ask_bot':
         replyIntent = 'answer_question';

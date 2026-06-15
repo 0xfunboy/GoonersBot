@@ -49,7 +49,6 @@ export const planSchema = z.object({
       'answer_question',
       'roast_user',
       'roast_self',
-      'deflect_dangerous_request',
       'summarize',
       'hype',
       'lore_callback',

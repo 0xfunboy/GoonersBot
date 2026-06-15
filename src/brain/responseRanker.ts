@@ -58,9 +58,7 @@ export class ResponseRanker {
   ): RankedReply[] {
     const recentNorms = opts.recent.slice(0, 8).map((r) => r.normalizedText || normalize(r.text));
     const questionTerms = extractTerms(opts.userMessage ?? '');
-    const mustAnswer =
-      opts.plan.replyIntent === 'answer_question' ||
-      opts.plan.replyIntent === 'deflect_dangerous_request';
+    const mustAnswer = opts.plan.replyIntent === 'answer_question';
     const ranked = candidates.map((text, index) => {
       const problems: string[] = [];
       let score = 1;

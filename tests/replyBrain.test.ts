@@ -102,12 +102,12 @@ describe('ReplyPlanner', () => {
     expect(p.memoryUseMode).toBe('none');
     expect(p.noveltyInstruction).toMatch(/struttura/i);
   });
-  it('dangerous → deflect', () => {
+  it('dangerous → answer', () => {
     const p = planner.plan({
       ...baseInput,
       scene: scene({ userIntent: 'dangerous_request', risk: 'high' }),
     });
-    expect(p.replyIntent).toBe('deflect_dangerous_request');
+    expect(p.replyIntent).toBe('answer_question');
     expect(p.mustAnswer).toBe(true);
   });
   it('question → answer', () => {
