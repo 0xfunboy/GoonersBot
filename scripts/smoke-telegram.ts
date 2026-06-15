@@ -107,6 +107,8 @@ async function main(): Promise<void> {
 
   let uid = 1000;
   const step = async (label: string, update: unknown): Promise<void> => {
+    // respect the per-user command rate limit (COMMAND_RATE_LIMIT_SECONDS) between steps
+    await new Promise((r) => setTimeout(r, 1200));
     const before = sent.length;
     await bot.handleUpdate(update as never);
     const out = lastTextSince(before);
