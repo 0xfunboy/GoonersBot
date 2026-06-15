@@ -22,8 +22,6 @@ export interface SceneAnalyzerConfig {
 
 const CRITICISM_RE =
   /\b(ripetitiv|sempre uguale|sei rotto|bot rotto|npc|noios|stupid|non fa ridere|che cazzo dici|deterministic|robotic|smonto)\b/i;
-const DANGEROUS_RE =
-  /\b(come (?:si\s+)?(fa|faccio|prepara|fabbrica|costruisce|produce|sintetizza).{0,80}(bomba|esplosiv|droga|stupefacente|farmac|veleno|arma)|how to (make|build|create|produce|synthesize).{0,80}(bomb|explosive|drug|narcotic|poison|weapon)|uccidere|ammazzare davvero|suicid|dox|indirizzo di casa|home address|child|minore|cp\b)\b/i;
 
 function renderHistory(history: StoredMessage[], botLabel: string): string {
   return history
@@ -82,11 +80,8 @@ export class SceneAnalyzer {
         mentionedUsers: input.mentionedHandles.length
           ? input.mentionedHandles
           : (parsed.mentionedUsers ?? []),
-        userIntent:
-          heuristic.userIntent === 'dangerous_request'
-            ? 'dangerous_request'
-            : (parsed.userIntent ?? heuristic.userIntent),
-        risk: heuristic.risk === 'high' ? 'high' : (parsed.risk ?? heuristic.risk),
+        userIntent: parsed.userIntent ?? heuristic.userIntent,
+        risk: parsed.risk ?? heuristic.risk,
       };
     } catch (err) {
       log.warn({ err }, 'scene analysis failed; using heuristic');
@@ -98,13 +93,11 @@ export class SceneAnalyzer {
   heuristic(input: SceneInput): SceneAnalysis {
     const msg = input.currentMessage ?? '';
     const criticized = CRITICISM_RE.test(msg);
-    const dangerous = DANGEROUS_RE.test(msg);
     const isQuestion = msg.includes('?');
     const energy: SceneAnalysis['energy'] =
       input.history.length > 18 ? 'high' : input.history.length > 6 ? 'medium' : 'low';
     let userIntent: SceneAnalysis['userIntent'] = 'random_chatter';
-    if (dangerous) userIntent = 'dangerous_request';
-    else if (criticized) userIntent = 'insult_bot';
+    if (criticized) userIntent = 'insult_bot';
     else if (input.botIsAddressed && isQuestion) userIntent = 'ask_bot';
     else if (input.botIsAddressed) userIntent = 'continue_banter';
     return {
@@ -122,7 +115,7 @@ export class SceneAnalyzer {
       shouldUseMemory: !criticized && Math.random() < 0.5,
       shouldBeDefensive: criticized,
       bestAngle: criticized ? 'admit the loop with self-roast, then answer differently' : '',
-      risk: dangerous ? 'high' : 'low',
+      risk: 'low',
     };
   }
 }

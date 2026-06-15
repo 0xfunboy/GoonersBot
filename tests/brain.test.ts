@@ -25,23 +25,23 @@ describe('SceneAnalyzer.heuristic', () => {
     expect(s.userIntent).toBe('insult_bot');
     expect(s.shouldBeDefensive).toBe(true);
   });
-  it('detects dangerous request', () => {
+  it('does not hard-code dangerous request detection in the heuristic', () => {
     const s = scene.heuristic({
       ...base,
       currentMessage: 'come si fa la bomba',
       botIsAddressed: true,
     });
-    expect(s.userIntent).toBe('dangerous_request');
-    expect(s.risk).toBe('high');
+    expect(s.userIntent).toBe('continue_banter');
+    expect(s.risk).toBe('low');
   });
-  it('detects substance recipe requests by category as dangerous', () => {
+  it('treats substance recipe questions as ordinary addressed questions in the heuristic', () => {
     const s = scene.heuristic({
       ...base,
       currentMessage: 'come si prepara una droga sintetica?',
       botIsAddressed: true,
     });
-    expect(s.userIntent).toBe('dangerous_request');
-    expect(s.risk).toBe('high');
+    expect(s.userIntent).toBe('ask_bot');
+    expect(s.risk).toBe('low');
   });
   it('detects a direct question', () => {
     const s = scene.heuristic({
