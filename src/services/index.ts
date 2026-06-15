@@ -76,7 +76,6 @@ export class Services {
       userCooldownSeconds: env.AUTOENGAGE_USER_COOLDOWN_SECONDS,
       minConfidence: env.AUTOENGAGE_MIN_CONFIDENCE,
     });
-    this.reply = new ReplyService(llm, this.media, this.conversation, this.facts, 2048);
     this.modelRouter = new ModelRouter({
       defaultModel: config.llm.model,
       nsfwModel: config.llm.nsfwModel,
@@ -102,6 +101,14 @@ export class Services {
       itemCooldownMinutes: env.MEMORY_ITEM_COOLDOWN_MINUTES,
       subjectCooldownMinutes: env.MEMORY_SUBJECT_COOLDOWN_MINUTES,
     });
+    this.reply = new ReplyService(
+      llm,
+      this.media,
+      this.conversation,
+      this.scene,
+      this.memoryRetriever,
+      config,
+    );
   }
 
   /** Ensure baseline records exist for this person/chat. Idempotent; runs before each handler. */

@@ -34,6 +34,15 @@ function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
 }
 
+/** Apply OpenAI sampling params onto a request body. */
+function applySampling(body: Record<string, unknown>, req: ChatRequest): void {
+  if (req.temperature !== undefined) body['temperature'] = req.temperature;
+  if (req.maxTokens !== undefined) body['max_tokens'] = req.maxTokens;
+  if (req.topP !== undefined) body['top_p'] = req.topP;
+  if (req.frequencyPenalty !== undefined) body['frequency_penalty'] = req.frequencyPenalty;
+  if (req.presencePenalty !== undefined) body['presence_penalty'] = req.presencePenalty;
+}
+
 /**
  * Generic OpenAI-compatible adapter. Powers the `solclawn` (LeakRouter OpenAI surface),
  * `openai`, `ollama`, and `custom_openai_compatible` providers. DeepSeek extends this.
@@ -102,8 +111,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       messages,
       stream: false,
     };
-    if (req.temperature !== undefined) body['temperature'] = req.temperature;
-    if (req.maxTokens !== undefined) body['max_tokens'] = req.maxTokens;
+    applySampling(body, req);
 
     const res = await this.fetchWithTimeout(this.url('/chat/completions'), {
       method: 'POST',
@@ -138,8 +146,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     const model = this.requireChatModel(req.model);
     const messages = this.buildMessages(req);
     const body: Record<string, unknown> = { model, messages, stream: true };
-    if (req.temperature !== undefined) body['temperature'] = req.temperature;
-    if (req.maxTokens !== undefined) body['max_tokens'] = req.maxTokens;
+    applySampling(body, req);
 
     const res = await this.fetchWithTimeout(this.url('/chat/completions'), {
       method: 'POST',

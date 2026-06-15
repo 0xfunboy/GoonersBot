@@ -2,8 +2,10 @@ import { InputFile, type Context as GrammyContext } from 'grammy';
 import type { ChatContext, IncomingMessage, Person } from '../../domain/types.js';
 import type { Services } from '../../services/index.js';
 import type { Env } from '../../config/env.js';
+import type { AddMessageMeta } from '../../storage/repositories/messages.js';
 import { termsKeyboard } from './shared.js';
 import { localizeResponse, sendResponse } from '../render.js';
+import { fingerprint } from '../../utils/text.js';
 import { childLogger } from '../../utils/logger.js';
 
 const log = childLogger('message');
@@ -14,16 +16,24 @@ export interface MessageDeps {
   botUsername: string;
 }
 
+/** Build message-storage metadata from the platform context. */
+function metaOf(person: Person, context: ChatContext): AddMessageMeta {
+  const meta: AddMessageMeta = {
+    telegramId: person.telegramId,
+    mentionedHandles: context.mentionedHandles ?? [],
+  };
+  if (context.messageId !== undefined) meta.messageId = context.messageId;
+  if (context.repliedToMessageId !== undefined) meta.replyToMessageId = context.repliedToMessageId;
+  if (context.repliedToUserHandle !== undefined) meta.replyToHandle = context.repliedToUserHandle;
+  return meta;
+}
+
 /**
- * Core conversational handler (ports messages/message_handler.py).
+ * Core conversational handler — drives the brain pipeline.
  *
- * Flow:
- *  1. Permission gate (allowed_user, not_banned).
- *  2. Chat-started + tracking/mention gate.
- *  3. Terms gate (prompt only when addressed).
- *  4. Autoengage decision (mention => almost always; passive => scored + rate-limited).
- *  5. Not engaging but tracking => store message, return.
- *  6. Engaging => usage check, stream reply, persist user+bot messages, record usage, auto-facts.
+ * permission → started + tracking/mention gate → terms gate → autoengage decision →
+ * (not engaging but tracking ⇒ store) → usage check → model route → brain reply →
+ * send → persist user+bot → record usage → record bot reply + brain debug → mark memory used.
  */
 export async function handleMessage(
   ctx: GrammyContext,
@@ -36,26 +46,19 @@ export async function handleMessage(
 
   await services.initializeContext(person, context);
 
-  // 1. permissions
-  const allowed = await services.permissions.checkAll(
-    ['allowed_user', 'not_banned'],
-    person,
-    context,
-  );
-  if (!allowed) return;
+  if (!(await services.permissions.checkAll(['allowed_user', 'not_banned'], person, context))) {
+    return;
+  }
 
-  // 2. chat-started + tracking/mention gate
   const started = await services.conversation.isStarted(context.chatId);
   if (!started) return;
   const tracking = await services.conversation.isTrackingEnabled(context.chatId);
   const addressed = context.isBotMentioned || context.isReplyToBot;
   if (!tracking && !addressed) return;
 
-  // 3. terms gate
-  const declined = await services.terms.hasDeclined(person.userHandle);
-  if (declined) return;
-  const accepted = await services.terms.hasAccepted(person.userHandle);
-  if (!accepted) {
+  // terms gate
+  if (await services.terms.hasDeclined(person.userHandle)) return;
+  if (!(await services.terms.hasAccepted(person.userHandle))) {
     if (!addressed) return;
     const language = await services.getLanguage(context.chatId);
     const localized = await localizeResponse(services, context.chatId, {
@@ -66,16 +69,13 @@ export async function handleMessage(
     return;
   }
 
-  // 4. autoengage decision
   const autoengageEnabled = await services.storage.chats.getAutoengage(context.chatId);
-  const [history, userFacts, groupFacts, mode] = await Promise.all([
+  const [history, mode] = await Promise.all([
     services.conversation.getRecent(context.chatId),
-    services.facts.getForUser(context.chatId, person.userHandle),
-    services.facts.getChatFacts(context.chatId),
     services.modes.getActive(context.chatId),
   ]);
   const modeName = mode?.name ?? 'Default';
-  const modeDescription = mode?.description ?? 'Natural group participant.';
+  const modeDescription = mode?.description ?? 'Partecipante naturale del gruppo.';
 
   const decision = await services.autoengage.decide(
     {
@@ -85,35 +85,41 @@ export async function handleMessage(
       modeName,
       modeDescription,
       history,
-      userFacts,
-      groupFacts,
+      userFacts: [],
+      groupFacts: [],
     },
     addressed,
     autoengageEnabled,
   );
 
-  // 5. not engaging -> store as context (if tracking) and return
+  // not engaging → store as context (if tracking) and bail
   if (!decision.shouldReply) {
     if (tracking) {
-      await services.conversation.addUserMessage(context.chatId, person.userHandle, {
-        messageText: message.messageText || null,
-        timestamp: message.timestamp,
-        imageDescription: null,
-        voiceDescription: null,
-      });
+      await services.conversation.addUserMessage(
+        context.chatId,
+        person.userHandle,
+        {
+          messageText: message.messageText || null,
+          timestamp: message.timestamp,
+          imageDescription: null,
+          voiceDescription: null,
+        },
+        metaOf(person, context),
+      );
     }
     log.debug({ chatId: context.chatId, reason: decision.reason }, 'not engaging');
     return;
   }
 
-  // 6. usage pre-check
-  const underLimit = await services.usage.isUnderLimit(
-    person.userHandle,
-    message.messageText,
-    Boolean(message.imageBuffer),
-    Boolean(message.audioBuffer),
-  );
-  if (!underLimit) {
+  // usage pre-check
+  if (
+    !(await services.usage.isUnderLimit(
+      person.userHandle,
+      message.messageText,
+      Boolean(message.imageBuffer),
+      Boolean(message.audioBuffer),
+    ))
+  ) {
     const limit = await services.usage.getLimit(person.userHandle);
     const localized = await localizeResponse(services, context.chatId, {
       text: 'usage_limit_exceeded',
@@ -123,9 +129,7 @@ export async function handleMessage(
     return;
   }
 
-  const language = await services.getLanguage(context.chatId);
-
-  // Decide which model serves this turn (hybrid NSFW routing, zero extra LLM calls).
+  // model routing (NSFW)
   const chatNsfwMode = await services.storage.chats.getNsfwMode(
     context.chatId,
     env.LLM_NSFW_DEFAULT_MODE,
@@ -136,179 +140,138 @@ export async function handleMessage(
     messageText: message.messageText,
     contextText: history.map((h) => h.message.messageText ?? '').join(' '),
   });
-  log.debug(
-    { chatId: context.chatId, model: route.model, nsfw: route.nsfw, reason: route.reason },
-    'model route',
-  );
 
-  await streamAndPersist(ctx, person, context, message, {
-    services,
-    env,
-    botUsername,
-    language,
-    modeName,
-    modeDescription,
-    route,
-  });
+  const language = await services.getLanguage(context.chatId);
+  const recentBotReplies = await services.storage.botReplies.getRecent(context.chatId, 8);
 
-  services.autoengage.noteReply(context.chatId, person.userHandle);
-}
+  await ctx.replyWithChatAction('typing').catch(() => undefined);
 
-interface StreamCtx {
-  services: Services;
-  env: Env;
-  botUsername: string;
-  language: string;
-  modeName: string;
-  modeDescription: string;
-  route: import('../../services/index.js').RouteDecision;
-}
-
-async function streamAndPersist(
-  ctx: GrammyContext,
-  person: Person,
-  context: ChatContext,
-  message: IncomingMessage,
-  sc: StreamCtx,
-): Promise<void> {
-  const { services, env } = sc;
-  let sentMessageId: number | undefined;
-  let lastEditAt = 0;
-  let lastSentText = '';
-
-  const replyTo = ctx.message?.message_id;
-  const editInterval = env.STREAM_EDIT_INTERVAL_MS;
-  const streaming = env.ENABLE_MESSAGE_STREAMING;
-
-  const stream = services.reply.streamReply({
-    person,
-    context,
-    message,
-    botUsername: sc.botUsername,
-    language: sc.language,
-    modeName: sc.modeName,
-    modeDescription: sc.modeDescription,
-    model: sc.route.model,
-    nsfw: sc.route.nsfw,
-    nsfwModel: services.modelRouter.nsfwModel,
-    allowRefusalFallback: sc.route.allowRefusalFallback,
-    refusalBufferChars: services.modelRouter.refusalBufferChars,
-  });
-
-  let accumulated = '';
   try {
-    await ctx.replyWithChatAction('typing').catch(() => undefined);
-    let next = await stream.next();
-    while (!next.done) {
-      accumulated += next.value;
-      if (streaming) {
-        const now = Date.now();
-        if (sentMessageId === undefined && accumulated.trim().length > 0) {
-          const sent = await ctx.reply(accumulated, {
-            ...(replyTo ? { reply_parameters: { message_id: replyTo } } : {}),
-          });
-          sentMessageId = sent.message_id;
-          lastSentText = accumulated;
-          lastEditAt = now;
-        } else if (
-          sentMessageId !== undefined &&
-          now - lastEditAt >= editInterval &&
-          accumulated !== lastSentText
-        ) {
-          await editText(ctx, sentMessageId, accumulated);
-          lastSentText = accumulated;
-          lastEditAt = now;
-        }
-      }
-      next = await stream.next();
-    }
-    const result = next.value;
-    const finalText = result.text || accumulated;
+    const outcome = await services.reply.generateReply({
+      person,
+      context,
+      message,
+      botUsername,
+      language,
+      modeName,
+      modeDescription,
+      nsfwEnabled: route.nsfw,
+      model: route.model,
+      allowRefusalFallback: route.allowRefusalFallback,
+      nsfwModel: services.modelRouter.nsfwModel,
+      recentBotReplies,
+    });
 
-    // Finalize text
-    if (streaming && sentMessageId !== undefined) {
-      if (finalText !== lastSentText) await editText(ctx, sentMessageId, finalText);
-    } else if (finalText.trim().length > 0) {
-      await ctx.reply(finalText, {
+    const finalText = outcome.text;
+    const replyTo = ctx.message?.message_id;
+    let botMessageId: number | undefined;
+    if (finalText.trim().length > 0) {
+      const sent = await ctx.reply(finalText, {
         ...(replyTo ? { reply_parameters: { message_id: replyTo } } : {}),
       });
+      botMessageId = sent.message_id;
     }
-
-    // Media output sent as a follow-up message.
-    if (result.imageBuffer || result.imageUrl) {
-      const photo = result.imageBuffer ? new InputFile(result.imageBuffer) : result.imageUrl!;
+    if (outcome.imageBuffer || outcome.imageUrl) {
+      const photo = outcome.imageBuffer ? new InputFile(outcome.imageBuffer) : outcome.imageUrl!;
       await ctx.replyWithPhoto(photo).catch((err) => log.warn({ err }, 'image send failed'));
     }
 
-    // Persist user + bot messages.
+    // persist user + bot messages (with ids for windows + mining)
     await services.conversation.addUserMessage(
       context.chatId,
       person.userHandle,
-      result.transcribedUserMessage,
+      outcome.transcribedUserMessage,
+      metaOf(person, context),
     );
-    await services.conversation.addBotMessage(context.chatId, {
-      messageText: finalText || null,
-      timestamp: message.timestamp,
-      imageDescription: result.imageUrl || result.imageBuffer ? 'generated image' : null,
-      voiceDescription: null,
-    });
+    await services.conversation.addBotMessage(
+      context.chatId,
+      {
+        messageText: finalText || null,
+        timestamp: message.timestamp,
+        imageDescription: outcome.imageUrl || outcome.imageBuffer ? 'generated image' : null,
+        voiceDescription: null,
+      },
+      botMessageId !== undefined ? { messageId: botMessageId } : {},
+    );
 
-    // Record usage.
-    const points = result.usage.inputTokens + result.usage.outputTokens + result.imageCalls * 100;
+    // record usage
+    const points =
+      outcome.usage.inputTokens + outcome.usage.outputTokens + outcome.imageCalls * 100;
     await services.usage.record({
       handle: person.userHandle,
       chatId: context.chatId,
       provider: services.llm.name,
-      model: result.model,
-      inputTokens: result.usage.inputTokens,
-      outputTokens: result.usage.outputTokens,
-      estimatedTokens: result.usage.estimated
-        ? result.usage.inputTokens + result.usage.outputTokens
+      model: outcome.model,
+      inputTokens: outcome.usage.inputTokens,
+      outputTokens: outcome.usage.outputTokens,
+      estimatedTokens: outcome.usage.estimated
+        ? outcome.usage.inputTokens + outcome.usage.outputTokens
         : 0,
-      imageCalls: result.imageCalls,
-      transcriptionCalls: result.transcriptionCalls,
-      visionCalls: result.visionCalls,
+      imageCalls: outcome.imageCalls,
+      transcriptionCalls: outcome.transcriptionCalls,
+      visionCalls: outcome.visionCalls,
       points,
       costEstimate: 0,
     });
 
-    // Media bookkeeping.
-    if (result.imageCalls > 0) {
+    // record bot reply (repetition guard + feedback) + brain debug + memory usage
+    const reply: import('../../brain/types.js').BotReplyRecord = {
+      chatId: context.chatId,
+      text: finalText,
+      normalizedText: finalText.toLowerCase().replace(/\s+/g, ' ').trim(),
+      fingerprint: fingerprint(finalText),
+      createdAt: new Date(),
+      styleVariant: outcome.styleVariant,
+      usedMemoryIds: outcome.usedMemoryIds,
+      model: outcome.model,
+    };
+    if (botMessageId !== undefined) reply.messageId = botMessageId;
+    await services.storage.botReplies.record(reply);
+
+    if (env.BRAIN_DEBUG_ENABLED) {
+      await services.storage.brainDebug
+        .record({
+          chatId: context.chatId,
+          ...(context.messageId !== undefined ? { inputMessageId: context.messageId } : {}),
+          createdAt: new Date(),
+          scene: outcome.scene,
+          retrievedMemories: outcome.retrieved.map((m) => ({
+            id: m.item._id ?? '',
+            text: m.item.text,
+            relevance: m.relevance,
+            reason: m.reason,
+          })),
+          plan: outcome.plan,
+          styleVariant: outcome.styleVariant,
+          candidates: outcome.candidates,
+          ranked: outcome.ranked,
+          repetitionChecks: outcome.repetitionChecks,
+          finalText,
+          safetyResult: outcome.safety,
+        })
+        .catch((err) => log.debug({ err }, 'brain debug record failed'));
+    }
+
+    if (outcome.usedMemoryIds.length > 0) {
+      await services.lore.markUsed(outcome.usedMemoryIds).catch(() => undefined);
+    }
+    if (outcome.imageCalls > 0) {
       await services.storage.media.record({
         chatId: context.chatId,
         handle: person.userHandle,
         direction: 'outbound',
         kind: 'image',
         description: 'generated image',
-        ...(result.imageUrl ? { url: result.imageUrl } : {}),
+        ...(outcome.imageUrl ? { url: outcome.imageUrl } : {}),
       });
     }
 
-    // Auto fact extraction (inline, when enabled).
-    const autofact = await services.storage.chats.getAutoFact(context.chatId);
-    if (autofact && finalText) {
-      await services.reply.extractAndStoreFacts(
-        context.chatId,
-        person.userHandle,
-        message.messageText,
-        finalText,
-      );
-    }
+    services.autoengage.noteReply(context.chatId, person.userHandle);
   } catch (err) {
     log.error({ err }, 'reply generation failed');
     const localized = await localizeResponse(services, context.chatId, {
       text: 'generation_failed',
     });
     await sendResponse(ctx, localized).catch(() => undefined);
-  }
-}
-
-async function editText(ctx: GrammyContext, messageId: number, text: string): Promise<void> {
-  if (!ctx.chat) return;
-  try {
-    await ctx.api.editMessageText(ctx.chat.id, messageId, text);
-  } catch (err) {
-    // Telegram throws on identical content / rate limits — safe to ignore.
-    log.debug({ err }, 'editMessageText ignored');
   }
 }

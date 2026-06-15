@@ -1,19 +1,39 @@
+import type { AppConfig } from '../config/index.js';
 import type { ChatContext, IncomingMessage, Person, TranscribedMessage } from '../domain/types.js';
 import type { LLMProvider } from '../providers/llm/types.js';
 import type { MediaProcessor } from '../providers/media/index.js';
 import type { ConversationService } from './conversation.js';
-import type { FactService } from './facts.js';
 import { BOT_LABEL } from './conversation.js';
-import {
-  buildReplyUserPrompt,
-  buildSystemPrompt,
-  buildFactExtractionContext,
-} from '../prompts/index.js';
+import type { MemoryRetriever } from '../memory/memoryRetriever.js';
+import type { SceneAnalyzer } from '../brain/sceneAnalyzer.js';
+import type { RetrievedMemory } from '../memory/types.js';
+import { StyleEngine } from '../brain/styleEngine.js';
+import { ReplyPlanner } from '../brain/replyPlanner.js';
+import { ResponseGenerator } from '../brain/responseGenerator.js';
+import { ResponseRanker } from '../brain/responseRanker.js';
+import { RepetitionGuard } from '../brain/repetitionGuard.js';
+import { StyleSafetyGate } from '../safety/styleSafetyGate.js';
 import { isRefusal } from './modelRouter.js';
-import type { ChatRequest, ChatResult } from '../providers/llm/types.js';
+import type {
+  BotReplyRecord,
+  RankedReply,
+  RepetitionCheck,
+  ReplyPlan,
+  SceneAnalysis,
+  SafetyGateResult,
+} from '../brain/types.js';
 import { childLogger } from '../utils/logger.js';
 
 const log = childLogger('reply');
+
+const IMAGE_REQUEST_RE =
+  /\b(draw|disegna|generate (an )?image|crea (un'?|una )?(immagine|foto|meme)|make (an? )?(image|pic|picture|meme)|genera (un'?|una )?(immagine|foto))\b/i;
+
+const FALLBACKS = [
+  'mi sono quasi ripetuto di nuovo. cancellate quel pensiero, sto rientrando in carreggiata.',
+  'ok stavo per fare l’NPC. reset mentale, ridatemi un secondo che torno cattivo sul serio.',
+  'no aspetta, quella battuta l’ho già fatta. mi merito il ban da solo.',
+];
 
 export interface ReplyContext {
   person: Person;
@@ -23,19 +43,16 @@ export interface ReplyContext {
   language: string;
   modeName: string;
   modeDescription: string;
-  /** model to use for this turn (from ModelRouter); undefined => provider default */
+  nsfwEnabled: boolean;
+  /** model from the NSFW router for this turn */
   model?: string | undefined;
-  /** treat this turn as NSFW (relaxes system prompt) */
-  nsfw?: boolean | undefined;
-  /** NSFW model to upgrade to if the default model refuses (buffered backstop) */
-  nsfwModel?: string | undefined;
-  /** arm the buffered refusal backstop for this turn */
+  /** when the default model refuses, retry with the uncensored model */
   allowRefusalFallback?: boolean | undefined;
-  /** how many leading chars to buffer before deciding refusal */
-  refusalBufferChars?: number | undefined;
+  nsfwModel?: string | undefined;
+  recentBotReplies: BotReplyRecord[];
 }
 
-export interface ReplyResult {
+export interface ReplyOutcome {
   text: string;
   imageUrl?: string;
   imageBuffer?: Buffer;
@@ -45,22 +62,52 @@ export interface ReplyResult {
   visionCalls: number;
   transcriptionCalls: number;
   imageCalls: number;
+  // brain trace (for persistence + debug + feedback)
+  scene: SceneAnalysis;
+  plan: ReplyPlan;
+  styleVariant: string;
+  retrieved: RetrievedMemory[];
+  usedMemoryIds: string[];
+  candidates: string[];
+  ranked: RankedReply[];
+  repetitionChecks: RepetitionCheck[];
+  safety: SafetyGateResult;
 }
 
-/** Heuristic: does the user explicitly ask for an image? Gates the (capability-bound) image path. */
-const IMAGE_REQUEST_RE =
-  /\b(draw|generate (an )?image|make (an? )?(image|pic|picture|meme)|create (an? )?(image|pic)|paint|render (an? )?image)\b/i;
-
+/**
+ * ReplyService: the brain pipeline.
+ *   transcribe → scene → retrieve memory → plan → style → generate candidates → rank →
+ *   repetition guard (regenerate) → safety gate → final reply (+ optional image).
+ * Memory is never dumped; it flows through the retriever and is used implicitly.
+ */
 export class ReplyService {
+  private readonly styleEngine = new StyleEngine();
+  private readonly planner = new ReplyPlanner();
+  private readonly generator: ResponseGenerator;
+  private readonly ranker = new ResponseRanker();
+  private readonly guard: RepetitionGuard;
+  private readonly safety = new StyleSafetyGate();
+
   constructor(
-    private readonly llm: LLMProvider,
+    llm: LLMProvider,
     private readonly media: MediaProcessor,
     private readonly conversation: ConversationService,
-    private readonly facts: FactService,
-    private readonly maxReplyTokens: number,
-  ) {}
+    private readonly sceneAnalyzer: SceneAnalyzer,
+    private readonly memoryRetriever: MemoryRetriever,
+    private readonly config: AppConfig,
+  ) {
+    this.generator = new ResponseGenerator(llm, this.styleEngine, {
+      model: config.brain.replyModel,
+      temperature: config.brain.replyTemperature,
+      topP: config.brain.replyTopP,
+      frequencyPenalty: config.brain.replyFrequencyPenalty,
+      presencePenalty: config.brain.replyPresencePenalty,
+      candidateCount: config.brain.replyCandidateCount,
+      maxReplyChars: config.brain.maxReplyChars,
+    });
+    this.guard = new RepetitionGuard(config.env.REPETITION_SIMILARITY_THRESHOLD);
+  }
 
-  /** Transcribe any attached media into a text-described message. */
   async transcribe(message: IncomingMessage): Promise<{
     transcribed: TranscribedMessage;
     visionCalls: number;
@@ -70,7 +117,6 @@ export class ReplyService {
     let voiceDescription: string | null = null;
     let visionCalls = 0;
     let transcriptionCalls = 0;
-
     if (message.imageBuffer) {
       imageDescription = await this.media.describeImage(
         message.imageBuffer,
@@ -86,7 +132,6 @@ export class ReplyService {
       );
       if (voiceDescription !== null) transcriptionCalls = 1;
     }
-
     return {
       transcribed: {
         messageText: message.messageText || null,
@@ -99,129 +144,168 @@ export class ReplyService {
     };
   }
 
-  /**
-   * Stream a reply. Yields incremental text; returns the final ReplyResult (including an optional
-   * generated image when the user asked for one and the capability exists).
-   */
-  async *streamReply(ctx: ReplyContext): AsyncGenerator<string, ReplyResult, void> {
+  async generateReply(ctx: ReplyContext): Promise<ReplyOutcome> {
     const { transcribed, visionCalls, transcriptionCalls } = await this.transcribe(ctx.message);
+    const history = await this.conversation.getRecent(ctx.context.chatId);
+    const mentioned = ctx.context.mentionedHandles ?? [];
 
-    const [history, groupFacts, userFacts, introduction] = await Promise.all([
-      this.conversation.getRecent(ctx.context.chatId),
-      this.facts.getChatFacts(ctx.context.chatId),
-      this.facts.getForUser(ctx.context.chatId, ctx.person.userHandle),
-      this.facts.getIntroduction(ctx.context.chatId, ctx.person.userHandle),
-    ]);
-
-    const userPrompt = buildReplyUserPrompt({
-      person: ctx.person,
-      message: transcribed,
+    // 1. scene
+    const scene = await this.sceneAnalyzer.analyze({
       history,
-      groupFacts,
-      userFacts,
-      introduction,
+      currentMessage: ctx.message.messageText,
+      currentHandle: ctx.person.userHandle,
+      mentionedHandles: mentioned,
+      botIsAddressed: ctx.context.isBotMentioned || ctx.context.isReplyToBot,
       botLabel: BOT_LABEL,
     });
 
-    const buildReq = (model: string | undefined, nsfw: boolean): ChatRequest => ({
-      system: buildSystemPrompt({
+    // 2. retrieve memory (scored, capped, cooldown-aware)
+    const activeHandles = [...new Set(history.filter((m) => !m.isBot).map((m) => m.handle))];
+    const retrieved = await this.memoryRetriever.retrieve({
+      chatId: ctx.context.chatId,
+      currentMessage: ctx.message.messageText,
+      scene,
+      activeHandles,
+      mentionedHandles: mentioned,
+      repliedToHandle: ctx.context.repliedToUserHandle ?? null,
+      nsfwEnabled: ctx.nsfwEnabled,
+    });
+
+    // 3. style + plan
+    const style = this.styleEngine.sample({
+      modeName: ctx.modeName,
+      modeDescription: ctx.modeDescription,
+      scene,
+      recentBotReplies: ctx.recentBotReplies,
+      nsfwEnabled: ctx.nsfwEnabled,
+    });
+    const bannedOpenings = this.styleEngine.bannedOpenings(ctx.recentBotReplies);
+    const plan = this.planner.plan({
+      scene,
+      retrievedMemories: retrieved,
+      bannedOpenings,
+      currentHandle: ctx.person.userHandle,
+      maxLines: this.config.env.MAX_REPLY_LINES,
+      maxChars: this.config.env.MAX_REPLY_CHARS,
+    });
+
+    // 4. generate candidates
+    const gen = await this.generator.generate({
+      botUsername: ctx.botUsername,
+      chatName: ctx.context.chatName,
+      language: ctx.language,
+      modeName: ctx.modeName,
+      modeDescription: ctx.modeDescription,
+      nsfwEnabled: ctx.nsfwEnabled,
+      scene,
+      plan,
+      style,
+      history,
+      currentUser: ctx.person,
+      currentMessage: transcribed,
+      retrievedMemories: retrieved,
+      botLabel: BOT_LABEL,
+      model: ctx.model,
+    });
+
+    let candidates = gen.candidates;
+    let usage = gen.usage;
+    const allCandidates = [...candidates];
+    const repetitionChecks: RepetitionCheck[] = [];
+
+    // 5. rank + repetition guard (+ regenerate)
+    let best = '';
+    let ranked: RankedReply[] = [];
+    const maxRegen = this.config.brain.replyMaxRegenerations;
+    for (let attempt = 0; attempt <= maxRegen; attempt += 1) {
+      if (candidates.length === 0) break;
+      ranked = this.ranker.rank(candidates, {
+        recent: ctx.recentBotReplies,
+        plan,
+        memories: retrieved,
+        maxChars: this.config.env.MAX_REPLY_CHARS,
+      });
+      const topIdx = ranked[0]?.index ?? 0;
+      best = candidates[topIdx] ?? '';
+      const check = this.guard.check(best, ctx.recentBotReplies, plan, retrieved);
+      repetitionChecks.push(check);
+      if (check.allowed || attempt === maxRegen) break;
+
+      const overusedTexts = retrieved
+        .filter((m) => m.item._id && check.overusedMemoryIds.includes(m.item._id))
+        .map((m) => m.item.text);
+      log.debug({ reason: check.reason, attempt }, 'repetition block — regenerating');
+      const regen = await this.generator.regenerate({
+        system: gen.system,
+        userPrompt: gen.userPrompt,
+        model: ctx.model,
+        bannedPhrases: [...plan.bannedPhrases, best.split(/\s+/).slice(0, 4).join(' ')],
+        overusedMemory: overusedTexts,
+      });
+      candidates = regen.candidates;
+      allCandidates.push(...regen.candidates);
+      usage = {
+        inputTokens: usage.inputTokens + regen.usage.inputTokens,
+        outputTokens: usage.outputTokens + regen.usage.outputTokens,
+        estimated: usage.estimated || regen.usage.estimated,
+      };
+    }
+
+    // 5b. NSFW refusal backstop: if the default model refused and the chat allows NSFW, retry on
+    // the uncensored model (the user never sees the refusal).
+    let model = gen.model;
+    if (ctx.allowRefusalFallback && ctx.nsfwModel && best.trim() && isRefusal(best)) {
+      log.info('default model refused — backstop to NSFW model');
+      const ns = await this.generator.generate({
         botUsername: ctx.botUsername,
         chatName: ctx.context.chatName,
         language: ctx.language,
         modeName: ctx.modeName,
         modeDescription: ctx.modeDescription,
-        nsfw,
-      }),
-      messages: [{ role: 'user', content: userPrompt }],
-      temperature: 0.8,
-      maxTokens: this.maxReplyTokens,
-      ...(model ? { model } : {}),
-    });
-
-    let text = '';
-    let final: ChatResult;
-    const fallbackArmed = Boolean(
-      ctx.allowRefusalFallback && ctx.nsfwModel && ctx.model !== ctx.nsfwModel,
-    );
-
-    if (fallbackArmed) {
-      // Buffer the opening of the default-model reply; if it's a refusal, silently switch to the
-      // NSFW model and restart. Only the first ~buffer chars are withheld, so latency cost is tiny
-      // and the user never sees the refusal.
-      const bufN = ctx.refusalBufferChars ?? 160;
-      const stream = this.llm.streamChatCompletion(buildReq(ctx.model, ctx.nsfw ?? false));
-      let buffer = '';
-      let decided = false;
-      let refused = false;
-      let pendingFinal: ChatResult | null = null;
-      let n = await stream.next();
-      while (!n.done) {
-        buffer += n.value;
-        if (!decided && buffer.length >= bufN) {
-          decided = true;
-          if (isRefusal(buffer)) {
-            refused = true;
-            break;
-          }
-          text += buffer;
-          yield buffer;
-          buffer = '';
-        } else if (decided) {
-          text += n.value;
-          yield n.value;
-        }
-        n = await stream.next();
+        nsfwEnabled: true,
+        scene,
+        plan,
+        style,
+        history,
+        currentUser: ctx.person,
+        currentMessage: transcribed,
+        retrievedMemories: retrieved,
+        botLabel: BOT_LABEL,
+        model: ctx.nsfwModel,
+      });
+      if (ns.candidates.length > 0) {
+        const r = this.ranker.rank(ns.candidates, {
+          recent: ctx.recentBotReplies,
+          plan,
+          memories: retrieved,
+          maxChars: this.config.env.MAX_REPLY_CHARS,
+        });
+        best = ns.candidates[r[0]?.index ?? 0] ?? best;
+        allCandidates.push(...ns.candidates);
+        model = ns.model;
+        usage = {
+          inputTokens: usage.inputTokens + ns.usage.inputTokens,
+          outputTokens: usage.outputTokens + ns.usage.outputTokens,
+          estimated: usage.estimated || ns.usage.estimated,
+        };
       }
-      if (!refused) {
-        pendingFinal = n.done ? n.value : null;
-        if (!decided) {
-          // stream ended before the buffer threshold (short reply)
-          if (isRefusal(buffer)) {
-            refused = true;
-          } else if (buffer) {
-            text += buffer;
-            yield buffer;
-          }
-        }
-      }
-      if (refused) {
-        log.info('default model refused — upgrading turn to the NSFW model');
-        text = '';
-        const ns = this.llm.streamChatCompletion(buildReq(ctx.nsfwModel, true));
-        let m = await ns.next();
-        while (!m.done) {
-          text += m.value;
-          yield m.value;
-          m = await ns.next();
-        }
-        pendingFinal = m.value;
-      }
-      final = pendingFinal ?? { text, model: ctx.model ?? '', usage: { estimated: true } };
-    } else {
-      const stream = this.llm.streamChatCompletion(buildReq(ctx.model, ctx.nsfw ?? false));
-      let n = await stream.next();
-      while (!n.done) {
-        text += n.value;
-        yield n.value;
-        n = await stream.next();
-      }
-      final = n.value;
     }
 
-    text = final.text || text;
-    const usage = {
-      inputTokens: final.usage.inputTokens ?? 0,
-      outputTokens: final.usage.outputTokens ?? 0,
-      estimated: final.usage.estimated,
-    };
-    const model: string | null = final.model || null;
+    if (!best.trim()) best = FALLBACKS[Math.floor(Math.random() * FALLBACKS.length)] as string;
 
-    // Optional image output: only when explicitly requested AND capability exists.
+    // 6. safety gate (in-character deflection for hard limits)
+    const safety = this.safety.evaluate({
+      userMessage: ctx.message.messageText,
+      candidate: best,
+      dangerousIntent: scene.userIntent === 'dangerous_request',
+    });
+    if (!safety.allowed && safety.replacement) best = safety.replacement;
+
+    // 7. optional image output (explicit request + capability)
     let imageUrl: string | undefined;
     let imageBuffer: Buffer | undefined;
     let imageCalls = 0;
-    const wantsImage = IMAGE_REQUEST_RE.test(ctx.message.messageText || '');
-    if (wantsImage && this.media.canGenerateImage) {
+    if (IMAGE_REQUEST_RE.test(ctx.message.messageText || '') && this.media.canGenerateImage) {
       const img = await this.media.generateImage(ctx.message.messageText);
       if (img) {
         imageCalls = 1;
@@ -230,51 +314,31 @@ export class ReplyService {
       }
     }
 
-    const result: ReplyResult = {
-      text,
+    const usedMemoryIds =
+      plan.memoryUseMode === 'none'
+        ? []
+        : retrieved.map((m) => m.item._id).filter((id): id is string => Boolean(id));
+
+    const outcome: ReplyOutcome = {
+      text: best,
       transcribedUserMessage: transcribed,
       usage,
       model,
       visionCalls,
       transcriptionCalls,
       imageCalls,
+      scene,
+      plan,
+      styleVariant: style.variants.join('+'),
+      retrieved,
+      usedMemoryIds,
+      candidates: allCandidates,
+      ranked,
+      repetitionChecks,
+      safety,
     };
-    if (imageUrl !== undefined) result.imageUrl = imageUrl;
-    if (imageBuffer !== undefined) result.imageBuffer = imageBuffer;
-    return result;
-  }
-
-  /**
-   * Extract durable facts from the latest exchange (called when /autofact is ON).
-   * Persists accepted facts and returns how many were stored.
-   */
-  async extractAndStoreFacts(
-    chatId: number,
-    userHandle: string,
-    latestMessage: string,
-    botReply: string,
-  ): Promise<number> {
-    try {
-      const history = await this.conversation.getRecent(chatId);
-      const existing = (await this.facts.getChatFacts(chatId)).map((f) => `${f.handle}: ${f.fact}`);
-      const context = buildFactExtractionContext({
-        userHandle,
-        latestMessage,
-        botReply,
-        history,
-        botLabel: BOT_LABEL,
-      });
-      const facts = await this.llm.extractFacts({ context, existingFacts: existing });
-      let stored = 0;
-      for (const f of facts) {
-        await this.facts.addAutoFact(chatId, f.userHandle, f.fact);
-        stored += 1;
-      }
-      if (stored > 0) log.info({ chatId, stored }, 'auto-extracted facts');
-      return stored;
-    } catch (err) {
-      log.warn({ err }, 'fact extraction failed');
-      return 0;
-    }
+    if (imageUrl !== undefined) outcome.imageUrl = imageUrl;
+    if (imageBuffer !== undefined) outcome.imageBuffer = imageBuffer;
+    return outcome;
   }
 }
