@@ -19,11 +19,17 @@ export interface ChatContext {
   chatId: number;
   chatName?: string | undefined;
   threadId?: number | undefined;
+  /** id of the triggering message (when available) */
+  messageId?: number | undefined;
   isGroup: boolean;
   isBotMentioned: boolean;
   isGroupAdmin: boolean;
   /** handle of the user whose message was replied to, if any */
   repliedToUserHandle?: string | undefined;
+  /** id of the replied-to message, if any (used for reply-centered /fact and /forget) */
+  repliedToMessageId?: number | undefined;
+  /** @handles mentioned in the message text */
+  mentionedHandles?: string[] | undefined;
   /** true when the replied-to message was authored by the bot */
   isReplyToBot: boolean;
 }

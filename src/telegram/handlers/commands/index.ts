@@ -1,7 +1,16 @@
 import type { CommandSpec } from '../types.js';
 import { startCommand, stopCommand, resetCommand } from './lifecycle.js';
 import { modeCommand, addmodeCommand, deletemodeCommand } from './modes.js';
-import { introduceCommand, factCommand, factsCommand, clearfactsCommand } from './facts.js';
+import {
+  introduceCommand,
+  factCommand,
+  setfactCommand,
+  factsCommand,
+  clearfactsCommand,
+  loreCommand,
+  forgetCommand,
+} from './facts.js';
+import { brainCommand, debuglastCommand } from './debug.js';
 import { conversationtrackerCommand, autofactCommand, autoengageCommand } from './toggles.js';
 import { nsfwCommand } from './nsfw.js';
 import { banCommand, unbanCommand } from './moderation.js';
@@ -17,8 +26,11 @@ export const commandHandlers: CommandSpec[] = [
   deletemodeCommand,
   introduceCommand,
   factCommand,
+  setfactCommand,
   factsCommand,
   clearfactsCommand,
+  loreCommand,
+  forgetCommand,
   conversationtrackerCommand,
   autofactCommand,
   autoengageCommand,
@@ -28,5 +40,7 @@ export const commandHandlers: CommandSpec[] = [
   usageCommand,
   languageCommand,
   termsCommand,
+  brainCommand,
+  debuglastCommand,
   helpCommand,
 ];

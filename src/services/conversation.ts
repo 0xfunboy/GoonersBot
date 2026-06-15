@@ -1,5 +1,5 @@
 import type { TranscribedMessage } from '../domain/types.js';
-import type { StoredMessage } from '../storage/repositories/messages.js';
+import type { AddMessageMeta, StoredMessage } from '../storage/repositories/messages.js';
 import type { Storage } from '../storage/index.js';
 
 export const BOT_LABEL = 'bot';
@@ -22,16 +22,34 @@ export class ConversationService {
     return this.storage.chats.isStarted(chatId);
   }
 
-  addUserMessage(chatId: number, handle: string, message: TranscribedMessage): Promise<void> {
-    return this.storage.messages.add(chatId, handle, false, message);
+  addUserMessage(
+    chatId: number,
+    handle: string,
+    message: TranscribedMessage,
+    meta: AddMessageMeta = {},
+  ): Promise<void> {
+    return this.storage.messages.add(chatId, handle, false, message, meta);
   }
 
-  addBotMessage(chatId: number, message: TranscribedMessage): Promise<void> {
-    return this.storage.messages.add(chatId, BOT_LABEL, true, message);
+  addBotMessage(
+    chatId: number,
+    message: TranscribedMessage,
+    meta: AddMessageMeta = {},
+  ): Promise<void> {
+    return this.storage.messages.add(chatId, BOT_LABEL, true, message, meta);
   }
 
-  getRecent(chatId: number): Promise<StoredMessage[]> {
-    return this.storage.messages.getRecent(chatId, this.maxContextMessages);
+  getRecent(chatId: number, limit?: number): Promise<StoredMessage[]> {
+    return this.storage.messages.getRecent(chatId, limit ?? this.maxContextMessages);
+  }
+
+  getWindowAroundMessage(
+    chatId: number,
+    messageId: number,
+    before: number,
+    after: number,
+  ): Promise<StoredMessage[]> {
+    return this.storage.messages.getWindowAroundMessage(chatId, messageId, before, after);
   }
 
   reset(chatId: number): Promise<void> {

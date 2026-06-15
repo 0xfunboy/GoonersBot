@@ -60,10 +60,10 @@ export const translations: TranslationMap = {
     spanish: 'Dile a GoonerBot quién eres',
   },
   fact_description: {
-    italian: 'Salva un fatto su un Gooner',
-    english: 'Save a fact about a Gooner',
-    russian: 'Сохранить факт о пользователе',
-    spanish: 'Guarda un dato sobre un Gooner',
+    italian: 'Estrai lore dalla chat recente (o dal messaggio in reply)',
+    english: 'Mine lore from recent chat (or the replied message)',
+    russian: 'Извлечь лор из недавнего чата (или из сообщения в ответе)',
+    spanish: 'Extrae lore del chat reciente (o del mensaje citado)',
   },
   facts_description: {
     italian: 'Mostra i fatti salvati su un Gooner',
@@ -142,6 +142,36 @@ export const translations: TranslationMap = {
     english: 'A GoonerBot command',
     russian: 'Команда GoonerBot',
     spanish: 'Un comando de GoonerBot',
+  },
+  setfact_description: {
+    italian: 'Inserisci lore manuale (solo admin)',
+    english: 'Manually insert lore (admin only)',
+    russian: 'Вручную добавить лор (только админ)',
+    spanish: 'Inserta lore manualmente (solo admin)',
+  },
+  lore_description: {
+    italian: 'Mostra la lore top del gruppo',
+    english: 'Show the top group lore',
+    russian: 'Показать топ-лор группы',
+    spanish: 'Muestra la lore principal del grupo',
+  },
+  forget_description: {
+    italian: 'Dimentica un pezzo di lore (rispondi al messaggio)',
+    english: 'Forget a piece of lore (reply to the message)',
+    russian: 'Забыть кусок лора (ответом на сообщение)',
+    spanish: 'Olvida un trozo de lore (responde al mensaje)',
+  },
+  brain_description: {
+    italian: 'Mostra l’ultimo ragionamento (admin)',
+    english: 'Show the last brain turn (admin)',
+    russian: 'Показать последний ход мозга (админ)',
+    spanish: 'Muestra el último turno del cerebro (admin)',
+  },
+  debuglast_description: {
+    italian: 'Dump JSON dell’ultimo turno (admin)',
+    english: 'JSON dump of the last turn (admin)',
+    russian: 'JSON-дамп последнего хода (админ)',
+    spanish: 'Volcado JSON del último turno (admin)',
   },
 
   // ---- responses ----
@@ -248,10 +278,65 @@ export const translations: TranslationMap = {
     spanish: 'Aún no tengo nada de {user_handle}.',
   },
   facts_cleared: {
-    italian: 'Fatti su {user_handle} cancellati.',
-    english: 'Facts about {user_handle} wiped.',
-    russian: 'Факты о {user_handle} очищены.',
-    spanish: 'Datos sobre {user_handle} borrados.',
+    italian: 'Lore su {user_handle} archiviata. Tabula rasa.',
+    english: 'Lore about {user_handle} wiped.',
+    russian: 'Лор о {user_handle} очищен.',
+    spanish: 'Lore sobre {user_handle} borrada.',
+  },
+  fact_mined: {
+    italian:
+      'Salvati {stored} pezzi di lore ({reinforced} rinforzati). Il resto era rumore da cortile.',
+    english: 'Saved {stored} lore bits ({reinforced} reinforced). The rest was background noise.',
+    russian: 'Сохранил {stored} кусков лора ({reinforced} усилено). Остальное — шум.',
+    spanish: 'Guardé {stored} trozos de lore ({reinforced} reforzados). El resto era ruido.',
+  },
+  fact_mined_none: {
+    italian: 'Niente di degno da ricordare qui. Riprova quando dite qualcosa di memorabile.',
+    english: 'Nothing worth remembering here. Try again when you say something memorable.',
+    russian: 'Тут нечего запоминать. Попробуй, когда скажете что-то стоящее.',
+    spanish: 'Nada digno de recordar. Vuelve cuando digáis algo memorable.',
+  },
+  setfact_added: {
+    italian: 'Lore su {user_handle} incisa nella pietra.',
+    english: 'Lore about {user_handle} carved in stone.',
+    russian: 'Лор о {user_handle} высечен в камне.',
+    spanish: 'Lore sobre {user_handle} grabada en piedra.',
+  },
+  setfact_usage: {
+    italian: 'Uso: /setfact @handle <testo> oppure /setfact <lore di gruppo>',
+    english: 'Usage: /setfact @handle <text> or /setfact <group lore>',
+    russian: 'Использование: /setfact @handle <текст> или /setfact <лор группы>',
+    spanish: 'Uso: /setfact @handle <texto> o /setfact <lore de grupo>',
+  },
+  lore_text: {
+    italian: '📜 Lore del gruppo:\n{lore}',
+    english: '📜 Group lore:\n{lore}',
+    russian: '📜 Лор группы:\n{lore}',
+    spanish: '📜 Lore del grupo:\n{lore}',
+  },
+  lore_empty: {
+    italian: 'Ancora nessuna lore. Vivete di più e tornate.',
+    english: 'No lore yet. Go live a little and come back.',
+    russian: 'Пока нет лора. Поживите немного и вернитесь.',
+    spanish: 'Aún no hay lore. Vivid un poco y volved.',
+  },
+  forget_done: {
+    italian: 'Dimenticato. Quel ricordo non esiste più, come la tua dignità.',
+    english: 'Forgotten. That memory is gone, like your dignity.',
+    russian: 'Забыто. Этого воспоминания больше нет, как и твоего достоинства.',
+    spanish: 'Olvidado. Ese recuerdo ya no existe, como tu dignidad.',
+  },
+  forget_none: {
+    italian: 'Non c’era lore collegata a quel messaggio.',
+    english: 'No lore was tied to that message.',
+    russian: 'С тем сообщением не связан лор.',
+    spanish: 'No había lore ligada a ese mensaje.',
+  },
+  forget_usage: {
+    italian: 'Rispondi a un messaggio con /forget, oppure (admin) /forget <id>.',
+    english: 'Reply to a message with /forget, or (admin) /forget <id>.',
+    russian: 'Ответь на сообщение командой /forget, или (админ) /forget <id>.',
+    spanish: 'Responde a un mensaje con /forget, o (admin) /forget <id>.',
   },
   clearfacts_forbidden: {
     italian: 'Solo gli admin possono cancellare i fatti di altri Gooner.',

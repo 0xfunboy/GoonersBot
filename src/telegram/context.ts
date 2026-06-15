@@ -61,17 +61,29 @@ export async function buildChatContext(
   const isGroup = chat.type === 'group' || chat.type === 'supergroup';
   const repliedUsername = ctx.message?.reply_to_message?.from?.username;
 
+  const text = ctx.message?.text ?? ctx.message?.caption ?? '';
   const out: ChatContext = {
     chatId: chat.id,
     isGroup,
     isBotMentioned: mentioned,
     isGroupAdmin: await isGroupAdmin(ctx),
     isReplyToBot: replyToBot,
+    mentionedHandles: extractMentions(text),
   };
   if ('title' in chat && chat.title) out.chatName = chat.title;
   if (ctx.message?.message_thread_id !== undefined) out.threadId = ctx.message.message_thread_id;
+  if (ctx.message?.message_id !== undefined) out.messageId = ctx.message.message_id;
   if (repliedUsername) out.repliedToUserHandle = normalizeHandle(repliedUsername);
+  if (ctx.message?.reply_to_message?.message_id !== undefined) {
+    out.repliedToMessageId = ctx.message.reply_to_message.message_id;
+  }
   return out;
+}
+
+/** Extract @handles mentioned in message text (excludes bare @). */
+export function extractMentions(text: string): string[] {
+  const matches = text.match(/@[A-Za-z0-9_]{3,}/g) ?? [];
+  return [...new Set(matches.map((m) => m.toLowerCase()))];
 }
 
 /** Download a Telegram file by file_id into a Buffer (with size cap). */

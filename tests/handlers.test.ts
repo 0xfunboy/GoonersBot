@@ -158,37 +158,37 @@ describe('clearfacts permission adaptation', () => {
   const notBotAdmin = { isBotAdmin: () => false };
 
   it('blocks clearing another user’s facts without admin', async () => {
-    const services = { facts: { clearForUser: vi.fn() }, permissions: notBotAdmin };
+    const services = { lore: { expireForSubject: vi.fn() }, permissions: notBotAdmin };
     const res = await clearfactsCommand.handle(
       input(services, ['@alice'], context({ isGroupAdmin: false })),
     );
     expect(res?.text).toBe('clearfacts_forbidden');
-    expect(services.facts.clearForUser as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+    expect(services.lore.expireForSubject as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
   });
 
   it('allows self-clear for anyone', async () => {
-    const clearForUser = vi.fn().mockResolvedValue(0);
-    const services = { facts: { clearForUser }, permissions: notBotAdmin };
+    const expireForSubject = vi.fn().mockResolvedValue(0);
+    const services = { lore: { expireForSubject }, permissions: notBotAdmin };
     const res = await clearfactsCommand.handle(
       input(services, [], context({ isGroupAdmin: false })),
     );
     expect(res?.text).toBe('facts_cleared');
-    expect(clearForUser).toHaveBeenCalledWith(-1, '@bob');
+    expect(expireForSubject).toHaveBeenCalledWith(-1, '@bob');
   });
 
   it('allows admins to clear others', async () => {
-    const clearForUser = vi.fn().mockResolvedValue(2);
-    const services = { facts: { clearForUser }, permissions: notBotAdmin };
+    const expireForSubject = vi.fn().mockResolvedValue(2);
+    const services = { lore: { expireForSubject }, permissions: notBotAdmin };
     const res = await clearfactsCommand.handle(
       input(services, ['@alice'], context({ isGroupAdmin: true })),
     );
     expect(res?.text).toBe('facts_cleared');
-    expect(clearForUser).toHaveBeenCalledWith(-1, '@alice');
+    expect(expireForSubject).toHaveBeenCalledWith(-1, '@alice');
   });
 
   it('allows a bot admin to clear others even without group admin', async () => {
-    const clearForUser = vi.fn().mockResolvedValue(1);
-    const services = { facts: { clearForUser }, permissions: { isBotAdmin: () => true } };
+    const expireForSubject = vi.fn().mockResolvedValue(1);
+    const services = { lore: { expireForSubject }, permissions: { isBotAdmin: () => true } };
     const res = await clearfactsCommand.handle(
       input(services, ['@alice'], context({ isGroupAdmin: false })),
     );

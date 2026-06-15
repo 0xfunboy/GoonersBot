@@ -63,11 +63,16 @@ export interface FactDoc {
 
 export interface MessageDoc {
   chatId: number;
+  messageId?: number | null;
   userHandle: string;
+  telegramId?: number | null;
   isBot: boolean;
   messageText: string | null;
   imageDescription?: string | null;
   voiceDescription?: string | null;
+  replyToMessageId?: number | null;
+  replyToHandle?: string | null;
+  mentionedHandles?: string[];
   timestamp: Date;
   createdAt: Date;
 }

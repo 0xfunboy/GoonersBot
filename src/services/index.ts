@@ -5,6 +5,8 @@ import type { LLMProvider } from '../providers/llm/types.js';
 import { MediaProcessor } from '../providers/media/index.js';
 import type { Storage } from '../storage/index.js';
 import { Cooldown } from '../utils/rateLimit.js';
+import { MemoryMiner } from '../memory/memoryMiner.js';
+import { LoreEngine } from '../memory/loreEngine.js';
 import { AutoEngageScorer } from './autoengage.js';
 import { BanService } from './bans.js';
 import { ModelRouter } from './modelRouter.js';
@@ -45,6 +47,7 @@ export class Services {
   readonly reply: ReplyService;
   readonly media: MediaProcessor;
   readonly modelRouter: ModelRouter;
+  readonly lore: LoreEngine;
   /** per-user, per-chat anti-spam cooldown for command invocations */
   readonly commandRateLimit: Cooldown;
 
@@ -78,6 +81,13 @@ export class Services {
       refusalBufferChars: env.LLM_REFUSAL_BUFFER_CHARS,
     });
     this.commandRateLimit = new Cooldown(env.COMMAND_RATE_LIMIT_SECONDS * 1000);
+    const miner = new MemoryMiner(llm, {
+      model: config.brain.memoryModel,
+      temperature: env.MEMORY_TEMPERATURE,
+      maxCandidates: env.MEMORY_MAX_CANDIDATES_PER_RUN,
+      minSalience: env.MEMORY_MIN_SALIENCE,
+    });
+    this.lore = new LoreEngine(storage, miner);
   }
 
   /** Ensure baseline records exist for this person/chat. Idempotent; runs before each handler. */
