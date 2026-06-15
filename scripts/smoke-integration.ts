@@ -143,29 +143,27 @@ async function main(): Promise<void> {
   check('terms decline', await services.terms.hasDeclined(person.userHandle));
   await services.terms.accept(person.userHandle);
 
-  console.log('\n[3] ReplyService end-to-end (real LLM)');
+  console.log('\n[3] Brain reply pipeline end-to-end (real LLM)');
   await storage.chats.startChat(chatId);
   const active = await services.modes.getActive(chatId);
-  let replyText = '';
-  let replyChunks = 0;
-  const rgen = services.reply.streamReply({
+  const result = await services.reply.generateReply({
     person,
     context,
-    message: { messageText: '@TeGemAI_bot gm, hype us up for the Friday raid in one line', timestamp: new Date() },
+    message: {
+      messageText: '@TeGemAI_bot gm, hype us up for the Friday raid in one line',
+      timestamp: new Date(),
+    },
     botUsername: 'TeGemAI_bot',
     language: 'english',
     modeName: active?.name ?? 'Default',
     modeDescription: active?.description ?? 'natural participant',
+    nsfwEnabled: false,
+    recentBotReplies: [],
   });
-  let rn = await rgen.next();
-  while (!rn.done) {
-    replyText += rn.value;
-    replyChunks += 1;
-    rn = await rgen.next();
-  }
-  const result = rn.value;
-  check('reply produced text', (result.text || replyText).length > 0, JSON.stringify((result.text || replyText).slice(0, 120)));
-  check('reply streamed', replyChunks > 0, `${replyChunks} chunks`);
+  check('reply produced text', result.text.length > 0, JSON.stringify(result.text.slice(0, 120)));
+  check('scene analyzed', Boolean(result.scene), `intent=${result.scene.userIntent}`);
+  check('plan produced', Boolean(result.plan.replyIntent), `intent=${result.plan.replyIntent}`);
+  check('candidates generated', result.candidates.length > 0, `${result.candidates.length} candidates`);
   check('reply usage captured', result.usage.outputTokens > 0 || result.usage.estimated);
 
   console.log('\n[4] Autoengage decision (mention path)');
@@ -215,8 +213,7 @@ async function main(): Promise<void> {
   );
 
   if (router.nsfwModel) {
-    let nsfwText = '';
-    const ng = services.reply.streamReply({
+    const ngOut = await services.reply.generateReply({
       person,
       context,
       message: { messageText: 'In one short flirty line, hype me up', timestamp: new Date() },
@@ -224,17 +221,13 @@ async function main(): Promise<void> {
       language: 'english',
       modeName: 'Default',
       modeDescription: 'flirty hype',
+      nsfwEnabled: true,
       model: router.nsfwModel,
-      nsfw: true,
       nsfwModel: router.nsfwModel,
       allowRefusalFallback: false,
+      recentBotReplies: [],
     });
-    let ngn = await ng.next();
-    while (!ngn.done) {
-      nsfwText += ngn.value;
-      ngn = await ng.next();
-    }
-    const out = ngn.value.text || nsfwText;
+    const out = ngOut.text;
     check('nsfw model produced a non-refusal reply', out.length > 0 && !isRefusal(out), out.slice(0, 80));
   }
 

@@ -215,10 +215,13 @@ decided **before** generation (no extra-LLM-call latency) and gated **per-chat**
 | `/mode` | admin¹ | pick a mode |
 | `/addmode <description>` | admin¹ | add a custom mode (`[nsfw]` prefix flags it adult) |
 | `/deletemode` | admin¹ | delete a mode |
-| `/introduce <text>` | anyone² | tell GoonerBot who you are |
-| `/fact @handle <fact>` | anyone² | save a fact about a Gooner |
-| `/facts [@handle]` | anyone | show stored facts |
-| `/clearfacts [@handle]` | self / admin | clear facts (self anytime; others = admin) |
+| `/introduce <text>` | anyone² | tell GoonerBot who you are (saved as lore) |
+| `/fact` | anyone² | **mine** durable lore from recent chat (or the replied-to window) — no more arbitrary poisoning |
+| `/setfact @handle <text>` | admin | manually insert lore |
+| `/facts [@handle]` | anyone | show stored lore (reads `memory_items`) |
+| `/clearfacts [@handle]` | self / admin | expire stored lore (self anytime; others = admin) |
+| `/lore` | anyone | top group lore (max 5) |
+| `/forget` | reply / admin | reply to a message to forget lore mined from it; admin `/forget <id>` |
 | `/usage` | anyone | your usage & limits |
 | `/language` | admin¹ | set chat language (it / en / ru / es) |
 | `/terms` | anyone | terms of use + acceptance |
@@ -282,6 +285,26 @@ auto-fact extraction (if `/autofact`).
 
 ---
 
+## Brain & memory
+
+GoonerBot doesn't dump facts into every prompt. Each reply runs a small **brain pipeline** so it
+behaves like a real group member, not a deterministic bot:
+
+```text
+message → Scene Analyzer → Memory Retriever → Reply Planner → Style Engine →
+          Response Generator (N candidates) → Ranker → Repetition Guard (regenerate) →
+          Safety Gate → reply  +  (background) Memory Mining & Feedback Learning
+```
+
+- **Scene Analyzer** reads what's happening (topic, energy, intent, is-the-bot-being-roasted) — LLM with a deterministic fallback.
+- **Memory Retriever** pulls **only** the few memories relevant to this turn (scored by handle/keyword/topic/salience), excludes recently-used ones (cooldowns), and returns **nothing** when the chat is roasting the bot for repetition.
+- **Reply Planner + Style Engine** pick intent, tone, length and one of 10 voice variants; a dynamic banned-openings list kills repeated tics.
+- **Generator** produces several candidates (high temperature + frequency/presence penalties); the **Ranker** + **Repetition Guard** drop assistant-tone, repeated, or verbatim-memory replies and **regenerate** if needed.
+- **Memory** lives in `memory_items` (mined lore with confidence/salience/toxicity), not raw text. Use it via `/fact`, `/setfact`, `/facts`, `/lore`, `/forget`. Background jobs **mine lore while the bot is silent** (`/autofact` chats) and **learn from feedback** (reactions/criticism adjust memory salience and make autoengage more conservative after bad turns).
+- **Debug:** admins use `/brain` (readable last-turn summary) and `/debuglast` (JSON) to see exactly why the bot answered the way it did.
+
+The legacy `facts` collection is auto-migrated into `memory_items` on first boot.
+
 ## Configuration (all env vars)
 
 Validated with **zod** at startup; the bot **fails fast** on a missing/invalid required var. Optional
@@ -324,6 +347,22 @@ capabilities never block startup. Copy `.env.example` → `.env` (gitignored; ne
 | `LLM_NSFW_LEXICON` | — | Extra comma-separated trigger terms (smart mode). |
 | `LLM_REFUSAL_FALLBACK` | `true` | Buffered backstop: retry on the NSFW model if the default refuses. |
 | `LLM_REFUSAL_BUFFER_CHARS` | `160` | Leading chars buffered before deciding a refusal. |
+
+### Brain pipeline
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `SCENE_MODEL` / `PLANNER_MODEL` / `REPLY_MODEL` / `RANKER_MODEL` / `MEMORY_MODEL` / `SAFETY_MODEL` | `LLM_MODEL` | Per-stage model overrides; empty ⇒ fall back to `LLM_MODEL`. |
+| `REPLY_TEMPERATURE` | `0.95` | Generation temperature (higher = less robotic). |
+| `REPLY_TOP_P` / `REPLY_FREQUENCY_PENALTY` / `REPLY_PRESENCE_PENALTY` | `0.95` / `0.6` / `0.4` | Sampling/anti-repetition penalties. |
+| `REPLY_CANDIDATE_COUNT` | `3` | Candidates generated per reply (ranked). |
+| `REPLY_MAX_REGENERATIONS` | `2` | Regenerations when the repetition guard blocks. |
+| `MAX_REPLY_LINES` / `MAX_REPLY_CHARS` | `3` / `420` | Reply length caps. |
+| `REPETITION_SIMILARITY_THRESHOLD` | `0.72` | Block a reply too similar to recent ones. |
+| `MEMORY_*` | see `.env.example` | Mining confidence/salience, per-reply caps, cooldowns, context window. |
+| `MEMORY_MINING_ENABLED` / `MEMORY_MINING_INTERVAL_SECONDS` | `true` / `300` | Background lore mining for `/autofact` chats. |
+| `FEEDBACK_LEARNING_ENABLED` / `FEEDBACK_LOOKAHEAD_MESSAGES` | `true` / `10` | Learn from reactions/criticism. |
+| `BRAIN_DEBUG_ENABLED` / `BRAIN_DEBUG_TTL_DAYS` | `true` / `7` | `/brain` + `/debuglast` storage. |
 
 ### Behaviour, limits & memory
 

@@ -63,7 +63,7 @@ export class SceneAnalyzer {
         schema: sceneSchema,
         temperature: this.cfg.temperature,
         ...(this.cfg.model ? { model: this.cfg.model } : {}),
-        maxTokens: 400,
+        maxTokens: 1200,
       });
       if (!parsed) return heuristic;
       // Trust the model but keep hard signals from the platform/heuristic.

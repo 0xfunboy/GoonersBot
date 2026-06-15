@@ -61,7 +61,7 @@ export class MemoryMiner {
       schema: memoryMiningResultSchema,
       temperature: this.cfg.temperature,
       ...(this.cfg.model ? { model: this.cfg.model } : {}),
-      maxTokens: 900,
+      maxTokens: 1500,
     });
     if (!result) return [];
 

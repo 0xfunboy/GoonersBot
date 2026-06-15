@@ -55,7 +55,9 @@ export class ResponseGenerator {
   ) {}
 
   private maxTokens(): number {
-    return Math.max(120, Math.ceil(this.cfg.maxReplyChars / 2));
+    // Generous cap: reasoning models (e.g. gpt-oss) spend tokens on a hidden reasoning channel
+    // before the visible reply, so a tight cap yields empty content. The prompt enforces brevity.
+    return Math.max(900, this.cfg.maxReplyChars * 2);
   }
 
   async generate(input: GenerateReplyInput): Promise<GeneratedCandidates> {
