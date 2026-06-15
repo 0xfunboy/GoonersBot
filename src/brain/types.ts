@@ -1,5 +1,5 @@
 /**
- * Brain pipeline types: scene → plan → style → generate → rank → repetition guard → safety.
+ * Brain pipeline types: scene → plan → style → generate → rank → repetition guard.
  * These power the shift from a deterministic reply bot to a context-aware group character.
  */
 
@@ -67,7 +67,6 @@ export interface ReplyPlan {
   forbiddenReferences: string[];
   bannedPhrases: string[];
   noveltyInstruction: string;
-  safetyInstruction: string;
   mustAnswer: boolean;
 }
 
@@ -102,14 +101,6 @@ export interface RepetitionCheck {
   sameOpening: boolean;
 }
 
-export interface SafetyGateResult {
-  allowed: boolean;
-  action: 'allow' | 'deflect' | 'block';
-  reason: string;
-  /** when deflecting/blocking, an in-character replacement line */
-  replacement?: string;
-}
-
 /** A persisted bot reply (for repetition guard + feedback). */
 export interface BotReplyRecord {
   _id?: string;
@@ -138,5 +129,4 @@ export interface BrainDebugTurn {
   ranked: RankedReply[];
   repetitionChecks: RepetitionCheck[];
   finalText: string;
-  safetyResult: SafetyGateResult;
 }

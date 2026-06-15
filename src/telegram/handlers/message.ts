@@ -249,7 +249,6 @@ export async function handleMessage(
           ranked: outcome.ranked,
           repetitionChecks: outcome.repetitionChecks,
           finalText,
-          safetyResult: outcome.safety,
         })
         .catch((err) => log.debug({ err }, 'brain debug record failed'));
     }

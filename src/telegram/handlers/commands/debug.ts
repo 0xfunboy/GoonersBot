@@ -24,7 +24,6 @@ export const brainCommand: CommandSpec = {
       `memories used:\n${mem || '  (none)'}`,
       `candidates: ${turn.candidates.length}`,
       `repetition: ${turn.repetitionChecks.map((r) => (r.allowed ? 'ok' : `blocked(${r.reason})`)).join(', ') || '(none)'}`,
-      `safety: ${turn.safetyResult.action}`,
       `final: ${turn.finalText.slice(0, 200)}`,
     ];
     return { rawText: lines.join('\n') };
@@ -50,7 +49,6 @@ export const debuglastCommand: CommandSpec = {
       candidates: turn.candidates,
       ranked: turn.ranked,
       repetition: turn.repetitionChecks,
-      safety: turn.safetyResult,
       finalText: turn.finalText,
     };
     const json = JSON.stringify(compact, null, 2).slice(0, 3500);

@@ -12,7 +12,6 @@ import { ReplyPlanner } from '../brain/replyPlanner.js';
 import { ResponseGenerator } from '../brain/responseGenerator.js';
 import { ResponseRanker } from '../brain/responseRanker.js';
 import { RepetitionGuard } from '../brain/repetitionGuard.js';
-import { StyleSafetyGate } from '../safety/styleSafetyGate.js';
 import { isRefusal } from './modelRouter.js';
 import type {
   BotReplyRecord,
@@ -20,7 +19,6 @@ import type {
   RepetitionCheck,
   ReplyPlan,
   SceneAnalysis,
-  SafetyGateResult,
 } from '../brain/types.js';
 import { childLogger } from '../utils/logger.js';
 
@@ -71,13 +69,12 @@ export interface ReplyOutcome {
   candidates: string[];
   ranked: RankedReply[];
   repetitionChecks: RepetitionCheck[];
-  safety: SafetyGateResult;
 }
 
 /**
  * ReplyService: the brain pipeline.
  *   transcribe → scene → retrieve memory → plan → style → generate candidates → rank →
- *   repetition guard (regenerate) → safety gate → final reply (+ optional image).
+ *   repetition guard (regenerate) → final reply (+ optional image).
  * Memory is never dumped; it flows through the retriever and is used implicitly.
  */
 export class ReplyService {
@@ -86,7 +83,6 @@ export class ReplyService {
   private readonly generator: ResponseGenerator;
   private readonly ranker = new ResponseRanker();
   private readonly guard: RepetitionGuard;
-  private readonly safety = new StyleSafetyGate();
 
   constructor(
     llm: LLMProvider,
@@ -300,15 +296,7 @@ export class ReplyService {
 
     if (!best.trim()) best = FALLBACKS[Math.floor(Math.random() * FALLBACKS.length)] as string;
 
-    // 6. safety gate (in-character deflection for hard limits)
-    const safety = this.safety.evaluate({
-      userMessage: ctx.message.messageText,
-      candidate: best,
-      dangerousIntent: scene.userIntent === 'dangerous_request',
-    });
-    if (!safety.allowed && safety.replacement) best = safety.replacement;
-
-    // 7. optional image output (explicit request + capability)
+    // 6. optional image output (explicit request + capability)
     let imageUrl: string | undefined;
     let imageBuffer: Buffer | undefined;
     let imageCalls = 0;
@@ -342,7 +330,6 @@ export class ReplyService {
       candidates: allCandidates,
       ranked,
       repetitionChecks,
-      safety,
     };
     if (imageUrl !== undefined) outcome.imageUrl = imageUrl;
     if (imageBuffer !== undefined) outcome.imageBuffer = imageBuffer;

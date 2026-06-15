@@ -88,10 +88,6 @@ export class ReplyPlanner {
       noveltyInstruction: s.botIsBeingCriticized
         ? 'Cambia completamente struttura e apertura rispetto alle risposte recenti. Ammetti il loop con auto-ironia, poi rispondi in modo diverso.'
         : 'Evita aperture e battute già usate di recente.',
-      safetyInstruction:
-        s.userIntent === 'dangerous_request'
-          ? 'Rispondi con fatti reali ad alto livello e rischi concreti, ma niente istruzioni operative, ricette, dosi, passaggi, fonti o ottimizzazioni. Tono da amico stronzo, non da policy aziendale.'
-          : '',
       mustAnswer: addressed || s.userIntent === 'dangerous_request' || s.userIntent === 'ask_bot',
     };
   }

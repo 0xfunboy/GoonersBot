@@ -156,7 +156,6 @@ const envSchema = z.object({
   REPLY_MODEL: optStr,
   RANKER_MODEL: optStr,
   MEMORY_MODEL: optStr,
-  SAFETY_MODEL: optStr,
 
   // Brain temperatures
   SCENE_TEMPERATURE: floatFromString(0.2),

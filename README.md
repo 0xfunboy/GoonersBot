@@ -293,7 +293,7 @@ behaves like a real group member, not a deterministic bot:
 ```text
 message → Scene Analyzer → Memory Retriever → Reply Planner → Style Engine →
           Response Generator (1+ candidates) → Ranker → Repetition Guard (regenerate) →
-          Safety Gate → reply  +  (background) Memory Mining & Feedback Learning
+          reply  +  (background) Memory Mining & Feedback Learning
 ```
 
 - **Scene Analyzer** reads what's happening (topic, energy, intent, is-the-bot-being-roasted) — LLM with a deterministic fallback.
@@ -352,7 +352,7 @@ capabilities never block startup. Copy `.env.example` → `.env` (gitignored; ne
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `SCENE_MODEL` / `PLANNER_MODEL` / `REPLY_MODEL` / `RANKER_MODEL` / `MEMORY_MODEL` / `SAFETY_MODEL` | `LLM_MODEL` | Per-stage model overrides; empty ⇒ fall back to `LLM_MODEL`. |
+| `SCENE_MODEL` / `PLANNER_MODEL` / `REPLY_MODEL` / `RANKER_MODEL` / `MEMORY_MODEL` | `LLM_MODEL` | Per-stage model overrides; empty ⇒ fall back to `LLM_MODEL`. |
 | `REPLY_TEMPERATURE` | `0.95` | Generation temperature (higher = less robotic). |
 | `REPLY_TOP_P` / `REPLY_FREQUENCY_PENALTY` / `REPLY_PRESENCE_PENALTY` | `0.95` / `0.6` / `0.4` | Sampling/anti-repetition penalties. |
 | `REPLY_CANDIDATE_COUNT` | `1` | Candidates generated per reply (ranked). Keep at `1` for fast chat; raise only if you want extra sampling. |

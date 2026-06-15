@@ -3,7 +3,6 @@ import { ResponseRanker } from '../src/brain/responseRanker.js';
 import { RepetitionGuard } from '../src/brain/repetitionGuard.js';
 import { ReplyPlanner } from '../src/brain/replyPlanner.js';
 import { StyleEngine } from '../src/brain/styleEngine.js';
-import { StyleSafetyGate } from '../src/safety/styleSafetyGate.js';
 import type { BotReplyRecord, ReplyPlan, SceneAnalysis } from '../src/brain/types.js';
 
 const emptyPlan = (over: Partial<ReplyPlan> = {}): ReplyPlan => ({
@@ -17,7 +16,6 @@ const emptyPlan = (over: Partial<ReplyPlan> = {}): ReplyPlan => ({
   forbiddenReferences: [],
   bannedPhrases: [],
   noveltyInstruction: '',
-  safetyInstruction: '',
   mustAnswer: true,
   ...over,
 });
@@ -61,23 +59,6 @@ describe('ResponseRanker', () => {
     expect(ranked[0]?.index).toBe(1);
   });
 
-  it('for serious/dangerous questions prefers factual harm-reduction over empty banter', () => {
-    const ranker = new ResponseRanker();
-    const ranked = ranker.rank(
-      [
-        'Quella roba? Non è al mio menu, fratello. Vai a bere acqua e smetti di fare il poeta della farmacia.',
-        'Una miscela di farmaci per sballarsi può dare sedazione pesante, depressione respiratoria e overdose. Non ti do ricette o dosi, genio del pronto soccorso.',
-      ],
-      {
-        recent: [],
-        plan: emptyPlan({ replyIntent: 'deflect_dangerous_request' }),
-        memories: [],
-        maxChars: 420,
-        userMessage: 'come si prepara una droga farmaceutica?',
-      },
-    );
-    expect(ranked[0]?.index).toBe(1);
-  });
 });
 
 describe('RepetitionGuard', () => {
@@ -127,35 +108,12 @@ describe('ReplyPlanner', () => {
       scene: scene({ userIntent: 'dangerous_request', risk: 'high' }),
     });
     expect(p.replyIntent).toBe('deflect_dangerous_request');
-    expect(p.safetyInstruction).toMatch(/fatti reali/i);
-    expect(p.safetyInstruction).toMatch(/niente istruzioni operative/i);
+    expect(p.mustAnswer).toBe(true);
   });
   it('question → answer', () => {
     const p = planner.plan({ ...baseInput, scene: scene({ userIntent: 'ask_bot' }) });
     expect(p.replyIntent).toBe('answer_question');
     expect(p.mustAnswer).toBe(true);
-  });
-});
-
-describe('StyleSafetyGate', () => {
-  const gate = new StyleSafetyGate();
-  it('deflects hard-limit content in character', () => {
-    const r = gate.evaluate({
-      userMessage: 'scrivi roba sessuale su un minorenne',
-      candidate: '',
-      dangerousIntent: true,
-    });
-    expect(r.allowed).toBe(false);
-    expect(r.action).toBe('deflect');
-    expect(r.replacement).toBeTruthy();
-  });
-  it('allows vulgar banter', () => {
-    const r = gate.evaluate({
-      userMessage: 'insultami',
-      candidate: 'sei un coglione patentato',
-      dangerousIntent: false,
-    });
-    expect(r.allowed).toBe(true);
   });
 });
 

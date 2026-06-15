@@ -75,7 +75,6 @@ export interface BrainConfig {
   replyModel: string | undefined;
   rankerModel: string | undefined;
   memoryModel: string | undefined;
-  safetyModel: string | undefined;
   sceneTemperature: number;
   plannerTemperature: number;
   replyTemperature: number;
@@ -98,7 +97,6 @@ export function resolveBrainConfig(env: Env): BrainConfig {
     replyModel: env.REPLY_MODEL ?? fallback,
     rankerModel: env.RANKER_MODEL ?? fallback,
     memoryModel: env.MEMORY_MODEL ?? fallback,
-    safetyModel: env.SAFETY_MODEL ?? fallback,
     sceneTemperature: env.SCENE_TEMPERATURE,
     plannerTemperature: env.PLANNER_TEMPERATURE,
     replyTemperature: env.REPLY_TEMPERATURE,
