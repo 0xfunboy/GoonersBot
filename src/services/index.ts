@@ -7,6 +7,8 @@ import type { Storage } from '../storage/index.js';
 import { Cooldown } from '../utils/rateLimit.js';
 import { MemoryMiner } from '../memory/memoryMiner.js';
 import { LoreEngine } from '../memory/loreEngine.js';
+import { MemoryRetriever } from '../memory/memoryRetriever.js';
+import { SceneAnalyzer } from '../brain/sceneAnalyzer.js';
 import { AutoEngageScorer } from './autoengage.js';
 import { BanService } from './bans.js';
 import { ModelRouter } from './modelRouter.js';
@@ -48,6 +50,8 @@ export class Services {
   readonly media: MediaProcessor;
   readonly modelRouter: ModelRouter;
   readonly lore: LoreEngine;
+  readonly scene: SceneAnalyzer;
+  readonly memoryRetriever: MemoryRetriever;
   /** per-user, per-chat anti-spam cooldown for command invocations */
   readonly commandRateLimit: Cooldown;
 
@@ -88,6 +92,16 @@ export class Services {
       minSalience: env.MEMORY_MIN_SALIENCE,
     });
     this.lore = new LoreEngine(storage, miner);
+    this.scene = new SceneAnalyzer(llm, {
+      model: config.brain.sceneModel,
+      temperature: env.SCENE_TEMPERATURE,
+    });
+    this.memoryRetriever = new MemoryRetriever(storage, {
+      maxItems: env.MEMORY_MAX_ITEMS_PER_REPLY,
+      maxExplicitCallbacks: env.MEMORY_MAX_EXPLICIT_CALLBACKS_PER_REPLY,
+      itemCooldownMinutes: env.MEMORY_ITEM_COOLDOWN_MINUTES,
+      subjectCooldownMinutes: env.MEMORY_SUBJECT_COOLDOWN_MINUTES,
+    });
   }
 
   /** Ensure baseline records exist for this person/chat. Idempotent; runs before each handler. */
