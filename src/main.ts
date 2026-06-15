@@ -28,7 +28,7 @@ async function main(): Promise<void> {
   const goonerBot = await createBot(config, services);
 
   // 6. Background scheduler.
-  const scheduler = new Scheduler(config, storage);
+  const scheduler = new Scheduler(config, storage, services.lore);
   scheduler.start();
 
   // 7. Start polling.

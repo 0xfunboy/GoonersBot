@@ -145,6 +145,16 @@ export class MessagesRepo {
     return [...beforeDocs.reverse(), ...afterDocs].map((d) => this.toStored(d));
   }
 
+  /** Messages strictly after `since` (chronological), capped at `limit`. */
+  async getMessagesSince(chatId: number, since: Date, limit: number): Promise<StoredMessage[]> {
+    const docs = await this.col
+      .find({ chatId, timestamp: { $gt: since } })
+      .sort({ timestamp: 1, _id: 1 })
+      .limit(limit)
+      .toArray();
+    return docs.map((d) => this.toStored(d));
+  }
+
   async reset(chatId: number): Promise<void> {
     await this.col.deleteMany({ chatId });
   }

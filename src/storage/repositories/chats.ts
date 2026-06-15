@@ -121,4 +121,25 @@ export class ChatsRepo {
   switchAutoengage(chatId: number): Promise<boolean> {
     return this.toggle(chatId, 'autoengage');
   }
+
+  /** Started chats with auto-fact enabled (targets for the background mining job). */
+  async listForMining(): Promise<Array<{ chatId: number; language: string; nsfwMode: NsfwMode }>> {
+    const docs = await this.col
+      .find(
+        { isStarted: true, autoFact: true },
+        { projection: { chatId: 1, language: 1, nsfwMode: 1 } },
+      )
+      .toArray();
+    return docs.map((d) => ({
+      chatId: d.chatId,
+      language: d.language,
+      nsfwMode: d.nsfwMode ?? 'off',
+    }));
+  }
+
+  /** All started chats (targets for the feedback job). */
+  async listStartedChatIds(): Promise<number[]> {
+    const docs = await this.col.find({ isStarted: true }, { projection: { chatId: 1 } }).toArray();
+    return docs.map((d) => d.chatId);
+  }
 }

@@ -70,12 +70,14 @@ export async function handleMessage(
   }
 
   const autoengageEnabled = await services.storage.chats.getAutoengage(context.chatId);
-  const [history, mode] = await Promise.all([
+  const [history, mode, recentReplies] = await Promise.all([
     services.conversation.getRecent(context.chatId),
     services.modes.getActive(context.chatId),
+    services.storage.botReplies.getRecent(context.chatId, 8),
   ]);
   const modeName = mode?.name ?? 'Default';
   const modeDescription = mode?.description ?? 'Partecipante naturale del gruppo.';
+  const recentNegativeFeedback = recentReplies.some((r) => (r.feedbackScore ?? 0) < 0);
 
   const decision = await services.autoengage.decide(
     {
@@ -87,6 +89,7 @@ export async function handleMessage(
       history,
       userFacts: [],
       groupFacts: [],
+      recentNegativeFeedback,
     },
     addressed,
     autoengageEnabled,
@@ -142,7 +145,6 @@ export async function handleMessage(
   });
 
   const language = await services.getLanguage(context.chatId);
-  const recentBotReplies = await services.storage.botReplies.getRecent(context.chatId, 8);
 
   await ctx.replyWithChatAction('typing').catch(() => undefined);
 
@@ -159,7 +161,7 @@ export async function handleMessage(
       model: route.model,
       allowRefusalFallback: route.allowRefusalFallback,
       nsfwModel: services.modelRouter.nsfwModel,
-      recentBotReplies,
+      recentBotReplies: recentReplies,
     });
 
     const finalText = outcome.text;

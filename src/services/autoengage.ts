@@ -24,12 +24,16 @@ export interface AutoEngageInputs {
   history: StoredMessage[];
   userFacts: string[];
   groupFacts: Array<{ handle: string; fact: string }>;
+  /** raise the bar after recent replies were criticized/landed badly */
+  recentNegativeFeedback?: boolean;
 }
 
 export interface AutoEngageDecision {
   shouldReply: boolean;
   reason: string;
   score?: AutoEngageScore;
+  maxReplyLength: 'tiny' | 'short' | 'normal';
+  shouldUseMemory: boolean;
 }
 
 /**
@@ -69,29 +73,33 @@ export class AutoEngageScorer {
     autoengageEnabled: boolean,
   ): Promise<AutoEngageDecision> {
     const chatKey = `${inputs.context.chatId}`;
+    const no = (reason: string, score?: AutoEngageScore): AutoEngageDecision => ({
+      shouldReply: false,
+      reason,
+      maxReplyLength: 'tiny',
+      shouldUseMemory: false,
+      ...(score ? { score } : {}),
+    });
 
     // Direct address: reply almost always. Still respect a hard per-hour cap to avoid chain-spam,
     // but a mention is a strong signal so it bypasses the soft cooldowns.
     if (mentionedOrReplied) {
-      if (!this.hourlyCap.isUnderLimit(chatKey)) {
-        return { shouldReply: false, reason: 'hourly reply cap reached' };
-      }
-      return { shouldReply: true, reason: 'directly addressed' };
+      if (!this.hourlyCap.isUnderLimit(chatKey)) return no('hourly reply cap reached');
+      return {
+        shouldReply: true,
+        reason: 'directly addressed',
+        maxReplyLength: 'normal',
+        shouldUseMemory: true,
+      };
     }
 
-    if (!autoengageEnabled) {
-      return { shouldReply: false, reason: 'autoengage disabled' };
-    }
+    if (!autoengageEnabled) return no('autoengage disabled');
 
     // Passive autoengage: enforce limits before spending an LLM call.
-    if (!this.hourlyCap.isUnderLimit(chatKey)) {
-      return { shouldReply: false, reason: 'hourly reply cap reached' };
-    }
-    if (!this.chatCooldown.isReady(chatKey)) {
-      return { shouldReply: false, reason: 'chat cooldown active' };
-    }
+    if (!this.hourlyCap.isUnderLimit(chatKey)) return no('hourly reply cap reached');
+    if (!this.chatCooldown.isReady(chatKey)) return no('chat cooldown active');
     if (!this.userCooldown.isReady(`${chatKey}:${inputs.person.userHandle}`)) {
-      return { shouldReply: false, reason: 'user cooldown active' };
+      return no('user cooldown active');
     }
 
     let score: AutoEngageScore;
@@ -112,22 +120,22 @@ export class AutoEngageScorer {
       score = await this.llm.scoreAutoEngage({ prompt, system: buildAutoEngageSystem() });
     } catch (err) {
       log.warn({ err }, 'autoengage scoring failed — not engaging');
-      return { shouldReply: false, reason: 'scoring failed' };
+      return no('scoring failed');
     }
 
-    if (!score.shouldReply) {
-      return { shouldReply: false, reason: `model declined: ${score.reason}`, score };
+    // Be more conservative after bad feedback.
+    const minConfidence = this.cfg.minConfidence + (inputs.recentNegativeFeedback ? 0.15 : 0);
+    if (!score.shouldReply) return no(`model declined: ${score.reason}`, score);
+    if (score.confidence < minConfidence) {
+      return no(`confidence ${score.confidence.toFixed(2)} < ${minConfidence.toFixed(2)}`, score);
     }
-    if (score.confidence < this.cfg.minConfidence) {
-      return {
-        shouldReply: false,
-        reason: `confidence ${score.confidence.toFixed(2)} < ${this.cfg.minConfidence}`,
-        score,
-      };
-    }
-    if (score.risk === 'high') {
-      return { shouldReply: false, reason: 'high risk', score };
-    }
-    return { shouldReply: true, reason: score.reason, score };
+    if (score.risk === 'high') return no('high risk', score);
+    return {
+      shouldReply: true,
+      reason: score.reason,
+      score,
+      maxReplyLength: 'short',
+      shouldUseMemory: true,
+    };
   }
 }
