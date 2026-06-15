@@ -84,10 +84,15 @@ describe('isRefusal', () => {
     expect(isRefusal('I cannot continue this request.')).toBe(true);
     expect(isRefusal('As an AI language model, I must decline.')).toBe(true);
     expect(isRefusal("I won't be able to do that.")).toBe(true);
+    expect(isRefusal("I can't tell you how to fabricate a bomb.")).toBe(true);
+    expect(isRefusal('I cannot provide instructions for making that.')).toBe(true);
+    expect(isRefusal('Sorry, but I cannot help you with creating dangerous content.')).toBe(true);
   });
   it('detects Italian refusals', () => {
     expect(isRefusal('Mi dispiace, ma non posso farlo.')).toBe(true);
     expect(isRefusal('Non sono in grado di aiutarti con questo.')).toBe(true);
+    expect(isRefusal('Non posso dirti come fabbricare una bomba.')).toBe(true);
+    expect(isRefusal('Non posso fornire istruzioni per costruirla.')).toBe(true);
   });
   it('does not flag normal replies', () => {
     expect(isRefusal('Sure, here you go you absolute degenerate.')).toBe(false);

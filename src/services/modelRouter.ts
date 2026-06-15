@@ -171,17 +171,27 @@ export class ModelRouter {
  */
 const REFUSAL_PATTERNS: RegExp[] = [
   /\bI\s*(?:'?m|\s*am)\s+sorry,?\s+but\b/i,
+  /\bsorry,?\s+but\s+I\s*(?:can(?:'|no)t|cannot|won'?t)\b/i,
   /\bI\s*(?:can(?:'|no)t|cannot|won'?t|am\s+unable\s+to|am\s+not\s+able\s+to)\b/i,
   /\bI\s*(?:will|do)\s*not\s+(?:be\s+able\s+to|feel\s+comfortable)\b/i,
   /\bas\s+an?\s+(?:AI|language\s+model)\b/i,
-  /\bI\s*(?:can'?t|cannot)\s+(?:help|assist|comply|continue|do\s+that)\b/i,
+  /\bI\s*(?:can'?t|cannot|won'?t)\s+(?:help|assist|comply|continue|provide|do\s+that|tell\s+you\s+how)\b/i,
+  /\bI\s*(?:can'?t|cannot)\s+(?:provide|give)\s+(?:instructions|guidance|steps)\b/i,
+  /\bI\s*(?:can'?t|cannot)\s+help\s+(?:with|you\s+with)\s+(?:that|this|creating|making|building|fabricating)\b/i,
+  /\bI\s*(?:can'?t|cannot)\s+(?:help|assist)\s+(?:you\s+)?(?:make|build|create|fabricate)\b/i,
   /\b(?:content|usage)\s+poli(?:cy|cies)\b/i,
   /\bI\s+must\s+decline\b/i,
+  /\bI\s+(?:have\s+to|need\s+to)\s+(?:decline|refuse)\b/i,
   /\bnot\s+appropriate\b/i,
+  /\b(?:dangerous|illegal)\s+(?:instructions|guidance|content)\b/i,
   /\bmi\s+dispiace,?\s+ma\b/i,
   /\bnon\s+posso\b/i,
+  /\bnon\s+posso\s+(?:aiutarti|dirti|fornire|spiegarti)\b/i,
+  /\bnon\s+posso\s+dirti\s+come\b/i,
   /\bnon\s+sono\s+in\s+grado\b/i,
+  /\bnon\s+posso\s+assisterti\b/i,
   /\bnon\s+è\s+appropriato\b/i,
+  /\bnon\s+posso\s+fornire\s+(?:istruzioni|indicazioni|passaggi)\b/i,
 ];
 
 export function isRefusal(text: string): boolean {

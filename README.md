@@ -192,9 +192,9 @@ decided **before** generation (no extra-LLM-call latency) and gated **per-chat**
 
 | `/nsfw <mode>` | behaviour |
 | --- | --- |
-| `base` (or `on`) | the whole chat uses the uncensored model. **Default** when `LLM_NSFW_MODEL` is set. |
+| `base` (or `on`) | the whole chat uses the uncensored model. |
 | `off` | never use the uncensored model. |
-| `smart` | per-message: an instant lexicon picks the uncensored model for NSFW-looking turns; for the rest, the default model runs with a **buffered refusal backstop** — if it starts to refuse, GoonerBot silently switches and never shows the refusal. |
+| `smart` | **Default.** Per-message: an instant lexicon picks the uncensored model for NSFW-looking turns; for the rest, the default model runs with a **buffered refusal backstop** — if it starts to refuse, GoonerBot silently switches and never shows the refusal. |
 
 - A custom mode created with a leading `[nsfw]` tag (e.g. `/addmode [nsfw] Filth. very explicit`)
   always routes to the uncensored model in NSFW-enabled chats.
@@ -343,7 +343,7 @@ capabilities never block startup. Copy `.env.example` → `.env` (gitignored; ne
 | Variable | Default | Description |
 | --- | --- | --- |
 | `LLM_NSFW_MODEL` | — | Uncensored model. Empty ⇒ NSFW routing disabled. |
-| `LLM_NSFW_DEFAULT_MODE` | `base` | Initial per-chat mode for new chats: `off\|base\|smart` (inert without an NSFW model). |
+| `LLM_NSFW_DEFAULT_MODE` | `smart` | Initial per-chat mode for new chats: `off\|base\|smart` (inert without an NSFW model). |
 | `LLM_NSFW_LEXICON` | — | Extra comma-separated trigger terms (smart mode). |
 | `LLM_REFUSAL_FALLBACK` | `true` | Buffered backstop: retry on the NSFW model if the default refuses. |
 | `LLM_REFUSAL_BUFFER_CHARS` | `160` | Leading chars buffered before deciding a refusal. |
