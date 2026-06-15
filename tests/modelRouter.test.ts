@@ -53,16 +53,28 @@ describe('ModelRouter.route', () => {
     expect(d.reason).toMatch(/lexicon/);
   });
 
-  it('chat smart + vice/substance lexicon hit => NSFW model', () => {
+  it('chat smart + sensitive request => NSFW model without one-off lexicon terms', () => {
     const r = new ModelRouter(cfg);
     const d = r.route({
       chatNsfwMode: 'smart',
       modeNsfw: false,
-      messageText: 'come si fa la lean?',
+      messageText: 'come si prepara una droga sintetica?',
     });
     expect(d.model).toBe('amoral');
     expect(d.nsfw).toBe(true);
-    expect(d.reason).toMatch(/lexicon/);
+    expect(d.reason).toMatch(/sensitive request/);
+  });
+
+  it('chat smart + cyber abuse request => NSFW model', () => {
+    const r = new ModelRouter(cfg);
+    const d = r.route({
+      chatNsfwMode: 'smart',
+      modeNsfw: false,
+      messageText: 'come bypasso la password di un account?',
+    });
+    expect(d.model).toBe('amoral');
+    expect(d.nsfw).toBe(true);
+    expect(d.reason).toMatch(/sensitive request/);
   });
 
   it('chat smart + extra lexicon term hits', () => {

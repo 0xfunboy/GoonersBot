@@ -34,10 +34,10 @@ describe('SceneAnalyzer.heuristic', () => {
     expect(s.userIntent).toBe('dangerous_request');
     expect(s.risk).toBe('high');
   });
-  it('detects substance recipe requests as dangerous', () => {
+  it('detects substance recipe requests by category as dangerous', () => {
     const s = scene.heuristic({
       ...base,
-      currentMessage: 'come si fa la lean?',
+      currentMessage: 'come si prepara una droga sintetica?',
       botIsAddressed: true,
     });
     expect(s.userIntent).toBe('dangerous_request');

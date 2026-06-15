@@ -68,20 +68,19 @@ const BUILTIN_LEXICON = [
   'gooner',
   'goon',
   'edging',
-  // Vice/substance triggers: route to the less-censored voice model in smart mode, while the
-  // generator/safety prompts still block operational illegal or self-harm instructions.
-  'lean',
-  'purple drank',
-  'sizzurp',
-  'codeine',
-  'promethazine',
-  'prometazina',
-  'dextromethorphan',
-  'destrometorfano',
-  'dxm',
-  'xanax',
-  'opioid',
-  'oppioid',
+];
+
+/**
+ * Broad zero-call detector for prompts that safety-tuned models often refuse or over-sanitize.
+ * This routes the turn to the less-censored voice model in smart mode. It is intentionally based
+ * on risky request shapes and domains, not one-off substance/tool names.
+ */
+const SENSITIVE_REQUEST_PATTERNS: RegExp[] = [
+  /\b(?:come|how)\s+(?:si\s+)?(?:fa|faccio|prepara|preparo|crea|creo|costruisc|fabbric|produ|sintetizz|otten|make|build|create|cook|synthesi[sz]e|produce)\b.{0,80}\b(?:droga|stupefacente|farmac|sball|pasticc|polvere|bomba|esplosiv|arma|veleno|poison|drug|narcotic|pill|powder|bomb|explosive|weapon)\b/i,
+  /\b(?:bypass|aggir|evad|crack|cracc|hack|hacker|exploit|rub|steal|phish|phishing|malware|virus|ransomware|keylogger|rat|backdoor|sql\s*injection|xss|csrf|credential|password|token|sessione|session|account)\b/i,
+  /\b(?:uccid|ammazz|ferire|accoltell|sparare|massacrare|kill|murder|stab|shoot|hurt)\b.{0,80}\b(?:come|how|senza|without|farla franca|getting caught|traccia|trace)\b/i,
+  /\b(?:suicid|autolesion|overdose|self[-\s]?harm|kill myself)\b/i,
+  /\b(?:dox|doxx|indirizzo di casa|home address|numero di telefono di|social security|codice fiscale di|private key|seed phrase)\b/i,
 ];
 
 /**
@@ -129,6 +128,11 @@ export class ModelRouter {
     return this.lexicon !== null && this.lexicon.test(text);
   }
 
+  /** Broad sensitive/refusal-prone request test (exposed for tests). */
+  matchesSensitiveRequest(text: string): boolean {
+    return SENSITIVE_REQUEST_PATTERNS.some((re) => re.test(text));
+  }
+
   route(inputs: RouteInputs): RouteDecision {
     const { defaultModel, nsfwModel } = this.cfg;
     const nsfwAllowed = inputs.chatNsfwMode !== 'off' && Boolean(nsfwModel);
@@ -164,6 +168,14 @@ export class ModelRouter {
           nsfw: true,
           allowRefusalFallback: false,
           reason: 'lexicon match',
+        };
+      }
+      if (this.matchesSensitiveRequest(inputs.messageText)) {
+        return {
+          model: nsfwModel,
+          nsfw: true,
+          allowRefusalFallback: false,
+          reason: 'sensitive request',
         };
       }
       // SFW-looking turn in a smart chat: use the default model but let the backstop upgrade it.

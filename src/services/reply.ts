@@ -158,6 +158,11 @@ export class ReplyService {
       botIsAddressed: ctx.context.isBotMentioned || ctx.context.isReplyToBot,
       botLabel: BOT_LABEL,
     });
+    const sceneForcesNsfw = Boolean(
+      scene.userIntent === 'dangerous_request' && ctx.allowRefusalFallback && ctx.nsfwModel,
+    );
+    const generationModel = sceneForcesNsfw ? ctx.nsfwModel : ctx.model;
+    const generationNsfwEnabled = ctx.nsfwEnabled || sceneForcesNsfw;
 
     // 2. retrieve memory (scored, capped, cooldown-aware)
     const activeHandles = [...new Set(history.filter((m) => !m.isBot).map((m) => m.handle))];
@@ -168,7 +173,7 @@ export class ReplyService {
       activeHandles,
       mentionedHandles: mentioned,
       repliedToHandle: ctx.context.repliedToUserHandle ?? null,
-      nsfwEnabled: ctx.nsfwEnabled,
+      nsfwEnabled: generationNsfwEnabled,
     });
 
     // 3. style + plan
@@ -177,7 +182,7 @@ export class ReplyService {
       modeDescription: ctx.modeDescription,
       scene,
       recentBotReplies: ctx.recentBotReplies,
-      nsfwEnabled: ctx.nsfwEnabled,
+      nsfwEnabled: generationNsfwEnabled,
     });
     const bannedOpenings = this.styleEngine.bannedOpenings(ctx.recentBotReplies);
     const plan = this.planner.plan({
@@ -196,7 +201,7 @@ export class ReplyService {
       language: ctx.language,
       modeName: ctx.modeName,
       modeDescription: ctx.modeDescription,
-      nsfwEnabled: ctx.nsfwEnabled,
+      nsfwEnabled: generationNsfwEnabled,
       scene,
       plan,
       style,
@@ -205,7 +210,7 @@ export class ReplyService {
       currentMessage: transcribed,
       retrievedMemories: retrieved,
       botLabel: BOT_LABEL,
-      model: ctx.model,
+      model: generationModel,
     });
 
     let candidates = gen.candidates;
@@ -239,7 +244,7 @@ export class ReplyService {
       const regen = await this.generator.regenerate({
         system: gen.system,
         userPrompt: gen.userPrompt,
-        model: ctx.model,
+        model: generationModel,
         bannedPhrases: [...plan.bannedPhrases, best.split(/\s+/).slice(0, 4).join(' ')],
         overusedMemory: overusedTexts,
       });

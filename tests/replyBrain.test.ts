@@ -65,15 +65,15 @@ describe('ResponseRanker', () => {
     const ranker = new ResponseRanker();
     const ranked = ranker.rank(
       [
-        'La lean? Non è al mio menu, fratello. Vai a bere acqua e smetti di fare il poeta della farmacia.',
-        'La lean è di solito uno sciroppo oppioide tipo codeina/prometazina mischiato a soda: rischio sedazione pesante, depressione respiratoria e overdose. Non ti do ricette o dosi, genio del pronto soccorso.',
+        'Quella roba? Non è al mio menu, fratello. Vai a bere acqua e smetti di fare il poeta della farmacia.',
+        'Una miscela di farmaci per sballarsi può dare sedazione pesante, depressione respiratoria e overdose. Non ti do ricette o dosi, genio del pronto soccorso.',
       ],
       {
         recent: [],
         plan: emptyPlan({ replyIntent: 'deflect_dangerous_request' }),
         memories: [],
         maxChars: 420,
-        userMessage: 'come si fa la lean?',
+        userMessage: 'come si prepara una droga farmaceutica?',
       },
     );
     expect(ranked[0]?.index).toBe(1);
