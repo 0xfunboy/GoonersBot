@@ -25,6 +25,21 @@ const intFromString = (def: number) =>
       return Number.isNaN(n) ? def : n;
     });
 
+const floatFromString = (def: number) =>
+  z
+    .string()
+    .optional()
+    .transform((v) => {
+      if (v === undefined || v === '') return def;
+      const n = Number.parseFloat(v);
+      return Number.isNaN(n) ? def : n;
+    });
+
+const optStr = z
+  .string()
+  .optional()
+  .transform((v) => (v && v.trim() !== '' ? v.trim() : undefined));
+
 const csvHandles = z
   .string()
   .optional()
@@ -133,6 +148,61 @@ const envSchema = z.object({
 
   // Anti-spam: minimum seconds between accepted command invocations per user.
   COMMAND_RATE_LIMIT_SECONDS: intFromString(1),
+
+  // ---- Brain: per-stage model overrides (empty => fall back to LLM_MODEL) ----
+  SCENE_MODEL: optStr,
+  PLANNER_MODEL: optStr,
+  REPLY_MODEL: optStr,
+  RANKER_MODEL: optStr,
+  MEMORY_MODEL: optStr,
+  SAFETY_MODEL: optStr,
+
+  // Brain temperatures
+  SCENE_TEMPERATURE: floatFromString(0.2),
+  PLANNER_TEMPERATURE: floatFromString(0.3),
+  REPLY_TEMPERATURE: floatFromString(0.95),
+  RANKER_TEMPERATURE: floatFromString(0.1),
+  MEMORY_TEMPERATURE: floatFromString(0.1),
+
+  // Reply generation
+  REPLY_CANDIDATE_COUNT: intFromString(3),
+  REPLY_MAX_REGENERATIONS: intFromString(2),
+  REPLY_TOP_P: floatFromString(0.95),
+  REPLY_FREQUENCY_PENALTY: floatFromString(0.6),
+  REPLY_PRESENCE_PENALTY: floatFromString(0.4),
+  MAX_REPLY_CHARS: intFromString(420),
+  MAX_REPLY_LINES: intFromString(3),
+
+  // Memory engine
+  MEMORY_MIN_CONFIDENCE: floatFromString(0.68),
+  MEMORY_AUTO_MIN_CONFIDENCE: floatFromString(0.75),
+  MEMORY_MANUAL_MIN_CONFIDENCE: floatFromString(0.62),
+  MEMORY_MIN_SALIENCE: floatFromString(0.45),
+  MEMORY_MAX_CANDIDATES_PER_RUN: intFromString(5),
+  MEMORY_MAX_ITEMS_PER_REPLY: intFromString(3),
+  MEMORY_MAX_EXPLICIT_CALLBACKS_PER_REPLY: intFromString(1),
+  MEMORY_ITEM_COOLDOWN_MINUTES: intFromString(45),
+  MEMORY_SUBJECT_COOLDOWN_MINUTES: intFromString(20),
+  FACT_EXTRACTION_CONTEXT_MESSAGES: intFromString(30),
+  FACT_REPLY_CONTEXT_BEFORE: intFromString(10),
+  FACT_REPLY_CONTEXT_AFTER: intFromString(10),
+
+  // Jobs
+  MEMORY_MINING_ENABLED: boolFromString(true),
+  MEMORY_MINING_EVERY_MESSAGES: intFromString(25),
+  MEMORY_MINING_MIN_ACTIVE_MESSAGES: intFromString(8),
+  MEMORY_MINING_INTERVAL_SECONDS: intFromString(300),
+  FEEDBACK_LEARNING_ENABLED: boolFromString(true),
+  FEEDBACK_LOOKAHEAD_MESSAGES: intFromString(10),
+  BRAIN_DEBUG_TTL_DAYS: intFromString(7),
+  BOT_REPLIES_RETENTION_DAYS: intFromString(30),
+
+  // Debug
+  BRAIN_DEBUG_ENABLED: boolFromString(true),
+  DEBUG_COMMANDS_ADMIN_ONLY: boolFromString(true),
+
+  // Repetition guard
+  REPETITION_SIMILARITY_THRESHOLD: floatFromString(0.72),
 });
 
 export type Env = z.infer<typeof envSchema>;

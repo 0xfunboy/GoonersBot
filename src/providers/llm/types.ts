@@ -95,6 +95,16 @@ export interface ScoreAutoEngageRequest {
   system?: string;
 }
 
+/** A schema-validated JSON request. The provider parses + zod-validates + repairs once. */
+export interface JsonRequest<T> {
+  system?: string;
+  prompt: string;
+  schema: import('zod').ZodType<T>;
+  temperature?: number;
+  model?: string;
+  maxTokens?: number;
+}
+
 /**
  * The capability methods are optional at runtime: a provider exposes `capabilities` and may
  * omit unsupported methods. `chatCompletion` and the two "reasoning" helpers
@@ -114,6 +124,12 @@ export interface LLMProvider {
 
   extractFacts(req: ExtractFactsRequest): Promise<Fact[]>;
   scoreAutoEngage(req: ScoreAutoEngageRequest): Promise<AutoEngageScore>;
+
+  /**
+   * Call the model, parse JSON, validate against a zod schema, repair once on failure.
+   * Returns null if it ultimately can't produce valid JSON (callers fall back gracefully).
+   */
+  jsonCompletion<T>(req: JsonRequest<T>): Promise<T | null>;
 }
 
 /** Raised when a capability is requested that the active provider does not support. */

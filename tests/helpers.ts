@@ -63,5 +63,8 @@ export function fakeLLM(opts: {
     async scoreAutoEngage() {
       return score;
     },
+    async jsonCompletion() {
+      return null;
+    },
   };
 }

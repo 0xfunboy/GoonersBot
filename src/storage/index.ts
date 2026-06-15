@@ -13,6 +13,9 @@ import { BansRepo } from './repositories/bans.js';
 import { TermsRepo } from './repositories/terms.js';
 import { MediaRepo } from './repositories/media.js';
 import { JobsRepo } from './repositories/jobs.js';
+import { MemoryItemsRepo } from './repositories/memoryItems.js';
+import { BotRepliesRepo } from './repositories/botReplies.js';
+import { BrainDebugRepo } from './repositories/brainDebug.js';
 
 const log = childLogger('storage');
 
@@ -32,6 +35,9 @@ export class Storage {
   readonly terms: TermsRepo;
   readonly media: MediaRepo;
   readonly jobs: JobsRepo;
+  readonly memoryItems: MemoryItemsRepo;
+  readonly botReplies: BotRepliesRepo;
+  readonly brainDebug: BrainDebugRepo;
 
   private constructor(
     private readonly connection: MongoConnection,
@@ -53,6 +59,9 @@ export class Storage {
     this.terms = new TermsRepo(db);
     this.media = new MediaRepo(db);
     this.jobs = new JobsRepo(db);
+    this.memoryItems = new MemoryItemsRepo(db);
+    this.botReplies = new BotRepliesRepo(db, env.BOT_REPLIES_RETENTION_DAYS);
+    this.brainDebug = new BrainDebugRepo(db, env.BRAIN_DEBUG_TTL_DAYS);
   }
 
   static async connect(env: Env): Promise<Storage> {
@@ -72,7 +81,60 @@ export class Storage {
     await TermsRepo.ensureIndexes(this.db);
     await MediaRepo.ensureIndexes(this.db);
     await JobsRepo.ensureIndexes(this.db);
+    await MemoryItemsRepo.ensureIndexes(this.db);
+    await this.botReplies.ensureIndexes();
+    await this.brainDebug.ensureIndexes();
     log.info('indexes ensured');
+  }
+
+  /**
+   * One-time migration: import legacy `facts` into `memory_items` (idempotent — skips if any
+   * migrated item already exists for the chat). Old facts are kept; they're just no longer dumped
+   * into reply prompts.
+   */
+  async migrateLegacyFacts(): Promise<number> {
+    const factsCol = this.db.collection('facts');
+    const memCol = this.db.collection('memory_items');
+    const already = await memCol.countDocuments({ source: 'migration' });
+    if (already > 0) return 0;
+    const VULGAR = /\b(cazzo|merda|stronz|porn|sex|fuck|shit|bitch|puttana|troia|culo|figa)/i;
+    const docs = await factsCol.find({}).toArray();
+    let imported = 0;
+    for (const f of docs) {
+      const text: string = String(f['fact'] ?? '').trim();
+      if (!text) continue;
+      const handle: string | null = (f['userHandle'] as string) ?? null;
+      const now = new Date();
+      const source = String(f['source'] ?? 'manual');
+      await memCol.insertOne({
+        chatId: f['chatId'],
+        subjectType: handle ? 'user' : 'group',
+        subjectHandle: handle,
+        involvedHandles: handle ? [handle] : [],
+        text,
+        normalizedText: text.toLowerCase().replace(/\s+/g, ' ').trim(),
+        category: source === 'introduction' ? 'role' : 'reputation',
+        source: 'migration',
+        sourceMessageIds: [],
+        createdByHandle: (f['createdByHandle'] as string) ?? null,
+        confidence: 0.55,
+        salience: 0.45,
+        toxicity: VULGAR.test(text) ? 'vulgar' : 'clean',
+        status: 'active',
+        firstSeenAt: (f['createdAt'] as Date) ?? now,
+        lastSeenAt: now,
+        createdAt: now,
+        updatedAt: now,
+        lastUsedAt: null,
+        useCount: 0,
+        positiveFeedbackCount: 0,
+        negativeFeedbackCount: 0,
+        tags: [],
+      });
+      imported += 1;
+    }
+    if (imported > 0) log.info({ imported }, 'migrated legacy facts -> memory_items');
+    return imported;
   }
 
   async close(): Promise<void> {

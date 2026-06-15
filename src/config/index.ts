@@ -68,9 +68,56 @@ export function resolveLLMConfig(env: Env): LLMConfig {
   };
 }
 
+/** Per-stage model + sampling config for the brain pipeline. Models fall back to the chat model. */
+export interface BrainConfig {
+  sceneModel: string | undefined;
+  plannerModel: string | undefined;
+  replyModel: string | undefined;
+  rankerModel: string | undefined;
+  memoryModel: string | undefined;
+  safetyModel: string | undefined;
+  sceneTemperature: number;
+  plannerTemperature: number;
+  replyTemperature: number;
+  rankerTemperature: number;
+  memoryTemperature: number;
+  replyCandidateCount: number;
+  replyMaxRegenerations: number;
+  replyTopP: number;
+  replyFrequencyPenalty: number;
+  replyPresencePenalty: number;
+  maxReplyChars: number;
+  maxReplyLines: number;
+}
+
+export function resolveBrainConfig(env: Env): BrainConfig {
+  const fallback = env.LLM_MODEL;
+  return {
+    sceneModel: env.SCENE_MODEL ?? fallback,
+    plannerModel: env.PLANNER_MODEL ?? fallback,
+    replyModel: env.REPLY_MODEL ?? fallback,
+    rankerModel: env.RANKER_MODEL ?? fallback,
+    memoryModel: env.MEMORY_MODEL ?? fallback,
+    safetyModel: env.SAFETY_MODEL ?? fallback,
+    sceneTemperature: env.SCENE_TEMPERATURE,
+    plannerTemperature: env.PLANNER_TEMPERATURE,
+    replyTemperature: env.REPLY_TEMPERATURE,
+    rankerTemperature: env.RANKER_TEMPERATURE,
+    memoryTemperature: env.MEMORY_TEMPERATURE,
+    replyCandidateCount: env.REPLY_CANDIDATE_COUNT,
+    replyMaxRegenerations: env.REPLY_MAX_REGENERATIONS,
+    replyTopP: env.REPLY_TOP_P,
+    replyFrequencyPenalty: env.REPLY_FREQUENCY_PENALTY,
+    replyPresencePenalty: env.REPLY_PRESENCE_PENALTY,
+    maxReplyChars: env.MAX_REPLY_CHARS,
+    maxReplyLines: env.MAX_REPLY_LINES,
+  };
+}
+
 export interface AppConfig {
   env: Env;
   llm: LLMConfig;
+  brain: BrainConfig;
 }
 
 export function loadConfig(): AppConfig {
@@ -78,5 +125,6 @@ export function loadConfig(): AppConfig {
   return {
     env,
     llm: resolveLLMConfig(env),
+    brain: resolveBrainConfig(env),
   };
 }

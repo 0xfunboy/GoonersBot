@@ -301,6 +301,44 @@ export class OpenAICompatibleProvider implements LLMProvider {
       .map((f) => ({ userHandle: f.userHandle, fact: f.fact }));
   }
 
+  async jsonCompletion<T>(req: import('./types.js').JsonRequest<T>): Promise<T | null> {
+    const sys =
+      (req.system ? `${req.system}\n\n` : '') +
+      'Output ONLY a single valid JSON object. No prose, no markdown fences, no comments.';
+    const first = await this.chatCompletion({
+      system: sys,
+      messages: [{ role: 'user', content: req.prompt }],
+      temperature: req.temperature ?? 0.1,
+      ...(req.model ? { model: req.model } : {}),
+      ...(req.maxTokens ? { maxTokens: req.maxTokens } : {}),
+    });
+    const parsed1 = safeJson<unknown>(first.text);
+    const v1 = parsed1 !== null ? req.schema.safeParse(parsed1) : null;
+    if (v1 && v1.success) return v1.data;
+
+    // One repair attempt: show the model its broken output and demand valid JSON.
+    const repair = await this.chatCompletion({
+      system: sys,
+      messages: [
+        { role: 'user', content: req.prompt },
+        { role: 'assistant', content: first.text.slice(0, 2000) },
+        {
+          role: 'user',
+          content:
+            'That was not valid JSON for the required schema. Reply again with ONLY the corrected JSON object.',
+        },
+      ],
+      temperature: 0,
+      ...(req.model ? { model: req.model } : {}),
+      ...(req.maxTokens ? { maxTokens: req.maxTokens } : {}),
+    });
+    const parsed2 = safeJson<unknown>(repair.text);
+    const v2 = parsed2 !== null ? req.schema.safeParse(parsed2) : null;
+    if (v2 && v2.success) return v2.data;
+    log.debug('jsonCompletion failed validation after repair');
+    return null;
+  }
+
   async scoreAutoEngage(req: ScoreAutoEngageRequest): Promise<AutoEngageScore> {
     const system =
       req.system ??

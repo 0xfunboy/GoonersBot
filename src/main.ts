@@ -16,6 +16,7 @@ async function main(): Promise<void> {
   // 2. Storage.
   const storage = await Storage.connect(config.env);
   await storage.ensureIndexes();
+  await storage.migrateLegacyFacts();
 
   // 3. LLM provider (env-selected; capabilities logged).
   const llm = createLLMProvider(config.llm);
