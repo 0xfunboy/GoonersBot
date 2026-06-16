@@ -67,9 +67,12 @@ export class AutonomousPoster {
     if (!item) return null;
     const comment = await this.styledLine(
       language,
-      `Unprompted, drop your unfiltered in-character take on this news (no preamble, do NOT just ` +
-        `summarize it - react to it your way). Headline: "${item.title}". ${item.summary ? `Context: "${item.summary}". ` : ''}` +
-        'One or two lines. Do not paste the link, it is added automatically.',
+      'Give your unfiltered, in-character take on this current event. First say in a sentence what ' +
+        'happened (so people get it without clicking), then react/roast it your way with real ' +
+        'opinion. No preamble, no "here is", no neutral summary. Write a proper paragraph (3 to 6 ' +
+        `sentences), it can be long. Headline: "${item.title}". ${item.summary ? `Context: "${item.summary}". ` : ''}` +
+        'Do not paste the link, it is added automatically.',
+      900,
     );
     if (!comment) return null;
     const post: AutoPost = { text: item.link ? `${comment}\n\n${item.link}` : comment };
@@ -77,8 +80,13 @@ export class AutonomousPoster {
     return post;
   }
 
-  /** Generate a single in-character line via the persona system prompt. */
-  private async styledLine(language: string, instruction: string): Promise<string> {
+  /** Generate an in-character message via the persona system prompt. `maxChars` caps the output. */
+  private async styledLine(
+    language: string,
+    instruction: string,
+    maxChars?: number,
+  ): Promise<string> {
+    const cap = maxChars ?? this.config.brain.maxReplyChars;
     const system = buildGeneratorSystem({
       botUsername: this.config.env.BOT_USERNAME.replace(/^@/, ''),
       chatName: undefined,
@@ -92,9 +100,9 @@ export class AutonomousPoster {
         system,
         messages: [{ role: 'user', content: instruction }],
         temperature: 0.95,
-        maxTokens: 400,
+        maxTokens: Math.max(500, Math.ceil(cap * 2.5)),
       });
-      return res.text.trim().slice(0, this.config.brain.maxReplyChars);
+      return res.text.trim().slice(0, cap);
     } catch (err) {
       log.warn({ err }, 'autopost line generation failed');
       return '';

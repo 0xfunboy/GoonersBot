@@ -7,7 +7,6 @@ import {
   setfactCommand,
   factsCommand,
   clearfactsCommand,
-  loreCommand,
   forgetCommand,
 } from './facts.js';
 import { brainCommand, debuglastCommand } from './debug.js';
@@ -22,7 +21,7 @@ import {
 import { newsCommand } from './news.js';
 import { nsfwCommand } from './nsfw.js';
 import { banCommand, unbanCommand } from './moderation.js';
-import { usageCommand, languageCommand, termsCommand, helpCommand } from './misc.js';
+import { usageCommand, languageCommand, tosCommand, helpCommand } from './misc.js';
 
 /** All command handlers (original parity + voice/traduci extras). */
 export const commandHandlers: CommandSpec[] = [
@@ -37,7 +36,6 @@ export const commandHandlers: CommandSpec[] = [
   setfactCommand,
   factsCommand,
   clearfactsCommand,
-  loreCommand,
   forgetCommand,
   conversationtrackerCommand,
   autofactCommand,
@@ -49,7 +47,7 @@ export const commandHandlers: CommandSpec[] = [
   unbanCommand,
   usageCommand,
   languageCommand,
-  termsCommand,
+  tosCommand,
   voiceCommand,
   translateCommand,
   brainCommand,

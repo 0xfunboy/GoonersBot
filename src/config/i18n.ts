@@ -95,6 +95,12 @@ export const translations: TranslationMap = {
     russian: 'Посмотреть условия использования и статус',
     spanish: 'Ver términos de uso y tu estado de aceptación',
   },
+  tos_description: {
+    italian: "Firma o revoca i termini d'uso",
+    english: 'Sign or revoke the terms of service',
+    russian: 'Принять или отозвать условия использования',
+    spanish: 'Firma o revoca los términos de servicio',
+  },
   conversationtracker_description: {
     italian: 'Attiva/disattiva il tracking della conversazione',
     english: 'Toggle conversation tracking',

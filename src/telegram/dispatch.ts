@@ -117,7 +117,8 @@ async function finish(
       await ctx.deleteMessage().catch(() => undefined);
     }
     const localized = await localizeResponse(services, prepared.input.context.chatId, response);
-    await sendResponse(ctx, localized);
+    const sent = await sendResponse(ctx, localized);
+    if (response.ephemeralMs) scheduleDelete(ctx, sent, response.ephemeralMs);
   } catch (err) {
     log.error({ err }, 'handler failed');
     const localized = await localizeResponse(services, chatId, { text: 'generation_failed' });

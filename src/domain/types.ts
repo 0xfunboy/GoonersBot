@@ -100,6 +100,8 @@ export interface CommandResponse {
   keyboard?: KeyboardResponse | undefined;
   /** for callbacks: delete the message the button was attached to before replying (terms prompt) */
   deleteOrigin?: boolean | undefined;
+  /** if set, the sent message self-destructs after this many ms (ephemeral prompts like /tos) */
+  ephemeralMs?: number | undefined;
 }
 
 /** A localized, render-ready response. */
