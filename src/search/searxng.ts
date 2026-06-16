@@ -95,7 +95,7 @@ export class SearxngProvider implements WebSearchProvider {
     url.searchParams.set('q', query.trim());
     url.searchParams.set('format', 'json');
     url.searchParams.set('categories', 'images');
-    url.searchParams.set('safesearch', '1');
+    url.searchParams.set('safesearch', '0'); // permissive: vetting is done by the vision check
     const lang = langToSearx(opts.language);
     if (lang !== 'all') url.searchParams.set('language', lang);
 

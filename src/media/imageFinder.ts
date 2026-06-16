@@ -5,12 +5,12 @@ import type { MediaProcessor } from '../providers/media/index.js';
 const log = childLogger('image-finder');
 
 const MAX_BYTES = 8 * 1024 * 1024;
-// The verified image must read as anime/illustration; reject real photos, NSFW (unless allowed),
-// gore and anything off-theme. Heuristic over the vision description.
-const ANIME_HINT =
-  /\b(anime|manga|illustration|drawing|cartoon|chibi|2d|artwork|digital art|waifu|character)\b/i;
-const REJECT_HINT =
-  /\b(real (person|photo|woman|man)|photograph of a (real|person)|gore|blood|corpse|nudity|nude|explicit|porn|child|minor|loli|shota|swastika|nazi|isis|beheading)\b/i;
+// Permissive policy: pass almost everything (nudity/suggestive included). Block ONLY explicit
+// genitalia / penetration acts, plus the non-negotiable minor red line (kept regardless of config).
+const HARDCORE_RE =
+  /\b(penis|penises|dick|cock|erect\w*|hard-?on|penetrat\w*|intercourse|blow\s?job|fellatio|cum\s?shot|cumming|ejaculat\w*|insertion|gang\s?bang|deep\s?throat|anal sex|vaginal sex)\b/i;
+const MINOR_BLOCK_RE =
+  /\b(child|children|minor|under\s?age|underaged|loli|shota|toddler|infant|preteen|pre-teen|cp|csam)\b/i;
 
 export interface FoundImage {
   buffer: Buffer;
@@ -38,22 +38,26 @@ export class ImageFinder {
   async find(hint?: string): Promise<FoundImage | null> {
     if (!this.enabled) return null;
     const query = (hint && hint.trim()) || this.randomQuery();
-    const urls = await this.searxng.searchImages(query, { max: 25 });
-    if (urls.length === 0) return null;
+    const urls = await this.searxng.searchImages(query, { max: 30 });
+    if (urls.length === 0) {
+      log.debug({ query }, 'no image candidates from search');
+      return null;
+    }
 
-    // Try a few random candidates; stop at the first that downloads and passes the vision check.
-    for (const url of shuffle(urls).slice(0, 6)) {
+    // Try several candidates; send the first that downloads and is not hardcore/minor content.
+    for (const url of shuffle(urls).slice(0, 8)) {
       const buffer = await this.download(url);
       if (!buffer) continue;
       const description = await this.media.describeImage(buffer, guessMime(url));
+      // No description means vision could not look at it: skip (cannot vet it).
       if (!description) continue;
-      if (REJECT_HINT.test(description)) {
-        log.debug({ url }, 'image rejected by content check');
+      if (MINOR_BLOCK_RE.test(description) || HARDCORE_RE.test(description)) {
+        log.debug({ url }, 'image rejected (hardcore/minor)');
         continue;
       }
-      if (!ANIME_HINT.test(description) && !ANIME_HINT.test(query)) continue;
       return { buffer, description };
     }
+    log.debug({ query, tried: Math.min(urls.length, 8) }, 'no candidate passed verification');
     return null;
   }
 
