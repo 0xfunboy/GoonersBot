@@ -50,35 +50,52 @@ function isAnimeTopic(message: string, knowledge: { topic: string }[]): boolean 
   return knowledge.some((k) => /waifu|anime|manga|otaku/i.test(k.topic));
 }
 
-// The user is asking the bot to send/find an image.
-const IMAGE_WANT_RE =
-  /\b(mandami|manda|inviami|invia|trovami|trova|cerca(mi)?|dammi|fammi vedere|postami|posta|voglio (vedere |un'?|una )?|mostrami|fai vedere|send( me)?|show( me)?|find( me)?|gimme|drop)\b[^.?!]*\b(immagin\w*|fotgrafi\w*|foto|fote|pic|picture|image|img|wallpaper|meme|waifu|gotic\w*)\b/i;
-// The bot's own reply promised to send/show an image (must be honored with a real image).
+// Strong NSFW/visual cue words: in this bot's context they almost always mean "show me art of X".
+const NSFW_WANT_RE = /\b(nud[aoei]|nude|naked|hentai|ecchi|lewd|topless|in lingerie)\b/i;
+// The user is asking the bot to send/find/show an image (broad: verbs, possession, or NSFW cues).
+const IMAGE_WANT_RE = new RegExp(
+  '(' +
+    '\\b(mandami|manda|inviami|invia|trovami|trova|cerca(mi)?|dammi|fammi vedere|fammi|postami|posta|voglio(\\s+vedere)?|mostrami|fai vedere|send( me)?|show( me)?|find( me)?|gimme|drop)\\b[^.?!]*\\b(immagin\\w*|foto|fote|pic|picture|image|img|wallpaper|meme|waifu|gotic\\w*|nud\\w*)\\b' +
+    ')|(' +
+    "\\b(ce l'?hai|ce le hai|ce ne hai|ne hai|hai|got (any|a))\\b[^.?!]*\\b(foto|img|immagin\\w*|pic|picture|nud\\w*|waifu)\\b" +
+    ')|(' +
+    NSFW_WANT_RE.source +
+    ')',
+  'i',
+);
+// The bot's own reply announced/promised/has an image (must be honored with a real image).
 const IMAGE_PROMISE_RE =
-  /\b(ti (mando|invio|giro|passo)|eccoti|ecco (qui|qua|una|un'|la|il)|guarda (questa|qui|qua)|te ne mando|mando (qualche|un'?|una|dei|delle)|ti mostro|here('?s| is| you go)|i'?ll (send|show|find)|sending you|check this)\b[^.]*\b(immagin\w*|foto|fote|pic|picture|image|img|wallpaper|meme|link|waifu)\b/i;
+  /\b(ti (mando|invio|giro|passo|mostro|creo|cerco|genero|preparo)|te (la|le|ne) (mando|giro|passo)|eccoti|ecco (qui|qua|una|un'|la|il)|guarda (questa|qui|qua)|mando (qualche|un'?|una|dei|delle)|ho (qualche|delle|un'?|una)|here('?s| is| you go)|i'?ll (send|show|find|make)|sending you|check this)\b[^.]*\b(immagin\w*|foto|fote|pic|picture|image|img|wallpaper|meme|link|waifu)\b/i;
+
+const IMG_STOP_RE =
+  /\b(ce l'?hai|ce le hai|ce ne hai|ne hai|hai|mandami|manda|inviami|invia|trovami|trova|cerca(?:mi)?|dammi|mostrami|fammi vedere|fammi|voglio|vedere|postami|posta|fai vedere|send|show|find|me|gimme|drop|per piacere|per favore|grazie|please|thanks|dai|su|qualche|una|delle|dei|un'|un|il|lo|la|le|gli|of|the)\b/gi;
 
 /**
- * Extract the subject the user wants an image of (e.g. "gotica culona") and bias it to the bot's
- * anime/waifu taste so the verified search stays on-brand. Returns undefined when there is no clear
- * subject (then a random waifu query from the pool is used).
+ * Extract the subject the user wants an image of (e.g. "gotica culona", "rei ayanami nuda") and bias
+ * it to the bot's anime/waifu taste. Tries "image of X", then "verb ... X", then a cleanup fallback
+ * that strips request/question filler. Returns undefined when nothing usable remains.
  */
 function imageQueryFromMessage(message: string): string | undefined {
-  const m = message.match(
-    /\b(?:immagin\w*|foto|fote|pic|picture|image|img|wallpaper|meme)\s+(?:di|del|della|dei|delle|d'|of|su)\s+([^.?!\n]{2,60})/i,
-  );
-  let subject = m?.[1]?.trim();
-  if (!subject) {
-    const v = message.match(
+  let subject =
+    message.match(
+      /\b(?:immagin\w*|foto|fote|pic|picture|image|img|wallpaper|meme)\s+(?:di|del|della|dei|delle|d'|of|su)\s+([^.?!\n]{2,60})/i,
+    )?.[1] ??
+    message.match(
       /\b(?:mandami|manda|inviami|trovami|trova|cerca(?:mi)?|dammi|mostrami|fammi vedere|send me|show me|find me|gimme|drop)\s+(?:una?\s+|un'|qualche\s+|dei\s+|delle\s+)?(?:immagin\w*|foto|fote|pic|picture|image|img|wallpaper|meme)?\s*(?:di|of|su)?\s*([^.?!\n]{2,60})/i,
-    );
-    subject = v?.[1]?.trim();
+    )?.[1];
+  // Fallback: strip the request/question filler and keep whatever is left (the actual subject).
+  if (!subject) {
+    const cleaned = message
+      .replace(/@\w+/g, ' ')
+      .replace(IMG_STOP_RE, ' ')
+      .replace(/[?!.,]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (cleaned.split(' ').length <= 6) subject = cleaned;
   }
-  if (!subject) return undefined;
-  subject = subject
-    .replace(/\b(per piacere|per favore|grazie|please|thanks|dai|su)\b/gi, '')
-    .trim();
+  subject = (subject ?? '').replace(/\s+/g, ' ').trim();
   if (subject.length < 2) return undefined;
-  return ANIME_TOPIC_RE.test(subject) ? subject : `${subject} anime`;
+  return ANIME_TOPIC_RE.test(subject) || NSFW_WANT_RE.test(subject) ? subject : `${subject} anime`;
 }
 
 /** Format retrieved knowledge into a compact, clearly-optional context block (or '' if none). */

@@ -32,8 +32,11 @@ export class TtsProvider {
   /** Synthesize text → OGG/Opus voice-note Buffer, or null if disabled/failed/empty. */
   async synth(text: string, language?: string): Promise<Buffer | null> {
     if (!this.cfg.enabled || !this.cfg.baseUrl) return null;
-    const input = sanitize(text).slice(0, this.cfg.maxChars);
-    if (input.length === 0) return null;
+    const clean = sanitize(text).slice(0, this.cfg.maxChars);
+    if (clean.length === 0) return null;
+    // Kokoro clips the very end of the audio, cutting the last word. Append a short trailing pause
+    // (spoken as silence) so the real content finishes well before the clip point.
+    const input = `${clean} … … …`;
     const voice = this.voiceFor(language);
 
     const controller = new AbortController();
