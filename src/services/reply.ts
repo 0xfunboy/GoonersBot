@@ -44,6 +44,15 @@ const FALLBACKS = [
   'wait no, I already did that joke. I deserve the ban myself.',
 ];
 
+/** A resolved still image to react to: a photo or a frame from a video, current or replied-to. */
+interface Visual {
+  buffer: Buffer;
+  mime: string;
+  kind: 'photo' | 'video';
+  /** true when it came from the replied-to message (so its poster is the replied-to user) */
+  fromReply: boolean;
+}
+
 export interface ReplyContext {
   person: Person;
   context: ChatContext;
@@ -121,21 +130,30 @@ export class ReplyService {
    * video, taking the current message first, then the replied-to message. Videos are turned into a
    * representative frame via ffmpeg. Returns null when there is nothing visual.
    */
-  private async resolveVisual(
-    message: IncomingMessage,
-  ): Promise<{ buffer: Buffer; mime: string } | null> {
-    if (message.imageBuffer)
-      return { buffer: message.imageBuffer, mime: message.imageMime ?? 'image/jpeg' };
+  private async resolveVisual(message: IncomingMessage): Promise<Visual | null> {
+    if (message.imageBuffer) {
+      return {
+        buffer: message.imageBuffer,
+        mime: message.imageMime ?? 'image/jpeg',
+        kind: 'photo',
+        fromReply: false,
+      };
+    }
     if (message.videoBuffer) {
       const frame = await this.media.frameFromVideo(message.videoBuffer);
-      if (frame) return { buffer: frame, mime: 'image/jpeg' };
+      if (frame) return { buffer: frame, mime: 'image/jpeg', kind: 'video', fromReply: false };
     }
     if (message.repliedImageBuffer) {
-      return { buffer: message.repliedImageBuffer, mime: message.repliedImageMime ?? 'image/jpeg' };
+      return {
+        buffer: message.repliedImageBuffer,
+        mime: message.repliedImageMime ?? 'image/jpeg',
+        kind: 'photo',
+        fromReply: true,
+      };
     }
     if (message.repliedVideoBuffer) {
       const frame = await this.media.frameFromVideo(message.repliedVideoBuffer);
-      if (frame) return { buffer: frame, mime: 'image/jpeg' };
+      if (frame) return { buffer: frame, mime: 'image/jpeg', kind: 'video', fromReply: true };
     }
     return null;
   }
@@ -264,7 +282,11 @@ export class ReplyService {
       recentBotReplies: ctx.recentBotReplies,
       nsfwEnabled: generationNsfwEnabled,
     });
-    const bannedOpenings = this.styleEngine.bannedOpenings(ctx.recentBotReplies);
+    // banned phrases include overused openings AND recurring tics/sign-offs (kills catchphrases)
+    const bannedOpenings = [
+      ...this.styleEngine.bannedOpenings(ctx.recentBotReplies),
+      ...this.styleEngine.recurringTics(ctx.recentBotReplies),
+    ];
     const plan = this.planner.plan({
       scene,
       retrievedMemories: retrieved,
@@ -273,6 +295,20 @@ export class ReplyService {
       maxLines: this.config.env.MAX_REPLY_LINES,
       maxChars: this.config.env.MAX_REPLY_CHARS,
     });
+
+    // Address the current speaker; media is attributed to its poster (replied-to user, or the
+    // speaker if they sent it) so the roast target is unambiguous.
+    const addressee = ctx.person.userHandle;
+    const media =
+      visual && transcribed.imageDescription
+        ? {
+            kind: visual.kind,
+            description: transcribed.imageDescription,
+            poster: visual.fromReply
+              ? (ctx.context.repliedToUserHandle ?? 'whoever posted it')
+              : ctx.person.userHandle,
+          }
+        : undefined;
 
     // 4. generate candidates
     const gen = await this.generator.generate({
@@ -291,7 +327,9 @@ export class ReplyService {
       retrievedMemories: retrieved,
       botLabel: BOT_LABEL,
       model: generationModel,
+      addressee,
       ...(groundingBlock ? { grounding: groundingBlock } : {}),
+      ...(media ? { media } : {}),
     });
 
     let candidates = gen.candidates;
@@ -359,7 +397,9 @@ export class ReplyService {
         retrievedMemories: retrieved,
         botLabel: BOT_LABEL,
         model: ctx.nsfwModel,
+        addressee,
         ...(groundingBlock ? { grounding: groundingBlock } : {}),
+        ...(media ? { media } : {}),
       });
       if (ns.candidates.length > 0) {
         const r = this.ranker.rank(ns.candidates, {

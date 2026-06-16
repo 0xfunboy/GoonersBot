@@ -105,4 +105,36 @@ export class StyleEngine {
     }
     return [...set];
   }
+
+  /**
+   * Detect recurring tics: 3–5 word sequences that appear in 2+ recent replies (e.g. a catchphrase
+   * sign-off like "porco che sei"), plus the closing of the latest reply so two answers in a row
+   * don't end the same way. These are fed to the generator as phrases to avoid.
+   */
+  recurringTics(recent: BotReplyRecord[]): string[] {
+    const norm = (s: string): string =>
+      s
+        .toLowerCase()
+        .replace(/[^\p{L}\s']/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const texts = recent
+      .slice(0, 8)
+      .map((r) => norm(r.text))
+      .filter(Boolean);
+    const counts = new Map<string, number>();
+    for (const t of texts) {
+      const w = t.split(' ');
+      for (let n = 3; n <= 5; n += 1) {
+        for (let i = 0; i + n <= w.length; i += 1) {
+          const gram = w.slice(i, i + n).join(' ');
+          counts.set(gram, (counts.get(gram) ?? 0) + 1);
+        }
+      }
+    }
+    const tics = [...counts.entries()].filter(([, c]) => c >= 2).map(([g]) => g);
+    const lastClosing = texts[0]?.split(' ').slice(-4).join(' ');
+    if (lastClosing && lastClosing.length >= 6) tics.push(lastClosing);
+    return [...new Set(tics)].slice(0, 12);
+  }
 }

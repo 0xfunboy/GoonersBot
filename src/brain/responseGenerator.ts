@@ -39,6 +39,10 @@ export interface GenerateReplyInput {
   model?: string | undefined;
   /** optional web/image grounding block (fresh facts) injected into the prompt */
   grounding?: string | undefined;
+  /** who to address (the current speaker) */
+  addressee?: string | undefined;
+  /** attached media to react to, with who posted it */
+  media?: { kind: 'photo' | 'video'; description: string; poster: string } | undefined;
 }
 
 export interface GeneratedCandidates {
@@ -82,6 +86,8 @@ export class ResponseGenerator {
       message: input.currentMessage,
       botLabel: input.botLabel,
       ...(input.grounding ? { grounding: input.grounding } : {}),
+      ...(input.addressee ? { addressee: input.addressee } : {}),
+      ...(input.media ? { media: input.media } : {}),
     });
 
     const n = Math.max(1, this.cfg.candidateCount);
