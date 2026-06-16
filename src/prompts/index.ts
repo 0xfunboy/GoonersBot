@@ -5,7 +5,7 @@ import type { StoredMessage } from '../storage/repositories/messages.js';
  * Prompt builders. Each section is a separate, composable function (spec: identity, mode behavior,
  * group context, user facts, group facts, recent messages, safety constraints, output style,
  * autoengage scoring, fact extraction). The original prompt_manager.py logic is preserved and
- * rebranded to GoonerBot's group-native voice.
+ * rebranded to GoonersBot's group-native voice.
  */
 
 const fmtDate = (d: Date): string => d.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';

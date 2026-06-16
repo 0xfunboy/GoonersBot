@@ -10,13 +10,13 @@ import { childLogger } from '../utils/logger.js';
 
 const log = childLogger('bot');
 
-export interface GoonerBot {
+export interface GoonersBot {
   bot: Bot;
   start: () => Promise<void>;
   stop: () => Promise<void>;
 }
 
-export async function createBot(config: AppConfig, services: Services): Promise<GoonerBot> {
+export async function createBot(config: AppConfig, services: Services): Promise<GoonersBot> {
   const bot = new Bot(config.env.TELEGRAM_BOT_TOKEN);
 
   // Resolve the real bot username (used for mention detection) - env value is a default/hint.
@@ -79,7 +79,7 @@ export async function createBot(config: AppConfig, services: Services): Promise<
       command: c.command,
       description:
         services.localizer.t(`${c.command}_description`, {}, config.env.DEFAULT_LANGUAGE) ??
-        'GoonerBot command',
+        'GoonersBot command',
     }));
   await bot.api.setMyCommands(menu).catch((err) => log.warn({ err }, 'setMyCommands failed'));
 

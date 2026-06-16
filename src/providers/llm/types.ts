@@ -2,7 +2,7 @@
  * LLM provider abstraction.
  *
  * Replaces the original `omnimodkit` (OpenAI-only, hardcoded) with a capability-aware interface
- * so GoonerBot can swap backends via env. If a provider lacks a capability, callers fail
+ * so GoonersBot can swap backends via env. If a provider lacks a capability, callers fail
  * gracefully (clean message, log) instead of crashing the bot.
  */
 

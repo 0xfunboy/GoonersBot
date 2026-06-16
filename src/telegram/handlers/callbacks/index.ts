@@ -99,13 +99,15 @@ const termsResponse: CallbackSpec = {
   needsTermsAccepted: false,
   async handle({ services, person, args }) {
     const action = args[0];
+    const vars = { user_handle: person.userHandle };
     if (action === 'accept') {
       await services.terms.accept(person.userHandle);
-      return { text: 'terms_accepted' };
+      // delete the (personal) terms prompt and confirm citing who accepted
+      return { text: 'terms_accepted', vars, deleteOrigin: true };
     }
     if (action === 'decline') {
       await services.terms.decline(person.userHandle);
-      return { text: 'terms_declined' };
+      return { text: 'terms_declined', vars, deleteOrigin: true };
     }
     return { text: 'invalid_terms_action' };
   },

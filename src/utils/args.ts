@@ -3,7 +3,7 @@
  * Mirrors python-telegram-bot's `context.args` (whitespace split, command word removed).
  */
 export function parseArgs(text: string): string[] {
-  // Strip the leading command token (e.g. "/fact@GoonerBot")
+  // Strip the leading command token (e.g. "/fact@GoonersBot")
   const withoutCommand = text.replace(/^\/\S+\s*/, '');
   if (withoutCommand.trim() === '') return [];
   return withoutCommand.trim().split(/\s+/);

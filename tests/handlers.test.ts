@@ -23,7 +23,7 @@ function input(services: unknown, args: string[], ctx = context()): HandlerInput
     context: ctx,
     message: { messageText: '', timestamp: new Date() },
     args,
-    botUsername: 'GoonerBot',
+    botUsername: 'GoonersBot',
     addressed: true,
   };
 }

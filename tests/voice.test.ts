@@ -49,7 +49,7 @@ function input(services: unknown, context = ctx()): HandlerInput {
     context,
     message: { messageText: '', timestamp: new Date() },
     args: [],
-    botUsername: 'GoonerBot',
+    botUsername: 'GoonersBot',
     addressed: true,
   };
 }

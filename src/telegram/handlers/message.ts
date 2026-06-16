@@ -4,7 +4,7 @@ import type { Services } from '../../services/index.js';
 import type { Env } from '../../config/env.js';
 import type { AddMessageMeta } from '../../storage/repositories/messages.js';
 import { termsKeyboard } from './shared.js';
-import { localizeResponse, sendResponse } from '../render.js';
+import { localizeResponse, sendResponse, scheduleDelete } from '../render.js';
 import { fingerprint } from '../../utils/text.js';
 import { childLogger } from '../../utils/logger.js';
 
@@ -65,7 +65,8 @@ export async function handleMessage(
       text: 'terms_text',
       keyboard: termsKeyboard(services, language),
     });
-    await sendResponse(ctx, localized);
+    const sent = await sendResponse(ctx, localized);
+    scheduleDelete(ctx, sent, 60_000); // personal prompt: self-destruct if not signed in 1 minute
     return;
   }
 

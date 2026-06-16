@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="GoonerBot, the group gremlin" width="100%">
+  <img src="assets/banner.svg" alt="GoonersBot, the group gremlin" width="100%">
 </p>
 
 <p align="center">
@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/docker-not%20required-555?logo=docker&logoColor=white" alt="no docker">
 </p>
 
-<h1 align="center">GoonerBot 🤖</h1>
+<h1 align="center">GoonersBot 🤖</h1>
 
 <p align="center">
   <b>A group-native entertainment, roleplay, meme and memory Telegram bot for the <i>Gooners</i> community.</b><br>
@@ -155,7 +155,7 @@ primary. The provider reports capabilities (`chat`, `vision`, `transcription`, `
 
 ## NSFW routing
 
-GoonerBot can route adult turns to a separate uncensored model while keeping a normal model for
+GoonersBot can route adult turns to a separate uncensored model while keeping a normal model for
 everyday banter. Set `LLM_NSFW_MODEL`. Routing is decided before generation (no extra LLM call) and
 gated per chat by an admin.
 
@@ -177,13 +177,13 @@ illegal, no doxxing. NSFW is opt-in per chat and meant for private, consenting a
 
 | Command | Who | What |
 | --- | --- | --- |
-| `/start` | admin | wake GoonerBot in this chat |
+| `/start` | admin | wake GoonersBot in this chat |
 | `/stop` | admin | put it to sleep |
 | `/reset` | admin | wipe conversation memory |
 | `/mode` | admin | pick a mode |
 | `/addmode <description>` | admin | add a custom mode (`[nsfw]` prefix flags it adult) |
 | `/deletemode` | admin | delete a mode |
-| `/introduce <text>` | anyone | tell GoonerBot who you are (saved as lore) |
+| `/introduce <text>` | anyone | tell GoonersBot who you are (saved as lore) |
 | `/fact` | anyone | mine durable lore from recent chat or the replied-to window |
 | `/setfact @handle <text>` | admin | manually insert lore |
 | `/facts [@handle]` | anyone | show stored lore |
@@ -354,7 +354,7 @@ Composer in `src/services/autonomousPoster.ts`, feeds in `src/news/newsService.t
 
 ## Brain and memory
 
-GoonerBot does not dump facts into every prompt. Each reply runs a small pipeline so it behaves like a
+GoonersBot does not dump facts into every prompt. Each reply runs a small pipeline so it behaves like a
 real group member rather than a deterministic bot:
 
 ```text
@@ -395,7 +395,7 @@ The tables below list the common vars; see `.env.example` for the full set with 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | required | Token from @BotFather. |
-| `BOT_USERNAME` | `GoonerBot` | Hint only; the real username is resolved at boot. |
+| `BOT_USERNAME` | `GoonersBot` | Hint only; the real username is resolved at boot. |
 | `ALLOWED_HANDLES` | `*` | Comma `@handles` allowed to use the bot. Empty or `*` means everyone. |
 | `ADMIN_HANDLES` | none | Comma `@handles` that are bot admins. |
 | `MONGO_URI` | `mongodb://127.0.0.1:27017/goonerbot` | Connection string. |
@@ -461,7 +461,7 @@ The tables below list the common vars; see `.env.example` for the full set with 
 
 ## Security
 
-GoonerBot is built for an authorized, self-hosted deployment.
+GoonersBot is built for an authorized, self-hosted deployment.
 
 | Area | Posture |
 | --- | --- |

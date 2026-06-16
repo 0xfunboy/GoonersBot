@@ -1,9 +1,9 @@
 /**
- * Localization for GoonerBot.
+ * Localization for GoonersBot.
  *
  * Ports the original TelegramRPBot localizer mechanism (per-chat language, key lookup with
  * `{var}` interpolation, fallback to default language) but rebrands ALL copy to the
- * group-native GoonerBot / Gooners voice. The "⚡ lightning" theme and the old RP/Flagro
+ * group-native GoonersBot / Gooners voice. The "⚡ lightning" theme and the old RP/Flagro
  * branding are gone.
  *
  * Italian is the default/primary language (DEFAULT_LANGUAGE=italian). English, Russian and Spanish
@@ -13,21 +13,21 @@
 export type LanguageMap = Record<string, string>;
 export type TranslationMap = Record<string, LanguageMap>;
 
-const GITHUB_URL = 'https://github.com/0xfunboy/Goonerbot';
+const GITHUB_URL = 'https://github.com/0xfunboy/GoonersBot';
 
 export const translations: TranslationMap = {
   // ---- command descriptions (shown in the Telegram command menu) ----
   start_description: {
-    italian: 'Sveglia GoonerBot in questa chat',
-    english: 'Wake GoonerBot up in this chat',
-    russian: 'Разбудить GoonerBot в этом чате',
-    spanish: 'Despierta a GoonerBot en este chat',
+    italian: 'Sveglia GoonersBot in questa chat',
+    english: 'Wake GoonersBot up in this chat',
+    russian: 'Разбудить GoonersBot в этом чате',
+    spanish: 'Despierta a GoonersBot en este chat',
   },
   stop_description: {
-    italian: 'Metti GoonerBot a nanna in questa chat',
-    english: 'Put GoonerBot to sleep in this chat',
-    russian: 'Усыпить GoonerBot в этом чате',
-    spanish: 'Duerme a GoonerBot en este chat',
+    italian: 'Metti GoonersBot a nanna in questa chat',
+    english: 'Put GoonersBot to sleep in this chat',
+    russian: 'Усыпить GoonersBot в этом чате',
+    spanish: 'Duerme a GoonersBot en este chat',
   },
   reset_description: {
     italian: 'Cancella la memoria della conversazione di questa chat',
@@ -36,10 +36,10 @@ export const translations: TranslationMap = {
     spanish: 'Borra la memoria de conversación de este chat',
   },
   mode_description: {
-    italian: 'Scegli la modalità di GoonerBot',
-    english: 'Pick the mode GoonerBot runs in',
-    russian: 'Выбрать режим GoonerBot',
-    spanish: 'Elige el modo de GoonerBot',
+    italian: 'Scegli la modalità di GoonersBot',
+    english: 'Pick the mode GoonersBot runs in',
+    russian: 'Выбрать режим GoonersBot',
+    spanish: 'Elige el modo de GoonersBot',
   },
   addmode_description: {
     italian: 'Aggiungi una modalità custom a questa chat',
@@ -54,10 +54,10 @@ export const translations: TranslationMap = {
     spanish: 'Elimina un modo de este chat',
   },
   introduce_description: {
-    italian: 'Dì a GoonerBot chi sei',
-    english: 'Tell GoonerBot who you are',
-    russian: 'Расскажи GoonerBot, кто ты',
-    spanish: 'Dile a GoonerBot quién eres',
+    italian: 'Dì a GoonersBot chi sei',
+    english: 'Tell GoonersBot who you are',
+    russian: 'Расскажи GoonersBot, кто ты',
+    spanish: 'Dile a GoonersBot quién eres',
   },
   fact_description: {
     italian: 'Estrai lore dalla chat recente (o dal messaggio in reply)',
@@ -162,16 +162,16 @@ export const translations: TranslationMap = {
     spanish: 'Enrutado del modelo NSFW: off | base | smart (admin)',
   },
   help_description: {
-    italian: 'Mostra cosa sa fare GoonerBot',
-    english: 'Show what GoonerBot can do',
-    russian: 'Показать возможности GoonerBot',
-    spanish: 'Muestra lo que GoonerBot puede hacer',
+    italian: 'Mostra cosa sa fare GoonersBot',
+    english: 'Show what GoonersBot can do',
+    russian: 'Показать возможности GoonersBot',
+    spanish: 'Muestra lo que GoonersBot puede hacer',
   },
   default_command_description: {
-    italian: 'Un comando di GoonerBot',
-    english: 'A GoonerBot command',
-    russian: 'Команда GoonerBot',
-    spanish: 'Un comando de GoonerBot',
+    italian: 'Un comando di GoonersBot',
+    english: 'A GoonersBot command',
+    russian: 'Команда GoonersBot',
+    spanish: 'Un comando de GoonersBot',
   },
   setfact_description: {
     italian: 'Inserisci lore manuale (solo admin)',
@@ -260,16 +260,16 @@ export const translations: TranslationMap = {
 
   // ---- responses ----
   start_done: {
-    italian: 'GoonerBot è sveglio. Si cucina. 🍳',
-    english: "GoonerBot is awake. Let's cook. 🍳",
-    russian: 'GoonerBot проснулся. Погнали. 🍳',
-    spanish: 'GoonerBot está despierto. A cocinar. 🍳',
+    italian: 'GoonersBot è sveglio. Si cucina. 🍳',
+    english: "GoonersBot is awake. Let's cook. 🍳",
+    russian: 'GoonersBot проснулся. Погнали. 🍳',
+    spanish: 'GoonersBot está despierto. A cocinar. 🍳',
   },
   stop_done: {
-    italian: 'GoonerBot va in stand-by. Chiamami quando ti serve di nuovo il caos.',
-    english: 'GoonerBot going dark. Ping me when you need chaos again.',
-    russian: 'GoonerBot уходит в тень. Зовите, когда снова понадобится хаос.',
-    spanish: 'GoonerBot se apaga. Llámame cuando quieras caos otra vez.',
+    italian: 'GoonersBot va in stand-by. Chiamami quando ti serve di nuovo il caos.',
+    english: 'GoonersBot going dark. Ping me when you need chaos again.',
+    russian: 'GoonersBot уходит в тень. Зовите, когда снова понадобится хаос.',
+    spanish: 'GoonersBot se apaga. Llámame cuando quieras caos otra vez.',
   },
   reset_done: {
     italian: 'Memoria cancellata. Tabula rasa, e tu chi sei.',
@@ -604,18 +604,20 @@ export const translations: TranslationMap = {
     spanish: '❌ Rechazar',
   },
   terms_accepted: {
-    italian: 'Termini accettati. Sei dentro. 🤝',
-    english: "Terms accepted. You're in. 🤝",
-    russian: 'Условия приняты. Ты в деле. 🤝',
-    spanish: 'Términos aceptados. Estás dentro. 🤝',
+    italian: 'Grazie {user_handle}, termini accettati: sei dentro. 🤝',
+    english: 'Thanks {user_handle}, terms accepted: you are in. 🤝',
+    russian: 'Спасибо, {user_handle}, условия приняты: ты в деле. 🤝',
+    spanish: 'Gracias {user_handle}, términos aceptados: estás dentro. 🤝',
   },
   terms_declined: {
     italian:
-      'Termini rifiutati. I tuoi dati salvati sono stati cancellati. Accetta i termini per usare GoonerBot.',
-    english: 'Terms declined. Your stored data was cleared. Accept the terms to use GoonerBot.',
-    russian: 'Условия отклонены. Твои данные удалены. Прими условия, чтобы пользоваться GoonerBot.',
+      '{user_handle} ha rifiutato i termini. I dati salvati sono stati cancellati. Accetta i termini per usare GoonersBot.',
+    english:
+      '{user_handle} declined the terms. Stored data was cleared. Accept the terms to use GoonersBot.',
+    russian:
+      '{user_handle} отклонил условия. Данные удалены. Прими условия, чтобы пользоваться GoonersBot.',
     spanish:
-      'Términos rechazados. Tus datos fueron borrados. Acepta los términos para usar GoonerBot.',
+      '{user_handle} rechazó los términos. Los datos fueron borrados. Acepta los términos para usar GoonersBot.',
   },
   terms_already_accepted: {
     italian: 'Hai già accettato i termini. Tutto ok. 🤝',
@@ -631,89 +633,89 @@ export const translations: TranslationMap = {
   },
   terms_text: {
     italian: [
-      "<strong>📋 Termini d'uso di GoonerBot</strong>",
+      "<strong>📋 Termini d'uso di GoonersBot</strong>",
       '',
-      'Usando GoonerBot in questa chat accetti che:',
+      'Usando GoonersBot in questa chat accetti che:',
       '',
       '<strong>🔒 Dati e memoria</strong>',
       '• I <b>messaggi</b> possono essere elaborati e salvati per risposte contestuali e memoria di gruppo.',
-      "• Le <b>immagini</b> che invii (quando ti rivolgi a GoonerBot) possono essere descritte dall'AI.",
-      "• L'<b>audio</b> che invii (quando ti rivolgi a GoonerBot) può essere trascritto in testo.",
+      "• Le <b>immagini</b> che invii (quando ti rivolgi a GoonersBot) possono essere descritte dall'AI.",
+      "• L'<b>audio</b> che invii (quando ti rivolgi a GoonersBot) può essere trascritto in testo.",
       '• I <b>fatti</b> su utenti/gruppo vengono salvati per tenere viva la lore.',
       "• L'<b>utilizzo</b> è tracciato in punti per applicare i limiti.",
       '',
       '<strong>⚡ I tuoi controlli</strong>',
       '• /reset cancella la memoria della conversazione.',
       '• /clearfacts cancella i fatti salvati.',
-      '• /stop mette GoonerBot a nanna in questa chat.',
+      '• /stop mette GoonersBot a nanna in questa chat.',
       '• Se rifiuti, i tuoi dati personalizzati vengono cancellati (termini e stato di ban restano per sicurezza).',
       '',
-      `<strong>🔗 Open source:</strong> <a href="${GITHUB_URL}">GoonerBot su GitHub</a>`,
+      `<strong>🔗 Open source:</strong> <a href="${GITHUB_URL}">GoonersBot su GitHub</a>`,
     ].join('\n'),
     english: [
-      '<strong>📋 GoonerBot Terms of Use</strong>',
+      '<strong>📋 GoonersBot Terms of Use</strong>',
       '',
-      'By using GoonerBot in this chat you agree that:',
+      'By using GoonersBot in this chat you agree that:',
       '',
       '<strong>🔒 Data &amp; Memory</strong>',
       '• <b>Messages</b> may be processed and stored to give context-aware replies and keep group memory.',
-      '• <b>Images</b> you send (when GoonerBot is addressed) may be described by AI.',
-      '• <b>Voice</b> you send (when GoonerBot is addressed) may be transcribed to text.',
+      '• <b>Images</b> you send (when GoonersBot is addressed) may be described by AI.',
+      '• <b>Voice</b> you send (when GoonersBot is addressed) may be transcribed to text.',
       '• <b>Facts</b> about users/group are stored to keep the lore alive.',
       '• <b>Usage</b> is tracked as points to enforce limits.',
       '',
       '<strong>⚡ Your controls</strong>',
       '• /reset wipes the conversation memory.',
       '• /clearfacts wipes stored facts.',
-      '• /stop puts GoonerBot to sleep in this chat.',
+      '• /stop puts GoonersBot to sleep in this chat.',
       '• Decline and your custom stored data is cleared (terms + ban status are kept for safety).',
       '',
-      `<strong>🔗 Open source:</strong> <a href="${GITHUB_URL}">GoonerBot on GitHub</a>`,
+      `<strong>🔗 Open source:</strong> <a href="${GITHUB_URL}">GoonersBot on GitHub</a>`,
     ].join('\n'),
     russian: [
-      '<strong>📋 Условия использования GoonerBot</strong>',
+      '<strong>📋 Условия использования GoonersBot</strong>',
       '',
-      'Используя GoonerBot в этом чате, ты соглашаешься, что:',
+      'Используя GoonersBot в этом чате, ты соглашаешься, что:',
       '',
       '<strong>🔒 Данные и память</strong>',
       '• <b>Сообщения</b> могут обрабатываться и храниться для контекстных ответов и групповой памяти.',
-      '• <b>Изображения</b> (когда обращаются к GoonerBot) могут описываться ИИ.',
-      '• <b>Голос</b> (когда обращаются к GoonerBot) может транскрибироваться.',
+      '• <b>Изображения</b> (когда обращаются к GoonersBot) могут описываться ИИ.',
+      '• <b>Голос</b> (когда обращаются к GoonersBot) может транскрибироваться.',
       '• <b>Факты</b> о пользователях/группе хранятся для истории.',
       '• <b>Использование</b> отслеживается в виде очков для лимитов.',
       '',
       '<strong>⚡ Твои возможности</strong>',
       '• /reset очищает память разговора.',
       '• /clearfacts очищает факты.',
-      '• /stop усыпляет GoonerBot в этом чате.',
+      '• /stop усыпляет GoonersBot в этом чате.',
       '• Отказ - твои данные удаляются (условия и статус бана сохраняются).',
       '',
-      `<strong>🔗 Открытый код:</strong> <a href="${GITHUB_URL}">GoonerBot на GitHub</a>`,
+      `<strong>🔗 Открытый код:</strong> <a href="${GITHUB_URL}">GoonersBot на GitHub</a>`,
     ].join('\n'),
     spanish: [
-      '<strong>📋 Términos de uso de GoonerBot</strong>',
+      '<strong>📋 Términos de uso de GoonersBot</strong>',
       '',
-      'Al usar GoonerBot en este chat aceptas que:',
+      'Al usar GoonersBot en este chat aceptas que:',
       '',
       '<strong>🔒 Datos y memoria</strong>',
       '• Los <b>mensajes</b> pueden procesarse y almacenarse para respuestas con contexto y memoria de grupo.',
-      '• Las <b>imágenes</b> que envíes (cuando te diriges a GoonerBot) pueden ser descritas por IA.',
-      '• El <b>audio</b> que envíes (cuando te diriges a GoonerBot) puede transcribirse a texto.',
+      '• Las <b>imágenes</b> que envíes (cuando te diriges a GoonersBot) pueden ser descritas por IA.',
+      '• El <b>audio</b> que envíes (cuando te diriges a GoonersBot) puede transcribirse a texto.',
       '• Los <b>datos</b> de usuarios/grupo se guardan para mantener la lore.',
       '• El <b>uso</b> se rastrea como puntos para aplicar límites.',
       '',
       '<strong>⚡ Tus controles</strong>',
       '• /reset borra la memoria de conversación.',
       '• /clearfacts borra los datos guardados.',
-      '• /stop duerme a GoonerBot en este chat.',
+      '• /stop duerme a GoonersBot en este chat.',
       '• Si rechazas, tus datos personalizados se borran (términos y estado de baneo se conservan).',
       '',
-      `<strong>🔗 Código abierto:</strong> <a href="${GITHUB_URL}">GoonerBot en GitHub</a>`,
+      `<strong>🔗 Código abierto:</strong> <a href="${GITHUB_URL}">GoonersBot en GitHub</a>`,
     ].join('\n'),
   },
   help_text: {
     italian: [
-      '<strong>GoonerBot 🤖 - il gremlin del gruppo</strong>',
+      '<strong>GoonersBot 🤖 - il gremlin del gruppo</strong>',
       'Bot di intrattenimento, roleplay, meme, banter e memoria per i Gooners.',
       '',
       '<strong>Cosa faccio</strong>',
@@ -748,10 +750,10 @@ export const translations: TranslationMap = {
       '• <em>/brain</em> · <em>/debuglast</em> (admin) - debug del cervello',
       '• <em>/help</em> - questo',
       '',
-      `<strong>🔗</strong> <a href="${GITHUB_URL}">GoonerBot su GitHub</a>`,
+      `<strong>🔗</strong> <a href="${GITHUB_URL}">GoonersBot su GitHub</a>`,
     ].join('\n'),
     english: [
-      '<strong>GoonerBot 🤖 - your group gremlin</strong>',
+      '<strong>GoonersBot 🤖 - your group gremlin</strong>',
       'A group-native entertainment, roleplay, meme, banter &amp; memory bot for the Gooners.',
       '',
       '<strong>What I do</strong>',
@@ -786,10 +788,10 @@ export const translations: TranslationMap = {
       '• <em>/brain</em> · <em>/debuglast</em> (admin) - brain debug',
       '• <em>/help</em> - this',
       '',
-      `<strong>🔗</strong> <a href="${GITHUB_URL}">GoonerBot on GitHub</a>`,
+      `<strong>🔗</strong> <a href="${GITHUB_URL}">GoonersBot on GitHub</a>`,
     ].join('\n'),
     russian: [
-      '<strong>GoonerBot 🤖 - гремлин вашей группы</strong>',
+      '<strong>GoonersBot 🤖 - гремлин вашей группы</strong>',
       'Развлекательный, ролевой, мем- и память-бот для Gooners.',
       '',
       '<strong>Команды</strong>',
@@ -813,10 +815,10 @@ export const translations: TranslationMap = {
       '• <em>/unban @handle</em> (админ) - разбанить',
       '• <em>/help</em> - это',
       '',
-      `<strong>🔗</strong> <a href="${GITHUB_URL}">GoonerBot на GitHub</a>`,
+      `<strong>🔗</strong> <a href="${GITHUB_URL}">GoonersBot на GitHub</a>`,
     ].join('\n'),
     spanish: [
-      '<strong>GoonerBot 🤖 - el gremlin del grupo</strong>',
+      '<strong>GoonersBot 🤖 - el gremlin del grupo</strong>',
       'Bot de entretenimiento, roleplay, memes, banter y memoria para los Gooners.',
       '',
       '<strong>Comandos</strong>',
@@ -840,7 +842,7 @@ export const translations: TranslationMap = {
       '• <em>/unban @handle</em> (admin) - desbanear',
       '• <em>/help</em> - esto',
       '',
-      `<strong>🔗</strong> <a href="${GITHUB_URL}">GoonerBot en GitHub</a>`,
+      `<strong>🔗</strong> <a href="${GITHUB_URL}">GoonersBot en GitHub</a>`,
     ].join('\n'),
   },
 };

@@ -1,4 +1,4 @@
-/* eslint config for GoonerBot (TypeScript, strict) */
+/* eslint config for GoonersBot (TypeScript, strict) */
 module.exports = {
   root: true,
   parser: '@typescript-eslint/parser',

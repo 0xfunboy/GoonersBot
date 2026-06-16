@@ -5,7 +5,7 @@ describe('Localizer', () => {
   const loc = new Localizer('english');
 
   it('resolves a key in the default language', () => {
-    expect(loc.t('start_done')).toContain('GoonerBot');
+    expect(loc.t('start_done')).toContain('GoonersBot');
   });
 
   it('interpolates variables', () => {
@@ -14,7 +14,7 @@ describe('Localizer', () => {
   });
 
   it('falls back to default language for an unknown language', () => {
-    expect(loc.t('start_done', {}, 'klingon')).toContain('GoonerBot');
+    expect(loc.t('start_done', {}, 'klingon')).toContain('GoonersBot');
   });
 
   it('resolves localized strings for supported languages', () => {

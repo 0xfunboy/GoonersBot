@@ -10,13 +10,13 @@ import {
 describe('prompt builders', () => {
   it('system prompt includes identity, mode, language and safety', () => {
     const p = buildSystemPrompt({
-      botUsername: 'GoonerBot',
+      botUsername: 'GoonersBot',
       chatName: 'Gooners',
       language: 'english',
       modeName: 'Roast',
       modeDescription: 'light banter only',
     });
-    expect(p).toContain('GoonerBot');
+    expect(p).toContain('GoonersBot');
     expect(p).toContain('Gooners');
     expect(p).toContain('Roast');
     expect(p).toContain('light banter only');

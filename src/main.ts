@@ -10,7 +10,7 @@ import { getLogger } from './utils/logger.js';
 
 async function main(): Promise<void> {
   const log = getLogger();
-  log.info('GoonerBot starting up');
+  log.info('GoonersBot starting up');
 
   // 1. Config (fails fast on invalid/missing required env).
   const config = loadConfig();
@@ -60,7 +60,7 @@ async function main(): Promise<void> {
 
   // 7. Start polling.
   await goonerBot.start();
-  log.info('GoonerBot is live');
+  log.info('GoonersBot is live');
 
   // Graceful shutdown on signals (restart-friendly; no destructive teardown).
   let shuttingDown = false;

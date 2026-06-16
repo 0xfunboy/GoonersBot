@@ -53,7 +53,7 @@ export class NewsService {
       const res = await fetch(url, {
         signal: controller.signal,
         headers: {
-          'User-Agent': 'GoonerBot/1.0 (+rss)',
+          'User-Agent': 'GoonersBot/1.0 (+rss)',
           Accept: 'application/rss+xml, application/xml, text/xml',
         },
       });

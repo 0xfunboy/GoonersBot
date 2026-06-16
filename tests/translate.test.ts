@@ -40,7 +40,7 @@ function input(services: unknown, context: ChatContext, args: string[]): Handler
     context,
     message: { messageText: '', timestamp: new Date() },
     args,
-    botUsername: 'GoonerBot',
+    botUsername: 'GoonersBot',
     addressed: true,
   };
 }

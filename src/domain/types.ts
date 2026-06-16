@@ -98,6 +98,8 @@ export interface CommandResponse {
   /** audio (TTS) to send */
   audioBuffer?: Buffer | undefined;
   keyboard?: KeyboardResponse | undefined;
+  /** for callbacks: delete the message the button was attached to before replying (terms prompt) */
+  deleteOrigin?: boolean | undefined;
 }
 
 /** A localized, render-ready response. */

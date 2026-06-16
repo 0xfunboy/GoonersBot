@@ -2,7 +2,7 @@ import type { Context as GrammyContext } from 'grammy';
 import type { Permission, Services } from '../services/index.js';
 import type { CommandSpec, CallbackSpec, HandlerInput } from './handlers/types.js';
 import { buildChatContext, buildIncomingMessage, buildPerson } from './context.js';
-import { localizeResponse, sendResponse } from './render.js';
+import { localizeResponse, sendResponse, scheduleDelete } from './render.js';
 import { termsKeyboard } from './handlers/shared.js';
 import { parseArgs } from '../utils/args.js';
 import { parseCallbackData } from './keyboards.js';
@@ -102,13 +102,18 @@ async function finish(
       text: 'terms_text',
       keyboard: termsKeyboard(services, language),
     });
-    await sendResponse(ctx, localized);
+    const sent = await sendResponse(ctx, localized);
+    scheduleDelete(ctx, sent, 60_000); // personal prompt: self-destruct if not signed in 1 minute
     return;
   }
 
   try {
     const response = await run(prepared.input);
     if (!response) return;
+    // for terms accept/decline: remove the (personal) prompt the button was attached to
+    if (response.deleteOrigin && ctx.callbackQuery) {
+      await ctx.deleteMessage().catch(() => undefined);
+    }
     const localized = await localizeResponse(services, prepared.input.context.chatId, response);
     await sendResponse(ctx, localized);
   } catch (err) {

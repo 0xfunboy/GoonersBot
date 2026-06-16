@@ -73,7 +73,7 @@ const envSchema = z.object({
 
   // Telegram
   TELEGRAM_BOT_TOKEN: z.string().min(1, 'TELEGRAM_BOT_TOKEN is required'),
-  BOT_USERNAME: z.string().default('GoonerBot'),
+  BOT_USERNAME: z.string().default('GoonersBot'),
 
   // Access control (handles normalized to @handle; null => unrestricted)
   ALLOWED_HANDLES: csvHandles,

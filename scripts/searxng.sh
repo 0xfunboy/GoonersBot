@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GoonerBot SearXNG control (no Docker). Provides the free web-search backend for grounding.
+# GoonersBot SearXNG control (no Docker). Provides the free web-search backend for grounding.
 #
 #   scripts/searxng.sh setup    # one-time: clone + venv + deps + settings.yml (JSON, no limiter)
 #   scripts/searxng.sh start    # launch on 127.0.0.1:8888 (background)
@@ -57,7 +57,7 @@ install_unit() {
   mkdir -p "$(dirname "$UNIT")"
   cat > "$UNIT" <<UNITFILE
 [Unit]
-Description=SearXNG (GoonerBot web-search backend)
+Description=SearXNG (GoonersBot web-search backend)
 After=network-online.target
 Wants=network-online.target
 

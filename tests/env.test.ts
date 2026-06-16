@@ -11,7 +11,7 @@ describe('loadEnv', () => {
 
   it('applies defaults for optional config', () => {
     const env = loadEnv(base);
-    expect(env.BOT_USERNAME).toBe('GoonerBot');
+    expect(env.BOT_USERNAME).toBe('GoonersBot');
     expect(env.LLM_PROVIDER).toBe('ollama');
     expect(env.MAX_CONTEXT_MESSAGES).toBe(25);
     expect(env.AUTOENGAGE_DEFAULT_ENABLED).toBe(true);

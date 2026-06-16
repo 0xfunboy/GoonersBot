@@ -25,7 +25,7 @@ logs/
 coverage/
 .vitest/
 
-# Reference clone of the original Python project (not part of GoonerBot)
+# Reference clone of the original Python project (not part of GoonersBot)
 _tg_rp_bot_source/
 
 # Voice toolchain (provisioned by scripts/setup-voice.sh - binaries/models not committed)

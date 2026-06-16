@@ -7,7 +7,7 @@ describe('parseArgs', () => {
     expect(parseArgs('/fact @bob loves memes')).toEqual(['@bob', 'loves', 'memes']);
   });
   it('handles @botname suffix', () => {
-    expect(parseArgs('/ban@GoonerBot @bob 60')).toEqual(['@bob', '60']);
+    expect(parseArgs('/ban@GoonersBot @bob 60')).toEqual(['@bob', '60']);
   });
   it('returns empty for a bare command', () => {
     expect(parseArgs('/help')).toEqual([]);
@@ -21,7 +21,7 @@ describe('parseArgs', () => {
 describe('parseCommandName', () => {
   it('extracts lowercased command name', () => {
     expect(parseCommandName('/Start hello')).toBe('start');
-    expect(parseCommandName('/ban@GoonerBot @x')).toBe('ban');
+    expect(parseCommandName('/ban@GoonersBot @x')).toBe('ban');
   });
   it('returns null for non-commands', () => {
     expect(parseCommandName('hello there')).toBeNull();
