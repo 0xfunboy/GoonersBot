@@ -50,6 +50,37 @@ function isAnimeTopic(message: string, knowledge: { topic: string }[]): boolean 
   return knowledge.some((k) => /waifu|anime|manga|otaku/i.test(k.topic));
 }
 
+// The user is asking the bot to send/find an image.
+const IMAGE_WANT_RE =
+  /\b(mandami|manda|inviami|invia|trovami|trova|cerca(mi)?|dammi|fammi vedere|postami|posta|voglio (vedere |un'?|una )?|mostrami|fai vedere|send( me)?|show( me)?|find( me)?|gimme|drop)\b[^.?!]*\b(immagin\w*|fotgrafi\w*|foto|fote|pic|picture|image|img|wallpaper|meme|waifu|gotic\w*)\b/i;
+// The bot's own reply promised to send/show an image (must be honored with a real image).
+const IMAGE_PROMISE_RE =
+  /\b(ti (mando|invio|giro|passo)|eccoti|ecco (qui|qua|una|un'|la|il)|guarda (questa|qui|qua)|te ne mando|mando (qualche|un'?|una|dei|delle)|ti mostro|here('?s| is| you go)|i'?ll (send|show|find)|sending you|check this)\b[^.]*\b(immagin\w*|foto|fote|pic|picture|image|img|wallpaper|meme|link|waifu)\b/i;
+
+/**
+ * Extract the subject the user wants an image of (e.g. "gotica culona") and bias it to the bot's
+ * anime/waifu taste so the verified search stays on-brand. Returns undefined when there is no clear
+ * subject (then a random waifu query from the pool is used).
+ */
+function imageQueryFromMessage(message: string): string | undefined {
+  const m = message.match(
+    /\b(?:immagin\w*|foto|fote|pic|picture|image|img|wallpaper|meme)\s+(?:di|del|della|dei|delle|d'|of|su)\s+([^.?!\n]{2,60})/i,
+  );
+  let subject = m?.[1]?.trim();
+  if (!subject) {
+    const v = message.match(
+      /\b(?:mandami|manda|inviami|trovami|trova|cerca(?:mi)?|dammi|mostrami|fammi vedere|send me|show me|find me|gimme|drop)\s+(?:una?\s+|un'|qualche\s+|dei\s+|delle\s+)?(?:immagin\w*|foto|fote|pic|picture|image|img|wallpaper|meme)?\s*(?:di|of|su)?\s*([^.?!\n]{2,60})/i,
+    );
+    subject = v?.[1]?.trim();
+  }
+  if (!subject) return undefined;
+  subject = subject
+    .replace(/\b(per piacere|per favore|grazie|please|thanks|dai|su)\b/gi, '')
+    .trim();
+  if (subject.length < 2) return undefined;
+  return ANIME_TOPIC_RE.test(subject) ? subject : `${subject} anime`;
+}
+
 /** Format retrieved knowledge into a compact, clearly-optional context block (or '' if none). */
 function formatKnowledge(items: { topic: string; text: string }[]): string {
   if (items.length === 0) return '';
@@ -481,16 +512,25 @@ export class ReplyService {
       }
     }
 
-    // 6b. occasionally drop a verified waifu/anime image when the topic fits (the bot's taste)
+    // 6b. send a verified waifu/anime image when the user asked for one, when the reply PROMISED one
+    // (a promise must be honored), or ambiently when the topic is anime/waifu (the bot's taste).
+    const userMsg = ctx.message.messageText || '';
+    const wantsImage = IMAGE_WANT_RE.test(userMsg);
+    const promisedImage = IMAGE_PROMISE_RE.test(best);
+    const ambient =
+      isAnimeTopic(userMsg, knowledgeItems) &&
+      Math.random() < this.config.auto.imageSendProbability;
     if (
       !imageBuffer &&
       !imageUrl &&
       this.config.auto.imageSendEnabled &&
       this.imageFinder.enabled &&
-      isAnimeTopic(ctx.message.messageText || '', knowledgeItems) &&
-      Math.random() < this.config.auto.imageSendProbability
+      (wantsImage || promisedImage || ambient)
     ) {
-      const found = await this.imageFinder.find();
+      const subject = wantsImage || promisedImage ? imageQueryFromMessage(userMsg) : undefined;
+      let found = await this.imageFinder.find(subject);
+      // if a specific subject found nothing, fall back to a generic waifu so the promise is kept
+      if (!found && subject && (wantsImage || promisedImage)) found = await this.imageFinder.find();
       if (found) imageBuffer = found.buffer;
     }
 
