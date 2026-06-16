@@ -16,6 +16,8 @@ export function createLLMProvider(cfg: LLMConfig): LLMProvider {
     apiKey: cfg.apiKey,
     chatModel: cfg.model,
     visionModel: cfg.visionModel,
+    visionBaseUrl: cfg.visionBaseUrl,
+    visionApiKey: cfg.visionApiKey,
     imageModel: cfg.imageModel,
     transcriptionModel: cfg.transcriptionModel,
     ttsModel: cfg.ttsModel,

@@ -130,11 +130,16 @@ export async function buildIncomingMessage(
       }
     }
   }
-  if (opts.voice && msg?.voice) {
-    const buf = await downloadFile(ctx, msg.voice.file_id);
-    if (buf) {
-      out.audioBuffer = buf;
-      out.audioMime = msg.voice.mime_type ?? 'audio/ogg';
+  // Voice notes, audio files, videos and round video-notes all feed STT. ffmpeg extracts the
+  // audio track from video containers, so the same transcription path covers every kind.
+  if (opts.voice) {
+    const media = msg?.voice ?? msg?.audio ?? msg?.video ?? msg?.video_note;
+    if (media) {
+      const buf = await downloadFile(ctx, media.file_id);
+      if (buf) {
+        out.audioBuffer = buf;
+        out.audioMime = ('mime_type' in media && media.mime_type) || 'application/octet-stream';
+      }
     }
   }
   return out;

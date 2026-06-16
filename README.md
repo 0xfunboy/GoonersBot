@@ -290,8 +290,9 @@ auto-fact extraction (if `/autofact`).
 
 GoonerBot can listen to and send voice notes — both fully local-ish and cheap.
 
-- **STT (speech-to-text):** a local **whisper.cpp** build transcribes incoming voice notes to text
-  so the brain "reads" them (and stores them as context). No cloud, modest CPU.
+- **STT (speech-to-text):** a local **whisper.cpp** build transcribes incoming **voice notes,
+  audio files, videos and round video-notes** to text so the brain "reads" them (and stores them as
+  context). ffmpeg extracts the audio track from video containers — no cloud, modest CPU.
 - **TTS (text-to-speech):** an OpenAI-compatible `/v1/audio/speech` server (e.g.
   [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI), the one airi-stack uses) synthesizes
   replies; ffmpeg transcodes to Telegram-ready OGG/Opus.
@@ -320,6 +321,26 @@ STT_ENABLED=true                 # paths default to the vendor/ build
 Verify the round-trip (TTS → OGG/Opus → whisper) with `pnpm tsx scripts/smoke-voice.ts`.
 The default whisper model is `base` (multilingual, ~142 MB, fast); switch to `small` via
 `WHISPER_MODEL` for better Italian at a bit more CPU. No GPU required.
+
+## Vision (image understanding)
+
+The bot can look at photos and react to them. Vision is capability-gated by `LLM_VISION_MODEL`.
+Because some chat backends (e.g. solclawn) have **no vision**, vision can target a **separate**
+OpenAI-compatible endpoint — ideally an Ollama on a box with a GPU:
+
+```bash
+# on the GPU host (e.g. the same machine that runs Kokoro):
+ollama pull llama3.2-vision        # or: gemma3 (multimodal) · llava · moondream (tiny) · qwen2.5vl (OCR)
+# make sure Ollama listens on the LAN: OLLAMA_HOST=0.0.0.0:11434
+
+# in .env:
+LLM_VISION_MODEL=llama3.2-vision
+LLM_VISION_BASE_URL=http://<gpu-host>:11434/v1   # empty => reuse LLM_BASE_URL/LLM_API_KEY
+LLM_VISION_API_KEY=                              # Ollama needs none
+```
+
+When a photo arrives (and the bot is addressed), it is described via this endpoint and the
+description feeds the brain. If the endpoint is down, vision degrades gracefully (logged, skipped).
 
 ## Brain & memory
 
@@ -372,6 +393,8 @@ capabilities never block startup. Copy `.env.example` → `.env` (gitignored; ne
 | `LLM_API_KEY` | — | Bearer token. |
 | `LLM_MODEL` | — | Chat model (required for text replies). |
 | `LLM_VISION_MODEL` | — | Enables image input. Unset ⇒ disabled. |
+| `LLM_VISION_BASE_URL` | — | Separate vision endpoint (e.g. an Ollama). Empty ⇒ reuse `LLM_BASE_URL`. |
+| `LLM_VISION_API_KEY` | — | Bearer for the vision endpoint (Ollama needs none). |
 | `LLM_IMAGE_MODEL` | — | Enables image output. Unset ⇒ disabled. |
 | `LLM_TRANSCRIPTION_MODEL` | — | Enables voice input. Unset ⇒ disabled. |
 | `LLM_TTS_MODEL` | — | Enables TTS output. Unset ⇒ disabled. |

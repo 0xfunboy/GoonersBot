@@ -66,27 +66,32 @@ export function toTelegramVoice(bin: string, input: Buffer, timeoutMs = 30000): 
   );
 }
 
-/** Transcode arbitrary audio bytes → 16 kHz mono PCM WAV (whisper.cpp input). */
+const WHISPER_WAV_ARGS = ['-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', '-f', 'wav', 'pipe:1'];
+
+/** Transcode arbitrary audio bytes (from stdin) → 16 kHz mono PCM WAV (whisper.cpp input). */
 export function toWhisperWav(bin: string, input: Buffer, timeoutMs = 30000): Promise<Buffer> {
   return runFfmpeg(
     bin,
-    [
-      '-hide_banner',
-      '-loglevel',
-      'error',
-      '-i',
-      'pipe:0',
-      '-ar',
-      '16000',
-      '-ac',
-      '1',
-      '-c:a',
-      'pcm_s16le',
-      '-f',
-      'wav',
-      'pipe:1',
-    ],
+    ['-hide_banner', '-loglevel', 'error', '-i', 'pipe:0', ...WHISPER_WAV_ARGS],
     input,
+    timeoutMs,
+  );
+}
+
+/**
+ * Decode a media FILE → 16 kHz mono PCM WAV. Reading from a seekable file (not a pipe) is required
+ * for containers like MP4 whose moov atom sits at the end (videos / video-notes / audio files).
+ * ffmpeg auto-detects the format and extracts the audio track regardless of container.
+ */
+export function decodeFileToWhisperWav(
+  bin: string,
+  inputPath: string,
+  timeoutMs = 30000,
+): Promise<Buffer> {
+  return runFfmpeg(
+    bin,
+    ['-hide_banner', '-loglevel', 'error', '-i', inputPath, '-vn', ...WHISPER_WAV_ARGS],
+    Buffer.alloc(0),
     timeoutMs,
   );
 }

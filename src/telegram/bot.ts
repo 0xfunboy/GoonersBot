@@ -37,23 +37,34 @@ export async function createBot(config: AppConfig, services: Services): Promise<
   }
 
   // Free-text / media messages (not commands) go to the conversational handler.
-  bot.on(['message:text', 'message:voice', 'message:photo', 'message:caption'], async (ctx) => {
-    // Ignore commands here (handled above).
-    if (ctx.message?.text?.startsWith('/')) return;
-    const person = buildPerson(ctx);
-    const context = await buildChatContext(ctx, botUsername);
-    if (!person || !context) return;
-    const { mentioned, replyToBot } = isBotAddressed(ctx, botUsername);
-    const addressed = mentioned || replyToBot;
-    // Download voice even when not addressed, so STT can transcribe passive voice notes.
-    const wantVoice = addressed || (services.stt.enabled && config.env.STT_TRANSCRIBE_ALL);
-    const message = await buildIncomingMessage(ctx, { image: addressed, voice: wantVoice });
-    await handleMessage(ctx, person, context, message, {
-      services,
-      env: config.env,
-      botUsername,
-    });
-  });
+  bot.on(
+    [
+      'message:text',
+      'message:voice',
+      'message:audio',
+      'message:video',
+      'message:video_note',
+      'message:photo',
+      'message:caption',
+    ],
+    async (ctx) => {
+      // Ignore commands here (handled above).
+      if (ctx.message?.text?.startsWith('/')) return;
+      const person = buildPerson(ctx);
+      const context = await buildChatContext(ctx, botUsername);
+      if (!person || !context) return;
+      const { mentioned, replyToBot } = isBotAddressed(ctx, botUsername);
+      const addressed = mentioned || replyToBot;
+      // Download voice even when not addressed, so STT can transcribe passive voice notes.
+      const wantVoice = addressed || (services.stt.enabled && config.env.STT_TRANSCRIBE_ALL);
+      const message = await buildIncomingMessage(ctx, { image: addressed, voice: wantVoice });
+      await handleMessage(ctx, person, context, message, {
+        services,
+        env: config.env,
+        botUsername,
+      });
+    },
+  );
 
   // Global error handler — never crash the bot on a single update.
   bot.catch((err) => {

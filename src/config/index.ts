@@ -17,6 +17,9 @@ export interface LLMConfig {
   apiKey: string | undefined;
   model: string | undefined;
   visionModel: string | undefined;
+  /** Optional separate endpoint for vision (e.g. an Ollama running llama3.2-vision). */
+  visionBaseUrl: string | undefined;
+  visionApiKey: string | undefined;
   imageModel: string | undefined;
   transcriptionModel: string | undefined;
   ttsModel: string | undefined;
@@ -47,6 +50,8 @@ export function resolveLLMConfig(env: Env): LLMConfig {
       apiKey: env.DEEPSEEK_API_KEY ?? env.LLM_API_KEY,
       model: env.DEEPSEEK_MODEL ?? env.LLM_MODEL,
       visionModel: env.LLM_VISION_MODEL,
+      visionBaseUrl: env.LLM_VISION_BASE_URL,
+      visionApiKey: env.LLM_VISION_API_KEY,
       imageModel: env.LLM_IMAGE_MODEL,
       transcriptionModel: env.LLM_TRANSCRIPTION_MODEL,
       ttsModel: env.LLM_TTS_MODEL,
@@ -62,6 +67,8 @@ export function resolveLLMConfig(env: Env): LLMConfig {
     apiKey: env.LLM_API_KEY,
     model: env.LLM_MODEL,
     visionModel: env.LLM_VISION_MODEL,
+    visionBaseUrl: env.LLM_VISION_BASE_URL,
+    visionApiKey: env.LLM_VISION_API_KEY,
     imageModel: env.LLM_IMAGE_MODEL,
     transcriptionModel: env.LLM_TRANSCRIPTION_MODEL,
     ttsModel: env.LLM_TTS_MODEL,

@@ -21,6 +21,9 @@ export interface OpenAICompatibleOptions {
   apiKey: string | undefined;
   chatModel: string | undefined;
   visionModel: string | undefined;
+  /** Optional separate endpoint for vision; falls back to baseUrl/apiKey when undefined. */
+  visionBaseUrl?: string | undefined;
+  visionApiKey?: string | undefined;
   imageModel: string | undefined;
   transcriptionModel: string | undefined;
   ttsModel: string | undefined;
@@ -216,9 +219,18 @@ export class OpenAICompatibleProvider implements LLMProvider {
     const body: Record<string, unknown> = { model, messages, stream: false };
     if (req.maxTokens !== undefined) body['max_tokens'] = req.maxTokens;
 
-    const res = await this.fetchWithTimeout(this.url('/chat/completions'), {
+    // Vision may live on a separate backend (e.g. an Ollama with llama3.2-vision) since the
+    // main chat host often lacks vision. Fall back to the main base/key when not overridden.
+    const visionUrl = this.opts.visionBaseUrl
+      ? `${this.opts.visionBaseUrl.replace(/\/+$/, '')}/chat/completions`
+      : this.url('/chat/completions');
+    const visionHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+    const visionKey = this.opts.visionBaseUrl ? this.opts.visionApiKey : this.opts.apiKey;
+    if (visionKey) visionHeaders['Authorization'] = `Bearer ${visionKey}`;
+
+    const res = await this.fetchWithTimeout(visionUrl, {
       method: 'POST',
-      headers: this.headers(),
+      headers: visionHeaders,
       body: JSON.stringify(body),
     });
     if (!res.ok) {

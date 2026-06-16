@@ -89,6 +89,10 @@ const envSchema = z.object({
   LLM_API_KEY: z.string().optional(),
   LLM_MODEL: z.string().optional(),
   LLM_VISION_MODEL: z.string().optional(),
+  // Vision usually lives on a different backend (solclawn has no vision). Point these at a
+  // vision-capable Ollama (e.g. llama3.2-vision). Empty => vision reuses LLM_BASE_URL/LLM_API_KEY.
+  LLM_VISION_BASE_URL: z.string().optional(),
+  LLM_VISION_API_KEY: z.string().optional(),
   LLM_IMAGE_MODEL: z.string().optional(),
   LLM_TRANSCRIPTION_MODEL: z.string().optional(),
   LLM_TTS_MODEL: z.string().optional(),

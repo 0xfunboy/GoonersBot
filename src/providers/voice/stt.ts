@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import type { VoiceConfig } from '../../config/index.js';
-import { toWhisperWav } from './ffmpeg.js';
+import { decodeFileToWhisperWav } from './ffmpeg.js';
 import { childLogger } from '../../utils/logger.js';
 
 const log = childLogger('stt');
@@ -35,24 +35,24 @@ export class SttProvider {
   /** `language` is a chat language NAME (italian/english/…); mapped to a whisper code or 'auto'. */
   async transcribe(audio: Buffer, language?: string): Promise<string | null> {
     if (!this.cfg.enabled) return null;
-    let wav: Buffer;
+    // Write the raw media to a seekable temp file first: voice notes (ogg) decode fine from a pipe,
+    // but videos/audio files (mp4 with a trailing moov atom) need ffmpeg to seek. Decode from path.
+    const stem = randomBytes(6).toString('hex');
+    const src = join(tmpdir(), `gb-stt-${stem}.src`);
+    const wavPath = join(tmpdir(), `gb-stt-${stem}.wav`);
     try {
-      wav = await toWhisperWav(this.cfg.ffmpegBin, audio, this.cfg.timeoutMs);
-    } catch (err) {
-      log.warn({ err }, 'ffmpeg decode failed');
-      return null;
-    }
-    const tmp = join(tmpdir(), `gb-stt-${randomBytes(6).toString('hex')}.wav`);
-    try {
-      await writeFile(tmp, wav);
-      const text = await this.runWhisper(tmp, this.resolveLang(language));
+      await writeFile(src, audio);
+      const wav = await decodeFileToWhisperWav(this.cfg.ffmpegBin, src, this.cfg.timeoutMs);
+      await writeFile(wavPath, wav);
+      const text = await this.runWhisper(wavPath, this.resolveLang(language));
       const clean = text.trim();
       return clean.length > 0 ? clean : null;
     } catch (err) {
-      log.warn({ err }, 'whisper transcription failed');
+      log.warn({ err }, 'stt transcription failed');
       return null;
     } finally {
-      await unlink(tmp).catch(() => undefined);
+      await unlink(src).catch(() => undefined);
+      await unlink(wavPath).catch(() => undefined);
     }
   }
 
