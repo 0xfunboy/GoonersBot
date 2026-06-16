@@ -32,9 +32,14 @@ export class SttProvider {
     return this.cfg.enabled;
   }
 
-  /** `language` is a chat language NAME (italian/english/…); mapped to a whisper code or 'auto'. */
+  /**
+   * `language` is an OPTIONAL chat-language hint. It is intentionally NOT used to force whisper:
+   * media can be in any language (e.g. an English video posted in an Italian chat), so we let whisper
+   * auto-detect unless a fixed STT_LANGUAGE is configured.
+   */
   async transcribe(audio: Buffer, language?: string): Promise<string | null> {
     if (!this.cfg.enabled) return null;
+    void language;
     // Write the raw media to a seekable temp file first: voice notes (ogg) decode fine from a pipe,
     // but videos/audio files (mp4 with a trailing moov atom) need ffmpeg to seek. Decode from path.
     const stem = randomBytes(6).toString('hex');
@@ -44,7 +49,7 @@ export class SttProvider {
       await writeFile(src, audio);
       const wav = await decodeFileToWhisperWav(this.cfg.ffmpegBin, src, this.cfg.timeoutMs);
       await writeFile(wavPath, wav);
-      const text = await this.runWhisper(wavPath, this.resolveLang(language));
+      const text = await this.runWhisper(wavPath, this.resolveLang());
       const clean = text.trim();
       return clean.length > 0 ? clean : null;
     } catch (err) {
@@ -56,10 +61,10 @@ export class SttProvider {
     }
   }
 
-  /** A fixed STT_LANGUAGE wins; otherwise use the chat-language hint; otherwise auto-detect. */
-  private resolveLang(hint?: string): string {
+  /** A fixed STT_LANGUAGE wins; otherwise whisper auto-detects the spoken language. */
+  private resolveLang(): string {
     if (this.cfg.language && this.cfg.language !== 'auto') return this.cfg.language;
-    return langNameToWhisper(hint);
+    return 'auto';
   }
 
   private runWhisper(wavPath: string, lang: string): Promise<string> {

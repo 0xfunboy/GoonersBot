@@ -85,11 +85,12 @@ export class TtsProvider {
   }
 }
 
-/** Strip markup/emojis-heavy noise that TTS reads badly; keep it speakable. */
+/** Strip markup/emoji/URL noise that TTS reads badly; drop the @ from handles so it is not spoken. */
 function sanitize(text: string): string {
   return text
     .replace(/<[^>]+>/g, ' ')
     .replace(/https?:\/\/\S+/g, '')
+    .replace(/@([A-Za-z0-9_]{2,})/g, '$1') // "@funboynft" -> "funboynft" (no "at"/"chiocciola")
     .replace(/[*_`~]+/g, '')
     .replace(/\s+/g, ' ')
     .trim();
