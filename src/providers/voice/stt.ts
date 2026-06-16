@@ -21,6 +21,25 @@ export function langNameToWhisper(name?: string): string {
   return (name && WHISPER_CODE[name]) || 'auto';
 }
 
+// whisper hallucinates boilerplate on silence/music (sub credits, "thanks for watching", note glyphs).
+// Treat these as "no speech" so a silent video does not inject a misleading fake transcript.
+const WHISPER_NOISE_RE =
+  /^(\[?(blank_?audio|silence|music|inaudible|no speech|musica|applausi|applause)\]?[.!]?|♪+.*|sottotitoli (e revisione )?(a cura di|creati).*|.*amara\.org.*|thanks for watching\.?|thank you\.?|please subscribe.*|sottotitoli.*comunit.*)$/i;
+
+/** True when whisper output is a known silence/hallucination artifact rather than real speech. */
+export function isWhisperNoise(text: string): boolean {
+  const t = text.trim();
+  if (WHISPER_NOISE_RE.test(t)) return true;
+  // a single short repeated token (e.g. "you you you", ". . .") is also noise
+  const words = t
+    .toLowerCase()
+    .replace(/[^\p{L}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length >= 3 && new Set(words).size === 1) return true;
+  return false;
+}
+
 /**
  * STT provider: local whisper.cpp (whisper-cli). Converts incoming audio → 16 kHz WAV via ffmpeg,
  * runs whisper-cli, returns the transcript. Fully local, no network, modest CPU. Degrades to null.
@@ -51,7 +70,8 @@ export class SttProvider {
       await writeFile(wavPath, wav);
       const text = await this.runWhisper(wavPath, this.resolveLang());
       const clean = text.trim();
-      return clean.length > 0 ? clean : null;
+      if (clean.length < 2 || isWhisperNoise(clean)) return null;
+      return clean;
     } catch (err) {
       log.warn({ err }, 'stt transcription failed');
       return null;

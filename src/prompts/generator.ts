@@ -155,7 +155,9 @@ export function buildGeneratorUserPrompt(params: {
     ? [
         `ATTACHED ${params.media.kind} - posted by ${params.media.poster}. Content: ${params.media.description}`,
         `You CAN see it. A vague question ("come ti sembra questa?", "what do you think?", "guarda", ` +
-          `"questa/questo") is ABOUT this ${params.media.kind} - react to what is actually shown, never deflect.`,
+          `"questa/questo") is ABOUT this ${params.media.kind} - react to what is actually SHOWN (the ` +
+          'visual), that is the point. Any audio transcript is secondary; do not make the reply about ' +
+          'whether there is sound.',
         `If you roast, the target order is UNMISTAKABLE: 1) what/who is shown in the ${params.media.kind}; ` +
           `2) ${params.media.poster} for posting it;` +
           (addressee !== params.media.poster
