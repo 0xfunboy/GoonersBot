@@ -342,6 +342,38 @@ LLM_VISION_API_KEY=                              # Ollama needs none
 When a photo arrives (and the bot is addressed), it is described via this endpoint and the
 description feeds the brain. If the endpoint is down, vision degrades gracefully (logged, skipped).
 
+## Web & image grounding (free, no API keys)
+
+The bot stays *cultured* without losing its voice: when a turn needs facts it can't know, a
+**grounding** layer fetches them and injects a context block — the persona model still writes the
+reply. Two heuristic-gated triggers run in parallel with memory retrieval:
+
+- **Web search** — recency/factual questions ("chi ha vinto ieri", "quanto costa la 5090",
+  "latest news on X") are answered with fresh results from a self-hosted **SearXNG**.
+- **Image lookup** (Lens-equivalent) — reply to a photo with "chi è questo personaggio / che
+  prodotto è / dove lo compro" and the **vision model identifies** the subject, then that
+  identification is searched on SearXNG for confirmation + product links. (Real Google Lens is now
+  client-rendered and needs a headless browser + a public image URL; this free path avoids both.)
+
+Everything degrades to null on failure, and the model is told never to say it "searched the web".
+
+### Setup (free, no Docker, no keys)
+
+```bash
+# 1. One-time: clone SearXNG + venv + deps + settings (JSON enabled, rate-limiter off)
+scripts/searxng.sh setup
+# 2. Run it (127.0.0.1:8888, background)
+scripts/searxng.sh start          # stop | restart | status
+
+# 3. Enable in .env
+WEB_SEARCH_ENABLED=true
+SEARXNG_URL=http://127.0.0.1:8888
+IMAGE_LOOKUP_ENABLED=true         # needs WEB_SEARCH_ENABLED + LLM_VISION_MODEL
+```
+
+Verify with `pnpm tsx scripts/smoke-search.ts` (live query + gating). Gating keywords live in
+`src/search/groundingService.ts`; the SearXNG client is `src/search/searxng.ts`.
+
 ## Brain & memory
 
 GoonerBot doesn't dump facts into every prompt. Each reply runs a small **brain pipeline** so it
@@ -399,6 +431,11 @@ capabilities never block startup. Copy `.env.example` → `.env` (gitignored; ne
 | `LLM_TRANSCRIPTION_MODEL` | — | Enables voice input. Unset ⇒ disabled. |
 | `LLM_TTS_MODEL` | — | Enables TTS output. Unset ⇒ disabled. |
 | `LLM_REQUEST_TIMEOUT_MS` | `60000` | Per-request timeout. |
+| `WEB_SEARCH_ENABLED` | `false` | Ground recency/factual questions via SearXNG. |
+| `SEARXNG_URL` | — | SearXNG base URL (e.g. `http://127.0.0.1:8888`). |
+| `WEB_SEARCH_MAX_RESULTS` | `5` | Max results injected per grounded reply. |
+| `WEB_SEARCH_TIMEOUT_MS` | `8000` | SearXNG request timeout. |
+| `IMAGE_LOOKUP_ENABLED` | `false` | Reverse-image grounding (needs web search + vision). |
 | `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` | — / `https://api.deepseek.com` / — | DeepSeek block. |
 
 ### NSFW routing

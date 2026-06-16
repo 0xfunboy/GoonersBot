@@ -200,11 +200,31 @@ export function resolveVoiceConfig(env: Env): VoiceConfig {
   };
 }
 
+/** Web/image grounding config (free SearXNG backend + vision-model reverse-image lookup). */
+export interface SearchConfig {
+  webEnabled: boolean;
+  imageEnabled: boolean;
+  searxngUrl: string | undefined;
+  maxResults: number;
+  timeoutMs: number;
+}
+
+export function resolveSearchConfig(env: Env): SearchConfig {
+  return {
+    webEnabled: env.WEB_SEARCH_ENABLED && Boolean(env.SEARXNG_URL),
+    imageEnabled: env.IMAGE_LOOKUP_ENABLED && env.WEB_SEARCH_ENABLED && Boolean(env.SEARXNG_URL),
+    searxngUrl: env.SEARXNG_URL ? env.SEARXNG_URL.replace(/\/+$/, '') : undefined,
+    maxResults: env.WEB_SEARCH_MAX_RESULTS,
+    timeoutMs: env.WEB_SEARCH_TIMEOUT_MS,
+  };
+}
+
 export interface AppConfig {
   env: Env;
   llm: LLMConfig;
   brain: BrainConfig;
   voice: VoiceConfig;
+  search: SearchConfig;
 }
 
 export function loadConfig(): AppConfig {
@@ -214,5 +234,6 @@ export function loadConfig(): AppConfig {
     llm: resolveLLMConfig(env),
     brain: resolveBrainConfig(env),
     voice: resolveVoiceConfig(env),
+    search: resolveSearchConfig(env),
   };
 }

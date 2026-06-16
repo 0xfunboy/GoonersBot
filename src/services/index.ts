@@ -11,6 +11,8 @@ import { MemoryMiner } from '../memory/memoryMiner.js';
 import { LoreEngine } from '../memory/loreEngine.js';
 import { MemoryRetriever } from '../memory/memoryRetriever.js';
 import { SceneAnalyzer } from '../brain/sceneAnalyzer.js';
+import { SearxngProvider } from '../search/searxng.js';
+import { GroundingService } from '../search/groundingService.js';
 import { AutoEngageScorer } from './autoengage.js';
 import { BanService } from './bans.js';
 import { ModelRouter } from './modelRouter.js';
@@ -56,6 +58,7 @@ export class Services {
   readonly lore: LoreEngine;
   readonly scene: SceneAnalyzer;
   readonly memoryRetriever: MemoryRetriever;
+  readonly grounding: GroundingService;
   /** per-user, per-chat anti-spam cooldown for command invocations */
   readonly commandRateLimit: Cooldown;
 
@@ -107,6 +110,17 @@ export class Services {
       itemCooldownMinutes: env.MEMORY_ITEM_COOLDOWN_MINUTES,
       subjectCooldownMinutes: env.MEMORY_SUBJECT_COOLDOWN_MINUTES,
     });
+    const searxng = new SearxngProvider({
+      enabled: config.search.webEnabled,
+      baseUrl: config.search.searxngUrl,
+      timeoutMs: config.search.timeoutMs,
+      maxResults: config.search.maxResults,
+    });
+    this.grounding = new GroundingService(searxng, this.media, {
+      webEnabled: config.search.webEnabled,
+      imageEnabled: config.search.imageEnabled,
+      maxResults: config.search.maxResults,
+    });
     this.reply = new ReplyService(
       llm,
       this.media,
@@ -114,6 +128,7 @@ export class Services {
       this.scene,
       this.memoryRetriever,
       config,
+      this.grounding,
     );
   }
 

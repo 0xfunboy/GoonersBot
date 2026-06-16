@@ -50,6 +50,31 @@ export class MediaProcessor {
     }
   }
 
+  /**
+   * Identify the main subject of an image for reverse-image grounding: name the specific
+   * person/character/product/brand if recognizable, plus a few search keywords. Returns a short
+   * line suitable as a web-search query, or null when vision is unavailable/fails.
+   */
+  async identifyImage(buffer: Buffer, mime: string): Promise<string | null> {
+    if (!this.canDescribeImage || !this.llm.visionCompletion) return null;
+    try {
+      const result = await this.llm.visionCompletion({
+        prompt:
+          'Identify the MAIN subject of this image as precisely as possible. If it is a known ' +
+          'person, fictional/anime character, brand, product or place, give its specific name. ' +
+          'Reply with ONLY a short search query (name + 2-4 keywords), no sentences, no preamble.',
+        imageBase64: buffer.toString('base64'),
+        imageMime: mime,
+        maxTokens: 60,
+      });
+      const line = result.text.replace(/\s+/g, ' ').trim();
+      return line.length > 1 ? line.slice(0, 120) : null;
+    } catch (err) {
+      log.warn({ err }, 'image identification failed');
+      return null;
+    }
+  }
+
   /** Transcribe a voice message; prefers local whisper.cpp, then the LLM provider. */
   async transcribeVoice(
     buffer: Buffer,

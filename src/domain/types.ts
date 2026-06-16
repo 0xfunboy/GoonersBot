@@ -42,6 +42,9 @@ export interface IncomingMessage {
   imageMime?: string | undefined;
   audioBuffer?: Buffer | undefined;
   audioMime?: string | undefined;
+  /** photo from the replied-to message (for "who/what is this image" reverse-image lookups) */
+  repliedImageBuffer?: Buffer | undefined;
+  repliedImageMime?: string | undefined;
 }
 
 /** A message after media has been transcribed/described to text. */

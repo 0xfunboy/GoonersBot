@@ -37,6 +37,8 @@ export interface GenerateReplyInput {
   botLabel: string;
   /** per-turn model override (from the NSFW router); falls back to cfg.model */
   model?: string | undefined;
+  /** optional web/image grounding block (fresh facts) injected into the prompt */
+  grounding?: string | undefined;
 }
 
 export interface GeneratedCandidates {
@@ -79,6 +81,7 @@ export class ResponseGenerator {
       person: input.currentUser,
       message: input.currentMessage,
       botLabel: input.botLabel,
+      ...(input.grounding ? { grounding: input.grounding } : {}),
     });
 
     const n = Math.max(1, this.cfg.candidateCount);

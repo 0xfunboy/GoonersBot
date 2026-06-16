@@ -98,6 +98,16 @@ const envSchema = z.object({
   LLM_TTS_MODEL: z.string().optional(),
   LLM_REQUEST_TIMEOUT_MS: intFromString(60_000),
 
+  // Web/image grounding (free: self-hosted SearXNG + vision-model reverse-image lookup)
+  // WEB_SEARCH: ground recency/factual questions with fresh web results.
+  WEB_SEARCH_ENABLED: boolFromString(false),
+  SEARXNG_URL: z.string().optional(),
+  WEB_SEARCH_MAX_RESULTS: intFromString(5),
+  WEB_SEARCH_TIMEOUT_MS: intFromString(8000),
+  // IMAGE_LOOKUP: answer "who/what is this image / where to buy" by identifying the subject with
+  // the vision model and searching it on SearXNG (needs WEB_SEARCH backend too). Lens-equivalent.
+  IMAGE_LOOKUP_ENABLED: boolFromString(false),
+
   // NSFW model routing (hybrid: mode flag > per-chat nsfw mode > lexicon > default model)
   LLM_NSFW_MODEL: z.string().optional(),
   // initial per-chat NSFW mode: off (never) | base (whole chat uses NSFW model) | smart (per-message lexicon)

@@ -6,6 +6,7 @@ import type { ConversationService } from './conversation.js';
 import { BOT_LABEL } from './conversation.js';
 import type { MemoryRetriever } from '../memory/memoryRetriever.js';
 import type { SceneAnalyzer } from '../brain/sceneAnalyzer.js';
+import type { GroundingService } from '../search/groundingService.js';
 import type { RetrievedMemory } from '../memory/types.js';
 import { StyleEngine } from '../brain/styleEngine.js';
 import { ReplyPlanner } from '../brain/replyPlanner.js';
@@ -26,6 +27,16 @@ const log = childLogger('reply');
 
 const IMAGE_REQUEST_RE =
   /\b(draw|disegna|generate (an )?image|crea (un'?|una )?(immagine|foto|meme)|make (an? )?(image|pic|picture|meme)|genera (un'?|una )?(immagine|foto))\b/i;
+
+/** Strip the bot @mention and collapse whitespace to make a clean web-search query. */
+function cleanQuery(text: string, botUsername: string): string {
+  const tag = botUsername.replace(/^@/, '');
+  return text
+    .replace(new RegExp(`@${tag}`, 'gi'), '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
+}
 
 const FALLBACKS = [
   'almost repeated myself again. delete that thought, I am getting back on track.',
@@ -91,6 +102,7 @@ export class ReplyService {
     private readonly sceneAnalyzer: SceneAnalyzer,
     private readonly memoryRetriever: MemoryRetriever,
     private readonly config: AppConfig,
+    private readonly grounding: GroundingService,
   ) {
     this.generator = new ResponseGenerator(llm, this.styleEngine, {
       model: config.brain.replyModel,
@@ -140,6 +152,44 @@ export class ReplyService {
     };
   }
 
+  /**
+   * Decide whether this turn needs grounding and fetch it. Image lookup (reverse-image "who/what
+   * is this") wins when the message asks an identity/product question and an image is attached
+   * (current or replied-to); otherwise a web search for recency/factual questions. Returns null
+   * when grounding is disabled or not warranted.
+   */
+  private async ground(
+    ctx: ReplyContext,
+  ): Promise<{ block: string; query: string; sources: string[] } | null> {
+    if (!this.grounding.enabled) return null;
+    const question = ctx.message.messageText || '';
+    const image = ctx.message.repliedImageBuffer
+      ? {
+          buffer: ctx.message.repliedImageBuffer,
+          mime: ctx.message.repliedImageMime ?? 'image/jpeg',
+        }
+      : ctx.message.imageBuffer
+        ? { buffer: ctx.message.imageBuffer, mime: ctx.message.imageMime ?? 'image/jpeg' }
+        : null;
+    try {
+      if (image && this.grounding.wantsImageLookup(question)) {
+        return await this.grounding.groundImage({
+          imageBuffer: image.buffer,
+          imageMime: image.mime,
+          question,
+          language: ctx.language,
+        });
+      }
+      if (this.grounding.wantsWebSearch(question)) {
+        const query = cleanQuery(question, ctx.botUsername);
+        return await this.grounding.groundWeb(query, ctx.language);
+      }
+    } catch (err) {
+      log.warn({ err }, 'grounding failed');
+    }
+    return null;
+  }
+
   async generateReply(ctx: ReplyContext): Promise<ReplyOutcome> {
     const { transcribed, visionCalls, transcriptionCalls } = await this.transcribe(ctx.message);
     const history = await this.conversation.getRecent(ctx.context.chatId);
@@ -160,17 +210,21 @@ export class ReplyService {
     const generationModel = sceneForcesNsfw ? ctx.nsfwModel : ctx.model;
     const generationNsfwEnabled = ctx.nsfwEnabled || sceneForcesNsfw;
 
-    // 2. retrieve memory (scored, capped, cooldown-aware)
+    // 2. retrieve memory + (in parallel) ground the reply with web/image search when relevant
     const activeHandles = [...new Set(history.filter((m) => !m.isBot).map((m) => m.handle))];
-    const retrieved = await this.memoryRetriever.retrieve({
-      chatId: ctx.context.chatId,
-      currentMessage: ctx.message.messageText,
-      scene,
-      activeHandles,
-      mentionedHandles: mentioned,
-      repliedToHandle: ctx.context.repliedToUserHandle ?? null,
-      nsfwEnabled: generationNsfwEnabled,
-    });
+    const [retrieved, grounding] = await Promise.all([
+      this.memoryRetriever.retrieve({
+        chatId: ctx.context.chatId,
+        currentMessage: ctx.message.messageText,
+        scene,
+        activeHandles,
+        mentionedHandles: mentioned,
+        repliedToHandle: ctx.context.repliedToUserHandle ?? null,
+        nsfwEnabled: generationNsfwEnabled,
+      }),
+      this.ground(ctx),
+    ]);
+    const groundingBlock = grounding?.block;
 
     // 3. style + plan
     const style = this.styleEngine.sample({
@@ -207,6 +261,7 @@ export class ReplyService {
       retrievedMemories: retrieved,
       botLabel: BOT_LABEL,
       model: generationModel,
+      ...(groundingBlock ? { grounding: groundingBlock } : {}),
     });
 
     let candidates = gen.candidates;
@@ -274,6 +329,7 @@ export class ReplyService {
         retrievedMemories: retrieved,
         botLabel: BOT_LABEL,
         model: ctx.nsfwModel,
+        ...(groundingBlock ? { grounding: groundingBlock } : {}),
       });
       if (ns.candidates.length > 0) {
         const r = this.ranker.rank(ns.candidates, {

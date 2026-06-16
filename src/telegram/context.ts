@@ -130,6 +130,18 @@ export async function buildIncomingMessage(
       }
     }
   }
+  // Photo in the replied-to message → used for "who/what is this image" reverse-image lookups.
+  const repliedPhoto = msg?.reply_to_message?.photo;
+  if (opts.image && repliedPhoto && repliedPhoto.length > 0) {
+    const largest = repliedPhoto[repliedPhoto.length - 1];
+    if (largest) {
+      const buf = await downloadFile(ctx, largest.file_id);
+      if (buf) {
+        out.repliedImageBuffer = buf;
+        out.repliedImageMime = 'image/jpeg';
+      }
+    }
+  }
   // Voice notes, audio files, videos and round video-notes all feed STT. ffmpeg extracts the
   // audio track from video containers, so the same transcription path covers every kind.
   if (opts.voice) {

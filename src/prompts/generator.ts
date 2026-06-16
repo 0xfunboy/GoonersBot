@@ -85,6 +85,8 @@ export function buildGeneratorUserPrompt(params: {
   person: Person;
   message: TranscribedMessage;
   botLabel: string;
+  /** optional web/image grounding block (fresh facts from SearXNG / reverse-image lookup) */
+  grounding?: string;
 }): string {
   const { plan, scene } = params;
   const msgParts = [params.message.messageText ?? ''];
@@ -109,6 +111,7 @@ export function buildGeneratorUserPrompt(params: {
     '',
     buildRelevantMemorySection(params.memories),
     '',
+    params.grounding ?? '',
     params.bannedPhrases.length
       ? `OPENINGS/PHRASES TO AVOID (you overused them): ${params.bannedPhrases.map((p) => `"${p}"`).join(', ')}`
       : 'OPENINGS TO AVOID: none.',
