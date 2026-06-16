@@ -66,24 +66,31 @@ export class MediaProcessor {
     return this.llm.capabilities.imageGeneration && typeof this.llm.generateImage === 'function';
   }
 
-  /** Describe an image; returns null when vision is unavailable or fails. */
+  /** Describe an image; returns null when vision is unavailable. Retries once if the model is flaky. */
   async describeImage(buffer: Buffer, mime: string): Promise<string | null> {
     if (!this.canDescribeImage || !this.llm.visionCompletion) {
       log.info('vision capability unavailable - skipping image description');
       return null;
     }
-    try {
-      const result = await this.llm.visionCompletion({
-        prompt: 'Describe this image concisely for chat context. One or two sentences.',
-        imageBase64: buffer.toString('base64'),
-        imageMime: mime,
-        maxTokens: 200,
-      });
-      return result.text.trim() || null;
-    } catch (err) {
-      log.warn({ err }, 'image description failed');
-      return null;
+    const imageBase64 = buffer.toString('base64');
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const result = await this.llm.visionCompletion({
+          prompt:
+            'Describe what is actually in this image for chat context: the main subject, who/what ' +
+            'it is, the setting, and anything notable. 1-2 sentences, concrete, no refusals.',
+          imageBase64,
+          imageMime: mime,
+          maxTokens: 220,
+        });
+        const desc = result.text.trim();
+        if (desc) return desc;
+        log.warn({ attempt }, 'image description empty, retrying');
+      } catch (err) {
+        log.warn({ err, attempt }, 'image description failed');
+      }
     }
+    return null;
   }
 
   /**

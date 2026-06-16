@@ -308,6 +308,14 @@ export class ReplyService {
       ctx.message,
       visual,
     );
+    log.info(
+      {
+        chatId: ctx.context.chatId,
+        visual: visual ? `${visual.kind}${visual.fromReply ? '/replied' : ''}` : 'none',
+        described: Boolean(transcribed.imageDescription),
+      },
+      'visual resolved',
+    );
     const history = await this.conversation.getRecent(ctx.context.chatId);
     const mentioned = ctx.context.mentionedHandles ?? [];
 
