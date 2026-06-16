@@ -26,6 +26,18 @@ export interface LLMConfig {
   /** uncensored model used for NSFW routing; undefined => NSFW routing disabled */
   nsfwModel: string | undefined;
   requestTimeoutMs: number;
+  /** optional fallback chat endpoint used when the primary throws; undefined => no fallback */
+  fallback: { baseUrl: string; apiKey: string | undefined; model: string } | undefined;
+}
+
+/** Resolve the optional fallback LLM endpoint (active only when base URL + model are set). */
+function resolveFallback(env: Env): LLMConfig['fallback'] {
+  if (!env.LLM_FALLBACK_BASE_URL || !env.LLM_FALLBACK_MODEL) return undefined;
+  return {
+    baseUrl: env.LLM_FALLBACK_BASE_URL.replace(/\/+$/, ''),
+    apiKey: env.LLM_FALLBACK_API_KEY,
+    model: env.LLM_FALLBACK_MODEL,
+  };
 }
 
 /** Default base URLs per provider. These are examples/defaults, overridable via env. */
@@ -57,6 +69,7 @@ export function resolveLLMConfig(env: Env): LLMConfig {
       ttsModel: env.LLM_TTS_MODEL,
       nsfwModel: env.LLM_NSFW_MODEL,
       requestTimeoutMs: env.LLM_REQUEST_TIMEOUT_MS,
+      fallback: resolveFallback(env),
     };
   }
 
@@ -74,6 +87,7 @@ export function resolveLLMConfig(env: Env): LLMConfig {
     ttsModel: env.LLM_TTS_MODEL,
     nsfwModel: env.LLM_NSFW_MODEL,
     requestTimeoutMs: env.LLM_REQUEST_TIMEOUT_MS,
+    fallback: resolveFallback(env),
   };
 }
 

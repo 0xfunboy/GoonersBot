@@ -97,6 +97,11 @@ const envSchema = z.object({
   LLM_TRANSCRIPTION_MODEL: z.string().optional(),
   LLM_TTS_MODEL: z.string().optional(),
   LLM_REQUEST_TIMEOUT_MS: intFromString(60_000),
+  // Fallback LLM endpoint (used for chat/reasoning when the primary throws): e.g. local
+  // Ollama gpt-oss on the GPU box. Active when BASE_URL + MODEL are both set.
+  LLM_FALLBACK_BASE_URL: z.string().optional(),
+  LLM_FALLBACK_API_KEY: z.string().optional(),
+  LLM_FALLBACK_MODEL: z.string().optional(),
 
   // Web/image grounding (free: self-hosted SearXNG + vision-model reverse-image lookup)
   // WEB_SEARCH: ground recency/factual questions with fresh web results.

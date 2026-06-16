@@ -46,10 +46,43 @@ search:
   autocomplete: ""
 YAML
   fi
+  install_unit
   echo "SearXNG ready. Start with: scripts/searxng.sh start"
 }
 
+UNIT="$HOME/.config/systemd/user/searxng.service"
+
+# Install a systemd --user service so SearXNG auto-starts and survives reboot (with linger).
+install_unit() {
+  mkdir -p "$(dirname "$UNIT")"
+  cat > "$UNIT" <<UNITFILE
+[Unit]
+Description=SearXNG (GoonerBot web-search backend)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=SEARXNG_SETTINGS_PATH=${SETTINGS}
+WorkingDirectory=${SRC}
+ExecStart=${PY} -m searx.webapp
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+UNITFILE
+  systemctl --user daemon-reload
+  loginctl enable-linger "$USER" >/dev/null 2>&1 || true
+  systemctl --user enable searxng.service >/dev/null 2>&1 || true
+  echo "installed systemd --user unit (searxng.service)"
+}
+
+# Prefer the systemd service; fall back to a plain nohup process if systemd --user is unavailable.
+have_systemd() { [ -f "$UNIT" ] && systemctl --user show-environment >/dev/null 2>&1; }
+
 start() {
+  if have_systemd; then systemctl --user start searxng.service && status; return; fi
   if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
     echo "already running (pid $(cat "$PIDFILE"))"; return 0
   fi
@@ -61,10 +94,15 @@ start() {
 }
 
 stop() {
+  if have_systemd; then systemctl --user stop searxng.service && echo "stopped"; return; fi
   [ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null && rm -f "$PIDFILE" && echo "stopped" || echo "not running"
 }
 
 status() {
+  if have_systemd; then
+    systemctl --user --no-pager status searxng.service 2>&1 | grep -E "Active:|Main PID:" || true
+    return
+  fi
   if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
     echo "running (pid $(cat "$PIDFILE")) on http://127.0.0.1:${PORT}"
   else

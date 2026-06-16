@@ -2,6 +2,7 @@ import type { LLMConfig } from '../../config/index.js';
 import { childLogger } from '../../utils/logger.js';
 import { DeepSeekProvider } from './deepseek.js';
 import { OpenAICompatibleProvider } from './openaiCompatible.js';
+import { FallbackLLMProvider } from './fallback.js';
 import type { LLMProvider } from './types.js';
 
 const log = childLogger('llm-factory');
@@ -39,6 +40,27 @@ export function createLLMProvider(cfg: LLMConfig): LLMProvider {
       const exhaustive: never = cfg.provider;
       throw new Error(`unknown LLM provider: ${String(exhaustive)}`);
     }
+  }
+
+  // Optional fallback chat endpoint (e.g. local Ollama gpt-oss on the GPU box): used when the
+  // primary throws. Wrap the primary so it's transparent to every caller.
+  if (cfg.fallback) {
+    const fallbackProvider = new OpenAICompatibleProvider({
+      name: 'fallback',
+      baseUrl: cfg.fallback.baseUrl,
+      apiKey: cfg.fallback.apiKey,
+      chatModel: cfg.fallback.model,
+      visionModel: undefined,
+      imageModel: undefined,
+      transcriptionModel: undefined,
+      ttsModel: undefined,
+      requestTimeoutMs: cfg.requestTimeoutMs,
+    });
+    log.info(
+      { primary: provider.name, fallbackModel: cfg.fallback.model, baseUrl: cfg.fallback.baseUrl },
+      'LLM fallback endpoint enabled',
+    );
+    provider = new FallbackLLMProvider(provider, fallbackProvider);
   }
 
   log.info(

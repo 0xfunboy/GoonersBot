@@ -360,9 +360,10 @@ Everything degrades to null on failure, and the model is told never to say it "s
 ### Setup (free, no Docker, no keys)
 
 ```bash
-# 1. One-time: clone SearXNG + venv + deps + settings (JSON enabled, rate-limiter off)
+# 1. One-time: clone SearXNG + venv + deps + settings + install a systemd --user service
 scripts/searxng.sh setup
-# 2. Run it (127.0.0.1:8888, background)
+# 2. Run it (127.0.0.1:8888). Uses the systemd --user service (auto-restart, survives reboot
+#    via lingering); falls back to a nohup process where systemd --user is unavailable.
 scripts/searxng.sh start          # stop | restart | status
 
 # 3. Enable in .env
@@ -431,6 +432,7 @@ capabilities never block startup. Copy `.env.example` → `.env` (gitignored; ne
 | `LLM_TRANSCRIPTION_MODEL` | — | Enables voice input. Unset ⇒ disabled. |
 | `LLM_TTS_MODEL` | — | Enables TTS output. Unset ⇒ disabled. |
 | `LLM_REQUEST_TIMEOUT_MS` | `60000` | Per-request timeout. |
+| `LLM_FALLBACK_BASE_URL` / `LLM_FALLBACK_MODEL` / `LLM_FALLBACK_API_KEY` | — | Fallback chat endpoint used when the primary throws (e.g. local Ollama gpt-oss). Active when base URL + model are set. |
 | `WEB_SEARCH_ENABLED` | `false` | Ground recency/factual questions via SearXNG. |
 | `SEARXNG_URL` | — | SearXNG base URL (e.g. `http://127.0.0.1:8888`). |
 | `WEB_SEARCH_MAX_RESULTS` | `5` | Max results injected per grounded reply. |
