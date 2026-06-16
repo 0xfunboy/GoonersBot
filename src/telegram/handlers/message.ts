@@ -84,7 +84,7 @@ export async function handleMessage(
 
   const language = await services.getLanguage(context.chatId);
 
-  // Transcribe incoming voice up-front so its words feed scene/autoengage/storage/reply.
+  // Transcribe incoming voice/audio/video up-front so its words feed scene/autoengage/storage/reply.
   const wasVoice = Boolean(message.audioBuffer);
   if (wasVoice && services.stt.enabled && message.audioBuffer) {
     const spoken = await services.media.transcribeVoice(
@@ -94,8 +94,19 @@ export async function handleMessage(
     );
     if (spoken) {
       message.messageText = message.messageText ? `${message.messageText} ${spoken}` : spoken;
+      log.info({ chatId: context.chatId, chars: spoken.length }, 'media transcribed');
+    } else {
+      log.info(
+        { chatId: context.chatId },
+        'media transcription empty (muted / no speech / failed)',
+      );
     }
     message.audioBuffer = undefined; // avoid re-transcription downstream
+  } else if (Boolean(message.videoBuffer) || Boolean(message.audioMime)) {
+    log.info(
+      { chatId: context.chatId, sttEnabled: services.stt.enabled, hasAudio: wasVoice },
+      'media received but not transcribed',
+    );
   }
 
   const decision = await services.autoengage.decide(

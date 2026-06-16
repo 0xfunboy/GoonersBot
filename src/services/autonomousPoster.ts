@@ -7,6 +7,24 @@ import { childLogger } from '../utils/logger.js';
 
 const log = childLogger('autopost');
 
+/**
+ * Trim to <= maxChars WITHOUT cutting mid-sentence: keep the longest prefix that ends on a sentence
+ * boundary (. ! ? or a URL) within the cap. Falls back to a word boundary if there is no sentence end.
+ */
+function trimToSentence(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const slice = text.slice(0, maxChars);
+  const lastEnd = Math.max(
+    slice.lastIndexOf('. '),
+    slice.lastIndexOf('! '),
+    slice.lastIndexOf('? '),
+    slice.lastIndexOf('\n'),
+  );
+  if (lastEnd > maxChars * 0.5) return slice.slice(0, lastEnd + 1).trim();
+  const lastSpace = slice.lastIndexOf(' ');
+  return (lastSpace > 0 ? slice.slice(0, lastSpace) : slice).trim();
+}
+
 export interface AutoPost {
   text: string;
   imageBuffer?: Buffer;
@@ -69,12 +87,14 @@ export class AutonomousPoster {
       language,
       'You JUST read this news (it is from the last few hours). Talk to the group like you just saw ' +
         'it: open by telling them what happened in your own words and drop the LINK inline right in ' +
-        'the first sentence (paste the raw URL inline, not at the bottom), then go off with a sharp, ' +
-        'witty, intelligent in-character rant about it. No preamble, no "ecco"/"here is", no neutral ' +
-        'summary, do not announce that you read news. A real paragraph, it can be long. ' +
+        'the first sentence (paste the raw URL inline, not at the bottom), then a sharp, witty, ' +
+        'intelligent in-character rant. No preamble, no "ecco"/"here is", no neutral summary, do not ' +
+        'announce that you read news. ' +
+        'HARD LIMIT: stay UNDER 600 characters total and ALWAYS finish your last sentence (a clean ' +
+        'punchline) - never get cut off, never trail into "...". Be punchy, not didascalic. ' +
         `Headline: "${item.title}". ${item.summary ? `Context: "${item.summary}". ` : ''}` +
         `LINK to paste inline: ${item.link}`,
-      900,
+      600,
     );
     if (!comment) return null;
     // the model should weave the link in; if it didn't, append it as a fallback so it is never lost
@@ -106,7 +126,7 @@ export class AutonomousPoster {
         temperature: 0.95,
         maxTokens: Math.max(500, Math.ceil(cap * 2.5)),
       });
-      return res.text.trim().slice(0, cap);
+      return trimToSentence(res.text.trim(), cap);
     } catch (err) {
       log.warn({ err }, 'autopost line generation failed');
       return '';
