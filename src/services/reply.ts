@@ -28,9 +28,9 @@ const IMAGE_REQUEST_RE =
   /\b(draw|disegna|generate (an )?image|crea (un'?|una )?(immagine|foto|meme)|make (an? )?(image|pic|picture|meme)|genera (un'?|una )?(immagine|foto))\b/i;
 
 const FALLBACKS = [
-  'mi sono quasi ripetuto di nuovo. cancellate quel pensiero, sto rientrando in carreggiata.',
-  'ok stavo per fare l’NPC. reset mentale, ridatemi un secondo che torno cattivo sul serio.',
-  'no aspetta, quella battuta l’ho già fatta. mi merito il ban da solo.',
+  'almost repeated myself again. delete that thought, I am getting back on track.',
+  'ok I was about to go full NPC. mental reset, give me a sec and I am back to being properly mean.',
+  'wait no, I already did that joke. I deserve the ban myself.',
 ];
 
 export interface ReplyContext {
@@ -124,7 +124,7 @@ export class ReplyService {
       voiceDescription = await this.media.transcribeVoice(
         message.audioBuffer,
         message.audioMime ?? 'audio/ogg',
-        'voice.ogg',
+        { fileName: 'voice.ogg' },
       );
       if (voiceDescription !== null) transcriptionCalls = 1;
     }

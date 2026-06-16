@@ -66,11 +66,12 @@ describe('/voice command', () => {
     const findByMessageId = vi.fn().mockResolvedValue({ message: { messageText: 'ciao mondo' } });
     const services = {
       tts: { enabled: true, synth },
+      getLanguage: () => 'italian',
       storage: { messages: { findByMessageId, getLatest: vi.fn() } },
     };
     const res = await voiceCommand.handle(input(services, ctx({ repliedToMessageId: 42 })));
     expect(findByMessageId).toHaveBeenCalledWith(-1, 42);
-    expect(synth).toHaveBeenCalledWith('ciao mondo');
+    expect(synth).toHaveBeenCalledWith('ciao mondo', 'italian');
     expect(res?.audioBuffer).toBeInstanceOf(Buffer);
   });
 
@@ -79,6 +80,7 @@ describe('/voice command', () => {
     const getLatest = vi.fn().mockResolvedValue({ message: { messageText: 'ultimo' } });
     const services = {
       tts: { enabled: true, synth },
+      getLanguage: () => 'italian',
       storage: { messages: { findByMessageId: vi.fn(), getLatest } },
     };
     const res = await voiceCommand.handle(input(services));
@@ -89,6 +91,7 @@ describe('/voice command', () => {
   it('returns voice_none when there is nothing to voice', async () => {
     const services = {
       tts: { enabled: true, synth: vi.fn() },
+      getLanguage: () => 'italian',
       storage: {
         messages: { findByMessageId: vi.fn(), getLatest: vi.fn().mockResolvedValue(null) },
       },
@@ -100,6 +103,7 @@ describe('/voice command', () => {
   it('returns voice_failed when synthesis returns null', async () => {
     const services = {
       tts: { enabled: true, synth: vi.fn().mockResolvedValue(null) },
+      getLanguage: () => 'italian',
       storage: {
         messages: {
           findByMessageId: vi.fn(),

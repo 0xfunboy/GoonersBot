@@ -9,6 +9,18 @@ import { childLogger } from '../../utils/logger.js';
 
 const log = childLogger('stt');
 
+const WHISPER_CODE: Record<string, string> = {
+  italian: 'it',
+  english: 'en',
+  russian: 'ru',
+  spanish: 'es',
+};
+
+/** Map a chat language NAME to a whisper code; unknown/undefined → 'auto'. */
+export function langNameToWhisper(name?: string): string {
+  return (name && WHISPER_CODE[name]) || 'auto';
+}
+
 /**
  * STT provider: local whisper.cpp (whisper-cli). Converts incoming audio → 16 kHz WAV via ffmpeg,
  * runs whisper-cli, returns the transcript. Fully local, no network, modest CPU. Degrades to null.
@@ -20,7 +32,8 @@ export class SttProvider {
     return this.cfg.enabled;
   }
 
-  async transcribe(audio: Buffer): Promise<string | null> {
+  /** `language` is a chat language NAME (italian/english/…); mapped to a whisper code or 'auto'. */
+  async transcribe(audio: Buffer, language?: string): Promise<string | null> {
     if (!this.cfg.enabled) return null;
     let wav: Buffer;
     try {
@@ -32,7 +45,7 @@ export class SttProvider {
     const tmp = join(tmpdir(), `gb-stt-${randomBytes(6).toString('hex')}.wav`);
     try {
       await writeFile(tmp, wav);
-      const text = await this.runWhisper(tmp);
+      const text = await this.runWhisper(tmp, this.resolveLang(language));
       const clean = text.trim();
       return clean.length > 0 ? clean : null;
     } catch (err) {
@@ -43,14 +56,20 @@ export class SttProvider {
     }
   }
 
-  private runWhisper(wavPath: string): Promise<string> {
+  /** A fixed STT_LANGUAGE wins; otherwise use the chat-language hint; otherwise auto-detect. */
+  private resolveLang(hint?: string): string {
+    if (this.cfg.language && this.cfg.language !== 'auto') return this.cfg.language;
+    return langNameToWhisper(hint);
+  }
+
+  private runWhisper(wavPath: string, lang: string): Promise<string> {
     const args = [
       '-m',
       this.cfg.whisperModel,
       '-f',
       wavPath,
       '-l',
-      this.cfg.language,
+      lang,
       '-t',
       String(this.cfg.threads),
       '-np', // no progress prints

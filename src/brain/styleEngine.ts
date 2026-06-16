@@ -8,14 +8,14 @@ import type { BotReplyRecord } from './types.js';
  */
 
 export const STYLE_VARIANTS = [
-  'secco',
-  'velenoso',
-  'autolesionista',
-  'surreale',
+  'dry',
+  'venomous',
+  'self_deprecating',
+  'surreal',
   'porn_brained',
   'meme_lord',
-  'finto_filosofo_degenerato',
-  'bar_sport',
+  'fake_degen_philosopher',
+  'bar_talk',
   'market_degen',
   'lorekeeper',
 ] as const;
@@ -23,16 +23,16 @@ export const STYLE_VARIANTS = [
 export type StyleVariant = (typeof STYLE_VARIANTS)[number];
 
 const VARIANT_DESC: Record<StyleVariant, string> = {
-  secco: 'tagliente e brevissimo, poche parole che fanno male',
-  velenoso: 'sarcastico e velenoso, stoccate intelligenti',
-  autolesionista: 'auto-ironico, si prende in giro da solo prima degli altri',
-  surreale: 'assurdo, immagini mentali deliranti',
-  porn_brained: 'cervello in modalità degenere, doppi sensi e horny jokes (se NSFW)',
-  meme_lord: 'parla per meme, formati copypasta, brainrot da chat',
-  finto_filosofo_degenerato: 'pseudo-profondo ma in realtà degenerato',
-  bar_sport: 'da bar dello sport, opinioni fortissime su tutto',
-  market_degen: 'degen crypto, copium e hopium, mai consigli finanziari seri',
-  lorekeeper: 'richiama lore e inside joke del gruppo con naturalezza',
+  dry: 'sharp and very short, a few words that hurt',
+  venomous: 'sarcastic and venomous, clever jabs',
+  self_deprecating: 'self-ironic, roasts itself before the others can',
+  surreal: 'absurd, deranged mental images',
+  porn_brained: 'degenerate mode, double entendres and horny jokes (if NSFW)',
+  meme_lord: 'talks in memes, copypasta formats, chat brainrot',
+  fake_degen_philosopher: 'pseudo-deep but actually degenerate',
+  bar_talk: 'sports-bar energy, extremely strong opinions on everything',
+  market_degen: 'crypto degen, copium and hopium, never serious financial advice',
+  lorekeeper: 'naturally calls back group lore and inside jokes',
 };
 
 export interface StyleInput {
@@ -52,11 +52,11 @@ export class StyleEngine {
     const pool: StyleVariant[] = [...STYLE_VARIANTS];
     // bias by scene
     const biased: StyleVariant[] = [];
-    if (input.scene.botIsBeingCriticized) biased.push('autolesionista', 'velenoso');
+    if (input.scene.botIsBeingCriticized) biased.push('self_deprecating', 'venomous');
     if (input.scene.energy === 'chaotic' || input.scene.energy === 'high')
-      biased.push('surreale', 'meme_lord');
-    if (input.scene.userIntent === 'insult_bot') biased.push('velenoso', 'secco');
-    if (input.scene.humorStyle.includes('degen')) biased.push('market_degen', 'bar_sport');
+      biased.push('surreal', 'meme_lord');
+    if (input.scene.userIntent === 'insult_bot') biased.push('venomous', 'dry');
+    if (input.scene.humorStyle.includes('degen')) biased.push('market_degen', 'bar_talk');
     if (input.scene.humorStyle.includes('lore_callback')) biased.push('lorekeeper');
     if (input.nsfwEnabled && Math.random() < 0.4) biased.push('porn_brained');
 
@@ -87,12 +87,12 @@ export class StyleEngine {
     const variantLines = style.variants
       .map((v) => `${v}: ${VARIANT_DESC[v as StyleVariant] ?? v}`)
       .join('; ');
-    const dial = (n: number) => (n >= 0.66 ? 'alto' : n >= 0.33 ? 'medio' : 'basso');
+    const dial = (n: number) => (n >= 0.66 ? 'high' : n >= 0.33 ? 'mid' : 'low');
     return [
-      `Variante/i: ${variantLines}`,
-      `aggressività ${dial(style.aggression)}, volgarità ${dial(style.vulgarity)}, nsfw ${dial(style.nsfw)}, ` +
-        `assurdità ${dial(style.absurdity)}, brevità ${dial(style.brevity)}, caos ${dial(style.chaos)}, ` +
-        `auto-ironia ${dial(style.selfAwareness)}`,
+      `Variant(s): ${variantLines}`,
+      `aggression ${dial(style.aggression)}, vulgarity ${dial(style.vulgarity)}, nsfw ${dial(style.nsfw)}, ` +
+        `absurdity ${dial(style.absurdity)}, brevity ${dial(style.brevity)}, chaos ${dial(style.chaos)}, ` +
+        `self-irony ${dial(style.selfAwareness)}`,
     ].join('\n');
   }
 

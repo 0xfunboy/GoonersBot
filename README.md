@@ -299,6 +299,8 @@ GoonerBot can listen to and send voice notes — both fully local-ish and cheap.
   occasionally on its own (`TTS_AUTO_VOICE_PROBABILITY`).
 - **`/voice`** turns the last chat message into a voice note — or, used as a *reply* to a message,
   voices **that** message.
+- **Multilingual:** the TTS voice and whisper language follow the chat's `/language`
+  (🇮🇹 `im_nicola` · 🇬🇧 `am_michael` · 🇪🇸 `em_alex`; no Russian voice → falls back to the default).
 
 ### Setup
 
@@ -336,6 +338,10 @@ message → Scene Analyzer → Memory Retriever → Reply Planner → Style Engi
 - **Debug:** admins use `/brain` (readable last-turn summary) and `/debuglast` (JSON) to see exactly why the bot answered the way it did.
 
 The legacy `facts` collection is auto-migrated into `memory_items` on first boot.
+
+> **Multilingual:** all internal brain instructions (scene/plan/generator/memory prompts) are written
+> in **English** — the model follows them best — while the bot is explicitly told to **reply in the
+> chat's language** (`/language`). STT and the TTS voice follow the chat language too.
 
 ## Configuration (all env vars)
 

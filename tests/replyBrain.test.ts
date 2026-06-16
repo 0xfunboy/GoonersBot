@@ -99,7 +99,7 @@ describe('ReplyPlanner', () => {
     });
     expect(p.replyIntent).toBe('roast_self');
     expect(p.memoryUseMode).toBe('none');
-    expect(p.noveltyInstruction).toMatch(/struttura/i);
+    expect(p.noveltyInstruction).toMatch(/structure/i);
   });
   it('dangerous → answer', () => {
     const p = planner.plan({

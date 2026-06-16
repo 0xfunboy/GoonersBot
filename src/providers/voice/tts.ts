@@ -8,6 +8,16 @@ const log = childLogger('tts');
  * TTS provider: OpenAI-compatible `/v1/audio/speech` (Kokoro-FastAPI as used by airi-stack).
  * Synthesizes text, then transcodes to Telegram-ready OGG/Opus via ffmpeg. Degrades to null.
  */
+/**
+ * Per-language voice. Kokoro covers it/en/es (and more); no Russian voice exists, so it falls back
+ * to the configured default. The chat's `/language` drives the selection.
+ */
+const VOICE_BY_LANGUAGE: Record<string, string> = {
+  italian: 'im_nicola',
+  english: 'am_michael',
+  spanish: 'em_alex',
+};
+
 export class TtsProvider {
   constructor(private readonly cfg: VoiceConfig['tts']) {}
 
@@ -15,11 +25,16 @@ export class TtsProvider {
     return this.cfg.enabled;
   }
 
+  private voiceFor(language?: string): string {
+    return (language && VOICE_BY_LANGUAGE[language]) || this.cfg.voice;
+  }
+
   /** Synthesize text → OGG/Opus voice-note Buffer, or null if disabled/failed/empty. */
-  async synth(text: string): Promise<Buffer | null> {
+  async synth(text: string, language?: string): Promise<Buffer | null> {
     if (!this.cfg.enabled || !this.cfg.baseUrl) return null;
     const input = sanitize(text).slice(0, this.cfg.maxChars);
     if (input.length === 0) return null;
+    const voice = this.voiceFor(language);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.cfg.timeoutMs);
@@ -33,7 +48,7 @@ export class TtsProvider {
         body: JSON.stringify({
           model: this.cfg.model,
           input,
-          voice: this.cfg.voice,
+          voice,
           response_format: this.cfg.format,
           speed: this.cfg.speed,
         }),

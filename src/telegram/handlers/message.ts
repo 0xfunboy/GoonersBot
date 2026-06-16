@@ -79,12 +79,15 @@ export async function handleMessage(
   const modeDescription = mode?.description ?? 'Partecipante naturale del gruppo.';
   const recentNegativeFeedback = recentReplies.some((r) => (r.feedbackScore ?? 0) < 0);
 
+  const language = await services.getLanguage(context.chatId);
+
   // Transcribe incoming voice up-front so its words feed scene/autoengage/storage/reply.
   const wasVoice = Boolean(message.audioBuffer);
   if (wasVoice && services.stt.enabled && message.audioBuffer) {
     const spoken = await services.media.transcribeVoice(
       message.audioBuffer,
       message.audioMime ?? 'audio/ogg',
+      { language },
     );
     if (spoken) {
       message.messageText = message.messageText ? `${message.messageText} ${spoken}` : spoken;
@@ -157,8 +160,6 @@ export async function handleMessage(
     contextText: history.map((h) => h.message.messageText ?? '').join(' '),
   });
 
-  const language = await services.getLanguage(context.chatId);
-
   await ctx.replyWithChatAction('typing').catch(() => undefined);
 
   try {
@@ -189,7 +190,7 @@ export async function handleMessage(
         ((wasVoice && ttsCfg.replyToVoice) || Math.random() < ttsCfg.autoVoiceProbability);
       let voiceSent = false;
       if (wantVoiceReply) {
-        const ogg = await services.tts.synth(finalText);
+        const ogg = await services.tts.synth(finalText, language);
         if (ogg) {
           const sent = await ctx.replyWithVoice(new InputFile(ogg), replyOpts);
           botMessageId = sent.message_id;

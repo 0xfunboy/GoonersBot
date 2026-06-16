@@ -51,9 +51,13 @@ export class MediaProcessor {
   }
 
   /** Transcribe a voice message; prefers local whisper.cpp, then the LLM provider. */
-  async transcribeVoice(buffer: Buffer, mime: string, fileName?: string): Promise<string | null> {
+  async transcribeVoice(
+    buffer: Buffer,
+    mime: string,
+    opts: { fileName?: string; language?: string } = {},
+  ): Promise<string | null> {
     if (this.stt?.enabled) {
-      const local = await this.stt.transcribe(buffer);
+      const local = await this.stt.transcribe(buffer, opts.language);
       if (local !== null) return local;
     }
     if (!this.llm.capabilities.transcription || typeof this.llm.transcribeAudio !== 'function') {
@@ -61,9 +65,9 @@ export class MediaProcessor {
       return null;
     }
     try {
-      const opts: { audio: Buffer; mime: string; fileName?: string } = { audio: buffer, mime };
-      if (fileName !== undefined) opts.fileName = fileName;
-      const text = await this.llm.transcribeAudio(opts);
+      const req: { audio: Buffer; mime: string; fileName?: string } = { audio: buffer, mime };
+      if (opts.fileName !== undefined) req.fileName = opts.fileName;
+      const text = await this.llm.transcribeAudio(req);
       return text.trim() || null;
     } catch (err) {
       log.warn({ err }, 'voice transcription failed');

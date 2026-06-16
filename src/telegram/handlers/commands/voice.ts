@@ -22,7 +22,8 @@ export const voiceCommand: CommandSpec = {
     const text = source?.message.messageText?.trim();
     if (!text) return { text: 'voice_none' };
 
-    const ogg = await services.tts.synth(text);
+    const language = await services.getLanguage(context.chatId);
+    const ogg = await services.tts.synth(text, language);
     if (!ogg) return { text: 'voice_failed' };
     const resp: CommandResponse = { audioBuffer: ogg };
     return resp;

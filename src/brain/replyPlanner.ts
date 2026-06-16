@@ -73,12 +73,12 @@ export class ReplyPlanner {
     const bannedPhrases = [...new Set([...HARD_BANNED, ...input.bannedOpenings])];
     const forbiddenReferences: string[] = [];
     if (s.botIsBeingCriticized)
-      forbiddenReferences.push('callback ripetuti', 'termini d’uso', 'le solite battute');
+      forbiddenReferences.push('repeated callbacks', 'terms of use', 'the same old jokes');
 
     return {
       replyIntent,
       targetHandles: s.mentionedUsers.length ? s.mentionedUsers : [input.currentHandle],
-      tone: s.bestAngle || (s.botIsBeingCriticized ? 'auto-ironico e velenoso' : 'group-native'),
+      tone: s.bestAngle || (s.botIsBeingCriticized ? 'self-ironic and venomous' : 'group-native'),
       maxLines,
       maxChars: input.maxChars,
       memoryIdsToUse: memoryUseMode === 'none' ? [] : memoryIdsToUse,
@@ -86,8 +86,8 @@ export class ReplyPlanner {
       forbiddenReferences,
       bannedPhrases,
       noveltyInstruction: s.botIsBeingCriticized
-        ? 'Cambia completamente struttura e apertura rispetto alle risposte recenti. Ammetti il loop con auto-ironia, poi rispondi in modo diverso.'
-        : 'Evita aperture e battute già usate di recente.',
+        ? 'Completely change the structure and opening compared to recent replies. Admit the loop with self-irony, then answer differently.'
+        : 'Avoid openings and jokes already used recently.',
       mustAnswer: addressed || s.userIntent === 'dangerous_request' || s.userIntent === 'ask_bot',
     };
   }
