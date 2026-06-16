@@ -84,6 +84,43 @@ export class SearxngProvider implements WebSearchProvider {
       clearTimeout(timer);
     }
   }
+
+  /** Image search → candidate image URLs (largest/original src first). */
+  async searchImages(
+    query: string,
+    opts: { language?: string; max?: number } = {},
+  ): Promise<string[]> {
+    if (!this.enabled || !this.cfg.baseUrl || !query.trim()) return [];
+    const url = new URL('/search', this.cfg.baseUrl);
+    url.searchParams.set('q', query.trim());
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('categories', 'images');
+    url.searchParams.set('safesearch', '1');
+    const lang = langToSearx(opts.language);
+    if (lang !== 'all') url.searchParams.set('language', lang);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.cfg.timeoutMs);
+    try {
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: { Accept: 'application/json' },
+      });
+      if (!res.ok) return [];
+      const json = (await res.json()) as {
+        results?: Array<{ img_src?: string; thumbnail_src?: string }>;
+      };
+      const urls = (json.results ?? [])
+        .map((r) => r.img_src || r.thumbnail_src)
+        .filter((u): u is string => Boolean(u && /^https?:\/\//.test(u)));
+      return urls.slice(0, opts.max ?? 20);
+    } catch (err) {
+      log.warn({ err }, 'searxng image search failed');
+      return [];
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 }
 
 /** SearXNG answers/infoboxes vary by version (string or object); normalize to one line. */

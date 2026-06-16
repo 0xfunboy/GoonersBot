@@ -9,6 +9,7 @@ import type { SceneAnalyzer } from '../brain/sceneAnalyzer.js';
 import type { GroundingService } from '../search/groundingService.js';
 import type { HeatService } from './heat.js';
 import type { KnowledgeRetriever } from '../knowledge/knowledgeRetriever.js';
+import type { ImageFinder } from '../media/imageFinder.js';
 import type { RetrievedMemory } from '../memory/types.js';
 import { StyleEngine } from '../brain/styleEngine.js';
 import { ReplyPlanner } from '../brain/replyPlanner.js';
@@ -38,6 +39,15 @@ function cleanQuery(text: string, botUsername: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 200);
+}
+
+const ANIME_TOPIC_RE =
+  /\b(waifu|anime|manga|otaku|weeb|hentai|cosplay|asian girl|ragazza anime|kawaii|senpai|ahegao)\b/i;
+
+/** True when the conversation is about anime/waifu (message text or matched knowledge topics). */
+function isAnimeTopic(message: string, knowledge: { topic: string }[]): boolean {
+  if (ANIME_TOPIC_RE.test(message)) return true;
+  return knowledge.some((k) => /waifu|anime|manga|otaku/i.test(k.topic));
 }
 
 /** Format retrieved knowledge into a compact, clearly-optional context block (or '' if none). */
@@ -126,6 +136,7 @@ export class ReplyService {
     private readonly grounding: GroundingService,
     private readonly heat: HeatService,
     private readonly knowledge: KnowledgeRetriever,
+    private readonly imageFinder: ImageFinder,
   ) {
     this.generator = new ResponseGenerator(llm, this.styleEngine, {
       model: config.brain.replyModel,
@@ -468,6 +479,19 @@ export class ReplyService {
         if (img.url) imageUrl = img.url;
         if (img.buffer) imageBuffer = img.buffer;
       }
+    }
+
+    // 6b. occasionally drop a verified waifu/anime image when the topic fits (the bot's taste)
+    if (
+      !imageBuffer &&
+      !imageUrl &&
+      this.config.auto.imageSendEnabled &&
+      this.imageFinder.enabled &&
+      isAnimeTopic(ctx.message.messageText || '', knowledgeItems) &&
+      Math.random() < this.config.auto.imageSendProbability
+    ) {
+      const found = await this.imageFinder.find();
+      if (found) imageBuffer = found.buffer;
     }
 
     const usedMemoryIds =

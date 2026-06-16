@@ -113,6 +113,36 @@ export const translations: TranslationMap = {
     russian: 'Включить/выключить авто-участие',
     spanish: 'Activa/desactiva la auto-participación',
   },
+  autopost_description: {
+    italian: 'Attiva/disattiva i post autonomi (news/immagini) in questa chat',
+    english: 'Toggle autonomous posts (news/images) in this chat',
+    russian: 'Включить/выключить автономные посты (новости/картинки)',
+    spanish: 'Activa/desactiva las publicaciones autónomas (noticias/imágenes)',
+  },
+  autopost_turned_on: {
+    italian: 'Post autonomi ON. Ogni tanto sbuco da solo, occhio.',
+    english: "Autonomous posts ON. I'll pop in on my own now and then.",
+    russian: 'Автопосты ВКЛ. Буду иногда вылезать сам.',
+    spanish: 'Publicaciones autónomas ON. Apareceré por mi cuenta de vez en cuando.',
+  },
+  autopost_turned_off: {
+    italian: 'Post autonomi OFF. Tornate a annoiarvi da soli.',
+    english: 'Autonomous posts OFF. Back to boring yourselves.',
+    russian: 'Автопосты ВЫКЛ.',
+    spanish: 'Publicaciones autónomas OFF.',
+  },
+  news_unavailable: {
+    italian: 'Niente news adesso, le fonti fanno i capricci. Riprova.',
+    english: 'No news right now, the sources are being little shits. Try again.',
+    russian: 'Сейчас новостей нет, источники капризничают. Попробуй снова.',
+    spanish: 'No hay noticias ahora, las fuentes están dando guerra. Inténtalo de nuevo.',
+  },
+  news_description: {
+    italian: 'Sparo un commento su un fatto del giorno (o una waifu)',
+    english: 'Drop a take on a current event (or a waifu)',
+    russian: 'Выдать мнение о событии дня (или вайфу)',
+    spanish: 'Suelta una opinión sobre un hecho del día (o una waifu)',
+  },
   ban_description: {
     italian: 'Banna un Gooner (solo admin)',
     english: 'Ban a Gooner (admin only)',

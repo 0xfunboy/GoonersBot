@@ -6,6 +6,7 @@ export interface ChatDefaults {
   conversationTracker: boolean;
   autoFact: boolean;
   autoengage: boolean;
+  autopost: boolean;
   nsfwMode: NsfwMode;
 }
 
@@ -40,6 +41,7 @@ export class ChatsRepo {
           conversationTracker: defaults.conversationTracker,
           autoFact: defaults.autoFact,
           autoengage: defaults.autoengage,
+          autopost: defaults.autopost,
           nsfwMode: defaults.nsfwMode,
           createdAt: now,
         },
@@ -90,6 +92,23 @@ export class ChatsRepo {
     return doc?.autoengage ?? false;
   }
 
+  async getAutopost(chatId: number): Promise<boolean> {
+    const doc = await this.col.findOne({ chatId }, { projection: { autopost: 1 } });
+    return doc?.autopost ?? false;
+  }
+
+  switchAutopost(chatId: number): Promise<boolean> {
+    return this.toggle(chatId, 'autopost');
+  }
+
+  /** Started chats with autopost enabled (targets for the autonomous-posting tick). */
+  async listForAutopost(): Promise<Array<{ chatId: number; language: string }>> {
+    const docs = await this.col
+      .find({ isStarted: true, autopost: true }, { projection: { chatId: 1, language: 1 } })
+      .toArray();
+    return docs.map((d) => ({ chatId: d.chatId, language: d.language }));
+  }
+
   async getNsfwMode(chatId: number, fallback: NsfwMode): Promise<NsfwMode> {
     const doc = await this.col.findOne({ chatId }, { projection: { nsfwMode: 1 } });
     return doc?.nsfwMode ?? fallback;
@@ -102,7 +121,7 @@ export class ChatsRepo {
   /** Toggle a boolean flag and return the new value. */
   private async toggle(
     chatId: number,
-    field: 'conversationTracker' | 'autoFact' | 'autoengage',
+    field: 'conversationTracker' | 'autoFact' | 'autoengage' | 'autopost',
   ): Promise<boolean> {
     const current = await this.col.findOne({ chatId }, { projection: { [field]: 1 } });
     const next = !(current?.[field] ?? false);

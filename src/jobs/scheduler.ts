@@ -21,6 +21,8 @@ export class Scheduler {
     private readonly config: AppConfig,
     private readonly storage: Storage,
     private readonly lore: LoreEngine,
+    /** optional autonomous-posting tick (sends unprompted posts); needs the bot's send API */
+    private readonly autopostTick?: () => Promise<void>,
   ) {}
 
   start(): void {
@@ -40,7 +42,13 @@ export class Scheduler {
         this.safe('feedback', () => runFeedbackLearningJob(this.storage, this.lore, this.config)),
       );
     }
-    log.info('scheduler started (cleanup + mining + feedback)');
+    if (this.config.auto.autopostEnabled && this.autopostTick) {
+      const tick = this.autopostTick;
+      this.every(this.config.auto.autopostIntervalMinutes * 60_000, 120_000, () =>
+        this.safe('autopost', () => tick()),
+      );
+    }
+    log.info('scheduler started (cleanup + mining + feedback + autopost)');
   }
 
   private every(intervalMs: number, firstDelayMs: number, fn: () => void): void {

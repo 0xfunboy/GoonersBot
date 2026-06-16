@@ -15,6 +15,9 @@ import { SearxngProvider } from '../search/searxng.js';
 import { GroundingService } from '../search/groundingService.js';
 import { HeatService } from './heat.js';
 import { KnowledgeRetriever } from '../knowledge/knowledgeRetriever.js';
+import { ImageFinder } from '../media/imageFinder.js';
+import { NewsService } from '../news/newsService.js';
+import { AutonomousPoster } from './autonomousPoster.js';
 import { AutoEngageScorer } from './autoengage.js';
 import { BanService } from './bans.js';
 import { ModelRouter } from './modelRouter.js';
@@ -63,6 +66,8 @@ export class Services {
   readonly grounding: GroundingService;
   readonly heat: HeatService;
   readonly knowledge: KnowledgeRetriever;
+  readonly imageFinder: ImageFinder;
+  readonly autonomousPoster: AutonomousPoster;
   /** per-user, per-chat anti-spam cooldown for command invocations */
   readonly commandRateLimit: Cooldown;
 
@@ -129,6 +134,9 @@ export class Services {
       imageEnabled: config.search.imageEnabled,
       maxResults: config.search.maxResults,
     });
+    this.imageFinder = new ImageFinder(searxng, this.media, config.auto.imageQueryPool);
+    const news = new NewsService(config.auto.rssFeeds, config.search.timeoutMs);
+    this.autonomousPoster = new AutonomousPoster(llm, news, this.imageFinder, config);
     this.heat = new HeatService(storage.userHeat, {
       enabled: env.HEAT_ENABLED,
       baseline: env.HEAT_BASELINE,
@@ -149,6 +157,7 @@ export class Services {
       this.grounding,
       this.heat,
       this.knowledge,
+      this.imageFinder,
     );
   }
 
@@ -160,6 +169,7 @@ export class Services {
       conversationTracker: env.CONVERSATION_TRACKER_DEFAULT_ENABLED,
       autoFact: env.AUTOFACT_DEFAULT_ENABLED,
       autoengage: env.AUTOENGAGE_DEFAULT_ENABLED,
+      autopost: env.AUTOPOST_DEFAULT_ENABLED,
       nsfwMode: env.LLM_NSFW_DEFAULT_MODE,
     });
     await Promise.all([

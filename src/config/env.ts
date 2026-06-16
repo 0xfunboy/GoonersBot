@@ -116,6 +116,21 @@ const envSchema = z.object({
   KNOWLEDGE_MAX_ITEMS: intFromString(2),
   KNOWLEDGE_SEED_ON_BOOT: boolFromString(true),
 
+  // Image sending: fetch a waifu/anime image online (SearXNG images), vision-verify it, then send
+  // with an on-theme comment. Requires the SearXNG backend + a vision model.
+  IMAGE_SEND_ENABLED: boolFromString(true),
+  IMAGE_SEND_PROBABILITY: floatFromString(0.15), // chance to attach an image on anime/waifu replies
+  IMAGE_QUERY_POOL: z.string().optional(), // comma-separated query seeds (defaults provided)
+
+  // Autonomous posting: every interval, with a probability, drop an unprompted line (a styled take
+  // on a current event from RSS, or a commented waifu image). Also triggerable via /news (/nuovo).
+  AUTOPOST_ENABLED: boolFromString(true),
+  AUTOPOST_DEFAULT_ENABLED: boolFromString(false), // per-chat default (opt-in, avoids spam)
+  AUTOPOST_INTERVAL_MINUTES: intFromString(10),
+  AUTOPOST_PROBABILITY: floatFromString(0.05),
+  AUTOPOST_IMAGE_RATIO: floatFromString(0.4), // share of autoposts that are a waifu image vs news
+  RSS_FEEDS: z.string().optional(), // comma-separated feed URLs (defaults provided)
+
   // Web/image grounding (free: self-hosted SearXNG + vision-model reverse-image lookup)
   // WEB_SEARCH: ground recency/factual questions with fresh web results.
   WEB_SEARCH_ENABLED: boolFromString(false),

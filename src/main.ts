@@ -1,3 +1,4 @@
+import { InputFile } from 'grammy';
 import { loadConfig } from './config/index.js';
 import { createLLMProvider } from './providers/llm/index.js';
 import { Storage } from './storage/index.js';
@@ -32,8 +33,29 @@ async function main(): Promise<void> {
   // 5. Telegram bot.
   const goonerBot = await createBot(config, services);
 
-  // 6. Background scheduler.
-  const scheduler = new Scheduler(config, storage, services.lore);
+  // 6. Background scheduler (incl. probabilistic autonomous posting into opted-in chats).
+  const autopostTick = async (): Promise<void> => {
+    const chats = await storage.chats.listForAutopost();
+    for (const c of chats) {
+      if (Math.random() >= config.auto.autopostProbability) continue;
+      const post = await services.autonomousPoster.compose(c.language);
+      if (!post) continue;
+      try {
+        if (post.imageBuffer) {
+          await goonerBot.bot.api.sendPhoto(
+            c.chatId,
+            new InputFile(post.imageBuffer),
+            post.text ? { caption: post.text } : {},
+          );
+        } else if (post.text) {
+          await goonerBot.bot.api.sendMessage(c.chatId, post.text);
+        }
+      } catch (err) {
+        log.warn({ err, chatId: c.chatId }, 'autopost send failed');
+      }
+    }
+  };
+  const scheduler = new Scheduler(config, storage, services.lore, autopostTick);
   scheduler.start();
 
   // 7. Start polling.

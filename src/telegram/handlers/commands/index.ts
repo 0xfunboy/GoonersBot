@@ -13,7 +13,13 @@ import {
 import { brainCommand, debuglastCommand } from './debug.js';
 import { voiceCommand } from './voice.js';
 import { translateCommand } from './translate.js';
-import { conversationtrackerCommand, autofactCommand, autoengageCommand } from './toggles.js';
+import {
+  conversationtrackerCommand,
+  autofactCommand,
+  autoengageCommand,
+  autopostCommand,
+} from './toggles.js';
+import { newsCommand } from './news.js';
 import { nsfwCommand } from './nsfw.js';
 import { banCommand, unbanCommand } from './moderation.js';
 import { usageCommand, languageCommand, termsCommand, helpCommand } from './misc.js';
@@ -36,6 +42,8 @@ export const commandHandlers: CommandSpec[] = [
   conversationtrackerCommand,
   autofactCommand,
   autoengageCommand,
+  autopostCommand,
+  newsCommand,
   nsfwCommand,
   banCommand,
   unbanCommand,

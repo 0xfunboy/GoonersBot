@@ -233,12 +233,65 @@ export function resolveSearchConfig(env: Env): SearchConfig {
   };
 }
 
+/** Image-sending + autonomous-posting (news/waifu) config. */
+export interface AutoConfig {
+  imageSendEnabled: boolean;
+  imageSendProbability: number;
+  imageQueryPool: string[];
+  autopostEnabled: boolean;
+  autopostDefaultEnabled: boolean;
+  autopostIntervalMinutes: number;
+  autopostProbability: number;
+  autopostImageRatio: number;
+  rssFeeds: string[];
+}
+
+const DEFAULT_IMAGE_QUERIES = [
+  'anime waifu',
+  'cute anime girl',
+  'anime girl wallpaper',
+  'best girl anime',
+  'kawaii anime girl art',
+  'anime aesthetic girl',
+];
+
+const DEFAULT_RSS_FEEDS = [
+  'https://feeds.bbci.co.uk/news/world/rss.xml',
+  'http://rss.cnn.com/rss/edition.rss',
+  'https://www.ansa.it/sito/ansait_rss.xml',
+  'https://www.theverge.com/rss/index.xml',
+];
+
+function csv(value: string | undefined, fallback: string[]): string[] {
+  if (!value) return fallback;
+  const list = value
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return list.length ? list : fallback;
+}
+
+export function resolveAutoConfig(env: Env): AutoConfig {
+  return {
+    imageSendEnabled: env.IMAGE_SEND_ENABLED,
+    imageSendProbability: env.IMAGE_SEND_PROBABILITY,
+    imageQueryPool: csv(env.IMAGE_QUERY_POOL, DEFAULT_IMAGE_QUERIES),
+    autopostEnabled: env.AUTOPOST_ENABLED,
+    autopostDefaultEnabled: env.AUTOPOST_DEFAULT_ENABLED,
+    autopostIntervalMinutes: env.AUTOPOST_INTERVAL_MINUTES,
+    autopostProbability: env.AUTOPOST_PROBABILITY,
+    autopostImageRatio: env.AUTOPOST_IMAGE_RATIO,
+    rssFeeds: csv(env.RSS_FEEDS, DEFAULT_RSS_FEEDS),
+  };
+}
+
 export interface AppConfig {
   env: Env;
   llm: LLMConfig;
   brain: BrainConfig;
   voice: VoiceConfig;
   search: SearchConfig;
+  auto: AutoConfig;
 }
 
 export function loadConfig(): AppConfig {
@@ -249,5 +302,6 @@ export function loadConfig(): AppConfig {
     brain: resolveBrainConfig(env),
     voice: resolveVoiceConfig(env),
     search: resolveSearchConfig(env),
+    auto: resolveAutoConfig(env),
   };
 }

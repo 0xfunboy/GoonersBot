@@ -15,6 +15,7 @@ export interface ChatDoc {
   conversationTracker: boolean;
   autoFact: boolean;
   autoengage: boolean;
+  autopost?: boolean;
   nsfwMode: NsfwMode;
   createdAt: Date;
   updatedAt: Date;

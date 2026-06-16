@@ -393,6 +393,20 @@ nothing, so it adds **zero prompt weight** and never makes the character monothe
 from `src/knowledge/seed.ts` (`KNOWLEDGE_SEED_ON_BOOT`, idempotent upsert); retrieval in
 `src/knowledge/knowledgeRetriever.ts`. Extend the seed freely.
 
+## Images & autonomous posting
+
+**Sending images (free, no image-gen model):** the bot occasionally drops a waifu/anime image that
+fits its taste. It is fetched online via SearXNG image search, then **vision-verified** (downloaded
+and looked at by the vision model) before it's ever sent — off-theme / unsafe / real-person hits are
+rejected. In replies it attaches one at `IMAGE_SEND_PROBABILITY` when the topic is anime/waifu.
+(`ImageFinder`, `src/media/imageFinder.ts`. Needs SearXNG + a vision model.)
+
+**Autonomous posting:** every `AUTOPOST_INTERVAL_MINUTES`, with `AUTOPOST_PROBABILITY` per eligible
+chat, the bot drops an unprompted line — a styled take on a **current event** (pulled from RSS,
+`RSS_FEEDS`) with the source link, or a commented waifu image (`AUTOPOST_IMAGE_RATIO` split). It is
+**opt-in per chat** (`/autopost`, default off) and also triggerable on demand with **`/news`** (alias
+**`/nuovo`**). Composer in `src/services/autonomousPoster.ts`, feeds in `src/news/newsService.ts`.
+
 ## Brain & memory
 
 GoonerBot doesn't dump facts into every prompt. Each reply runs a small **brain pipeline** so it
@@ -578,17 +592,6 @@ pnpm tsx scripts/smoke-telegram.ts       # drives synthetic Telegram updates thr
 | "capability not available" message | The relevant `LLM_*_MODEL` isn't set (vision/image/transcription). Set it or ignore. |
 | Bot won't start | Check the fail-fast error — usually a missing `TELEGRAM_BOT_TOKEN` or unreachable `MONGO_URI`. |
 | Toggles seem off in an existing chat | Defaults apply to **new** chats; toggle once with the relevant command. |
-
----
-
-## Origins
-
-GoonerBot is a full **TypeScript reimplementation and rebrand** of the open-source Python project
-[Flagro/TelegramRPBot](https://github.com/Flagro/TelegramRPBot). Every original feature was ported
-(commands, callbacks, modes, facts, media, usage, permissions, i18n), the OpenAI-only AI stack was
-replaced by a provider abstraction, MongoDB gained proper indexes, several original bugs were fixed
-(ban expiry, usage reset, upsert conflicts), and the whole thing was rebranded to the group-native
-GoonerBot / Gooners voice.
 
 ---
 
