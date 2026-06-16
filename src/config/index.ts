@@ -160,9 +160,13 @@ export function resolveVoiceConfig(env: Env): VoiceConfig {
   const whisperBin = resolve(env.WHISPER_BIN);
   const whisperModel = resolve(env.WHISPER_MODEL);
 
+  // When TTS_FORMAT=opus the server returns Telegram-ready OGG/Opus, so the GoonerBot host needs
+  // NO local ffmpeg for TTS (encoding is offloaded to the Kokoro server). Other formats transcode locally.
+  const ttsNeedsFfmpeg = env.TTS_FORMAT !== 'opus';
+
   return {
     tts: {
-      enabled: env.TTS_ENABLED && Boolean(env.TTS_BASE_URL) && ffmpegAvailable,
+      enabled: env.TTS_ENABLED && Boolean(env.TTS_BASE_URL) && (!ttsNeedsFfmpeg || ffmpegAvailable),
       baseUrl: env.TTS_BASE_URL ? env.TTS_BASE_URL.replace(/\/+$/, '') : undefined,
       model: env.TTS_MODEL,
       voice: env.TTS_VOICE,

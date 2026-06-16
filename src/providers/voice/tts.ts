@@ -58,6 +58,19 @@ export class TtsProvider {
         return null;
       }
       const audio = Buffer.from(await res.arrayBuffer());
+      // OGG/Opus straight from the server is Telegram-ready: NO local ffmpeg needed (server-side
+      // encoding). Other formats (wav/mp3) are transcoded locally to OGG/Opus.
+      if (this.cfg.format === 'opus') {
+        // Kokoro returns an empty (~header-only) opus on very short inputs; treat tiny output as failure.
+        if (audio.length < 1024) {
+          log.warn(
+            { bytes: audio.length },
+            'remote opus too small (short input?) — skipping voice',
+          );
+          return null;
+        }
+        return audio;
+      }
       if (audio.length < 64) return null;
       return await toTelegramVoice(this.cfg.ffmpegBin, audio, this.cfg.timeoutMs);
     } catch (err) {

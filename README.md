@@ -301,6 +301,8 @@ GoonerBot can listen to and send voice notes — both fully local-ish and cheap.
   voices **that** message.
 - **Multilingual:** the TTS voice and whisper language follow the chat's `/language`
   (🇮🇹 `im_nicola` · 🇬🇧 `am_michael` · 🇪🇸 `em_alex`; no Russian voice → falls back to the default).
+- **Offloaded encoding:** with `TTS_FORMAT=opus` the Kokoro server returns Telegram-ready OGG/Opus,
+  so the bot host needs **no local ffmpeg for TTS** (only STT still decodes incoming voice locally).
 
 ### Setup
 
