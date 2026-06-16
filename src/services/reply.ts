@@ -116,7 +116,34 @@ export class ReplyService {
     this.guard = new RepetitionGuard(config.env.REPETITION_SIMILARITY_THRESHOLD);
   }
 
-  async transcribe(message: IncomingMessage): Promise<{
+  /**
+   * Resolve a single still image to "look at" for this turn: a photo or a frame extracted from a
+   * video, taking the current message first, then the replied-to message. Videos are turned into a
+   * representative frame via ffmpeg. Returns null when there is nothing visual.
+   */
+  private async resolveVisual(
+    message: IncomingMessage,
+  ): Promise<{ buffer: Buffer; mime: string } | null> {
+    if (message.imageBuffer)
+      return { buffer: message.imageBuffer, mime: message.imageMime ?? 'image/jpeg' };
+    if (message.videoBuffer) {
+      const frame = await this.media.frameFromVideo(message.videoBuffer);
+      if (frame) return { buffer: frame, mime: 'image/jpeg' };
+    }
+    if (message.repliedImageBuffer) {
+      return { buffer: message.repliedImageBuffer, mime: message.repliedImageMime ?? 'image/jpeg' };
+    }
+    if (message.repliedVideoBuffer) {
+      const frame = await this.media.frameFromVideo(message.repliedVideoBuffer);
+      if (frame) return { buffer: frame, mime: 'image/jpeg' };
+    }
+    return null;
+  }
+
+  async transcribe(
+    message: IncomingMessage,
+    visual: { buffer: Buffer; mime: string } | null,
+  ): Promise<{
     transcribed: TranscribedMessage;
     visionCalls: number;
     transcriptionCalls: number;
@@ -125,19 +152,23 @@ export class ReplyService {
     let voiceDescription: string | null = null;
     let visionCalls = 0;
     let transcriptionCalls = 0;
-    if (message.imageBuffer) {
-      imageDescription = await this.media.describeImage(
-        message.imageBuffer,
-        message.imageMime ?? 'image/jpeg',
-      );
+    if (visual) {
+      imageDescription = await this.media.describeImage(visual.buffer, visual.mime);
       if (imageDescription !== null) visionCalls = 1;
     }
-    if (message.audioBuffer) {
-      voiceDescription = await this.media.transcribeVoice(
-        message.audioBuffer,
-        message.audioMime ?? 'audio/ogg',
-        { fileName: 'voice.ogg' },
-      );
+    // Current voice is transcribed up-front (message handler); here we cover any remaining
+    // current audio plus replied-to audio/video the user is asking about ("cosa ha detto").
+    const audio = message.audioBuffer
+      ? { buffer: message.audioBuffer, mime: message.audioMime ?? 'audio/ogg' }
+      : message.repliedAudioBuffer
+        ? { buffer: message.repliedAudioBuffer, mime: message.repliedAudioMime ?? 'audio/ogg' }
+        : message.repliedVideoBuffer
+          ? { buffer: message.repliedVideoBuffer, mime: 'video/mp4' }
+          : null;
+    if (audio) {
+      voiceDescription = await this.media.transcribeVoice(audio.buffer, audio.mime, {
+        fileName: 'media',
+      });
       if (voiceDescription !== null) transcriptionCalls = 1;
     }
     return {
@@ -154,28 +185,21 @@ export class ReplyService {
 
   /**
    * Decide whether this turn needs grounding and fetch it. Image lookup (reverse-image "who/what
-   * is this") wins when the message asks an identity/product question and an image is attached
-   * (current or replied-to); otherwise a web search for recency/factual questions. Returns null
-   * when grounding is disabled or not warranted.
+   * is this") wins when the message asks an identity/product question and a visual is present
+   * (photo or video frame, current or replied); otherwise a web search for recency/factual
+   * questions. Returns null when grounding is disabled or not warranted.
    */
   private async ground(
     ctx: ReplyContext,
+    visual: { buffer: Buffer; mime: string } | null,
   ): Promise<{ block: string; query: string; sources: string[] } | null> {
     if (!this.grounding.enabled) return null;
     const question = ctx.message.messageText || '';
-    const image = ctx.message.repliedImageBuffer
-      ? {
-          buffer: ctx.message.repliedImageBuffer,
-          mime: ctx.message.repliedImageMime ?? 'image/jpeg',
-        }
-      : ctx.message.imageBuffer
-        ? { buffer: ctx.message.imageBuffer, mime: ctx.message.imageMime ?? 'image/jpeg' }
-        : null;
     try {
-      if (image && this.grounding.wantsImageLookup(question)) {
+      if (visual && this.grounding.wantsImageLookup(question)) {
         return await this.grounding.groundImage({
-          imageBuffer: image.buffer,
-          imageMime: image.mime,
+          imageBuffer: visual.buffer,
+          imageMime: visual.mime,
           question,
           language: ctx.language,
         });
@@ -191,7 +215,13 @@ export class ReplyService {
   }
 
   async generateReply(ctx: ReplyContext): Promise<ReplyOutcome> {
-    const { transcribed, visionCalls, transcriptionCalls } = await this.transcribe(ctx.message);
+    // Resolve the visual once (photo or extracted video frame, current or replied) and reuse it
+    // for both the image description and any reverse-image grounding.
+    const visual = await this.resolveVisual(ctx.message);
+    const { transcribed, visionCalls, transcriptionCalls } = await this.transcribe(
+      ctx.message,
+      visual,
+    );
     const history = await this.conversation.getRecent(ctx.context.chatId);
     const mentioned = ctx.context.mentionedHandles ?? [];
 
@@ -222,7 +252,7 @@ export class ReplyService {
         repliedToHandle: ctx.context.repliedToUserHandle ?? null,
         nsfwEnabled: generationNsfwEnabled,
       }),
-      this.ground(ctx),
+      this.ground(ctx, visual),
     ]);
     const groundingBlock = grounding?.block;
 

@@ -1,8 +1,19 @@
+import { writeFile, unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { childLogger } from '../../utils/logger.js';
 import type { ImageResult, LLMProvider } from '../llm/types.js';
 import type { SttProvider } from '../voice/stt.js';
+import { extractVideoFrame } from '../voice/ffmpeg.js';
 
 const log = childLogger('media');
+
+export interface FfmpegConfig {
+  bin: string;
+  available: boolean;
+  timeoutMs: number;
+}
 
 /**
  * MediaProcessor routes media through the active providers. Voice transcription prefers the local
@@ -13,10 +24,35 @@ export class MediaProcessor {
   constructor(
     private readonly llm: LLMProvider,
     private readonly stt?: SttProvider,
+    private readonly ffmpeg?: FfmpegConfig,
   ) {}
 
   get canDescribeImage(): boolean {
     return this.llm.capabilities.vision && typeof this.llm.visionCompletion === 'function';
+  }
+
+  /** True if we can turn a video into a still frame for vision. */
+  get canFrameVideo(): boolean {
+    return Boolean(this.ffmpeg?.available);
+  }
+
+  /**
+   * Extract one representative still frame (JPEG) from a video so it can be fed to the vision
+   * model. Returns null when ffmpeg is unavailable or extraction fails.
+   */
+  async frameFromVideo(video: Buffer): Promise<Buffer | null> {
+    if (!this.ffmpeg?.available) return null;
+    const tmp = join(tmpdir(), `gb-frame-${randomBytes(6).toString('hex')}.bin`);
+    try {
+      await writeFile(tmp, video);
+      const frame = await extractVideoFrame(this.ffmpeg.bin, tmp, this.ffmpeg.timeoutMs);
+      return frame.length > 64 ? frame : null;
+    } catch (err) {
+      log.warn({ err }, 'video frame extraction failed');
+      return null;
+    } finally {
+      await unlink(tmp).catch(() => undefined);
+    }
   }
 
   get canTranscribe(): boolean {

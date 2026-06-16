@@ -42,9 +42,14 @@ export interface IncomingMessage {
   imageMime?: string | undefined;
   audioBuffer?: Buffer | undefined;
   audioMime?: string | undefined;
-  /** photo from the replied-to message (for "who/what is this image" reverse-image lookups) */
+  /** video/video-note from the current message (a frame is extracted for vision) */
+  videoBuffer?: Buffer | undefined;
+  /** media from the replied-to message (for "who/what is this image/video", "cosa ha detto") */
   repliedImageBuffer?: Buffer | undefined;
   repliedImageMime?: string | undefined;
+  repliedVideoBuffer?: Buffer | undefined;
+  repliedAudioBuffer?: Buffer | undefined;
+  repliedAudioMime?: string | undefined;
 }
 
 /** A message after media has been transcribed/described to text. */

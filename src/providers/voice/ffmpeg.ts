@@ -79,6 +79,37 @@ export function toWhisperWav(bin: string, input: Buffer, timeoutMs = 30000): Pro
 }
 
 /**
+ * Extract one representative frame from a video FILE → JPEG bytes (for vision). The `thumbnail`
+ * filter picks the most representative frame from the opening of the clip; reading from a seekable
+ * file handles MP4 containers. Frame is downscaled to keep the vision payload small.
+ */
+export function extractVideoFrame(
+  bin: string,
+  inputPath: string,
+  timeoutMs = 30000,
+): Promise<Buffer> {
+  return runFfmpeg(
+    bin,
+    [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-i',
+      inputPath,
+      '-vf',
+      "thumbnail,scale='min(1024,iw)':-2",
+      '-frames:v',
+      '1',
+      '-f',
+      'mjpeg',
+      'pipe:1',
+    ],
+    Buffer.alloc(0),
+    timeoutMs,
+  );
+}
+
+/**
  * Decode a media FILE → 16 kHz mono PCM WAV. Reading from a seekable file (not a pipe) is required
  * for containers like MP4 whose moov atom sits at the end (videos / video-notes / audio files).
  * ffmpeg auto-detects the format and extracts the audio track regardless of container.

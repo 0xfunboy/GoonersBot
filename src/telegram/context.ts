@@ -120,26 +120,13 @@ export async function buildIncomingMessage(
 
   const out: IncomingMessage = { messageText: text, timestamp };
 
+  // ---- current-message media ----
   if (opts.image && msg?.photo && msg.photo.length > 0) {
     const largest = msg.photo[msg.photo.length - 1];
-    if (largest) {
-      const buf = await downloadFile(ctx, largest.file_id);
-      if (buf) {
-        out.imageBuffer = buf;
-        out.imageMime = 'image/jpeg';
-      }
-    }
-  }
-  // Photo in the replied-to message → used for "who/what is this image" reverse-image lookups.
-  const repliedPhoto = msg?.reply_to_message?.photo;
-  if (opts.image && repliedPhoto && repliedPhoto.length > 0) {
-    const largest = repliedPhoto[repliedPhoto.length - 1];
-    if (largest) {
-      const buf = await downloadFile(ctx, largest.file_id);
-      if (buf) {
-        out.repliedImageBuffer = buf;
-        out.repliedImageMime = 'image/jpeg';
-      }
+    const buf = largest ? await downloadFile(ctx, largest.file_id) : null;
+    if (buf) {
+      out.imageBuffer = buf;
+      out.imageMime = 'image/jpeg';
     }
   }
   // Voice notes, audio files, videos and round video-notes all feed STT. ffmpeg extracts the
@@ -151,6 +138,36 @@ export async function buildIncomingMessage(
       if (buf) {
         out.audioBuffer = buf;
         out.audioMime = ('mime_type' in media && media.mime_type) || 'application/octet-stream';
+        // A video also carries visual content → keep it so a frame can be extracted for vision.
+        if (msg?.video || msg?.video_note) out.videoBuffer = buf;
+      }
+    }
+  }
+
+  // ---- replied-to media (only when addressed): "chi è/cosa c'è in questo video", "cosa ha detto" ----
+  const replied = msg?.reply_to_message;
+  if (opts.image && replied) {
+    const repliedPhoto = replied.photo;
+    if (repliedPhoto && repliedPhoto.length > 0) {
+      const largest = repliedPhoto[repliedPhoto.length - 1];
+      const buf = largest ? await downloadFile(ctx, largest.file_id) : null;
+      if (buf) {
+        out.repliedImageBuffer = buf;
+        out.repliedImageMime = 'image/jpeg';
+      }
+    }
+    const repliedVideo = replied.video ?? replied.video_note;
+    if (repliedVideo) {
+      const buf = await downloadFile(ctx, repliedVideo.file_id);
+      if (buf) out.repliedVideoBuffer = buf;
+    }
+    const repliedAudio = replied.voice ?? replied.audio;
+    if (repliedAudio) {
+      const buf = await downloadFile(ctx, repliedAudio.file_id);
+      if (buf) {
+        out.repliedAudioBuffer = buf;
+        out.repliedAudioMime =
+          ('mime_type' in repliedAudio && repliedAudio.mime_type) || 'application/octet-stream';
       }
     }
   }

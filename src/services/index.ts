@@ -71,7 +71,11 @@ export class Services {
     this.localizer = new Localizer(env.DEFAULT_LANGUAGE);
     this.tts = new TtsProvider(config.voice.tts);
     this.stt = new SttProvider(config.voice.stt);
-    this.media = new MediaProcessor(llm, this.stt);
+    this.media = new MediaProcessor(llm, this.stt, {
+      bin: config.voice.stt.ffmpegBin,
+      available: config.voice.tts.ffmpegAvailable,
+      timeoutMs: config.voice.stt.timeoutMs,
+    });
     this.permissions = new PermissionService(storage, env.ALLOWED_HANDLES, env.ADMIN_HANDLES);
     this.terms = new TermsService(storage);
     this.bans = new BanService(storage, env.DEFAULT_BAN_SECONDS);
