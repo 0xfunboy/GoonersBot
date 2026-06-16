@@ -28,6 +28,8 @@ export interface ChatContext {
   repliedToUserHandle?: string | undefined;
   /** id of the replied-to message, if any (used for reply-centered /fact and /forget) */
   repliedToMessageId?: number | undefined;
+  /** text/caption of the replied-to message, if any (used for /traduci) */
+  repliedToText?: string | undefined;
   /** @handles mentioned in the message text */
   mentionedHandles?: string[] | undefined;
   /** true when the replied-to message was authored by the bot */

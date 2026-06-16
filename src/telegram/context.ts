@@ -77,6 +77,8 @@ export async function buildChatContext(
   if (ctx.message?.reply_to_message?.message_id !== undefined) {
     out.repliedToMessageId = ctx.message.reply_to_message.message_id;
   }
+  const repliedText = ctx.message?.reply_to_message?.text ?? ctx.message?.reply_to_message?.caption;
+  if (repliedText) out.repliedToText = repliedText;
   return out;
 }
 

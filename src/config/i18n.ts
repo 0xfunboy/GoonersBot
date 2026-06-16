@@ -197,6 +197,36 @@ export const translations: TranslationMap = {
     russian: 'Синтез речи сломался. Попробуй снова.',
     spanish: 'La síntesis de voz falló. Inténtalo de nuevo.',
   },
+  traduci_description: {
+    italian: 'Traduci il messaggio in reply nella lingua indicata (es. /traduci spagnolo)',
+    english: 'Translate the replied message into the given language (e.g. /traduci spanish)',
+    russian: 'Перевести сообщение из реплая на указанный язык (напр. /traduci russian)',
+    spanish: 'Traduce el mensaje citado al idioma indicado (p. ej. /traduci español)',
+  },
+  traduci_usage: {
+    italian: 'Usalo in risposta a un messaggio: /traduci <lingua> (es. "/traduci spagnolo").',
+    english: 'Use it as a reply to a message: /traduci <language> (e.g. "/traduci spanish").',
+    russian: 'Используй в ответ на сообщение: /traduci <язык> (напр. "/traduci russian").',
+    spanish: 'Úsalo respondiendo a un mensaje: /traduci <idioma> (p. ej. "/traduci español").',
+  },
+  traduci_no_target: {
+    italian: 'In che lingua? Es: "/traduci spagnolo" o "/traduci in inglese".',
+    english: 'Into which language? E.g. "/traduci spanish" or "/traduci to english".',
+    russian: 'На какой язык? Напр.: "/traduci spanish" или "/traduci in english".',
+    spanish: '¿A qué idioma? Ej: "/traduci español" o "/traduci al inglés".',
+  },
+  traduci_nothing: {
+    italian: 'Non trovo il testo del messaggio a cui rispondi.',
+    english: "Can't find the text of the message you're replying to.",
+    russian: 'Не нахожу текст сообщения, на которое ты отвечаешь.',
+    spanish: 'No encuentro el texto del mensaje al que respondes.',
+  },
+  traduci_failed: {
+    italian: 'Traduzione fallita. Riprova.',
+    english: 'Translation failed. Try again.',
+    russian: 'Перевод не удался. Попробуй снова.',
+    spanish: 'La traducción falló. Inténtalo de nuevo.',
+  },
 
   // ---- responses ----
   start_done: {
