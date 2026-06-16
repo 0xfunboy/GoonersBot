@@ -1,7 +1,24 @@
+import { readFileSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import type { KeyboardResponse } from '../../domain/types.js';
 import type { Services } from '../../services/index.js';
 
 export const TERMS_CALLBACK = 'terms_response';
+
+// Header image shown on the terms-of-use prompt (and the README header). Loaded once, cached.
+// Missing file => null, and the prompt falls back to text only.
+let termsHeaderCache: Buffer | null | undefined;
+export function termsHeader(): Buffer | null {
+  if (termsHeaderCache !== undefined) return termsHeaderCache;
+  const rel = process.env['TERMS_HEADER_IMAGE'] || 'assets/header.png';
+  const path = isAbsolute(rel) ? rel : join(process.cwd(), rel);
+  try {
+    termsHeaderCache = readFileSync(path);
+  } catch {
+    termsHeaderCache = null;
+  }
+  return termsHeaderCache;
+}
 export const SET_MODE_CALLBACK = 'set_chat_mode';
 export const DELETE_MODE_CALLBACK = 'delete_chat_mode';
 export const SHOW_MODES_CALLBACK = 'show_chat_modes';

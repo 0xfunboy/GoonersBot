@@ -3,7 +3,7 @@ import type { ChatContext, IncomingMessage, Person } from '../../domain/types.js
 import type { Services } from '../../services/index.js';
 import type { Env } from '../../config/env.js';
 import type { AddMessageMeta } from '../../storage/repositories/messages.js';
-import { termsKeyboard } from './shared.js';
+import { termsKeyboard, termsHeader } from './shared.js';
 import { localizeResponse, sendResponse, scheduleDelete } from '../render.js';
 import { fingerprint } from '../../utils/text.js';
 import { childLogger } from '../../utils/logger.js';
@@ -61,9 +61,11 @@ export async function handleMessage(
   if (!(await services.terms.hasAccepted(person.userHandle))) {
     if (!addressed) return;
     const language = await services.getLanguage(context.chatId);
+    const header = termsHeader();
     const localized = await localizeResponse(services, context.chatId, {
       text: 'terms_text',
       keyboard: termsKeyboard(services, language),
+      ...(header ? { imageBuffer: header } : {}),
     });
     const sent = await sendResponse(ctx, localized);
     scheduleDelete(ctx, sent, 60_000); // personal prompt: self-destruct if not signed in 1 minute

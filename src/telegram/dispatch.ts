@@ -3,7 +3,7 @@ import type { Permission, Services } from '../services/index.js';
 import type { CommandSpec, CallbackSpec, HandlerInput } from './handlers/types.js';
 import { buildChatContext, buildIncomingMessage, buildPerson } from './context.js';
 import { localizeResponse, sendResponse, scheduleDelete } from './render.js';
-import { termsKeyboard } from './handlers/shared.js';
+import { termsKeyboard, termsHeader } from './handlers/shared.js';
 import { parseArgs } from '../utils/args.js';
 import { parseCallbackData } from './keyboards.js';
 import { childLogger } from '../utils/logger.js';
@@ -98,9 +98,11 @@ async function finish(
   }
   if ('terms' in prepared) {
     const language = await services.getLanguage(chatId);
+    const header = termsHeader();
     const localized = await localizeResponse(services, chatId, {
       text: 'terms_text',
       keyboard: termsKeyboard(services, language),
+      ...(header ? { imageBuffer: header } : {}),
     });
     const sent = await sendResponse(ctx, localized);
     scheduleDelete(ctx, sent, 60_000); // personal prompt: self-destruct if not signed in 1 minute
