@@ -24,6 +24,10 @@ export interface OpenAICompatibleOptions {
   /** Optional separate endpoint for vision; falls back to baseUrl/apiKey when undefined. */
   visionBaseUrl?: string | undefined;
   visionApiKey?: string | undefined;
+  /** NSFW model name + optional separate endpoint (e.g. amoral-gemma on a router) for NSFW turns. */
+  nsfwModel?: string | undefined;
+  nsfwBaseUrl?: string | undefined;
+  nsfwApiKey?: string | undefined;
   imageModel: string | undefined;
   transcriptionModel: string | undefined;
   ttsModel: string | undefined;
@@ -90,6 +94,19 @@ export class OpenAICompatibleProvider implements LLMProvider {
     return `${this.opts.baseUrl}${path}`;
   }
 
+  /**
+   * Chat endpoint + auth for a given model. The NSFW model can live on a separate backend (its own
+   * base URL/key), so adult turns are routed there while everyday chat uses the primary endpoint.
+   */
+  private chatEndpoint(model: string): { url: string; headers: Record<string, string> } {
+    if (this.opts.nsfwModel && model === this.opts.nsfwModel && this.opts.nsfwBaseUrl) {
+      const h: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (this.opts.nsfwApiKey) h['Authorization'] = `Bearer ${this.opts.nsfwApiKey}`;
+      return { url: `${this.opts.nsfwBaseUrl.replace(/\/+$/, '')}/chat/completions`, headers: h };
+    }
+    return { url: this.url('/chat/completions'), headers: this.headers() };
+  }
+
   private async fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.opts.requestTimeoutMs);
@@ -116,9 +133,10 @@ export class OpenAICompatibleProvider implements LLMProvider {
     };
     applySampling(body, req);
 
-    const res = await this.fetchWithTimeout(this.url('/chat/completions'), {
+    const ep = this.chatEndpoint(model);
+    const res = await this.fetchWithTimeout(ep.url, {
       method: 'POST',
-      headers: this.headers(),
+      headers: ep.headers,
       body: JSON.stringify(body),
     });
     if (!res.ok) {
@@ -151,9 +169,10 @@ export class OpenAICompatibleProvider implements LLMProvider {
     const body: Record<string, unknown> = { model, messages, stream: true };
     applySampling(body, req);
 
-    const res = await this.fetchWithTimeout(this.url('/chat/completions'), {
+    const ep = this.chatEndpoint(model);
+    const res = await this.fetchWithTimeout(ep.url, {
       method: 'POST',
-      headers: this.headers(),
+      headers: ep.headers,
       body: JSON.stringify(body),
     });
     if (!res.ok || !res.body) {

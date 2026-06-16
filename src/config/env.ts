@@ -144,6 +144,10 @@ const envSchema = z.object({
 
   // NSFW model routing (hybrid: mode flag > per-chat nsfw mode > lexicon > default model)
   LLM_NSFW_MODEL: z.string().optional(),
+  // Optional separate endpoint for the NSFW model (e.g. amoral-gemma on a router) so adult turns
+  // can run on a different backend than the primary chat. Empty => reuse LLM_BASE_URL/LLM_API_KEY.
+  LLM_NSFW_BASE_URL: z.string().optional(),
+  LLM_NSFW_API_KEY: z.string().optional(),
   // initial per-chat NSFW mode: off (never) | base (whole chat uses NSFW model) | smart (per-message lexicon)
   // default 'smart' => new chats use the fast default model for ordinary turns and switch to the
   // NSFW model only on explicit lexicon hits or refusal backstop. With no LLM_NSFW_MODEL set this

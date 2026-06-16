@@ -25,6 +25,9 @@ export interface LLMConfig {
   ttsModel: string | undefined;
   /** uncensored model used for NSFW routing; undefined => NSFW routing disabled */
   nsfwModel: string | undefined;
+  /** optional separate endpoint for the NSFW model; undefined => reuse the primary base/key */
+  nsfwBaseUrl: string | undefined;
+  nsfwApiKey: string | undefined;
   requestTimeoutMs: number;
   /** optional fallback chat endpoint used when the primary throws; undefined => no fallback */
   fallback: { baseUrl: string; apiKey: string | undefined; model: string } | undefined;
@@ -68,6 +71,8 @@ export function resolveLLMConfig(env: Env): LLMConfig {
       transcriptionModel: env.LLM_TRANSCRIPTION_MODEL,
       ttsModel: env.LLM_TTS_MODEL,
       nsfwModel: env.LLM_NSFW_MODEL,
+      nsfwBaseUrl: env.LLM_NSFW_BASE_URL,
+      nsfwApiKey: env.LLM_NSFW_API_KEY,
       requestTimeoutMs: env.LLM_REQUEST_TIMEOUT_MS,
       fallback: resolveFallback(env),
     };
@@ -86,6 +91,8 @@ export function resolveLLMConfig(env: Env): LLMConfig {
     transcriptionModel: env.LLM_TRANSCRIPTION_MODEL,
     ttsModel: env.LLM_TTS_MODEL,
     nsfwModel: env.LLM_NSFW_MODEL,
+    nsfwBaseUrl: env.LLM_NSFW_BASE_URL,
+    nsfwApiKey: env.LLM_NSFW_API_KEY,
     requestTimeoutMs: env.LLM_REQUEST_TIMEOUT_MS,
     fallback: resolveFallback(env),
   };
