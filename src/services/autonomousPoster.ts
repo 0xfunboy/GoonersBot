@@ -67,15 +67,19 @@ export class AutonomousPoster {
     if (!item) return null;
     const comment = await this.styledLine(
       language,
-      'Give your unfiltered, in-character take on this current event. First say in a sentence what ' +
-        'happened (so people get it without clicking), then react/roast it your way with real ' +
-        'opinion. No preamble, no "here is", no neutral summary. Write a proper paragraph (3 to 6 ' +
-        `sentences), it can be long. Headline: "${item.title}". ${item.summary ? `Context: "${item.summary}". ` : ''}` +
-        'Do not paste the link, it is added automatically.',
+      'You JUST read this news (it is from the last few hours). Talk to the group like you just saw ' +
+        'it: open by telling them what happened in your own words and drop the LINK inline right in ' +
+        'the first sentence (paste the raw URL inline, not at the bottom), then go off with a sharp, ' +
+        'witty, intelligent in-character rant about it. No preamble, no "ecco"/"here is", no neutral ' +
+        'summary, do not announce that you read news. A real paragraph, it can be long. ' +
+        `Headline: "${item.title}". ${item.summary ? `Context: "${item.summary}". ` : ''}` +
+        `LINK to paste inline: ${item.link}`,
       900,
     );
     if (!comment) return null;
-    const post: AutoPost = { text: item.link ? `${comment}\n\n${item.link}` : comment };
+    // the model should weave the link in; if it didn't, append it as a fallback so it is never lost
+    const text = item.link && !comment.includes(item.link) ? `${comment}\n\n${item.link}` : comment;
+    const post: AutoPost = { text };
     if (item.link) post.link = item.link;
     return post;
   }

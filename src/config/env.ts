@@ -130,6 +130,7 @@ const envSchema = z.object({
   AUTOPOST_PROBABILITY: floatFromString(0.05),
   AUTOPOST_IMAGE_RATIO: floatFromString(0.4), // share of autoposts that are a waifu image vs news
   RSS_FEEDS: z.string().optional(), // comma-separated feed URLs (defaults provided)
+  NEWS_MAX_AGE_HOURS: intFromString(12), // only surface items published within this many hours
 
   // Web/image grounding (free: self-hosted SearXNG + vision-model reverse-image lookup)
   // WEB_SEARCH: ground recency/factual questions with fresh web results.

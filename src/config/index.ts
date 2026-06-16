@@ -244,6 +244,7 @@ export interface AutoConfig {
   autopostProbability: number;
   autopostImageRatio: number;
   rssFeeds: string[];
+  newsMaxAgeHours: number;
 }
 
 const DEFAULT_IMAGE_QUERIES = [
@@ -255,11 +256,13 @@ const DEFAULT_IMAGE_QUERIES = [
   'anime aesthetic girl',
 ];
 
+// Italy + international, all with reliable pubDate and frequent updates (no stale-entry feeds).
 const DEFAULT_RSS_FEEDS = [
-  'https://feeds.bbci.co.uk/news/world/rss.xml',
-  'http://rss.cnn.com/rss/edition.rss',
   'https://www.ansa.it/sito/ansait_rss.xml',
-  'https://www.theverge.com/rss/index.xml',
+  'https://www.repubblica.it/rss/homepage/rss2.0.xml',
+  'https://feeds.bbci.co.uk/news/world/rss.xml',
+  'https://www.theguardian.com/world/rss',
+  'https://feeds.bbci.co.uk/news/rss.xml',
 ];
 
 function csv(value: string | undefined, fallback: string[]): string[] {
@@ -282,6 +285,7 @@ export function resolveAutoConfig(env: Env): AutoConfig {
     autopostProbability: env.AUTOPOST_PROBABILITY,
     autopostImageRatio: env.AUTOPOST_IMAGE_RATIO,
     rssFeeds: csv(env.RSS_FEEDS, DEFAULT_RSS_FEEDS),
+    newsMaxAgeHours: env.NEWS_MAX_AGE_HOURS,
   };
 }
 

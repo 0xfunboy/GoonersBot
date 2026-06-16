@@ -135,7 +135,11 @@ export class Services {
       maxResults: config.search.maxResults,
     });
     this.imageFinder = new ImageFinder(searxng, this.media, config.auto.imageQueryPool);
-    const news = new NewsService(config.auto.rssFeeds, config.search.timeoutMs);
+    const news = new NewsService(
+      config.auto.rssFeeds,
+      config.search.timeoutMs,
+      config.auto.newsMaxAgeHours,
+    );
     this.autonomousPoster = new AutonomousPoster(llm, news, this.imageFinder, config);
     this.heat = new HeatService(storage.userHeat, {
       enabled: env.HEAT_ENABLED,

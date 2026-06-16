@@ -7,43 +7,51 @@ export interface NewsItem {
   link: string;
   summary: string;
   source: string;
+  /** publication time (ms epoch) when the feed provided a parseable date */
+  publishedAt?: number;
 }
 
 /**
- * Minimal RSS/Atom reader (no dependencies): fetches the configured feeds and returns recent items.
- * Parsing is regex-based - robust enough for standard feeds, and it degrades to [] on anything weird.
+ * Minimal RSS/Atom reader (no dependencies): fetches the configured feeds and returns ONLY items
+ * published within `maxAgeHours`, newest first. Parsing is regex-based and degrades to [] on junk.
+ * Items without a parseable date are dropped (we cannot prove they are recent).
  */
 export class NewsService {
   constructor(
     private readonly feeds: string[],
     private readonly timeoutMs = 8000,
+    private readonly maxAgeHours = 12,
   ) {}
 
   get enabled(): boolean {
     return this.feeds.length > 0;
   }
 
-  /** Fetch all feeds (in parallel) and return a flat, de-duplicated list of recent items. */
-  async recent(perFeed = 6): Promise<NewsItem[]> {
+  /** Fresh items (within maxAgeHours) across all feeds, de-duplicated, newest first. */
+  async recent(perFeed = 12): Promise<NewsItem[]> {
     const lists = await Promise.all(this.feeds.map((f) => this.fetchFeed(f, perFeed)));
+    const cutoff = Date.now() - this.maxAgeHours * 3600_000;
     const seen = new Set<string>();
     const out: NewsItem[] = [];
     for (const list of lists) {
       for (const item of list) {
+        if (item.publishedAt === undefined || item.publishedAt < cutoff) continue;
         const key = item.title.toLowerCase().slice(0, 60);
         if (seen.has(key)) continue;
         seen.add(key);
         out.push(item);
       }
     }
+    out.sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0));
     return out;
   }
 
-  /** A single random recent item across all feeds (or null). */
+  /** A random pick among the freshest recent items (weighted to the most recent). */
   async pickOne(): Promise<NewsItem | null> {
     const items = await this.recent();
     if (items.length === 0) return null;
-    return items[Math.floor(Math.random() * Math.min(items.length, 15))] ?? null;
+    // pick among the top 10 freshest so it stays recent but not always the exact same headline
+    return items[Math.floor(Math.random() * Math.min(items.length, 10))] ?? null;
   }
 
   private async fetchFeed(url: string, limit: number): Promise<NewsItem[]> {
@@ -69,7 +77,7 @@ export class NewsService {
   }
 }
 
-/** Parse RSS <item> or Atom <entry> blocks into NewsItems. */
+/** Parse RSS <item> or Atom <entry> blocks into NewsItems (with publishedAt when present). */
 export function parseFeed(xml: string, source: string): NewsItem[] {
   const blocks = xml.match(/<(item|entry)\b[\s\S]*?<\/\1>/gi) ?? [];
   const items: NewsItem[] = [];
@@ -80,7 +88,16 @@ export function parseFeed(xml: string, source: string): NewsItem[] {
     const summary = clean(
       pick(block, 'description') || pick(block, 'summary') || pick(block, 'content'),
     ).slice(0, 280);
-    items.push({ title, link, summary, source });
+    const dateStr = clean(
+      pick(block, 'pubDate') ||
+        pick(block, 'published') ||
+        pick(block, 'updated') ||
+        pick(block, 'dc:date'),
+    );
+    const ts = dateStr ? Date.parse(dateStr) : NaN;
+    const item: NewsItem = { title, link, summary, source };
+    if (!Number.isNaN(ts)) item.publishedAt = ts;
+    items.push(item);
   }
   return items;
 }
