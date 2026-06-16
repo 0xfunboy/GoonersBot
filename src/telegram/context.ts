@@ -158,12 +158,19 @@ export async function buildIncomingMessage(
         out.repliedImageMime = 'image/jpeg';
       }
     }
-    const repliedVideo = replied.video ?? replied.video_note;
+    // video / round video-note / gif-like animation / a video document sent as a file
+    const repliedDoc = replied.document;
+    const repliedDocVideo =
+      repliedDoc && /^video\//.test(repliedDoc.mime_type ?? '') ? repliedDoc : undefined;
+    const repliedVideo =
+      replied.video ?? replied.video_note ?? replied.animation ?? repliedDocVideo;
     if (repliedVideo) {
       const buf = await downloadFile(ctx, repliedVideo.file_id);
       if (buf) out.repliedVideoBuffer = buf;
     }
-    const repliedAudio = replied.voice ?? replied.audio;
+    const repliedDocAudio =
+      repliedDoc && /^audio\//.test(repliedDoc.mime_type ?? '') ? repliedDoc : undefined;
+    const repliedAudio = replied.voice ?? replied.audio ?? repliedDocAudio;
     if (repliedAudio) {
       const buf = await downloadFile(ctx, repliedAudio.file_id);
       if (buf) {

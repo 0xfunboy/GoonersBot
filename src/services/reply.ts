@@ -247,19 +247,14 @@ export class ReplyService {
       imageDescription = await this.media.describeImage(visual.buffer, visual.mime);
       if (imageDescription !== null) visionCalls = 1;
     }
-    // Current voice is transcribed up-front (message handler); here we cover any remaining
-    // current audio plus replied-to audio/video the user is asking about ("cosa ha detto").
-    const audio = message.audioBuffer
-      ? { buffer: message.audioBuffer, mime: message.audioMime ?? 'audio/ogg' }
-      : message.repliedAudioBuffer
-        ? { buffer: message.repliedAudioBuffer, mime: message.repliedAudioMime ?? 'audio/ogg' }
-        : message.repliedVideoBuffer
-          ? { buffer: message.repliedVideoBuffer, mime: 'video/mp4' }
-          : null;
-    if (audio) {
-      voiceDescription = await this.media.transcribeVoice(audio.buffer, audio.mime, {
-        fileName: 'media',
-      });
+    // Audio/video transcription (current + replied) is done up-front in the message handler and
+    // injected into the message text; here we only cover any leftover current audio as a safety net.
+    if (message.audioBuffer) {
+      voiceDescription = await this.media.transcribeVoice(
+        message.audioBuffer,
+        message.audioMime ?? 'audio/ogg',
+        { fileName: 'media' },
+      );
       if (voiceDescription !== null) transcriptionCalls = 1;
     }
     return {

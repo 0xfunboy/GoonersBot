@@ -102,11 +102,24 @@ export async function handleMessage(
       );
     }
     message.audioBuffer = undefined; // avoid re-transcription downstream
-  } else if (Boolean(message.videoBuffer) || Boolean(message.audioMime)) {
-    log.info(
-      { chatId: context.chatId, sttEnabled: services.stt.enabled, hasAudio: wasVoice },
-      'media received but not transcribed',
+  }
+
+  // If the user is replying to a voice/audio/video (e.g. "@bot trascrivi l'audio"), transcribe THAT
+  // and inject it into the message so the reply can actually report/use it.
+  const repliedMedia = message.repliedAudioBuffer ?? message.repliedVideoBuffer;
+  if (repliedMedia && services.stt.enabled) {
+    const spoken = await services.media.transcribeVoice(
+      repliedMedia,
+      message.repliedAudioMime ?? 'video/mp4',
+      { language },
     );
+    if (spoken) {
+      message.messageText = `${message.messageText ? `${message.messageText}\n` : ''}[transcript of the replied audio/video]: ${spoken}`;
+      log.info({ chatId: context.chatId, chars: spoken.length }, 'replied media transcribed');
+    } else {
+      log.info({ chatId: context.chatId }, 'replied media transcription empty (muted / no speech)');
+    }
+    message.repliedAudioBuffer = undefined; // consumed (keep repliedVideoBuffer for the vision frame)
   }
 
   const decision = await services.autoengage.decide(
