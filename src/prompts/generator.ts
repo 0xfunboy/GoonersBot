@@ -94,7 +94,7 @@ export function buildGeneratorUserPrompt(params: {
   const executionInstruction =
     plan.replyIntent === 'answer_question'
       ? 'OBBLIGO RISPOSTA: rispondi davvero alla domanda con fatti specifici. Niente evasione, niente poesia, niente solo-roast. Puoi prendere per il culo DOPO aver risposto anche se è meglio durante.'
-        : '';
+      : '';
 
   return [
     `SCENA: topic="${scene.currentTopic}" energia=${scene.energy} intent=${scene.userIntent} ` +

@@ -3,6 +3,8 @@ import { Localizer } from '../config/index.js';
 import type { ChatContext, Person } from '../domain/types.js';
 import type { LLMProvider } from '../providers/llm/types.js';
 import { MediaProcessor } from '../providers/media/index.js';
+import { TtsProvider } from '../providers/voice/tts.js';
+import { SttProvider } from '../providers/voice/stt.js';
 import type { Storage } from '../storage/index.js';
 import { Cooldown } from '../utils/rateLimit.js';
 import { MemoryMiner } from '../memory/memoryMiner.js';
@@ -48,6 +50,8 @@ export class Services {
   readonly autoengage: AutoEngageScorer;
   readonly reply: ReplyService;
   readonly media: MediaProcessor;
+  readonly tts: TtsProvider;
+  readonly stt: SttProvider;
   readonly modelRouter: ModelRouter;
   readonly lore: LoreEngine;
   readonly scene: SceneAnalyzer;
@@ -62,7 +66,9 @@ export class Services {
   ) {
     const env = config.env;
     this.localizer = new Localizer(env.DEFAULT_LANGUAGE);
-    this.media = new MediaProcessor(llm);
+    this.tts = new TtsProvider(config.voice.tts);
+    this.stt = new SttProvider(config.voice.stt);
+    this.media = new MediaProcessor(llm, this.stt);
     this.permissions = new PermissionService(storage, env.ALLOWED_HANDLES, env.ADMIN_HANDLES);
     this.terms = new TermsService(storage);
     this.bans = new BanService(storage, env.DEFAULT_BAN_SECONDS);

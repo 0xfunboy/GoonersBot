@@ -58,7 +58,6 @@ describe('ResponseRanker', () => {
     );
     expect(ranked[0]?.index).toBe(1);
   });
-
 });
 
 describe('RepetitionGuard', () => {

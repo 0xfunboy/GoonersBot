@@ -79,6 +79,19 @@ export async function handleMessage(
   const modeDescription = mode?.description ?? 'Partecipante naturale del gruppo.';
   const recentNegativeFeedback = recentReplies.some((r) => (r.feedbackScore ?? 0) < 0);
 
+  // Transcribe incoming voice up-front so its words feed scene/autoengage/storage/reply.
+  const wasVoice = Boolean(message.audioBuffer);
+  if (wasVoice && services.stt.enabled && message.audioBuffer) {
+    const spoken = await services.media.transcribeVoice(
+      message.audioBuffer,
+      message.audioMime ?? 'audio/ogg',
+    );
+    if (spoken) {
+      message.messageText = message.messageText ? `${message.messageText} ${spoken}` : spoken;
+    }
+    message.audioBuffer = undefined; // avoid re-transcription downstream
+  }
+
   const decision = await services.autoengage.decide(
     {
       person,
@@ -166,12 +179,27 @@ export async function handleMessage(
 
     const finalText = outcome.text;
     const replyTo = ctx.message?.message_id;
+    const replyOpts = replyTo ? { reply_parameters: { message_id: replyTo } } : {};
     let botMessageId: number | undefined;
     if (finalText.trim().length > 0) {
-      const sent = await ctx.reply(finalText, {
-        ...(replyTo ? { reply_parameters: { message_id: replyTo } } : {}),
-      });
-      botMessageId = sent.message_id;
+      const ttsCfg = services.config.voice.tts;
+      const wantVoiceReply =
+        services.tts.enabled &&
+        finalText.length <= ttsCfg.maxChars &&
+        ((wasVoice && ttsCfg.replyToVoice) || Math.random() < ttsCfg.autoVoiceProbability);
+      let voiceSent = false;
+      if (wantVoiceReply) {
+        const ogg = await services.tts.synth(finalText);
+        if (ogg) {
+          const sent = await ctx.replyWithVoice(new InputFile(ogg), replyOpts);
+          botMessageId = sent.message_id;
+          voiceSent = true;
+        }
+      }
+      if (!voiceSent) {
+        const sent = await ctx.reply(finalText, replyOpts);
+        botMessageId = sent.message_id;
+      }
     }
     if (outcome.imageBuffer || outcome.imageUrl) {
       const photo = outcome.imageBuffer ? new InputFile(outcome.imageBuffer) : outcome.imageUrl!;

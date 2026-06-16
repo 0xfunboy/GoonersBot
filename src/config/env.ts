@@ -203,6 +203,53 @@ const envSchema = z.object({
 
   // Repetition guard
   REPETITION_SIMILARITY_THRESHOLD: floatFromString(0.72),
+
+  // ---- Voice: TTS (Kokoro / OpenAI-compatible) ----
+  TTS_ENABLED: boolFromString(false),
+  TTS_BASE_URL: optStr, // e.g. http://192.168.178.87:8880
+  TTS_MODEL: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() ? v.trim() : 'tts-1')),
+  TTS_VOICE: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() ? v.trim() : 'im_nicola')),
+  TTS_API_KEY: optStr,
+  TTS_FORMAT: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() ? v.trim() : 'wav')),
+  TTS_SPEED: floatFromString(1),
+  TTS_MAX_CHARS: intFromString(600),
+  TTS_TIMEOUT_MS: intFromString(30000),
+  // Probability of voicing a normal reply on its own (0..1). Voice replies to incoming voice are separate.
+  TTS_AUTO_VOICE_PROBABILITY: floatFromString(0.12),
+  // Always reply with voice when the user sent a voice message.
+  TTS_REPLY_TO_VOICE: boolFromString(true),
+
+  // ---- Voice: STT (local whisper.cpp) ----
+  STT_ENABLED: boolFromString(false),
+  WHISPER_BIN: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() ? v.trim() : 'vendor/whisper.cpp/build/bin/whisper-cli')),
+  WHISPER_MODEL: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() ? v.trim() : 'vendor/models/ggml-base.bin')),
+  FFMPEG_BIN: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() ? v.trim() : 'vendor/bin/ffmpeg')),
+  STT_LANGUAGE: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() ? v.trim() : 'auto')),
+  STT_THREADS: intFromString(4),
+  STT_TIMEOUT_MS: intFromString(60000),
+  // Transcribe every incoming voice message (not only when the bot is addressed).
+  STT_TRANSCRIBE_ALL: boolFromString(true),
 });
 
 export type Env = z.infer<typeof envSchema>;

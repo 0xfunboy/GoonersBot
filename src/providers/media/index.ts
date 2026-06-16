@@ -1,22 +1,29 @@
 import { childLogger } from '../../utils/logger.js';
 import type { ImageResult, LLMProvider } from '../llm/types.js';
+import type { SttProvider } from '../voice/stt.js';
 
 const log = childLogger('media');
 
 /**
- * MediaProcessor routes media through the active LLM provider's capabilities.
- * Every method degrades gracefully: if the capability is missing or the call fails, it returns
- * null (and logs) instead of throwing, so a single missing capability never crashes the bot.
+ * MediaProcessor routes media through the active providers. Voice transcription prefers the local
+ * whisper.cpp STT provider when enabled, falling back to the LLM provider's transcription endpoint.
+ * Every method degrades gracefully (returns null + logs) so one missing capability never crashes.
  */
 export class MediaProcessor {
-  constructor(private readonly llm: LLMProvider) {}
+  constructor(
+    private readonly llm: LLMProvider,
+    private readonly stt?: SttProvider,
+  ) {}
 
   get canDescribeImage(): boolean {
     return this.llm.capabilities.vision && typeof this.llm.visionCompletion === 'function';
   }
 
   get canTranscribe(): boolean {
-    return this.llm.capabilities.transcription && typeof this.llm.transcribeAudio === 'function';
+    return (
+      Boolean(this.stt?.enabled) ||
+      (this.llm.capabilities.transcription && typeof this.llm.transcribeAudio === 'function')
+    );
   }
 
   get canGenerateImage(): boolean {
@@ -43,9 +50,13 @@ export class MediaProcessor {
     }
   }
 
-  /** Transcribe a voice message; returns null when transcription is unavailable or fails. */
+  /** Transcribe a voice message; prefers local whisper.cpp, then the LLM provider. */
   async transcribeVoice(buffer: Buffer, mime: string, fileName?: string): Promise<string | null> {
-    if (!this.canTranscribe || !this.llm.transcribeAudio) {
+    if (this.stt?.enabled) {
+      const local = await this.stt.transcribe(buffer);
+      if (local !== null) return local;
+    }
+    if (!this.llm.capabilities.transcription || typeof this.llm.transcribeAudio !== 'function') {
       log.info('transcription capability unavailable — skipping voice transcription');
       return null;
     }

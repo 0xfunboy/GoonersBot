@@ -28,7 +28,7 @@ async function prepare(
   const context = await buildChatContext(ctx, botUsername);
   if (!person || !context) return { skip: true };
   // Explicit interactions (commands/callbacks) are always "addressed".
-  const message = await buildIncomingMessage(ctx, true);
+  const message = await buildIncomingMessage(ctx, { image: true, voice: true });
 
   await services.initializeContext(person, context);
 

@@ -107,12 +107,12 @@ async function downloadFile(ctx: Context, fileId: string): Promise<Buffer | null
 }
 
 /**
- * Build the IncomingMessage. Media (photo/voice) is downloaded only when the bot is addressed,
- * mirroring the original behaviour (avoids spending bandwidth/vision on every group image).
+ * Build the IncomingMessage. Image is downloaded only when the bot is addressed; voice is
+ * downloaded per `opts.voice` (so STT can transcribe passive voice notes when enabled).
  */
 export async function buildIncomingMessage(
   ctx: Context,
-  addressed: boolean,
+  opts: { image: boolean; voice: boolean },
 ): Promise<IncomingMessage> {
   const msg = ctx.message;
   const text = msg?.text ?? msg?.caption ?? '';
@@ -120,7 +120,7 @@ export async function buildIncomingMessage(
 
   const out: IncomingMessage = { messageText: text, timestamp };
 
-  if (addressed && msg?.photo && msg.photo.length > 0) {
+  if (opts.image && msg?.photo && msg.photo.length > 0) {
     const largest = msg.photo[msg.photo.length - 1];
     if (largest) {
       const buf = await downloadFile(ctx, largest.file_id);
@@ -130,7 +130,7 @@ export async function buildIncomingMessage(
       }
     }
   }
-  if (addressed && msg?.voice) {
+  if (opts.voice && msg?.voice) {
     const buf = await downloadFile(ctx, msg.voice.file_id);
     if (buf) {
       out.audioBuffer = buf;

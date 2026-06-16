@@ -44,7 +44,10 @@ export async function createBot(config: AppConfig, services: Services): Promise<
     const context = await buildChatContext(ctx, botUsername);
     if (!person || !context) return;
     const { mentioned, replyToBot } = isBotAddressed(ctx, botUsername);
-    const message = await buildIncomingMessage(ctx, mentioned || replyToBot);
+    const addressed = mentioned || replyToBot;
+    // Download voice even when not addressed, so STT can transcribe passive voice notes.
+    const wantVoice = addressed || (services.stt.enabled && config.env.STT_TRANSCRIBE_ALL);
+    const message = await buildIncomingMessage(ctx, { image: addressed, voice: wantVoice });
     await handleMessage(ctx, person, context, message, {
       services,
       env: config.env,

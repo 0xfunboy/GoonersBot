@@ -1,3 +1,5 @@
+import { isAbsolute, join as pathJoin } from 'node:path';
+import { statSync } from 'node:fs';
 import type { Env, LLMProviderName } from './env.js';
 import { getEnv } from './env.js';
 
@@ -112,10 +114,86 @@ export function resolveBrainConfig(env: Env): BrainConfig {
   };
 }
 
+/** Resolved voice (TTS + STT) configuration with absolute tool paths and effective enable flags. */
+export interface VoiceConfig {
+  tts: {
+    enabled: boolean;
+    baseUrl: string | undefined;
+    model: string;
+    voice: string;
+    apiKey: string | undefined;
+    format: string;
+    speed: number;
+    maxChars: number;
+    timeoutMs: number;
+    autoVoiceProbability: number;
+    replyToVoice: boolean;
+    ffmpegBin: string;
+    ffmpegAvailable: boolean;
+  };
+  stt: {
+    enabled: boolean;
+    whisperBin: string;
+    whisperModel: string;
+    ffmpegBin: string;
+    language: string;
+    threads: number;
+    timeoutMs: number;
+    transcribeAll: boolean;
+  };
+}
+
+export function resolveVoiceConfig(env: Env): VoiceConfig {
+  // Lazy node imports keep this module importable in tests without touching the fs unnecessarily.
+
+  const resolve = (p: string): string => (isAbsolute(p) ? p : pathJoin(process.cwd(), p));
+  const exists = (p: string): boolean => {
+    try {
+      return statSync(p).isFile();
+    } catch {
+      return false;
+    }
+  };
+
+  const ffmpegBin = resolve(env.FFMPEG_BIN);
+  const ffmpegAvailable = exists(ffmpegBin);
+  const whisperBin = resolve(env.WHISPER_BIN);
+  const whisperModel = resolve(env.WHISPER_MODEL);
+
+  return {
+    tts: {
+      enabled: env.TTS_ENABLED && Boolean(env.TTS_BASE_URL) && ffmpegAvailable,
+      baseUrl: env.TTS_BASE_URL ? env.TTS_BASE_URL.replace(/\/+$/, '') : undefined,
+      model: env.TTS_MODEL,
+      voice: env.TTS_VOICE,
+      apiKey: env.TTS_API_KEY,
+      format: env.TTS_FORMAT,
+      speed: env.TTS_SPEED,
+      maxChars: env.TTS_MAX_CHARS,
+      timeoutMs: env.TTS_TIMEOUT_MS,
+      autoVoiceProbability: env.TTS_AUTO_VOICE_PROBABILITY,
+      replyToVoice: env.TTS_REPLY_TO_VOICE,
+      ffmpegBin,
+      ffmpegAvailable,
+    },
+    stt: {
+      enabled: env.STT_ENABLED && ffmpegAvailable && exists(whisperBin) && exists(whisperModel),
+      whisperBin,
+      whisperModel,
+      ffmpegBin,
+      language: env.STT_LANGUAGE,
+      threads: env.STT_THREADS,
+      timeoutMs: env.STT_TIMEOUT_MS,
+      transcribeAll: env.STT_TRANSCRIBE_ALL,
+    },
+  };
+}
+
 export interface AppConfig {
   env: Env;
   llm: LLMConfig;
   brain: BrainConfig;
+  voice: VoiceConfig;
 }
 
 export function loadConfig(): AppConfig {
@@ -124,5 +202,6 @@ export function loadConfig(): AppConfig {
     env,
     llm: resolveLLMConfig(env),
     brain: resolveBrainConfig(env),
+    voice: resolveVoiceConfig(env),
   };
 }

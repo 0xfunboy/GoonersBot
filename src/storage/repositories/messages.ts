@@ -145,6 +145,18 @@ export class MessagesRepo {
     return [...beforeDocs.reverse(), ...afterDocs].map((d) => this.toStored(d));
   }
 
+  /** Find a stored message by its Telegram message id. */
+  async findByMessageId(chatId: number, messageId: number): Promise<StoredMessage | null> {
+    const doc = await this.col.findOne({ chatId, messageId });
+    return doc ? this.toStored(doc) : null;
+  }
+
+  /** Most recent stored message, or null. */
+  async getLatest(chatId: number): Promise<StoredMessage | null> {
+    const doc = await this.col.findOne({ chatId }, { sort: { timestamp: -1, _id: -1 } });
+    return doc ? this.toStored(doc) : null;
+  }
+
   /** Messages strictly after `since` (chronological), capped at `limit`. */
   async getMessagesSince(chatId: number, since: Date, limit: number): Promise<StoredMessage[]> {
     const docs = await this.col

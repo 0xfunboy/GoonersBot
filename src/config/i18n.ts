@@ -173,6 +173,30 @@ export const translations: TranslationMap = {
     russian: 'JSON-дамп последнего хода (админ)',
     spanish: 'Volcado JSON del último turno (admin)',
   },
+  voice_description: {
+    italian: 'Trasforma in vocale l’ultimo messaggio (o quello in reply)',
+    english: 'Turn the last message (or the replied one) into a voice note',
+    russian: 'Озвучить последнее сообщение (или то, на которое отвечаешь)',
+    spanish: 'Convierte en nota de voz el último mensaje (o el citado)',
+  },
+  voice_unavailable: {
+    italian: 'Il TTS non è configurato su questo backend.',
+    english: 'TTS is not configured on this backend.',
+    russian: 'TTS не настроен на этом бэкенде.',
+    spanish: 'El TTS no está configurado en este backend.',
+  },
+  voice_none: {
+    italian: 'Non trovo un messaggio da trasformare in vocale.',
+    english: "Can't find a message to voice.",
+    russian: 'Не нахожу сообщение для озвучки.',
+    spanish: 'No encuentro un mensaje para convertir en voz.',
+  },
+  voice_failed: {
+    italian: 'La sintesi vocale è andata a male. Riprova.',
+    english: 'Voice synthesis broke. Try again.',
+    russian: 'Синтез речи сломался. Попробуй снова.',
+    spanish: 'La síntesis de voz falló. Inténtalo de nuevo.',
+  },
 
   // ---- responses ----
   start_done: {
@@ -658,6 +682,7 @@ export const translations: TranslationMap = {
       '• <em>/autofact</em> — estrazione fatti automatica on/off',
       '• <em>/autoengage</em> — auto-intervento on/off',
       '• <em>/nsfw off|base|smart</em> (admin) — routing modello NSFW',
+      '• <em>/voice</em> — trasforma in vocale l’ultimo messaggio (o quello in reply)',
       '• <em>/ban @handle [secondi]</em> (admin) — banna un Gooner',
       '• <em>/unban @handle</em> (admin) — sbanna un Gooner',
       '• <em>/brain</em> · <em>/debuglast</em> (admin) — debug del cervello',
@@ -695,6 +720,7 @@ export const translations: TranslationMap = {
       '• <em>/autofact</em> — toggle auto fact extraction',
       '• <em>/autoengage</em> — toggle auto-engage',
       '• <em>/nsfw off|base|smart</em> (admin) — NSFW model routing',
+      '• <em>/voice</em> — voice the last message (or the replied one)',
       '• <em>/ban @handle [seconds]</em> (admin) — ban a Gooner',
       '• <em>/unban @handle</em> (admin) — unban a Gooner',
       '• <em>/brain</em> · <em>/debuglast</em> (admin) — brain debug',

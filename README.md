@@ -223,6 +223,7 @@ decided **before** generation (no extra-LLM-call latency) and gated **per-chat**
 | `/lore` | anyone | top group lore (max 5) |
 | `/forget` | reply / admin | reply to a message to forget lore mined from it; admin `/forget <id>` |
 | `/usage` | anyone | your usage & limits |
+| `/voice` | anyone | turn the last message (or the replied one) into a voice note |
 | `/language` | admin¹ | set chat language (it / en / ru / es) |
 | `/terms` | anyone | terms of use + acceptance |
 | `/conversationtracker` | admin¹ | toggle passive tracking |
@@ -284,6 +285,37 @@ reply (throttled edits) + optional generated image → persist user/bot messages
 auto-fact extraction (if `/autofact`).
 
 ---
+
+## Voice (TTS + STT)
+
+GoonerBot can listen to and send voice notes — both fully local-ish and cheap.
+
+- **STT (speech-to-text):** a local **whisper.cpp** build transcribes incoming voice notes to text
+  so the brain "reads" them (and stores them as context). No cloud, modest CPU.
+- **TTS (text-to-speech):** an OpenAI-compatible `/v1/audio/speech` server (e.g.
+  [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI), the one airi-stack uses) synthesizes
+  replies; ffmpeg transcodes to Telegram-ready OGG/Opus.
+- The bot **replies with a voice note** when you sent it a voice note (`TTS_REPLY_TO_VOICE`), or
+  occasionally on its own (`TTS_AUTO_VOICE_PROBABILITY`).
+- **`/voice`** turns the last chat message into a voice note — or, used as a *reply* to a message,
+  voices **that** message.
+
+### Setup
+
+```bash
+# 1. Provision the local toolchain into vendor/ (gitignored): static ffmpeg + whisper.cpp + model
+scripts/setup-voice.sh           # or: scripts/setup-voice.sh small   (better Italian, more CPU)
+
+# 2. Enable in .env
+TTS_ENABLED=true
+TTS_BASE_URL=http://<your-kokoro-host>:8880
+TTS_VOICE=im_nicola              # Italian male; im/if_* = Italian, af/am_* = English, ...
+STT_ENABLED=true                 # paths default to the vendor/ build
+```
+
+Verify the round-trip (TTS → OGG/Opus → whisper) with `pnpm tsx scripts/smoke-voice.ts`.
+The default whisper model is `base` (multilingual, ~142 MB, fast); switch to `small` via
+`WHISPER_MODEL` for better Italian at a bit more CPU. No GPU required.
 
 ## Brain & memory
 
