@@ -70,18 +70,19 @@ export function parseTargetLanguage(args: string[]): string | null {
 }
 
 /**
- * /traduci — translate the replied-to message into the requested language.
- * Source language is auto-detected; tone/slang/vulgarity are preserved.
- *   "/traduci spagnolo"  ·  "/traduci in inglese"  ·  "/traduci questo messaggio in spagnolo"
+ * /translate (alias /traduci) — translate the replied-to message into the requested language.
+ * Source language is auto-detected; tone/slang/vulgarity are preserved. Natural phrasing works.
+ *   "/translate spanish"  ·  "/traduci in inglese"  ·  "/translate this message into spanish"
  */
-export const traduciCommand: CommandSpec = {
-  command: 'traduci',
+export const translateCommand: CommandSpec = {
+  command: 'translate',
+  aliases: ['traduci'],
   permissions: ['allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.DEFAULT,
   async handle({ services, context, args }: HandlerInput): Promise<CommandResponse | null> {
     const target = parseTargetLanguage(args);
-    if (!target) return { text: 'traduci_no_target' };
+    if (!target) return { text: 'translate_no_target' };
 
     // Prefer the replied text straight from Telegram; fall back to stored history.
     let source = context.repliedToText?.trim();
@@ -92,7 +93,9 @@ export const traduciCommand: CommandSpec = {
       );
       source = stored?.message.messageText?.trim() ?? undefined;
     }
-    if (!source) return { text: context.repliedToMessageId ? 'traduci_nothing' : 'traduci_usage' };
+    if (!source) {
+      return { text: context.repliedToMessageId ? 'translate_nothing' : 'translate_usage' };
+    }
 
     try {
       const result = await services.llm.chatCompletion({
@@ -104,10 +107,10 @@ export const traduciCommand: CommandSpec = {
         temperature: 0.2,
       });
       const text = result.text.trim();
-      if (!text) return { text: 'traduci_failed' };
+      if (!text) return { text: 'translate_failed' };
       return { rawText: text };
     } catch {
-      return { text: 'traduci_failed' };
+      return { text: 'translate_failed' };
     }
   },
 };

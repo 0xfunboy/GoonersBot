@@ -26,9 +26,10 @@ export async function createBot(config: AppConfig, services: Services): Promise<
 
   const deps: DispatchDeps = { services, botUsername };
 
-  // Register commands.
+  // Register commands (with any aliases; only the canonical name appears in the menu).
   for (const spec of commandHandlers) {
-    bot.command(spec.command, (ctx) => runCommand(ctx, spec, deps));
+    const names = [spec.command, ...(spec.aliases ?? [])];
+    bot.command(names, (ctx) => runCommand(ctx, spec, deps));
   }
 
   // Register callback handlers (match by action prefix on callback_data).

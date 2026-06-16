@@ -197,31 +197,31 @@ export const translations: TranslationMap = {
     russian: 'Синтез речи сломался. Попробуй снова.',
     spanish: 'La síntesis de voz falló. Inténtalo de nuevo.',
   },
-  traduci_description: {
-    italian: 'Traduci il messaggio in reply nella lingua indicata (es. /traduci spagnolo)',
-    english: 'Translate the replied message into the given language (e.g. /traduci spanish)',
-    russian: 'Перевести сообщение из реплая на указанный язык (напр. /traduci russian)',
-    spanish: 'Traduce el mensaje citado al idioma indicado (p. ej. /traduci español)',
+  translate_description: {
+    italian: 'Traduci il messaggio in reply nella lingua indicata (es. /translate spagnolo)',
+    english: 'Translate the replied message into the given language (e.g. /translate spanish)',
+    russian: 'Перевести сообщение из реплая на указанный язык (напр. /translate russian)',
+    spanish: 'Traduce el mensaje citado al idioma indicado (p. ej. /translate español)',
   },
-  traduci_usage: {
-    italian: 'Usalo in risposta a un messaggio: /traduci <lingua> (es. "/traduci spagnolo").',
-    english: 'Use it as a reply to a message: /traduci <language> (e.g. "/traduci spanish").',
-    russian: 'Используй в ответ на сообщение: /traduci <язык> (напр. "/traduci russian").',
-    spanish: 'Úsalo respondiendo a un mensaje: /traduci <idioma> (p. ej. "/traduci español").',
+  translate_usage: {
+    italian: 'Usalo in risposta a un messaggio: /translate <lingua> (es. "/translate spagnolo").',
+    english: 'Use it as a reply to a message: /translate <language> (e.g. "/translate spanish").',
+    russian: 'Используй в ответ на сообщение: /translate <язык> (напр. "/translate russian").',
+    spanish: 'Úsalo respondiendo a un mensaje: /translate <idioma> (p. ej. "/translate español").',
   },
-  traduci_no_target: {
-    italian: 'In che lingua? Es: "/traduci spagnolo" o "/traduci in inglese".',
-    english: 'Into which language? E.g. "/traduci spanish" or "/traduci to english".',
-    russian: 'На какой язык? Напр.: "/traduci spanish" или "/traduci in english".',
-    spanish: '¿A qué idioma? Ej: "/traduci español" o "/traduci al inglés".',
+  translate_no_target: {
+    italian: 'In che lingua? Es: "/translate spagnolo" o "/translate in inglese".',
+    english: 'Into which language? E.g. "/translate spanish" or "/translate to english".',
+    russian: 'На какой язык? Напр.: "/translate spanish" или "/translate in english".',
+    spanish: '¿A qué idioma? Ej: "/translate español" o "/translate al inglés".',
   },
-  traduci_nothing: {
+  translate_nothing: {
     italian: 'Non trovo il testo del messaggio a cui rispondi.',
     english: "Can't find the text of the message you're replying to.",
     russian: 'Не нахожу текст сообщения, на которое ты отвечаешь.',
     spanish: 'No encuentro el texto del mensaje al que respondes.',
   },
-  traduci_failed: {
+  translate_failed: {
     italian: 'Traduzione fallita. Riprova.',
     english: 'Translation failed. Try again.',
     russian: 'Перевод не удался. Попробуй снова.',

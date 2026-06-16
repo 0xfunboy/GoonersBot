@@ -16,6 +16,8 @@ export interface HandlerInput {
 
 export interface CommandSpec {
   command: string;
+  /** extra command names that route to the same handler (not shown in the menu) */
+  aliases?: readonly string[];
   permissions: readonly Permission[];
   needsTermsAccepted: boolean;
   /** menu ordering: lower first */

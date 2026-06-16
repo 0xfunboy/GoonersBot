@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { parseTargetLanguage, traduciCommand } from '../src/telegram/handlers/commands/traduci.js';
+import {
+  parseTargetLanguage,
+  translateCommand,
+} from '../src/telegram/handlers/commands/translate.js';
 import type { HandlerInput } from '../src/telegram/handlers/types.js';
 import type { ChatContext, Person } from '../src/domain/types.js';
 
@@ -42,15 +45,15 @@ function input(services: unknown, context: ChatContext, args: string[]): Handler
   };
 }
 
-describe('/traduci command', () => {
+describe('/translate command', () => {
   it('asks for a target language when none given', async () => {
-    const res = await traduciCommand.handle(input({}, ctx({ repliedToText: 'ciao' }), []));
-    expect(res?.text).toBe('traduci_no_target');
+    const res = await translateCommand.handle(input({}, ctx({ repliedToText: 'ciao' }), []));
+    expect(res?.text).toBe('translate_no_target');
   });
 
   it('shows usage when there is no replied message', async () => {
-    const res = await traduciCommand.handle(input({}, ctx(), ['spagnolo']));
-    expect(res?.text).toBe('traduci_usage');
+    const res = await translateCommand.handle(input({}, ctx(), ['spagnolo']));
+    expect(res?.text).toBe('translate_usage');
   });
 
   it('translates the replied text into the target language', async () => {
@@ -58,7 +61,7 @@ describe('/traduci command', () => {
       .fn()
       .mockResolvedValue({ text: 'hola mundo', model: 'm', usage: { estimated: true } });
     const services = { llm: { chatCompletion } };
-    const res = await traduciCommand.handle(
+    const res = await translateCommand.handle(
       input(services, ctx({ repliedToText: 'ciao mondo', repliedToMessageId: 7 }), [
         'in',
         'spagnolo',
@@ -76,7 +79,7 @@ describe('/traduci command', () => {
       .mockResolvedValue({ text: 'hello', model: 'm', usage: { estimated: true } });
     const findByMessageId = vi.fn().mockResolvedValue({ message: { messageText: 'ciao' } });
     const services = { llm: { chatCompletion }, storage: { messages: { findByMessageId } } };
-    const res = await traduciCommand.handle(
+    const res = await translateCommand.handle(
       input(services, ctx({ repliedToMessageId: 9 }), ['inglese']),
     );
     expect(findByMessageId).toHaveBeenCalledWith(-1, 9);

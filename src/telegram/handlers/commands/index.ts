@@ -12,7 +12,7 @@ import {
 } from './facts.js';
 import { brainCommand, debuglastCommand } from './debug.js';
 import { voiceCommand } from './voice.js';
-import { traduciCommand } from './traduci.js';
+import { translateCommand } from './translate.js';
 import { conversationtrackerCommand, autofactCommand, autoengageCommand } from './toggles.js';
 import { nsfwCommand } from './nsfw.js';
 import { banCommand, unbanCommand } from './moderation.js';
@@ -43,7 +43,7 @@ export const commandHandlers: CommandSpec[] = [
   languageCommand,
   termsCommand,
   voiceCommand,
-  traduciCommand,
+  translateCommand,
   brainCommand,
   debuglastCommand,
   helpCommand,
