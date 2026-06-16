@@ -16,6 +16,8 @@ import { JobsRepo } from './repositories/jobs.js';
 import { MemoryItemsRepo } from './repositories/memoryItems.js';
 import { BotRepliesRepo } from './repositories/botReplies.js';
 import { BrainDebugRepo } from './repositories/brainDebug.js';
+import { UserHeatRepo } from './repositories/userHeat.js';
+import { KnowledgeRepo } from './repositories/knowledge.js';
 
 const log = childLogger('storage');
 
@@ -38,6 +40,8 @@ export class Storage {
   readonly memoryItems: MemoryItemsRepo;
   readonly botReplies: BotRepliesRepo;
   readonly brainDebug: BrainDebugRepo;
+  readonly userHeat: UserHeatRepo;
+  readonly knowledge: KnowledgeRepo;
 
   private constructor(
     private readonly connection: MongoConnection,
@@ -62,6 +66,8 @@ export class Storage {
     this.memoryItems = new MemoryItemsRepo(db);
     this.botReplies = new BotRepliesRepo(db, env.BOT_REPLIES_RETENTION_DAYS);
     this.brainDebug = new BrainDebugRepo(db, env.BRAIN_DEBUG_TTL_DAYS);
+    this.userHeat = new UserHeatRepo(db);
+    this.knowledge = new KnowledgeRepo(db);
   }
 
   static async connect(env: Env): Promise<Storage> {
@@ -84,6 +90,8 @@ export class Storage {
     await MemoryItemsRepo.ensureIndexes(this.db);
     await this.botReplies.ensureIndexes();
     await this.brainDebug.ensureIndexes();
+    await UserHeatRepo.ensureIndexes(this.db);
+    await KnowledgeRepo.ensureIndexes(this.db);
     log.info('indexes ensured');
   }
 

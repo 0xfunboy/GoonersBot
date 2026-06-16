@@ -4,6 +4,7 @@ import { Storage } from './storage/index.js';
 import { Services } from './services/index.js';
 import { createBot } from './telegram/bot.js';
 import { Scheduler } from './jobs/scheduler.js';
+import { KNOWLEDGE_SEED } from './knowledge/seed.js';
 import { getLogger } from './utils/logger.js';
 
 async function main(): Promise<void> {
@@ -17,6 +18,10 @@ async function main(): Promise<void> {
   const storage = await Storage.connect(config.env);
   await storage.ensureIndexes();
   await storage.migrateLegacyFacts();
+  if (config.env.KNOWLEDGE_SEED_ON_BOOT) {
+    await storage.knowledge.upsertMany(KNOWLEDGE_SEED);
+    log.info({ entries: KNOWLEDGE_SEED.length }, 'knowledge base seeded');
+  }
 
   // 3. LLM provider (env-selected; capabilities logged).
   const llm = createLLMProvider(config.llm);

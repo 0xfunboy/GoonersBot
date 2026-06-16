@@ -43,6 +43,10 @@ export interface GenerateReplyInput {
   addressee?: string | undefined;
   /** attached media to react to, with who posted it */
   media?: { kind: 'photo' | 'video'; description: string; poster: string } | undefined;
+  /** per-user hostility directive (escalation system) */
+  hostility?: string | undefined;
+  /** on-demand knowledge block (RAG) */
+  knowledge?: string | undefined;
 }
 
 export interface GeneratedCandidates {
@@ -88,6 +92,8 @@ export class ResponseGenerator {
       ...(input.grounding ? { grounding: input.grounding } : {}),
       ...(input.addressee ? { addressee: input.addressee } : {}),
       ...(input.media ? { media: input.media } : {}),
+      ...(input.hostility ? { hostility: input.hostility } : {}),
+      ...(input.knowledge ? { knowledge: input.knowledge } : {}),
     });
 
     const n = Math.max(1, this.cfg.candidateCount);

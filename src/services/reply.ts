@@ -7,6 +7,8 @@ import { BOT_LABEL } from './conversation.js';
 import type { MemoryRetriever } from '../memory/memoryRetriever.js';
 import type { SceneAnalyzer } from '../brain/sceneAnalyzer.js';
 import type { GroundingService } from '../search/groundingService.js';
+import type { HeatService } from './heat.js';
+import type { KnowledgeRetriever } from '../knowledge/knowledgeRetriever.js';
 import type { RetrievedMemory } from '../memory/types.js';
 import { StyleEngine } from '../brain/styleEngine.js';
 import { ReplyPlanner } from '../brain/replyPlanner.js';
@@ -36,6 +38,16 @@ function cleanQuery(text: string, botUsername: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 200);
+}
+
+/** Format retrieved knowledge into a compact, clearly-optional context block (or '' if none). */
+function formatKnowledge(items: { topic: string; text: string }[]): string {
+  if (items.length === 0) return '';
+  return [
+    'RELEVANT KNOWLEDGE (background you happen to know — use ONLY if it fits naturally, never force ' +
+      'the topic, never info-dump, never list it):',
+    ...items.map((k) => `- ${k.topic}: ${k.text}`),
+  ].join('\n');
 }
 
 const FALLBACKS = [
@@ -112,6 +124,8 @@ export class ReplyService {
     private readonly memoryRetriever: MemoryRetriever,
     private readonly config: AppConfig,
     private readonly grounding: GroundingService,
+    private readonly heat: HeatService,
+    private readonly knowledge: KnowledgeRetriever,
   ) {
     this.generator = new ResponseGenerator(llm, this.styleEngine, {
       model: config.brain.replyModel,
@@ -258,9 +272,9 @@ export class ReplyService {
     const generationModel = sceneForcesNsfw ? ctx.nsfwModel : ctx.model;
     const generationNsfwEnabled = ctx.nsfwEnabled || sceneForcesNsfw;
 
-    // 2. retrieve memory + (in parallel) ground the reply with web/image search when relevant
+    // 2. retrieve memory + (in parallel) grounding, on-demand knowledge, and update per-user heat
     const activeHandles = [...new Set(history.filter((m) => !m.isBot).map((m) => m.handle))];
-    const [retrieved, grounding] = await Promise.all([
+    const [retrieved, grounding, knowledgeItems, heatValue] = await Promise.all([
       this.memoryRetriever.retrieve({
         chatId: ctx.context.chatId,
         currentMessage: ctx.message.messageText,
@@ -271,8 +285,20 @@ export class ReplyService {
         nsfwEnabled: generationNsfwEnabled,
       }),
       this.ground(ctx, visual),
+      this.knowledge.enabled
+        ? this.knowledge.retrieve(ctx.message.messageText, scene.currentTopic)
+        : Promise.resolve([]),
+      this.heat.enabled
+        ? this.heat.bump(
+            ctx.context.chatId,
+            ctx.person.userHandle,
+            this.heat.deltaFromScene(scene, ctx.message.messageText),
+          )
+        : Promise.resolve(0),
     ]);
     const groundingBlock = grounding?.block;
+    const hostility = this.heat.enabled ? this.heat.directive(heatValue) : null;
+    const knowledgeBlock = formatKnowledge(knowledgeItems);
 
     // 3. style + plan
     const style = this.styleEngine.sample({
@@ -282,6 +308,8 @@ export class ReplyService {
       recentBotReplies: ctx.recentBotReplies,
       nsfwEnabled: generationNsfwEnabled,
     });
+    // per-user heat raises the aggression floor for THIS user
+    if (hostility) style.aggression = Math.max(style.aggression, hostility.aggression);
     // banned phrases include overused openings AND recurring tics/sign-offs (kills catchphrases)
     const bannedOpenings = [
       ...this.styleEngine.bannedOpenings(ctx.recentBotReplies),
@@ -309,6 +337,9 @@ export class ReplyService {
               : ctx.person.userHandle,
           }
         : undefined;
+    const hostilityLine = hostility
+      ? `HOSTILITY toward ${addressee}: ${hostility.level} (${hostility.heat}/100) — ${hostility.instruction}`
+      : undefined;
 
     // 4. generate candidates
     const gen = await this.generator.generate({
@@ -330,6 +361,8 @@ export class ReplyService {
       addressee,
       ...(groundingBlock ? { grounding: groundingBlock } : {}),
       ...(media ? { media } : {}),
+      ...(hostilityLine ? { hostility: hostilityLine } : {}),
+      ...(knowledgeBlock ? { knowledge: knowledgeBlock } : {}),
     });
 
     let candidates = gen.candidates;
@@ -400,6 +433,8 @@ export class ReplyService {
         addressee,
         ...(groundingBlock ? { grounding: groundingBlock } : {}),
         ...(media ? { media } : {}),
+        ...(hostilityLine ? { hostility: hostilityLine } : {}),
+        ...(knowledgeBlock ? { knowledge: knowledgeBlock } : {}),
       });
       if (ns.candidates.length > 0) {
         const r = this.ranker.rank(ns.candidates, {

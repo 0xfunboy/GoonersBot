@@ -375,6 +375,24 @@ IMAGE_LOOKUP_ENABLED=true         # needs WEB_SEARCH_ENABLED + LLM_VISION_MODEL
 Verify with `pnpm tsx scripts/smoke-search.ts` (live query + gating). Gating keywords live in
 `src/search/groundingService.ts`; the SearXNG client is `src/search/searxng.ts`.
 
+## Per-user heat (escalation)
+
+Hostility is tracked **per user, per chat** as a `heat` score (0–100, collection `user_heat`). It
+starts gruff (`HEAT_BASELINE`), rises when someone attacks/pushes the bot (insults, criticism), and
+**decays over time** — faster when the user de-escalates (apologizes, calms down). The current heat
+maps to an escalation level (`baseline → irritato → ostile → incazzato → furia`) that raises the
+aggression dial and injects a hostility directive aimed at *that* user. Knobs: `HEAT_ENABLED`,
+`HEAT_BASELINE`, `HEAT_DECAY_PER_MINUTE`. Logic in `src/services/heat.ts`.
+
+## Knowledge base (on-demand RAG)
+
+A curated `knowledge` collection (anime/manga/otaku, Asian pop culture, gaming, IT/dev, crypto,
+sci-fi/TV) is recalled **only when relevant**: a keyword/alias match against the message surfaces the
+top `KNOWLEDGE_MAX_ITEMS` entries as a short, clearly-optional context block — most turns match
+nothing, so it adds **zero prompt weight** and never makes the character monothematic. Seeded on boot
+from `src/knowledge/seed.ts` (`KNOWLEDGE_SEED_ON_BOOT`, idempotent upsert); retrieval in
+`src/knowledge/knowledgeRetriever.ts`. Extend the seed freely.
+
 ## Brain & memory
 
 GoonerBot doesn't dump facts into every prompt. Each reply runs a small **brain pipeline** so it

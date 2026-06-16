@@ -13,6 +13,8 @@ import { MemoryRetriever } from '../memory/memoryRetriever.js';
 import { SceneAnalyzer } from '../brain/sceneAnalyzer.js';
 import { SearxngProvider } from '../search/searxng.js';
 import { GroundingService } from '../search/groundingService.js';
+import { HeatService } from './heat.js';
+import { KnowledgeRetriever } from '../knowledge/knowledgeRetriever.js';
 import { AutoEngageScorer } from './autoengage.js';
 import { BanService } from './bans.js';
 import { ModelRouter } from './modelRouter.js';
@@ -59,6 +61,8 @@ export class Services {
   readonly scene: SceneAnalyzer;
   readonly memoryRetriever: MemoryRetriever;
   readonly grounding: GroundingService;
+  readonly heat: HeatService;
+  readonly knowledge: KnowledgeRetriever;
   /** per-user, per-chat anti-spam cooldown for command invocations */
   readonly commandRateLimit: Cooldown;
 
@@ -125,6 +129,16 @@ export class Services {
       imageEnabled: config.search.imageEnabled,
       maxResults: config.search.maxResults,
     });
+    this.heat = new HeatService(storage.userHeat, {
+      enabled: env.HEAT_ENABLED,
+      baseline: env.HEAT_BASELINE,
+      max: env.HEAT_MAX,
+      decayPerMinute: env.HEAT_DECAY_PER_MINUTE,
+    });
+    this.knowledge = new KnowledgeRetriever(storage, {
+      enabled: env.KNOWLEDGE_ENABLED,
+      maxItems: env.KNOWLEDGE_MAX_ITEMS,
+    });
     this.reply = new ReplyService(
       llm,
       this.media,
@@ -133,6 +147,8 @@ export class Services {
       this.memoryRetriever,
       config,
       this.grounding,
+      this.heat,
+      this.knowledge,
     );
   }
 

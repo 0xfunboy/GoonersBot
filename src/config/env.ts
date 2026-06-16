@@ -103,6 +103,19 @@ const envSchema = z.object({
   LLM_FALLBACK_API_KEY: z.string().optional(),
   LLM_FALLBACK_MODEL: z.string().optional(),
 
+  // Per-user "heat": verbal-hostility escalation that rises when a user pushes the bot and
+  // cools over time / when the user de-escalates. Scored 0..100.
+  HEAT_ENABLED: boolFromString(true),
+  HEAT_BASELINE: intFromString(12),
+  HEAT_MAX: intFromString(100),
+  HEAT_DECAY_PER_MINUTE: intFromString(1),
+
+  // Knowledge base (nerd/anime/manga/IT/TV culture) recalled on-demand (RAG), capped so it never
+  // bloats the prompt nor makes the character monothematic.
+  KNOWLEDGE_ENABLED: boolFromString(true),
+  KNOWLEDGE_MAX_ITEMS: intFromString(2),
+  KNOWLEDGE_SEED_ON_BOOT: boolFromString(true),
+
   // Web/image grounding (free: self-hosted SearXNG + vision-model reverse-image lookup)
   // WEB_SEARCH: ground recency/factual questions with fresh web results.
   WEB_SEARCH_ENABLED: boolFromString(false),
