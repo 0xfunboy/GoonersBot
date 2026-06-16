@@ -3,7 +3,7 @@ import type { BotReplyRecord } from './types.js';
 
 /**
  * StyleEngine: varies the bot's voice every turn so it never sounds like the same NPC.
- * Repetition isn't only repeated facts — it's repeated phrasing. Variants + dials + a dynamic
+ * Repetition isn't only repeated facts - it's repeated phrasing. Variants + dials + a dynamic
  * banned-openings list (built from recent replies) keep the voice alive.
  */
 
@@ -107,7 +107,7 @@ export class StyleEngine {
   }
 
   /**
-   * Detect recurring tics: 3–5 word sequences that appear in 2+ recent replies (e.g. a catchphrase
+   * Detect recurring tics: 3-5 word sequences that appear in 2+ recent replies (e.g. a catchphrase
    * sign-off like "porco che sei"), plus the closing of the latest reply so two answers in a row
    * don't end the same way. These are fed to the generator as phrases to avoid.
    */

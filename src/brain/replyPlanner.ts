@@ -21,7 +21,7 @@ export interface PlannerInput {
 
 /**
  * ReplyPlanner: decides what the reply should DO before any text is generated. Heuristic and
- * deterministic (no extra LLM call) — derived from the scene + retrieved memory. The plan
+ * deterministic (no extra LLM call) - derived from the scene + retrieved memory. The plan
  * constrains the generator (intent, tone, length, memory usage, banned phrases, novelty).
  */
 export class ReplyPlanner {

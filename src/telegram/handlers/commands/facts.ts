@@ -4,7 +4,7 @@ import { Priority } from '../types.js';
 import { normalizeHandle } from '../../../utils/handles.js';
 
 /**
- * /introduce <text> — save the caller's self-introduction as durable lore (role).
+ * /introduce <text> - save the caller's self-introduction as durable lore (role).
  */
 export const introduceCommand: CommandSpec = {
   command: 'introduce',
@@ -26,7 +26,7 @@ export const introduceCommand: CommandSpec = {
 };
 
 /**
- * /fact — mine durable lore from recent chat (or the replied-to window). Normal users can no
+ * /fact - mine durable lore from recent chat (or the replied-to window). Normal users can no
  * longer inject arbitrary memory (anti-poisoning); the bot extracts it from real context.
  */
 export const factCommand: CommandSpec = {
@@ -67,7 +67,7 @@ export const factCommand: CommandSpec = {
 };
 
 /**
- * /setfact @handle <text> | /setfact <group lore> — admin-only manual memory insertion.
+ * /setfact @handle <text> | /setfact <group lore> - admin-only manual memory insertion.
  */
 export const setfactCommand: CommandSpec = {
   command: 'setfact',
@@ -91,7 +91,7 @@ export const setfactCommand: CommandSpec = {
   },
 };
 
-/** /facts [@handle] — show stored memory for a subject (reads memory_items). */
+/** /facts [@handle] - show stored memory for a subject (reads memory_items). */
 export const factsCommand: CommandSpec = {
   command: 'facts',
   permissions: ['allowed_user', 'not_banned'],
@@ -112,7 +112,7 @@ export const factsCommand: CommandSpec = {
   },
 };
 
-/** /clearfacts [@handle] — expire stored memory (self anytime; others require admin). */
+/** /clearfacts [@handle] - expire stored memory (self anytime; others require admin). */
 export const clearfactsCommand: CommandSpec = {
   command: 'clearfacts',
   permissions: ['allowed_user', 'not_banned'],
@@ -128,7 +128,7 @@ export const clearfactsCommand: CommandSpec = {
   },
 };
 
-/** /lore — show top active group lore (max 5). */
+/** /lore - show top active group lore (max 5). */
 export const loreCommand: CommandSpec = {
   command: 'lore',
   permissions: ['allowed_user', 'not_banned'],
@@ -149,7 +149,7 @@ export const loreCommand: CommandSpec = {
 };
 
 /**
- * /forget — reply to a message to forget memory mined from it; admins can /forget <memoryId>.
+ * /forget - reply to a message to forget memory mined from it; admins can /forget <memoryId>.
  */
 export const forgetCommand: CommandSpec = {
   command: 'forget',

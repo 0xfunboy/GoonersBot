@@ -2,7 +2,7 @@ import type { Collection, Db } from 'mongodb';
 
 /**
  * A curated knowledge entry (nerd/anime/manga/IT/TV culture, …). Retrieved on-demand by keyword
- * overlap, so it only ever enters a prompt when relevant — keeping the character complex but not
+ * overlap, so it only ever enters a prompt when relevant - keeping the character complex but not
  * monothematic and not inflating prompt size.
  */
 export interface KnowledgeDoc {
@@ -13,7 +13,7 @@ export interface KnowledgeDoc {
   aliases: string[];
   text: string;
   tags: string[];
-  /** 0..1 — baseline importance when keyword scores tie */
+  /** 0..1 - baseline importance when keyword scores tie */
   salience: number;
   updatedAt: Date;
 }

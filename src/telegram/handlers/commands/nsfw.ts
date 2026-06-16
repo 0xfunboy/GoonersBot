@@ -3,7 +3,7 @@ import type { CommandSpec } from '../types.js';
 import { Priority } from '../types.js';
 
 /**
- * /nsfw [off|base|smart|on] — admin control of NSFW model routing for this chat.
+ * /nsfw [off|base|smart|on] - admin control of NSFW model routing for this chat.
  *   off   : never use the NSFW model (default)
  *   base  : the whole chat uses the NSFW model
  *   smart : per-message routing (lexicon decides; refusal backstop armed)

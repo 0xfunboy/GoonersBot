@@ -11,7 +11,7 @@ export interface NewsItem {
 
 /**
  * Minimal RSS/Atom reader (no dependencies): fetches the configured feeds and returns recent items.
- * Parsing is regex-based — robust enough for standard feeds, and it degrades to [] on anything weird.
+ * Parsing is regex-based - robust enough for standard feeds, and it degrades to [] on anything weird.
  */
 export class NewsService {
   constructor(

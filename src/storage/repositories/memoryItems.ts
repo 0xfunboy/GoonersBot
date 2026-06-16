@@ -89,7 +89,7 @@ export class MemoryItemsRepo {
     );
   }
 
-  /** All active memories for a chat (capped), highest salience first — for retrieval scoring. */
+  /** All active memories for a chat (capped), highest salience first - for retrieval scoring. */
   async listActive(chatId: number, limit = 200): Promise<MemoryItem[]> {
     const docs = await this.col
       .find({ chatId, status: 'active' })

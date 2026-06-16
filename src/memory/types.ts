@@ -1,5 +1,5 @@
 /**
- * Memory engine types. `MemoryItem` is the new source of truth for lore — a filtered, scored,
+ * Memory engine types. `MemoryItem` is the new source of truth for lore - a filtered, scored,
  * contextual store, NOT raw text dumped into prompts. The legacy `facts` collection is migrated in.
  */
 

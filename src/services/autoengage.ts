@@ -119,7 +119,7 @@ export class AutoEngageScorer {
       });
       score = await this.llm.scoreAutoEngage({ prompt, system: buildAutoEngageSystem() });
     } catch (err) {
-      log.warn({ err }, 'autoengage scoring failed — not engaging');
+      log.warn({ err }, 'autoengage scoring failed - not engaging');
       return no('scoring failed');
     }
 

@@ -2,7 +2,7 @@ import type { CommandSpec } from '../types.js';
 import { Priority } from '../types.js';
 import { SET_LANGUAGE_CALLBACK, languagesKeyboard, termsKeyboard } from '../shared.js';
 
-/** /usage — show the caller's usage this period and limit. */
+/** /usage - show the caller's usage this period and limit. */
 export const usageCommand: CommandSpec = {
   command: 'usage',
   permissions: ['allowed_user', 'not_banned'],
@@ -14,7 +14,7 @@ export const usageCommand: CommandSpec = {
   },
 };
 
-/** /language — show the language picker. */
+/** /language - show the language picker. */
 export const languageCommand: CommandSpec = {
   command: 'language',
   permissions: ['admin', 'allowed_user', 'not_banned'],
@@ -28,7 +28,7 @@ export const languageCommand: CommandSpec = {
   },
 };
 
-/** /terms — show terms text with accept/decline buttons. */
+/** /terms - show terms text with accept/decline buttons. */
 export const termsCommand: CommandSpec = {
   command: 'terms',
   permissions: ['allowed_user', 'not_banned'],
@@ -40,7 +40,7 @@ export const termsCommand: CommandSpec = {
   },
 };
 
-/** /help — show capabilities + command list (public). */
+/** /help - show capabilities + command list (public). */
 export const helpCommand: CommandSpec = {
   command: 'help',
   permissions: [],

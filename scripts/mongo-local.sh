@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Local MongoDB helper for GoonerBot dev (no Docker, no root).
 # Uses a user-local mongod binary + data dir. Auth is enabled; the app user/password
-# are whatever you created — keep the matching MONGO_URI in your .env.
+# are whatever you created - keep the matching MONGO_URI in your .env.
 #
 # Usage: scripts/mongo-local.sh {start|stop|status}
 set -euo pipefail

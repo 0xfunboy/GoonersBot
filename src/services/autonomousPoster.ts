@@ -68,7 +68,7 @@ export class AutonomousPoster {
     const comment = await this.styledLine(
       language,
       `Unprompted, drop your unfiltered in-character take on this news (no preamble, do NOT just ` +
-        `summarize it — react to it your way). Headline: "${item.title}". ${item.summary ? `Context: "${item.summary}". ` : ''}` +
+        `summarize it - react to it your way). Headline: "${item.title}". ${item.summary ? `Context: "${item.summary}". ` : ''}` +
         'One or two lines. Do not paste the link, it is added automatically.',
     );
     if (!comment) return null;

@@ -3,7 +3,7 @@ import type { Storage } from '../storage/index.js';
 /**
  * Terms of use state. Ports the accept/decline flow. On decline, the user's custom stored data
  * is cleared (messages, facts, modes they created, PII) while safety bookkeeping (terms + bans)
- * is retained — matching the original behaviour and the documented terms text.
+ * is retained - matching the original behaviour and the documented terms text.
  */
 export class TermsService {
   constructor(private readonly storage: Storage) {}

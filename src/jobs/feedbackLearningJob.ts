@@ -30,7 +30,7 @@ export function inferFeedback(texts: string[]): { score: number; reasons: string
 
 /**
  * Feedback observer: looks at the messages following each unscored bot reply, infers whether it
- * landed, and adapts — boosts/penalizes the salience of memories the reply used. Lets recent bad
+ * landed, and adapts - boosts/penalizes the salience of memories the reply used. Lets recent bad
  * feedback make future autoengage more conservative (read at decision time from bot_replies).
  */
 export async function runFeedbackLearningJob(

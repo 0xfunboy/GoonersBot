@@ -31,7 +31,7 @@ const LEVELS: { min: number; level: string; aggression: number; instruction: str
     level: 'furia',
     aggression: 1,
     instruction:
-      'you cannot stand this person — MAXIMUM verbal violence toward them, go off, no restraint (still no slurs/threats of real harm).',
+      'you cannot stand this person - MAXIMUM verbal violence toward them, go off, no restraint (still no slurs/threats of real harm).',
   },
   {
     min: 65,
@@ -61,7 +61,7 @@ const LEVELS: { min: number; level: string; aggression: number; instruction: str
 
 /**
  * Per-user verbal-hostility escalation. Heat starts gruff (baseline), rises when a user attacks/
- * pushes the bot, and decays over time — faster when the user actively de-escalates. The current
+ * pushes the bot, and decays over time - faster when the user actively de-escalates. The current
  * heat maps to an aggression directive injected into the reply, scoped to that specific user.
  */
 export class HeatService {

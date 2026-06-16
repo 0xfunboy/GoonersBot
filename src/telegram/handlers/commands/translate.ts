@@ -70,7 +70,7 @@ export function parseTargetLanguage(args: string[]): string | null {
 }
 
 /**
- * /translate (alias /traduci) — translate the replied-to message into the requested language.
+ * /translate (alias /traduci) - translate the replied-to message into the requested language.
  * Source language is auto-detected; tone/slang/vulgarity are preserved. Natural phrasing works.
  *   "/translate spanish"  ·  "/traduci in inglese"  ·  "/translate this message into spanish"
  */
@@ -102,7 +102,7 @@ export const translateCommand: CommandSpec = {
         system:
           `You are a precise translator. Translate the user's message into ${target}. ` +
           'Auto-detect the source language. Preserve the tone, register, slang and any vulgarity. ' +
-          'Output ONLY the translation — no quotes, no notes, no language labels, no preamble.',
+          'Output ONLY the translation - no quotes, no notes, no language labels, no preamble.',
         messages: [{ role: 'user', content: source }],
         temperature: 0.2,
       });

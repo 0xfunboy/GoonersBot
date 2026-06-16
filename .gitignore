@@ -28,5 +28,5 @@ coverage/
 # Reference clone of the original Python project (not part of GoonerBot)
 _tg_rp_bot_source/
 
-# Voice toolchain (provisioned by scripts/setup-voice.sh — binaries/models not committed)
+# Voice toolchain (provisioned by scripts/setup-voice.sh - binaries/models not committed)
 vendor/

@@ -96,7 +96,7 @@ export class Storage {
   }
 
   /**
-   * One-time migration: import legacy `facts` into `memory_items` (idempotent — skips if any
+   * One-time migration: import legacy `facts` into `memory_items` (idempotent - skips if any
    * migrated item already exists for the chat). Old facts are kept; they're just no longer dumped
    * into reply prompts.
    */

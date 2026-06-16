@@ -29,7 +29,7 @@ function metaOf(person: Person, context: ChatContext): AddMessageMeta {
 }
 
 /**
- * Core conversational handler — drives the brain pipeline.
+ * Core conversational handler - drives the brain pipeline.
  *
  * permission → started + tracking/mention gate → terms gate → autoengage decision →
  * (not engaging but tracking ⇒ store) → usage check → model route → brain reply →

@@ -16,10 +16,10 @@ let fail = 0;
 function check(name: string, cond: boolean, extra = ''): void {
   if (cond) {
     pass += 1;
-    console.log(`  ✓ ${name}${extra ? ' — ' + extra : ''}`);
+    console.log(`  ✓ ${name}${extra ? ' - ' + extra : ''}`);
   } else {
     fail += 1;
-    console.log(`  ✗ ${name}${extra ? ' — ' + extra : ''}`);
+    console.log(`  ✗ ${name}${extra ? ' - ' + extra : ''}`);
   }
 }
 

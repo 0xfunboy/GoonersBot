@@ -62,7 +62,7 @@ export function buildNsfwSafety(): string {
 
 // ---- 2. mode behavior ----
 export function buildModeSection(modeName: string, modeDescription: string): string {
-  return `CURRENT MODE — ${modeName}:\n${modeDescription}`;
+  return `CURRENT MODE - ${modeName}:\n${modeDescription}`;
 }
 
 // ---- system prompt assembly (mirrors get_reply_system_prompt) ----
@@ -84,7 +84,7 @@ export function buildSystemPrompt(params: {
     params.nsfw ? buildNsfwSafety() : buildSafety(),
     '',
     'Note: the user message includes group facts, user facts and history. Only use those facts when',
-    "they're relevant to the current message — don't dump them unprompted.",
+    "they're relevant to the current message - don't dump them unprompted.",
   ].join('\n');
 }
 
@@ -179,7 +179,7 @@ export function buildAutoEngagePrompt(params: {
   botLabel: string;
 }): string {
   return [
-    `Current mode: ${params.modeName} — ${params.modeDescription}`,
+    `Current mode: ${params.modeName} - ${params.modeDescription}`,
     buildHistorySection(params.history, params.botLabel),
     `Latest message from ${params.userHandle}: ${params.currentMessage}`,
     buildUserFacts(params.userHandle, params.userFacts),

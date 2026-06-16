@@ -80,7 +80,7 @@ export interface StyleProfile {
   chaos: number;
   selfAwareness: number;
   degen: number;
-  /** chosen named variants (1–2) for this turn */
+  /** chosen named variants (1-2) for this turn */
   variants: string[];
 }
 

@@ -3,7 +3,7 @@ import type { CommandSpec, HandlerInput } from '../types.js';
 import { Priority } from '../types.js';
 
 /**
- * /news (alias /nuovo) — force an autonomous post NOW: a styled take on a current event (RSS) with
+ * /news (alias /nuovo) - force an autonomous post NOW: a styled take on a current event (RSS) with
  * the source link, or a commented waifu/anime image. Same composer the scheduler uses on its own.
  */
 export const newsCommand: CommandSpec = {

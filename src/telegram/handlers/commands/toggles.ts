@@ -1,7 +1,7 @@
 import type { CommandSpec } from '../types.js';
 import { Priority } from '../types.js';
 
-/** /conversationtracker — toggle passive conversation tracking. */
+/** /conversationtracker - toggle passive conversation tracking. */
 export const conversationtrackerCommand: CommandSpec = {
   command: 'conversationtracker',
   permissions: ['admin', 'allowed_user', 'not_banned'],
@@ -13,7 +13,7 @@ export const conversationtrackerCommand: CommandSpec = {
   },
 };
 
-/** /autofact — toggle automatic fact extraction. */
+/** /autofact - toggle automatic fact extraction. */
 export const autofactCommand: CommandSpec = {
   command: 'autofact',
   permissions: ['admin', 'allowed_user', 'not_banned'],
@@ -25,7 +25,7 @@ export const autofactCommand: CommandSpec = {
   },
 };
 
-/** /autoengage — toggle auto-engage. */
+/** /autoengage - toggle auto-engage. */
 export const autoengageCommand: CommandSpec = {
   command: 'autoengage',
   permissions: ['admin', 'allowed_user', 'not_banned'],
@@ -37,7 +37,7 @@ export const autoengageCommand: CommandSpec = {
   },
 };
 
-/** /autopost — toggle autonomous posts (news/images) for this chat. */
+/** /autopost - toggle autonomous posts (news/images) for this chat. */
 export const autopostCommand: CommandSpec = {
   command: 'autopost',
   permissions: ['admin', 'allowed_user', 'not_banned'],

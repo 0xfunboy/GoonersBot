@@ -10,7 +10,7 @@ function opening(s: string, n = 3): string {
 }
 
 /**
- * RepetitionGuard: blocks replies that repeat recent bot behaviour — high text similarity, reused
+ * RepetitionGuard: blocks replies that repeat recent bot behaviour - high text similarity, reused
  * opening, banned phrases, or verbatim memory that wasn't cleared for an explicit callback.
  */
 export class RepetitionGuard {

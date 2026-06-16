@@ -1,7 +1,7 @@
 import type { CommandSpec } from '../types.js';
 import { Priority } from '../types.js';
 
-/** /start — wake the bot in this chat (admin-gated). */
+/** /start - wake the bot in this chat (admin-gated). */
 export const startCommand: CommandSpec = {
   command: 'start',
   permissions: ['admin', 'allowed_user', 'not_banned'],
@@ -13,7 +13,7 @@ export const startCommand: CommandSpec = {
   },
 };
 
-/** /stop — put the bot to sleep in this chat (admin-gated). */
+/** /stop - put the bot to sleep in this chat (admin-gated). */
 export const stopCommand: CommandSpec = {
   command: 'stop',
   permissions: ['admin', 'allowed_user', 'not_banned'],
@@ -25,7 +25,7 @@ export const stopCommand: CommandSpec = {
   },
 };
 
-/** /reset — wipe conversation memory for this chat. */
+/** /reset - wipe conversation memory for this chat. */
 export const resetCommand: CommandSpec = {
   command: 'reset',
   permissions: ['admin', 'allowed_user', 'not_banned'],

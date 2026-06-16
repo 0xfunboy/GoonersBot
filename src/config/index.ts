@@ -9,7 +9,7 @@ export * from './i18n.js';
 
 /**
  * Resolved LLM provider configuration. `baseUrl`/`model` defaults depend on the provider.
- * Nothing here is hardcoded into business logic — these are config defaults only.
+ * Nothing here is hardcoded into business logic - these are config defaults only.
  */
 export interface LLMConfig {
   provider: LLMProviderName;

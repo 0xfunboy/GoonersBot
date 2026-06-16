@@ -40,7 +40,7 @@ const WHERE_TO_BUY_RE =
 /**
  * GroundingService: decides (heuristic gating) whether a reply needs fresh web facts or a
  * reverse-image lookup, runs the free SearXNG backend, and returns an LLM-ready context block.
- * The persona model still writes the final reply — this only adds grounding, never a voice.
+ * The persona model still writes the final reply - this only adds grounding, never a voice.
  */
 export class GroundingService {
   constructor(
@@ -96,7 +96,7 @@ export class GroundingService {
 
   private formatWeb(res: WebSearchResponse): string {
     const lines = [
-      `WEB CONTEXT (fresh results from a web search for "${res.query}" — use these facts to be ` +
+      `WEB CONTEXT (fresh results from a web search for "${res.query}" - use these facts to be ` +
         'accurate; do NOT paste links unless asked, never say you "searched the web"):',
     ];
     if (res.answer) lines.push(`answer: ${res.answer}`);
@@ -106,7 +106,7 @@ export class GroundingService {
 
   private formatImage(label: string, res: WebSearchResponse | null): string {
     const lines = [
-      'IMAGE LOOKUP (what the pictured subject most likely is + web results — use it to say ' +
+      'IMAGE LOOKUP (what the pictured subject most likely is + web results - use it to say ' +
         'who/what it is; give a product link only if they ask where to buy):',
       `best guess: ${label}`,
     ];

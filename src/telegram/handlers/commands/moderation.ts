@@ -3,7 +3,7 @@ import { Priority } from '../types.js';
 import { normalizeHandle } from '../../../utils/handles.js';
 
 /**
- * /ban @handle [seconds] — ban a Gooner. Reply-aware: replying to a message bans its author.
+ * /ban @handle [seconds] - ban a Gooner. Reply-aware: replying to a message bans its author.
  * Adapted from the original: the duration is optional (defaults to DEFAULT_BAN_SECONDS; 0 =
  * permanent), so the command never crashes on a missing seconds argument.
  */
@@ -33,7 +33,7 @@ export const banCommand: CommandSpec = {
   },
 };
 
-/** /unban @handle — lift a ban. */
+/** /unban @handle - lift a ban. */
 export const unbanCommand: CommandSpec = {
   command: 'unban',
   permissions: ['bot_admin', 'allowed_user'],

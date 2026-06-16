@@ -54,7 +54,7 @@ function isAnimeTopic(message: string, knowledge: { topic: string }[]): boolean 
 function formatKnowledge(items: { topic: string; text: string }[]): string {
   if (items.length === 0) return '';
   return [
-    'RELEVANT KNOWLEDGE (background you happen to know — use ONLY if it fits naturally, never force ' +
+    'RELEVANT KNOWLEDGE (background you happen to know - use ONLY if it fits naturally, never force ' +
       'the topic, never info-dump, never list it):',
     ...items.map((k) => `- ${k.topic}: ${k.text}`),
   ].join('\n');
@@ -349,7 +349,7 @@ export class ReplyService {
           }
         : undefined;
     const hostilityLine = hostility
-      ? `HOSTILITY toward ${addressee}: ${hostility.level} (${hostility.heat}/100) — ${hostility.instruction}`
+      ? `HOSTILITY toward ${addressee}: ${hostility.level} (${hostility.heat}/100) - ${hostility.instruction}`
       : undefined;
 
     // 4. generate candidates
@@ -403,7 +403,7 @@ export class ReplyService {
       const overusedTexts = retrieved
         .filter((m) => m.item._id && check.overusedMemoryIds.includes(m.item._id))
         .map((m) => m.item.text);
-      log.debug({ reason: check.reason, attempt }, 'repetition block — regenerating');
+      log.debug({ reason: check.reason, attempt }, 'repetition block - regenerating');
       const regen = await this.generator.regenerate({
         system: gen.system,
         userPrompt: gen.userPrompt,
@@ -424,7 +424,7 @@ export class ReplyService {
     // the uncensored model (the user never sees the refusal).
     let model = gen.model;
     if (ctx.allowRefusalFallback && ctx.nsfwModel && best.trim() && isRefusal(best)) {
-      log.info('default model refused — backstop to NSFW model');
+      log.info('default model refused - backstop to NSFW model');
       const ns = await this.generator.generate({
         botUsername: ctx.botUsername,
         chatName: ctx.context.chatName,

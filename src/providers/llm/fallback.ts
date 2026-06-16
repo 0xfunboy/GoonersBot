@@ -22,7 +22,7 @@ const log = childLogger('llm-fallback');
  * (timeout, connection refused, 5xx…), the same call is retried on the fallback provider. This is
  * transparent to every caller (it implements LLMProvider).
  *
- * Capability methods (vision/transcription/image) and capabilities are taken from the PRIMARY —
+ * Capability methods (vision/transcription/image) and capabilities are taken from the PRIMARY -
  * those backends are configured independently and the fallback is meant for chat resilience.
  * Streaming falls back only if the primary fails before emitting any chunk (a mid-stream failure
  * can't be cleanly restarted without duplicating text).
@@ -50,7 +50,7 @@ export class FallbackLLMProvider implements LLMProvider {
     try {
       return await fn(this.primary);
     } catch (err) {
-      log.warn({ err, label }, 'primary LLM failed — retrying on fallback');
+      log.warn({ err, label }, 'primary LLM failed - retrying on fallback');
       return fn(this.fallback);
     }
   }
@@ -84,7 +84,7 @@ export class FallbackLLMProvider implements LLMProvider {
       return res.value;
     } catch (err) {
       if (yielded) throw err; // can't restart mid-stream without duplicating output
-      log.warn({ err }, 'primary stream failed before output — falling back');
+      log.warn({ err }, 'primary stream failed before output - falling back');
       return yield* this.fallback.streamChatCompletion(req);
     }
   }

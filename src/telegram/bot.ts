@@ -19,7 +19,7 @@ export interface GoonerBot {
 export async function createBot(config: AppConfig, services: Services): Promise<GoonerBot> {
   const bot = new Bot(config.env.TELEGRAM_BOT_TOKEN);
 
-  // Resolve the real bot username (used for mention detection) — env value is a default/hint.
+  // Resolve the real bot username (used for mention detection) - env value is a default/hint.
   const me = await bot.api.getMe();
   const botUsername = me.username ?? config.env.BOT_USERNAME.replace(/^@/, '');
   log.info({ botUsername, id: me.id }, 'authenticated with Telegram');
@@ -67,7 +67,7 @@ export async function createBot(config: AppConfig, services: Services): Promise<
     },
   );
 
-  // Global error handler — never crash the bot on a single update.
+  // Global error handler - never crash the bot on a single update.
   bot.catch((err) => {
     log.error({ err: err.error, update: err.ctx.update.update_id }, 'unhandled error in update');
   });

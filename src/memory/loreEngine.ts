@@ -17,7 +17,7 @@ export interface MineAndStoreResult {
 /**
  * LoreEngine: the single entry point for reading/writing durable memory. It mines, dedupes,
  * persists, reinforces, retrieves and expires `memory_items`. Reply generation never dumps raw
- * memory — it goes through the retriever.
+ * memory - it goes through the retriever.
  */
 export class LoreEngine {
   constructor(

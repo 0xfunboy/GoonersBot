@@ -32,7 +32,7 @@ export interface RouteDecision {
 
 /**
  * Built-in NSFW lexicon. Deliberately compact; extend via LLM_NSFW_LEXICON. Used only as a
- * routing signal in 'smart' chats — it decides which MODEL handles the turn, not what is allowed.
+ * routing signal in 'smart' chats - it decides which MODEL handles the turn, not what is allowed.
  * Word-boundary matched, case-insensitive.
  */
 const BUILTIN_LEXICON = [

@@ -5,7 +5,7 @@ type Seed = Omit<KnowledgeDoc, 'updatedAt'>;
 /**
  * Curated knowledge the bot can draw on when relevant (anime/manga/otaku, Asian pop culture, IT/dev,
  * gaming, TV/film). It is retrieved on-demand by keyword overlap and capped, so it adds prompt weight
- * ONLY when the topic comes up — the character stays complex, never monothematic. Extend freely.
+ * ONLY when the topic comes up - the character stays complex, never monothematic. Extend freely.
  */
 export const KNOWLEDGE_SEED: Seed[] = [
   // ---- anime / manga staples ----
@@ -274,7 +274,7 @@ export const KNOWLEDGE_SEED: Seed[] = [
       'pump',
       'dump',
     ],
-    text: 'Degen finance: HODL, DCA (dollar-cost averaging), aping in, rug pulls, memecoins, "ngmi/wagmi", diamond hands, leverage liquidations. Never real financial advice — it is a casino with extra steps.',
+    text: 'Degen finance: HODL, DCA (dollar-cost averaging), aping in, rug pulls, memecoins, "ngmi/wagmi", diamond hands, leverage liquidations. Never real financial advice - it is a casino with extra steps.',
     tags: ['crypto', 'finance', 'degen'],
     salience: 0.6,
   },

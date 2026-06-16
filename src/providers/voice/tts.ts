@@ -65,7 +65,7 @@ export class TtsProvider {
         if (audio.length < 1024) {
           log.warn(
             { bytes: audio.length },
-            'remote opus too small (short input?) — skipping voice',
+            'remote opus too small (short input?) - skipping voice',
           );
           return null;
         }

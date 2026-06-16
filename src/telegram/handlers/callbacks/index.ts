@@ -8,7 +8,7 @@ import {
   TERMS_CALLBACK,
 } from '../shared.js';
 
-/** set_chat_mode|<modeId> — activate a mode. */
+/** set_chat_mode|<modeId> - activate a mode. */
 const setChatMode: CallbackSpec = {
   action: SET_MODE_CALLBACK,
   permissions: ['admin', 'allowed_user', 'not_banned'],
@@ -23,7 +23,7 @@ const setChatMode: CallbackSpec = {
   },
 };
 
-/** delete_chat_mode|<modeId> — delete a mode. */
+/** delete_chat_mode|<modeId> - delete a mode. */
 const deleteChatMode: CallbackSpec = {
   action: DELETE_MODE_CALLBACK,
   permissions: ['admin', 'allowed_user', 'not_banned'],
@@ -38,7 +38,7 @@ const deleteChatMode: CallbackSpec = {
   },
 };
 
-/** set_chat_language|<lang> — set the chat language. */
+/** set_chat_language|<lang> - set the chat language. */
 const setChatLanguage: CallbackSpec = {
   action: SET_LANGUAGE_CALLBACK,
   permissions: ['admin', 'allowed_user', 'not_banned'],
@@ -52,7 +52,7 @@ const setChatLanguage: CallbackSpec = {
 };
 
 /**
- * show_chat_modes|<buttonAction>|<page> — pagination repaint. Returns a fresh modes keyboard.
+ * show_chat_modes|<buttonAction>|<page> - pagination repaint. Returns a fresh modes keyboard.
  * (The keyboard renderer always shows page 0; richer pagination is a documented simplification.)
  */
 const showChatModes: CallbackSpec = {
@@ -73,7 +73,7 @@ const showChatModes: CallbackSpec = {
   },
 };
 
-/** show_chat_languages|<buttonAction>|<page> — pagination repaint for languages. */
+/** show_chat_languages|<buttonAction>|<page> - pagination repaint for languages. */
 const showChatLanguages: CallbackSpec = {
   action: SHOW_LANGUAGES_CALLBACK,
   permissions: ['allowed_user', 'not_banned'],
@@ -92,7 +92,7 @@ const showChatLanguages: CallbackSpec = {
   },
 };
 
-/** terms_response|accept|decline — record terms acceptance/decline. */
+/** terms_response|accept|decline - record terms acceptance/decline. */
 const termsResponse: CallbackSpec = {
   action: TERMS_CALLBACK,
   permissions: ['allowed_user', 'not_banned'],

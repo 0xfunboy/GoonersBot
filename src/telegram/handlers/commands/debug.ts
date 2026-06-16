@@ -1,7 +1,7 @@
 import type { CommandSpec } from '../types.js';
 import { Priority } from '../types.js';
 
-/** /brain — admin: human-readable summary of the last brain turn in this chat. */
+/** /brain - admin: human-readable summary of the last brain turn in this chat. */
 export const brainCommand: CommandSpec = {
   command: 'brain',
   permissions: ['admin', 'allowed_user', 'not_banned'],
@@ -30,7 +30,7 @@ export const brainCommand: CommandSpec = {
   },
 };
 
-/** /debuglast — admin: compact JSON of the last brain turn. */
+/** /debuglast - admin: compact JSON of the last brain turn. */
 export const debuglastCommand: CommandSpec = {
   command: 'debuglast',
   permissions: ['admin', 'allowed_user', 'not_banned'],

@@ -9,7 +9,7 @@ const log = childLogger('llm-factory');
 
 /**
  * Select and construct the LLM provider based on resolved config (env-driven).
- * The host (e.g. llm.solclawn.com) is never hardcoded here — it arrives via LLMConfig.baseUrl.
+ * The host (e.g. llm.solclawn.com) is never hardcoded here - it arrives via LLMConfig.baseUrl.
  */
 export function createLLMProvider(cfg: LLMConfig): LLMProvider {
   const base = {
@@ -74,7 +74,7 @@ export function createLLMProvider(cfg: LLMConfig): LLMProvider {
   }
   for (const cap of ['vision', 'transcription', 'imageGeneration', 'tts'] as const) {
     if (!provider.capabilities[cap]) {
-      log.info({ capability: cap }, 'capability not configured — will degrade gracefully');
+      log.info({ capability: cap }, 'capability not configured - will degrade gracefully');
     }
   }
   return provider;

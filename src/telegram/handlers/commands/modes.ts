@@ -2,7 +2,7 @@ import type { CommandSpec } from '../types.js';
 import { Priority } from '../types.js';
 import { DELETE_MODE_CALLBACK, SET_MODE_CALLBACK, modesKeyboard } from '../shared.js';
 
-/** /mode — show the inline keyboard of modes to pick from. */
+/** /mode - show the inline keyboard of modes to pick from. */
 export const modeCommand: CommandSpec = {
   command: 'mode',
   permissions: ['admin', 'allowed_user', 'not_banned'],
@@ -16,7 +16,7 @@ export const modeCommand: CommandSpec = {
   },
 };
 
-/** /addmode <description> — add a custom mode (name derived from the first sentence). */
+/** /addmode <description> - add a custom mode (name derived from the first sentence). */
 export const addmodeCommand: CommandSpec = {
   command: 'addmode',
   permissions: ['allowed_user', 'admin', 'not_banned'],
@@ -31,7 +31,7 @@ export const addmodeCommand: CommandSpec = {
   },
 };
 
-/** /deletemode — show the inline keyboard of modes to delete. */
+/** /deletemode - show the inline keyboard of modes to delete. */
 export const deletemodeCommand: CommandSpec = {
   command: 'deletemode',
   permissions: ['admin', 'allowed_user', 'not_banned'],

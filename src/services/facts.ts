@@ -18,7 +18,7 @@ export function isSensitiveFact(fact: string): boolean {
 export class FactService {
   constructor(private readonly storage: Storage) {}
 
-  /** Manual /fact. Returns false if rejected (sensitive) — caller shows inappropriate_fact. */
+  /** Manual /fact. Returns false if rejected (sensitive) - caller shows inappropriate_fact. */
   async addManualFact(
     chatId: number,
     targetHandle: string,

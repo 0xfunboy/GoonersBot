@@ -19,7 +19,7 @@ async function main(): Promise<void> {
   console.log(`SearXNG: ${url}`);
   const res = await searxng.search('chi ha vinto gli europei 2024', { language: 'italian' });
   if (!res) {
-    console.error('✗ no results — is SearXNG running with JSON format enabled?');
+    console.error('✗ no results - is SearXNG running with JSON format enabled?');
     process.exit(1);
   }
   console.log(`✓ ${res.results.length} results${res.answer ? ` (+answer: ${res.answer.slice(0, 60)})` : ''}`);

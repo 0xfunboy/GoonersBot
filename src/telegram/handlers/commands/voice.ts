@@ -3,7 +3,7 @@ import type { CommandSpec } from '../types.js';
 import { Priority } from '../types.js';
 
 /**
- * /voice — turn a message into a voice note.
+ * /voice - turn a message into a voice note.
  *   - as a reply to a message: voices THAT message's text.
  *   - alone: voices the most recent message in the chat.
  */

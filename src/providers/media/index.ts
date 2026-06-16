@@ -69,7 +69,7 @@ export class MediaProcessor {
   /** Describe an image; returns null when vision is unavailable or fails. */
   async describeImage(buffer: Buffer, mime: string): Promise<string | null> {
     if (!this.canDescribeImage || !this.llm.visionCompletion) {
-      log.info('vision capability unavailable — skipping image description');
+      log.info('vision capability unavailable - skipping image description');
       return null;
     }
     try {
@@ -122,7 +122,7 @@ export class MediaProcessor {
       if (local !== null) return local;
     }
     if (!this.llm.capabilities.transcription || typeof this.llm.transcribeAudio !== 'function') {
-      log.info('transcription capability unavailable — skipping voice transcription');
+      log.info('transcription capability unavailable - skipping voice transcription');
       return null;
     }
     try {
@@ -139,7 +139,7 @@ export class MediaProcessor {
   /** Generate an image; returns null when generation is unavailable or fails. */
   async generateImage(prompt: string): Promise<ImageResult | null> {
     if (!this.canGenerateImage || !this.llm.generateImage) {
-      log.info('image generation capability unavailable — skipping');
+      log.info('image generation capability unavailable - skipping');
       return null;
     }
     try {

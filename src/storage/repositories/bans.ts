@@ -31,7 +31,7 @@ export class BansRepo {
   }
 
   /**
-   * True if currently banned. Honours expiry (the original ignored bannedUntil) — an expired
+   * True if currently banned. Honours expiry (the original ignored bannedUntil) - an expired
    * temporary ban is auto-cleared and reported as not-banned.
    */
   async isBanned(handle: string, now: Date = new Date()): Promise<boolean> {
@@ -39,7 +39,7 @@ export class BansRepo {
     if (!doc) return false;
     if (doc.bannedUntil === null) return true; // permanent
     if (doc.bannedUntil.getTime() > now.getTime()) return true;
-    // expired — clean up
+    // expired - clean up
     await this.col.deleteOne({ handle });
     return false;
   }

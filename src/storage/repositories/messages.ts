@@ -34,7 +34,7 @@ export class MessagesRepo {
     await this.col.createIndex({ chatId: 1 });
     await this.col.createIndex({ userHandle: 1 });
     if (this.retentionDays > 0) {
-      // TTL index on createdAt — Mongo expires raw history after retentionDays.
+      // TTL index on createdAt - Mongo expires raw history after retentionDays.
       const seconds = this.retentionDays * 24 * 60 * 60;
       await this.recreateTtlIndex(seconds);
     }

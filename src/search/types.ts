@@ -3,7 +3,7 @@
  *   - WebSearchProvider → SearXNG (self-hosted metasearch, no API key, no browser).
  *
  * Image questions ("who is this character", "what product is this") are grounded by having the
- * vision model IDENTIFY the subject and then searching that identification on SearXNG — this is
+ * vision model IDENTIFY the subject and then searching that identification on SearXNG - this is
  * the robust free equivalent of Google Lens (which is now client-rendered and needs a headless
  * browser + a public image URL). Everything degrades to null so a broken backend never breaks a reply.
  */

@@ -2,7 +2,7 @@
   "name": "goonerbot",
   "version": "1.0.0",
   "private": true,
-  "description": "GoonerBot — a group-native entertainment, roleplay, meme, banter and memory AI bot for the Gooners Telegram community.",
+  "description": "GoonerBot - a group-native entertainment, roleplay, meme, banter and memory AI bot for the Gooners Telegram community.",
   "type": "module",
   "engines": {
     "node": ">=22"
