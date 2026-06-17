@@ -234,9 +234,9 @@ Add your own with `/addmode <description>` (the mode name is the first sentence)
   video-notes. ffmpeg extracts the audio track from video containers, so the brain reads them as
   text and stores them as context. No cloud, modest CPU.
 - TTS: an OpenAI-compatible `/v1/audio/speech` server (for example
-  [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI)) synthesizes replies. With
-  `TTS_FORMAT=opus` the server returns Telegram-ready OGG/Opus, so the host needs no local ffmpeg for
-  TTS; other formats are transcoded locally.
+  [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI)) synthesizes replies. The bot finalizes
+  the clip as Telegram OGG/Opus with a short silent tail (`TTS_TAIL_PADDING_MS`) when ffmpeg is
+  available, which prevents clients from eating the last word.
 - The bot replies with a voice note when you sent it one (`TTS_REPLY_TO_VOICE`), or occasionally on
   its own (`TTS_AUTO_VOICE_PROBABILITY`).
 - `/voice` voices the last chat message, or the replied-to message when used as a reply.
@@ -422,7 +422,8 @@ The tables below list the common vars; see `.env.example` for the full set with 
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `TTS_ENABLED` / `TTS_BASE_URL` / `TTS_VOICE` / `TTS_FORMAT` | off | Kokoro TTS. `opus` offloads encoding to the server. |
+| `TTS_ENABLED` / `TTS_BASE_URL` / `TTS_VOICE` / `TTS_FORMAT` | off | Kokoro TTS. Server audio is finalized for Telegram when ffmpeg is available. |
+| `TTS_TAIL_PADDING_MS` | `600` | Silent tail appended after TTS so Telegram clients do not clip the last word. |
 | `STT_ENABLED` / `WHISPER_MODEL` / `FFMPEG_BIN` | off | Local whisper.cpp STT (vendor/ defaults). |
 | `WEB_SEARCH_ENABLED` / `SEARXNG_URL` | off | Web grounding via SearXNG. |
 | `IMAGE_LOOKUP_ENABLED` | off | Reverse-image grounding (needs web search and vision). |

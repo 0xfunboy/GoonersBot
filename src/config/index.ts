@@ -154,6 +154,7 @@ export interface VoiceConfig {
     speed: number;
     maxChars: number;
     timeoutMs: number;
+    tailPaddingMs: number;
     autoVoiceProbability: number;
     replyToVoice: boolean;
     ffmpegBin: string;
@@ -203,6 +204,7 @@ export function resolveVoiceConfig(env: Env): VoiceConfig {
       speed: env.TTS_SPEED,
       maxChars: env.TTS_MAX_CHARS,
       timeoutMs: env.TTS_TIMEOUT_MS,
+      tailPaddingMs: env.TTS_TAIL_PADDING_MS,
       autoVoiceProbability: env.TTS_AUTO_VOICE_PROBABILITY,
       replyToVoice: env.TTS_REPLY_TO_VOICE,
       ffmpegBin,

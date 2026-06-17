@@ -39,8 +39,21 @@ export function runFfmpeg(
   });
 }
 
+export interface TelegramVoiceOptions {
+  timeoutMs?: number;
+  tailPaddingMs?: number;
+}
+
 /** Transcode arbitrary audio bytes → Telegram-ready OGG/Opus (48 kHz mono). */
-export function toTelegramVoice(bin: string, input: Buffer, timeoutMs = 30000): Promise<Buffer> {
+export function toTelegramVoice(
+  bin: string,
+  input: Buffer,
+  opts: TelegramVoiceOptions | number = {},
+): Promise<Buffer> {
+  const timeoutMs = typeof opts === 'number' ? opts : (opts.timeoutMs ?? 30000);
+  const tailPaddingMs = typeof opts === 'number' ? 0 : Math.max(0, opts.tailPaddingMs ?? 0);
+  const filterArgs =
+    tailPaddingMs > 0 ? ['-af', `apad=pad_dur=${(tailPaddingMs / 1000).toFixed(3)}`] : [];
   return runFfmpeg(
     bin,
     [
@@ -49,6 +62,8 @@ export function toTelegramVoice(bin: string, input: Buffer, timeoutMs = 30000): 
       'error',
       '-i',
       'pipe:0',
+      '-vn',
+      ...filterArgs,
       '-c:a',
       'libopus',
       '-b:a',

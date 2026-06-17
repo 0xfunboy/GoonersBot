@@ -6,7 +6,7 @@ const log = childLogger('tts');
 
 /**
  * TTS provider: OpenAI-compatible `/v1/audio/speech` (Kokoro-FastAPI as used by airi-stack).
- * Synthesizes text, then transcodes to Telegram-ready OGG/Opus via ffmpeg. Degrades to null.
+ * Synthesizes text, then finalizes it as Telegram-ready OGG/Opus. Degrades to null.
  */
 /**
  * Per-language voice. Kokoro covers it/en/es (and more); no Russian voice exists, so it falls back
@@ -34,10 +34,10 @@ export class TtsProvider {
     if (!this.cfg.enabled || !this.cfg.baseUrl) return null;
     const clean = sanitize(text).slice(0, this.cfg.maxChars);
     if (clean.length === 0) return null;
-    // Kokoro clips the very end of the audio, cutting the last word. Append a short trailing pause
-    // (spoken as silence) so the real content finishes well before the clip point.
-    const input = `${clean} … … …`;
+    const input = clean;
     const voice = this.voiceFor(language);
+    const responseFormat =
+      this.cfg.format === 'opus' && this.cfg.ffmpegAvailable ? 'wav' : this.cfg.format;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.cfg.timeoutMs);
@@ -52,7 +52,7 @@ export class TtsProvider {
           model: this.cfg.model,
           input,
           voice,
-          response_format: this.cfg.format,
+          response_format: responseFormat,
           speed: this.cfg.speed,
         }),
       });
@@ -61,9 +61,9 @@ export class TtsProvider {
         return null;
       }
       const audio = Buffer.from(await res.arrayBuffer());
-      // OGG/Opus straight from the server is Telegram-ready: NO local ffmpeg needed (server-side
-      // encoding). Other formats (wav/mp3) are transcoded locally to OGG/Opus.
-      if (this.cfg.format === 'opus') {
+      // Kokoro-FastAPI has had truncated non-streaming Opus responses. When possible, request WAV
+      // from Kokoro and let local ffmpeg create the final Telegram Opus with a real silent tail.
+      if (this.cfg.format === 'opus' && responseFormat === 'opus') {
         // Kokoro returns an empty (~header-only) opus on very short inputs; treat tiny output as failure.
         if (audio.length < 1024) {
           log.warn(
@@ -72,10 +72,19 @@ export class TtsProvider {
           );
           return null;
         }
+        if (this.cfg.ffmpegAvailable) {
+          return await toTelegramVoice(this.cfg.ffmpegBin, audio, {
+            timeoutMs: this.cfg.timeoutMs,
+            tailPaddingMs: this.cfg.tailPaddingMs,
+          });
+        }
         return audio;
       }
       if (audio.length < 64) return null;
-      return await toTelegramVoice(this.cfg.ffmpegBin, audio, this.cfg.timeoutMs);
+      return await toTelegramVoice(this.cfg.ffmpegBin, audio, {
+        timeoutMs: this.cfg.timeoutMs,
+        tailPaddingMs: this.cfg.tailPaddingMs,
+      });
     } catch (err) {
       log.warn({ err }, 'tts synth failed');
       return null;

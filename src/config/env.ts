@@ -275,6 +275,7 @@ const envSchema = z.object({
   TTS_SPEED: floatFromString(1),
   TTS_MAX_CHARS: intFromString(600),
   TTS_TIMEOUT_MS: intFromString(30000),
+  TTS_TAIL_PADDING_MS: intFromString(600),
   // Probability of voicing a normal reply on its own (0..1). Voice replies to incoming voice are separate.
   TTS_AUTO_VOICE_PROBABILITY: floatFromString(0.12),
   // Always reply with voice when the user sent a voice message.

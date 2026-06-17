@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { loadEnv } from '../src/config/env.js';
 import { resolveVoiceConfig } from '../src/config/index.js';
+import { TtsProvider } from '../src/providers/voice/tts.js';
 import { voiceCommand } from '../src/telegram/handlers/commands/voice.js';
 import type { HandlerInput } from '../src/telegram/handlers/types.js';
 import type { ChatContext, Person } from '../src/domain/types.js';
@@ -28,8 +29,45 @@ describe('resolveVoiceConfig', () => {
   it('defaults voice/model knobs', () => {
     const v = resolveVoiceConfig(loadEnv(base));
     expect(v.tts.model).toBe('tts-1');
+    expect(v.tts.tailPaddingMs).toBe(600);
     expect(v.stt.language).toBe('auto');
     expect(v.stt.transcribeAll).toBe(true);
+  });
+});
+
+describe('TtsProvider', () => {
+  it('requests WAV from Kokoro when final Telegram format is opus and ffmpeg is available', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(Buffer.alloc(128), {
+        status: 200,
+        headers: { 'Content-Type': 'audio/wav' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const tts = new TtsProvider({
+      enabled: true,
+      baseUrl: 'http://tts.local',
+      model: 'tts-1',
+      voice: 'im_nicola',
+      apiKey: undefined,
+      format: 'opus',
+      speed: 1,
+      maxChars: 600,
+      timeoutMs: 100,
+      tailPaddingMs: 600,
+      autoVoiceProbability: 0,
+      replyToVoice: true,
+      ffmpegBin: '/bin/true',
+      ffmpegAvailable: true,
+    });
+
+    await tts.synth('ciao mondo', 'italian');
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.response_format).toBe('wav');
+
+    vi.unstubAllGlobals();
   });
 });
 
