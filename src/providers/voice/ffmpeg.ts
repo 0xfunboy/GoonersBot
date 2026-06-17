@@ -81,6 +81,41 @@ export function toTelegramVoice(
   );
 }
 
+export interface FileVoiceOptions {
+  /** hard cap on output duration in seconds (longer input is truncated) */
+  maxDurationSec?: number;
+  timeoutMs?: number;
+  /** opus bitrate (music wants more than the 32k used for speech) */
+  bitrate?: string;
+}
+
+/**
+ * Transcode an audio FILE (any container yt-dlp produced) → Telegram-ready OGG/Opus (48 kHz mono),
+ * optionally truncated to `maxDurationSec`. Reading from a seekable file handles every container.
+ */
+export function fileToTelegramVoice(
+  bin: string,
+  inputPath: string,
+  opts: FileVoiceOptions = {},
+): Promise<Buffer> {
+  const args = ['-hide_banner', '-loglevel', 'error', '-i', inputPath, '-vn'];
+  if (opts.maxDurationSec && opts.maxDurationSec > 0) args.push('-t', String(opts.maxDurationSec));
+  args.push(
+    '-c:a',
+    'libopus',
+    '-b:a',
+    opts.bitrate ?? '48k',
+    '-ar',
+    '48000',
+    '-ac',
+    '1',
+    '-f',
+    'ogg',
+    'pipe:1',
+  );
+  return runFfmpeg(bin, args, Buffer.alloc(0), opts.timeoutMs ?? 60000);
+}
+
 const WHISPER_WAV_ARGS = ['-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', '-f', 'wav', 'pipe:1'];
 
 /** Transcode arbitrary audio bytes (from stdin) → 16 kHz mono PCM WAV (whisper.cpp input). */

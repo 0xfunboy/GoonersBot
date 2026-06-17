@@ -11,6 +11,7 @@ import {
 } from './facts.js';
 import { brainCommand, debuglastCommand } from './debug.js';
 import { voiceCommand } from './voice.js';
+import { playCommand, singCommand } from './music.js';
 import { translateCommand } from './translate.js';
 import {
   conversationtrackerCommand,
@@ -49,6 +50,8 @@ export const commandHandlers: CommandSpec[] = [
   languageCommand,
   tosCommand,
   voiceCommand,
+  playCommand,
+  singCommand,
   translateCommand,
   brainCommand,
   debuglastCommand,

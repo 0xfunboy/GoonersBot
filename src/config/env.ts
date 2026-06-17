@@ -303,6 +303,18 @@ const envSchema = z.object({
   STT_TIMEOUT_MS: intFromString(60000),
   // Transcribe every incoming voice message (not only when the bot is addressed).
   STT_TRANSCRIBE_ALL: boolFromString(true),
+
+  // Music: /sing /play (and natural language: "mi canti X", "suona X", "play X", "cántame X").
+  // Searches YouTube via yt-dlp, extracts up to MUSIC_MAX_DURATION_SECONDS of audio, converts to
+  // OGG/Opus and sends it as a voice note. Needs the yt-dlp binary + ffmpeg.
+  MUSIC_ENABLED: boolFromString(true),
+  YTDLP_BIN: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() ? v.trim() : 'vendor/bin/yt-dlp')),
+  MUSIC_MAX_DURATION_SECONDS: intFromString(720), // 12 minutes
+  MUSIC_TIMEOUT_MS: intFromString(240000), // search + download + transcode budget
+  MUSIC_PROXY: z.string().optional(), // optional outbound proxy for yt-dlp
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -59,6 +59,7 @@
 - Free grounding: web search and reverse-image lookup via a self-hosted SearXNG, no API keys.
 - Image sending: fetches a waifu/anime image online and vision-checks it before posting.
 - Autonomous posting: timed, opt-in takes on current events (RSS) or a commented image, plus `/news`.
+- Music: `/play` and `/sing` (or natural language like "mi canti X", "suona X", "play X", "cantame X") search YouTube, extract the audio and send it as a voice note.
 - Translation: `/translate` (alias `/traduci`) translates the replied message into any language.
 - NSFW routing to a separate uncensored model, decided before generation, with a refusal backstop.
 - Pluggable LLM backends (solclawn, OpenAI, DeepSeek, Ollama, any OpenAI-compatible host) with an
@@ -192,6 +193,8 @@ illegal, no doxxing. NSFW is opt-in per chat and meant for private, consenting a
 | `/forget` | reply / admin | reply to forget lore mined from a message; admin `/forget <id>` |
 | `/translate <language>` | anyone | translate the replied message (alias `/traduci`) |
 | `/voice` | anyone | turn the last message, or the replied one, into a voice note |
+| `/play <query>` | anyone | search YouTube and send the audio as a voice note (aliases `/suona`, `/riproduci`) |
+| `/sing <query>` | anyone | same as `/play`, phrased for songs (aliases `/canta`, `/cantami`) |
 | `/news` | anyone | force an autonomous post now (alias `/nuovo`) |
 | `/autopost` | admin | toggle timed autonomous posts in this chat |
 | `/usage` | anyone | your usage and limits |
@@ -257,6 +260,31 @@ STT_ENABLED=true                 # paths default to the vendor/ build
 Verify the round-trip with `pnpm tsx scripts/smoke-voice.ts`. The default whisper model is `base`
 (multilingual, ~142 MB); set `WHISPER_MODEL` to `small` for better Italian at a bit more CPU. No GPU
 required.
+
+---
+
+## Music (/play and /sing)
+
+The bot can fetch a track from YouTube and send it as a voice note. It searches with yt-dlp,
+downloads the best audio, trims to `MUSIC_MAX_DURATION_SECONDS` (12 minutes by default) and
+transcodes to Telegram OGG/Opus.
+
+- Commands: `/play <query>` (aliases `/suona`, `/riproduci`, `/reproduce`) and `/sing <query>`
+  (aliases `/canta`, `/cantami`, `/cantame`). Used as a reply with no query, the replied message's
+  text becomes the query. A direct YouTube URL also works.
+- Natural language (Italian, English, Spanish), recognized when the bot is addressed
+  (mention or reply): "mi fai sentire X", "mi canti X", "suona X", "play X", "sing me X",
+  "let me hear X", "cantame X", "ponme X", "reproduce X".
+- yt-dlp is installed into `vendor/bin/` by `scripts/setup-voice.sh` (alongside ffmpeg). Both are
+  required; if either is missing the feature reports as unavailable and the rest of the bot is
+  unaffected.
+
+```bash
+# Provisioned by scripts/setup-voice.sh; relevant .env knobs:
+MUSIC_ENABLED=true
+YTDLP_BIN=vendor/bin/yt-dlp
+MUSIC_MAX_DURATION_SECONDS=720   # 12 minutes
+```
 
 ---
 

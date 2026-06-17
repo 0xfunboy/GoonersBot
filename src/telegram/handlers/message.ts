@@ -6,9 +6,14 @@ import type { AddMessageMeta } from '../../storage/repositories/messages.js';
 import { termsKeyboard, termsHeader } from './shared.js';
 import { localizeResponse, sendResponse, scheduleDelete } from '../render.js';
 import { fingerprint } from '../../utils/text.js';
+import { parseMusicRequest } from '../../services/musicIntent.js';
 import { childLogger } from '../../utils/logger.js';
 
 const log = childLogger('message');
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
 export interface MessageDeps {
   services: Services;
@@ -120,6 +125,45 @@ export async function handleMessage(
       log.info({ chatId: context.chatId }, 'replied media transcription empty (muted / no speech)');
     }
     message.repliedAudioBuffer = undefined; // consumed (keep repliedVideoBuffer for the vision frame)
+  }
+
+  // Natural-language music request ("mi canti X", "suona X", "play X", "cántame X"): when the bot is
+  // addressed, fetch the track from YouTube and reply with a voice note, bypassing the brain pipeline.
+  if (addressed && services.music.enabled) {
+    const songQuery = parseMusicRequest(message.messageText, botUsername);
+    if (songQuery) {
+      await ctx.replyWithChatAction('record_voice').catch(() => undefined);
+      const result = await services.music.fetch(songQuery);
+      const replyTo = ctx.message?.message_id;
+      const replyOpts = replyTo ? { reply_parameters: { message_id: replyTo } } : {};
+      if (result) {
+        const caption = result.url
+          ? `🎵 <a href="${result.url}">${escapeHtml(result.title)}</a>`
+          : `🎵 ${escapeHtml(result.title)}`;
+        await ctx
+          .replyWithVoice(new InputFile(result.ogg), { ...replyOpts, caption, parse_mode: 'HTML' })
+          .catch((err) => log.warn({ err }, 'music voice send failed'));
+      } else {
+        const localized = await localizeResponse(services, context.chatId, {
+          text: 'music_not_found',
+          vars: { query: songQuery },
+        });
+        await sendResponse(ctx, localized);
+      }
+      // keep the request in context so the conversation stays coherent
+      await services.conversation.addUserMessage(
+        context.chatId,
+        person.userHandle,
+        {
+          messageText: message.messageText || null,
+          timestamp: message.timestamp,
+          imageDescription: null,
+          voiceDescription: null,
+        },
+        metaOf(person, context),
+      );
+      return;
+    }
   }
 
   const decision = await services.autoengage.decide(

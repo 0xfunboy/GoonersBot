@@ -298,6 +298,40 @@ export function resolveAutoConfig(env: Env): AutoConfig {
   };
 }
 
+/** Music fetcher (/sing /play + natural language) config. */
+export interface MusicConfig {
+  enabled: boolean;
+  ytdlpBin: string;
+  ffmpegBin: string;
+  ffmpegAvailable: boolean;
+  maxDurationSeconds: number;
+  timeoutMs: number;
+  proxy: string | undefined;
+}
+
+export function resolveMusicConfig(env: Env): MusicConfig {
+  const resolve = (p: string): string => (isAbsolute(p) ? p : pathJoin(process.cwd(), p));
+  const exists = (p: string): boolean => {
+    try {
+      return statSync(p).isFile();
+    } catch {
+      return false;
+    }
+  };
+  const ffmpegBin = resolve(env.FFMPEG_BIN);
+  const ffmpegAvailable = exists(ffmpegBin);
+  const ytdlpBin = resolve(env.YTDLP_BIN);
+  return {
+    enabled: env.MUSIC_ENABLED && ffmpegAvailable && exists(ytdlpBin),
+    ytdlpBin,
+    ffmpegBin,
+    ffmpegAvailable,
+    maxDurationSeconds: env.MUSIC_MAX_DURATION_SECONDS,
+    timeoutMs: env.MUSIC_TIMEOUT_MS,
+    proxy: env.MUSIC_PROXY,
+  };
+}
+
 export interface AppConfig {
   env: Env;
   llm: LLMConfig;
@@ -305,6 +339,7 @@ export interface AppConfig {
   voice: VoiceConfig;
   search: SearchConfig;
   auto: AutoConfig;
+  music: MusicConfig;
 }
 
 export function loadConfig(): AppConfig {
@@ -316,5 +351,6 @@ export function loadConfig(): AppConfig {
     voice: resolveVoiceConfig(env),
     search: resolveSearchConfig(env),
     auto: resolveAutoConfig(env),
+    music: resolveMusicConfig(env),
   };
 }

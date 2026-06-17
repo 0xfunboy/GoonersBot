@@ -21,6 +21,14 @@ if [ ! -x "$VENDOR/bin/ffmpeg" ]; then
 fi
 echo "ffmpeg: $("$VENDOR/bin/ffmpeg" -version | head -1)"
 
+# ---- yt-dlp (standalone, no python needed) for /sing /play music ----
+if [ ! -x "$VENDOR/bin/yt-dlp" ]; then
+  echo "==> downloading yt-dlp"
+  curl -sL -o "$VENDOR/bin/yt-dlp" https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux
+  chmod +x "$VENDOR/bin/yt-dlp"
+fi
+echo "yt-dlp: $("$VENDOR/bin/yt-dlp" --version 2>/dev/null | head -1)"
+
 # ---- cmake (portable, only if not on PATH) ----
 CMAKE=cmake
 if ! command -v cmake >/dev/null 2>&1; then

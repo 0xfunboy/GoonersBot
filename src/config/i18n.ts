@@ -233,6 +233,36 @@ export const translations: TranslationMap = {
     russian: 'Синтез речи сломался. Попробуй снова.',
     spanish: 'La síntesis de voz falló. Inténtalo de nuevo.',
   },
+  play_description: {
+    italian: 'Cerca un brano su YouTube e lo manda come vocale (es. /play despacito)',
+    english: 'Search YouTube for a track and send it as a voice note (e.g. /play despacito)',
+    russian: 'Найти трек на YouTube и прислать голосовым (напр. /play despacito)',
+    spanish: 'Busca una canción en YouTube y la envía como nota de voz (p. ej. /play despacito)',
+  },
+  sing_description: {
+    italian: 'Come /play: ti canta un brano da YouTube (es. /sing piccola kitty)',
+    english: 'Like /play: sings you a YouTube track (e.g. /sing piccola kitty)',
+    russian: 'Как /play: споёт трек с YouTube (напр. /sing piccola kitty)',
+    spanish: 'Como /play: te canta una canción de YouTube (p. ej. /sing piccola kitty)',
+  },
+  music_unavailable: {
+    italian: 'Il modulo musica non è configurato (manca yt-dlp o ffmpeg).',
+    english: 'The music module is not configured (yt-dlp or ffmpeg missing).',
+    russian: 'Музыкальный модуль не настроен (нет yt-dlp или ffmpeg).',
+    spanish: 'El módulo de música no está configurado (falta yt-dlp o ffmpeg).',
+  },
+  music_none: {
+    italian: 'E cosa ti suono, il silenzio? Dimmi un titolo: /play <brano>.',
+    english: 'And what do I play, silence? Give me a title: /play <track>.',
+    russian: 'И что мне играть, тишину? Назови трек: /play <название>.',
+    spanish: '¿Y qué te toco, el silencio? Dime un título: /play <canción>.',
+  },
+  music_not_found: {
+    italian: 'Non ho trovato un cazzo per "{query}". Prova con un altro titolo.',
+    english: "Found jack shit for \"{query}\". Try another title.",
+    russian: 'Ни хрена не нашёл по "{query}". Попробуй другое название.',
+    spanish: 'No encontré una mierda para "{query}". Prueba con otro título.',
+  },
   translate_description: {
     italian: 'Traduci il messaggio in reply nella lingua indicata (es. /translate spagnolo)',
     english: 'Translate the replied message into the given language (e.g. /translate spanish)',
