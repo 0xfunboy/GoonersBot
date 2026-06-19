@@ -143,7 +143,14 @@ export class Services {
       config.search.timeoutMs,
       config.auto.newsMaxAgeHours,
     );
-    this.autonomousPoster = new AutonomousPoster(llm, news, this.imageFinder, config);
+    this.autonomousPoster = new AutonomousPoster(
+      llm,
+      news,
+      this.imageFinder,
+      config,
+      storage,
+      this.lore,
+    );
     this.heat = new HeatService(storage.userHeat, {
       enabled: env.HEAT_ENABLED,
       baseline: env.HEAT_BASELINE,

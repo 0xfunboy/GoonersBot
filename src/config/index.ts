@@ -267,6 +267,10 @@ const DEFAULT_IMAGE_QUERIES = [
 
 // Italy + international, all with reliable pubDate and frequent updates (no stale-entry feeds).
 const DEFAULT_RSS_FEEDS = [
+  'https://feeds.feedburner.com/TheHackersNews',
+  'https://www.bleepingcomputer.com/feed/',
+  'https://techcrunch.com/category/artificial-intelligence/feed/',
+  'https://www.coindesk.com/arc/outboundfeeds/rss/',
   'https://www.ansa.it/sito/ansait_rss.xml',
   'https://www.repubblica.it/rss/homepage/rss2.0.xml',
   'https://feeds.bbci.co.uk/news/world/rss.xml',

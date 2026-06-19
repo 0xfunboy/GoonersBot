@@ -15,7 +15,10 @@ export const newsCommand: CommandSpec = {
   async handle({ services, context }: HandlerInput): Promise<CommandResponse | null> {
     if (!services.autonomousPoster.enabled) return { text: 'news_unavailable' };
     const language = await services.getLanguage(context.chatId);
-    const post = await services.autonomousPoster.compose(language, 'news');
+    const post = await services.autonomousPoster.compose(language, 'news', {
+      chatId: context.chatId,
+      chatName: context.chatName,
+    });
     if (!post) return { text: 'news_unavailable' };
     const resp: CommandResponse = {};
     if (post.imageBuffer) resp.imageBuffer = post.imageBuffer; // text becomes the photo caption

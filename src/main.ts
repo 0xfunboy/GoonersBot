@@ -38,7 +38,9 @@ async function main(): Promise<void> {
     const chats = await storage.chats.listForAutopost();
     for (const c of chats) {
       if (Math.random() >= config.auto.autopostProbability) continue;
-      const post = await services.autonomousPoster.compose(c.language);
+      const post = await services.autonomousPoster.compose(c.language, undefined, {
+        chatId: c.chatId,
+      });
       if (!post) continue;
       try {
         if (post.imageBuffer) {

@@ -11,6 +11,84 @@ export interface NewsItem {
   publishedAt?: number;
 }
 
+export interface NewsRankingProfile {
+  /** Stable chat identity/name, useful only for debug/log context. */
+  chatName?: string | undefined;
+  /** Terms inferred from recent chat messages and durable lore. */
+  dynamicTerms?: string[] | undefined;
+  /** Lore snippets used to bias the ranker toward the group's actual culture. */
+  lore?: string[] | undefined;
+}
+
+export interface RankedNewsItem extends NewsItem {
+  score: number;
+  matchedTopics: string[];
+  matchedTerms: string[];
+}
+
+const TOPIC_RULES: { topic: string; weight: number; terms: RegExp[] }[] = [
+  {
+    topic: 'AI',
+    weight: 3.5,
+    terms: [
+      /\b(ai|artificial intelligence|intelligenza artificiale|llm|gpt|openai|gemini|claude|ollama)\b/i,
+      /\b(model|modello|neural|machine learning|deep learning|generative|prompt|token|inference)\b/i,
+    ],
+  },
+  {
+    topic: 'cybersecurity',
+    weight: 3.4,
+    terms: [
+      /\b(cyber|security|sicurezza|hacker|hackers|hacking|malware|ransomware|phishing|exploit)\b/i,
+      /\b(vulnerability|vulnerabilit|cve|zero-day|breach|data leak|password|botnet|infosec)\b/i,
+    ],
+  },
+  {
+    topic: 'waifu/anime',
+    weight: 3.2,
+    terms: [
+      /\b(waifu|anime|manga|vtuber|cosplay|gacha|hentai|ahegao|kawaii|best girl)\b/i,
+      /\b(japan|giappone|tokyo|nintendo|playstation|gaming|otaku|idol)\b/i,
+    ],
+  },
+  {
+    topic: 'finance/crypto',
+    weight: 2.6,
+    terms: [
+      /\b(finance|finanza|market|markets|borsa|stock|stocks|crypto|bitcoin|ethereum|solana)\b/i,
+      /\b(etf|fed|inflation|inflazione|trading|bond|yield|wallet|token|defi|memecoin)\b/i,
+    ],
+  },
+  {
+    topic: 'dating/social chaos',
+    weight: 1.9,
+    terms: [
+      /\b(dating|tinder|onlyfans|instagram|tiktok|influencer|creator|sex|nsfw|adult)\b/i,
+      /\b(figa|ragazza|ragazze|donna|donne|relazioni|relationship|appuntamenti)\b/i,
+    ],
+  },
+];
+
+const BASE_GOONERS_TERMS = [
+  'waifu',
+  'anime',
+  'manga',
+  'cybersecurity',
+  'sicurezza',
+  'hacker',
+  'malware',
+  'AI',
+  'LLM',
+  'OpenAI',
+  'Gemini',
+  'Ollama',
+  'finanza',
+  'crypto',
+  'bitcoin',
+  'figa',
+  'dating',
+];
+
 /**
  * Minimal RSS/Atom reader (no dependencies): fetches the configured feeds and returns ONLY items
  * published within `maxAgeHours`, newest first. Parsing is regex-based and degrades to [] on junk.
@@ -31,11 +109,18 @@ export class NewsService {
   async recent(perFeed = 12): Promise<NewsItem[]> {
     const lists = await Promise.all(this.feeds.map((f) => this.fetchFeed(f, perFeed)));
     const cutoff = Date.now() - this.maxAgeHours * 3600_000;
+    const today = startOfUtcDay(Date.now());
     const seen = new Set<string>();
     const out: NewsItem[] = [];
     for (const list of lists) {
       for (const item of list) {
-        if (item.publishedAt === undefined || item.publishedAt < cutoff) continue;
+        if (
+          item.publishedAt === undefined ||
+          item.publishedAt < cutoff ||
+          item.publishedAt < today
+        ) {
+          continue;
+        }
         const key = item.title.toLowerCase().slice(0, 60);
         if (seen.has(key)) continue;
         seen.add(key);
@@ -46,12 +131,19 @@ export class NewsService {
     return out;
   }
 
-  /** A random pick among the freshest recent items (weighted to the most recent). */
-  async pickOne(): Promise<NewsItem | null> {
+  /** Fresh items ranked for the target chat/group. */
+  async ranked(profile: NewsRankingProfile = {}, perFeed = 16): Promise<RankedNewsItem[]> {
+    const items = await this.recent(perFeed);
+    return rankNews(items, profile);
+  }
+
+  /** A pick among fresh, on-theme recent items. */
+  async pickOne(profile: NewsRankingProfile = {}): Promise<RankedNewsItem | null> {
     const items = await this.recent();
     if (items.length === 0) return null;
-    // pick among the top 10 freshest so it stays recent but not always the exact same headline
-    return items[Math.floor(Math.random() * Math.min(items.length, 10))] ?? null;
+    const ranked = rankNews(items, profile);
+    const pool = ranked.slice(0, Math.min(ranked.length, 5));
+    return weightedPick(pool);
   }
 
   private async fetchFeed(url: string, limit: number): Promise<NewsItem[]> {
@@ -76,6 +168,113 @@ export class NewsService {
     }
   }
 }
+
+export function rankNews(items: NewsItem[], profile: NewsRankingProfile = {}): RankedNewsItem[] {
+  const dynamicTerms = normalizeTerms([
+    ...BASE_GOONERS_TERMS,
+    ...(profile.dynamicTerms ?? []),
+    ...(profile.lore ?? []),
+  ]);
+  const newest = Math.max(0, ...items.map((i) => i.publishedAt ?? 0));
+  const sixHours = 6 * 3600_000;
+
+  return items
+    .map((item) => {
+      const haystack = `${item.title} ${item.summary} ${item.source}`.toLowerCase();
+      const matchedTopics: string[] = [];
+      const matchedTerms: string[] = [];
+      let score = 0;
+
+      for (const rule of TOPIC_RULES) {
+        const hits = rule.terms.filter((r) => r.test(haystack)).length;
+        if (hits > 0) {
+          matchedTopics.push(rule.topic);
+          score += rule.weight + Math.min(1.5, hits * 0.5);
+        }
+      }
+
+      for (const term of dynamicTerms) {
+        if (term.length < 3) continue;
+        if (haystack.includes(term.toLowerCase())) {
+          matchedTerms.push(term);
+          score += term.length > 6 ? 0.9 : 0.45;
+        }
+      }
+
+      const age = newest > 0 && item.publishedAt ? newest - item.publishedAt : 0;
+      score += Math.max(0, 2 - age / sixHours);
+      if (matchedTopics.length === 0 && matchedTerms.length === 0) score -= 2.5;
+
+      return { ...item, score, matchedTopics, matchedTerms: matchedTerms.slice(0, 8) };
+    })
+    .sort((a, b) => b.score - a.score || (b.publishedAt ?? 0) - (a.publishedAt ?? 0));
+}
+
+function weightedPick(items: RankedNewsItem[]): RankedNewsItem | null {
+  if (items.length === 0) return null;
+  const min = Math.min(...items.map((i) => i.score));
+  const weights = items.map((i) => Math.max(0.25, i.score - min + 0.5));
+  const total = weights.reduce((a, b) => a + b, 0);
+  let roll = Math.random() * total;
+  for (let i = 0; i < items.length; i += 1) {
+    roll -= weights[i] ?? 0;
+    if (roll <= 0) return items[i] ?? null;
+  }
+  return items[0] ?? null;
+}
+
+function normalizeTerms(terms: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of terms) {
+    for (const term of raw.split(/[^a-zA-Z0-9À-ÿ+#.]+/)) {
+      const cleaned = term.trim();
+      if (cleaned.length < 3 || STOPWORDS.has(cleaned.toLowerCase())) continue;
+      const key = cleaned.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(cleaned);
+      if (out.length >= 80) return out;
+    }
+  }
+  return out;
+}
+
+function startOfUtcDay(now: number): number {
+  const d = new Date(now);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+const STOPWORDS = new Set([
+  'che',
+  'con',
+  'del',
+  'della',
+  'delle',
+  'degli',
+  'gli',
+  'per',
+  'una',
+  'uno',
+  'the',
+  'and',
+  'for',
+  'you',
+  'are',
+  'from',
+  'this',
+  'that',
+  'have',
+  'has',
+  'not',
+  'but',
+  'come',
+  'sono',
+  'non',
+  'sul',
+  'nel',
+  'tra',
+]);
 
 /** Parse RSS <item> or Atom <entry> blocks into NewsItems (with publishedAt when present). */
 export function parseFeed(xml: string, source: string): NewsItem[] {

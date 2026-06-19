@@ -1,7 +1,9 @@
 import type { AppConfig } from '../config/index.js';
+import type { Storage } from '../storage/index.js';
 import type { LLMProvider } from '../providers/llm/types.js';
 import type { NewsService } from '../news/newsService.js';
 import type { ImageFinder } from '../media/imageFinder.js';
+import type { LoreEngine } from '../memory/loreEngine.js';
 import { buildGeneratorSystem } from '../prompts/generator.js';
 import { childLogger } from '../utils/logger.js';
 
@@ -42,6 +44,8 @@ export class AutonomousPoster {
     private readonly news: NewsService,
     private readonly images: ImageFinder,
     private readonly config: AppConfig,
+    private readonly storage: Storage,
+    private readonly lore: LoreEngine,
   ) {}
 
   get enabled(): boolean {
@@ -49,7 +53,11 @@ export class AutonomousPoster {
   }
 
   /** Compose a post for a chat. `prefer` forces a kind (used by /news); otherwise rolls by config. */
-  async compose(language: string, prefer?: 'news' | 'image'): Promise<AutoPost | null> {
+  async compose(
+    language: string,
+    prefer?: 'news' | 'image',
+    context?: { chatId?: number | undefined; chatName?: string | undefined },
+  ): Promise<AutoPost | null> {
     const wantImage =
       prefer === 'image' ||
       (prefer !== 'news' &&
@@ -60,7 +68,7 @@ export class AutonomousPoster {
       const post = await this.imagePost(language);
       if (post) return post;
     }
-    const news = await this.newsPost(language);
+    const news = await this.newsPost(language, context);
     if (news) return news;
     // if news failed but images are on and we didn't already try them, fall back to an image
     if (!wantImage && this.images.enabled) return this.imagePost(language);
@@ -79,19 +87,38 @@ export class AutonomousPoster {
     return post;
   }
 
-  private async newsPost(language: string): Promise<AutoPost | null> {
+  private async newsPost(
+    language: string,
+    context?: { chatId?: number | undefined; chatName?: string | undefined },
+  ): Promise<AutoPost | null> {
     if (!this.news.enabled) return null;
-    const item = await this.news.pickOne();
+    const profile = await this.newsProfile(context);
+    const item = await this.news.pickOne(profile);
     if (!item) return null;
+    log.info(
+      {
+        chatId: context?.chatId,
+        title: item.title,
+        source: item.source,
+        score: Number(item.score.toFixed(2)),
+        matchedTopics: item.matchedTopics,
+        matchedTerms: item.matchedTerms.slice(0, 5),
+      },
+      'picked ranked news item',
+    );
     const comment = await this.styledLine(
       language,
       'You JUST read this news (it is from the last few hours). Talk to the group like you just saw ' +
         'it: open by telling them what happened in your own words and drop the LINK inline right in ' +
         'the first sentence (paste the raw URL inline, not at the bottom), then a sharp, witty, ' +
         'intelligent in-character rant. No preamble, no "ecco"/"here is", no neutral summary, do not ' +
+        'Connect the take to the group taste when it fits: waifu/anime, cybersecurity, AI, finance, ' +
+        'crypto, or horny social chaos. Do not force a connection if the headline cannot support it. ' +
         'announce that you read news. ' +
         'HARD LIMIT: stay UNDER 600 characters total and ALWAYS finish your last sentence (a clean ' +
         'punchline) - never get cut off, never trail into "...". Be punchy, not didascalic. ' +
+        `Why this was selected: topics=${item.matchedTopics.join(', ') || 'freshness only'}; ` +
+        `terms=${item.matchedTerms.slice(0, 6).join(', ') || 'none'}. ` +
         `Headline: "${item.title}". ${item.summary ? `Context: "${item.summary}". ` : ''}` +
         `LINK to paste inline: ${item.link}`,
       600,
@@ -102,6 +129,36 @@ export class AutonomousPoster {
     const post: AutoPost = { text };
     if (item.link) post.link = item.link;
     return post;
+  }
+
+  private async newsProfile(context?: {
+    chatId?: number | undefined;
+    chatName?: string | undefined;
+  }): Promise<{ chatName?: string | undefined; dynamicTerms: string[]; lore: string[] }> {
+    if (!context?.chatId) {
+      return { chatName: context?.chatName, dynamicTerms: [], lore: [] };
+    }
+    try {
+      const [messages, lore] = await Promise.all([
+        this.storage.messages.getRecent(context.chatId, 80),
+        this.lore.topLore(context.chatId, 12),
+      ]);
+      const dynamicTerms = messages
+        .filter((m) => !m.isBot)
+        .flatMap((m) => [
+          m.message.messageText ?? '',
+          m.message.imageDescription ?? '',
+          m.message.voiceDescription ?? '',
+        ]);
+      return {
+        chatName: context.chatName,
+        dynamicTerms,
+        lore: lore.map((m) => m.text),
+      };
+    } catch (err) {
+      log.debug({ err, chatId: context.chatId }, 'news profile fallback');
+      return { chatName: context.chatName, dynamicTerms: [], lore: [] };
+    }
   }
 
   /** Generate an in-character message via the persona system prompt. `maxChars` caps the output. */
