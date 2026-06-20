@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { childLogger } from '../../utils/logger.js';
 import type { ImageResult, LLMProvider } from '../llm/types.js';
+import type { ImageGenerator } from '../image/stableDiffusion.js';
 import type { SttProvider } from '../voice/stt.js';
 import { extractVideoFrame } from '../voice/ffmpeg.js';
 
@@ -25,6 +26,7 @@ export class MediaProcessor {
     private readonly llm: LLMProvider,
     private readonly stt?: SttProvider,
     private readonly ffmpeg?: FfmpegConfig,
+    private readonly imageGenerator?: ImageGenerator,
   ) {}
 
   get canDescribeImage(): boolean {
@@ -63,7 +65,10 @@ export class MediaProcessor {
   }
 
   get canGenerateImage(): boolean {
-    return this.llm.capabilities.imageGeneration && typeof this.llm.generateImage === 'function';
+    return (
+      Boolean(this.imageGenerator?.enabled) ||
+      (this.llm.capabilities.imageGeneration && typeof this.llm.generateImage === 'function')
+    );
   }
 
   /** Describe an image; returns null when vision is unavailable. Retries once if the model is flaky. */
@@ -145,11 +150,13 @@ export class MediaProcessor {
 
   /** Generate an image; returns null when generation is unavailable or fails. */
   async generateImage(prompt: string): Promise<ImageResult | null> {
-    if (!this.canGenerateImage || !this.llm.generateImage) {
+    if (!this.canGenerateImage) {
       log.info('image generation capability unavailable - skipping');
       return null;
     }
     try {
+      if (this.imageGenerator?.enabled) return await this.imageGenerator.generate(prompt);
+      if (!this.llm.generateImage) return null;
       return await this.llm.generateImage({ prompt });
     } catch (err) {
       log.warn({ err }, 'image generation failed');

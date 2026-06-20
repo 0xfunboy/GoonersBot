@@ -252,6 +252,9 @@ export interface AutoConfig {
   autopostIntervalMinutes: number;
   autopostProbability: number;
   autopostImageRatio: number;
+  generatedImageAutopostEnabled: boolean;
+  generatedImageAutopostIntervalMinutes: number;
+  generatedImageAutopostProbability: number;
   rssFeeds: string[];
   newsMaxAgeHours: number;
 }
@@ -297,8 +300,41 @@ export function resolveAutoConfig(env: Env): AutoConfig {
     autopostIntervalMinutes: env.AUTOPOST_INTERVAL_MINUTES,
     autopostProbability: env.AUTOPOST_PROBABILITY,
     autopostImageRatio: env.AUTOPOST_IMAGE_RATIO,
+    generatedImageAutopostEnabled: env.GENERATED_IMAGE_AUTOPOST_ENABLED,
+    generatedImageAutopostIntervalMinutes: env.GENERATED_IMAGE_AUTOPOST_INTERVAL_MINUTES,
+    generatedImageAutopostProbability: env.GENERATED_IMAGE_AUTOPOST_PROBABILITY,
     rssFeeds: csv(env.RSS_FEEDS, DEFAULT_RSS_FEEDS),
     newsMaxAgeHours: env.NEWS_MAX_AGE_HOURS,
+  };
+}
+
+export interface StableDiffusionConfig {
+  enabled: boolean;
+  apiUrl: string;
+  animeModel: string;
+  realisticModel: string;
+  nsfwModel: string;
+  negativePrompt: string;
+  steps: number;
+  width: number;
+  height: number;
+  cfgScale: number;
+  timeoutMs: number;
+}
+
+export function resolveStableDiffusionConfig(env: Env): StableDiffusionConfig {
+  return {
+    enabled: env.SD_ENABLED && Boolean(env.SD_API_URL),
+    apiUrl: env.SD_API_URL.replace(/\/+$/, ''),
+    animeModel: env.SD_ANIME_MODEL,
+    realisticModel: env.SD_MODEL ?? env.SD_REALISTIC_MODEL,
+    nsfwModel: env.SD_NSFW_MODEL,
+    negativePrompt: env.SD_NEGATIVE_PROMPT,
+    steps: env.SD_STEPS,
+    width: env.SD_WIDTH,
+    height: env.SD_HEIGHT,
+    cfgScale: env.SD_CFG_SCALE,
+    timeoutMs: env.SD_TIMEOUT_MS,
   };
 }
 
@@ -343,6 +379,7 @@ export interface AppConfig {
   voice: VoiceConfig;
   search: SearchConfig;
   auto: AutoConfig;
+  stableDiffusion: StableDiffusionConfig;
   music: MusicConfig;
 }
 
@@ -355,6 +392,7 @@ export function loadConfig(): AppConfig {
     voice: resolveVoiceConfig(env),
     search: resolveSearchConfig(env),
     auto: resolveAutoConfig(env),
+    stableDiffusion: resolveStableDiffusionConfig(env),
     music: resolveMusicConfig(env),
   };
 }

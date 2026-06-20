@@ -20,6 +20,7 @@ import {
   autopostCommand,
 } from './toggles.js';
 import { newsCommand } from './news.js';
+import { imageCommand } from './image.js';
 import { nsfwCommand } from './nsfw.js';
 import { banCommand, unbanCommand } from './moderation.js';
 import { usageCommand, languageCommand, tosCommand, helpCommand } from './misc.js';
@@ -43,6 +44,7 @@ export const commandHandlers: CommandSpec[] = [
   autoengageCommand,
   autopostCommand,
   newsCommand,
+  imageCommand,
   nsfwCommand,
   banCommand,
   unbanCommand,

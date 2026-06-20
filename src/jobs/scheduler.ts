@@ -23,6 +23,8 @@ export class Scheduler {
     private readonly lore: LoreEngine,
     /** optional autonomous-posting tick (sends unprompted posts); needs the bot's send API */
     private readonly autopostTick?: () => Promise<void>,
+    /** independent generated-image posting tick; intentionally has separate enablement/pace */
+    private readonly generatedImageTick?: () => Promise<void>,
   ) {}
 
   start(): void {
@@ -48,7 +50,16 @@ export class Scheduler {
         this.safe('autopost', () => tick()),
       );
     }
-    log.info('scheduler started (cleanup + mining + feedback + autopost)');
+    if (this.config.auto.generatedImageAutopostEnabled && this.generatedImageTick) {
+      const tick = this.generatedImageTick;
+      this.every(this.config.auto.generatedImageAutopostIntervalMinutes * 60_000, 150_000, () =>
+        this.safe('generated-image-autopost', () => tick()),
+      );
+    }
+    log.info(
+      { generatedImageAutopostEnabled: this.config.auto.generatedImageAutopostEnabled },
+      'scheduler started (cleanup + mining + feedback + autopost)',
+    );
   }
 
   private every(intervalMs: number, firstDelayMs: number, fn: () => void): void {

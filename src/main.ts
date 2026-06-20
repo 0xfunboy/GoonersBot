@@ -57,7 +57,22 @@ async function main(): Promise<void> {
       }
     }
   };
-  const scheduler = new Scheduler(config, storage, services.lore, autopostTick);
+  const generatedImageTick = async (): Promise<void> => {
+    const chats = await storage.chats.listForAutopost();
+    for (const c of chats) {
+      if (Math.random() >= config.auto.generatedImageAutopostProbability) continue;
+      const post = await services.generatedImagePoster.compose(c.chatId);
+      if (!post) continue;
+      try {
+        await goonerBot.bot.api.sendPhoto(c.chatId, new InputFile(post.imageBuffer), {
+          caption: post.text,
+        });
+      } catch (err) {
+        log.warn({ err, chatId: c.chatId }, 'generated image autopost send failed');
+      }
+    }
+  };
+  const scheduler = new Scheduler(config, storage, services.lore, autopostTick, generatedImageTick);
   scheduler.start();
 
   // 7. Start polling.

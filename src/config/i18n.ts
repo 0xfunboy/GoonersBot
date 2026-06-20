@@ -149,6 +149,12 @@ export const translations: TranslationMap = {
     russian: 'Выдать мнение о событии дня (или вайфу)',
     spanish: 'Suelta una opinión sobre un hecho del día (o una waifu)',
   },
+  image_description: {
+    italian: "Genera un'immagine originale: /image <prompt>",
+    english: 'Generate an original image: /image <prompt>',
+    russian: 'Создать оригинальное изображение: /image <запрос>',
+    spanish: 'Genera una imagen original: /image <prompt>',
+  },
   ban_description: {
     italian: 'Banna un Gooner (solo admin)',
     english: 'Ban a Gooner (admin only)',
@@ -259,7 +265,7 @@ export const translations: TranslationMap = {
   },
   music_not_found: {
     italian: 'Non ho trovato un cazzo per "{query}". Prova con un altro titolo.',
-    english: "Found jack shit for \"{query}\". Try another title.",
+    english: 'Found jack shit for "{query}". Try another title.',
     russian: 'Ни хрена не нашёл по "{query}". Попробуй другое название.',
     spanish: 'No encontré una mierda para "{query}". Prueba con otro título.',
   },

@@ -139,6 +139,14 @@ export interface MediaDoc {
   createdAt: Date;
 }
 
+/** A reserved autonomous post. The unique key makes duplicate sends impossible per chat. */
+export interface AutopostHistoryDoc {
+  chatId: number;
+  kind: 'news' | 'image';
+  dedupeKey: string;
+  createdAt: Date;
+}
+
 export type JobStatus = 'pending' | 'running' | 'done' | 'failed';
 
 export interface JobDoc {

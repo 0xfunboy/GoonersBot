@@ -1,4 +1,5 @@
 import type { AppConfig } from '../config/index.js';
+import { createHash } from 'node:crypto';
 import type { Storage } from '../storage/index.js';
 import type { LLMProvider } from '../providers/llm/types.js';
 import type { NewsService } from '../news/newsService.js';
@@ -65,19 +66,24 @@ export class AutonomousPoster {
         Math.random() < this.config.auto.autopostImageRatio);
 
     if (wantImage && this.images.enabled) {
-      const post = await this.imagePost(language);
+      const post = await this.imagePost(language, context);
       if (post) return post;
     }
     const news = await this.newsPost(language, context);
     if (news) return news;
     // if news failed but images are on and we didn't already try them, fall back to an image
-    if (!wantImage && this.images.enabled) return this.imagePost(language);
+    if (!wantImage && this.images.enabled) {
+      return this.imagePost(language, context);
+    }
     return null;
   }
 
-  private async imagePost(language: string): Promise<AutoPost | null> {
+  private async imagePost(
+    language: string,
+    context?: { chatId?: number | undefined; chatName?: string | undefined },
+  ): Promise<AutoPost | null> {
     const img = await this.images.find();
-    if (!img) return null;
+    if (!img || !(await this.reserve(context?.chatId, 'image', imageKey(img.buffer)))) return null;
     const comment = await this.styledLine(
       language,
       `You are about to post this image in the group (you picked it). What you see: "${img.description}". ` +
@@ -93,7 +99,8 @@ export class AutonomousPoster {
   ): Promise<AutoPost | null> {
     if (!this.news.enabled) return null;
     const profile = await this.newsProfile(context);
-    const item = await this.news.pickOne(profile);
+    const candidates = await this.news.ranked(profile);
+    const item = await this.pickUnseenNews(candidates, context?.chatId);
     if (!item) return null;
     log.info(
       {
@@ -129,6 +136,31 @@ export class AutonomousPoster {
     const post: AutoPost = { text };
     if (item.link) post.link = item.link;
     return post;
+  }
+
+  private async pickUnseenNews(
+    candidates: Awaited<ReturnType<NewsService['ranked']>>,
+    chatId?: number,
+  ): Promise<Awaited<ReturnType<NewsService['ranked']>>[number] | null> {
+    for (const item of candidates.slice(0, 12)) {
+      const key = `news:${normalizeNewsKey(item.link || item.title)}`;
+      if (await this.reserve(chatId, 'news', key)) return item;
+    }
+    return null;
+  }
+
+  private async reserve(
+    chatId: number | undefined,
+    kind: 'news' | 'image',
+    key: string,
+  ): Promise<boolean> {
+    if (chatId === undefined) return true;
+    try {
+      return await this.storage.autopostHistory.reserve(chatId, kind, key);
+    } catch (err) {
+      log.warn({ err, chatId, kind }, 'autopost dedupe reservation failed');
+      return false;
+    }
   }
 
   private async newsProfile(context?: {
@@ -189,4 +221,17 @@ export class AutonomousPoster {
       return '';
     }
   }
+}
+
+function normalizeNewsKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[?#].*$/, '')
+    .replace(/\/+$/, '')
+    .slice(0, 500);
+}
+
+function imageKey(buffer: Buffer): string {
+  return `image:${createHash('sha256').update(buffer).digest('hex')}`;
 }

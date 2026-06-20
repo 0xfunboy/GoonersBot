@@ -122,6 +122,24 @@ const envSchema = z.object({
   IMAGE_SEND_PROBABILITY: floatFromString(0.15), // chance to attach an image on anime/waifu replies
   IMAGE_QUERY_POOL: z.string().optional(), // comma-separated query seeds (defaults provided)
 
+  // Stable Diffusion / Automatic1111 image generation. The endpoint returns base64 bitmap data.
+  SD_ENABLED: boolFromString(true),
+  SD_API_URL: z.string().default('http://192.168.178.87:7860'),
+  SD_MODEL: optStr, // legacy override for the default realistic checkpoint
+  SD_ANIME_MODEL: z.string().default('waiIllustriousSDXL_v170.safetensors'),
+  SD_REALISTIC_MODEL: z.string().default('majicmixRealistic_v7.safetensors'),
+  SD_NSFW_MODEL: z.string().default('ponyDiffusionV6XL_v6StartWithThisOne.safetensors'),
+  SD_NEGATIVE_PROMPT: z
+    .string()
+    .default(
+      'lowres, blurry, bad anatomy, extra fingers, watermark, text, logo, signature, child, loli, shota',
+    ),
+  SD_STEPS: intFromString(28),
+  SD_WIDTH: intFromString(768),
+  SD_HEIGHT: intFromString(768),
+  SD_CFG_SCALE: floatFromString(6.5),
+  SD_TIMEOUT_MS: intFromString(90_000),
+
   // Autonomous posting: every interval, with a probability, drop an unprompted line (a styled take
   // on a current event from RSS, or a commented waifu image). Also triggerable via /news (/nuovo).
   AUTOPOST_ENABLED: boolFromString(true),
@@ -129,6 +147,9 @@ const envSchema = z.object({
   AUTOPOST_INTERVAL_MINUTES: intFromString(10),
   AUTOPOST_PROBABILITY: floatFromString(0.05),
   AUTOPOST_IMAGE_RATIO: floatFromString(0.4), // share of autoposts that are a waifu image vs news
+  GENERATED_IMAGE_AUTOPOST_ENABLED: boolFromString(false), // keep off until generation quality is approved
+  GENERATED_IMAGE_AUTOPOST_INTERVAL_MINUTES: intFromString(10),
+  GENERATED_IMAGE_AUTOPOST_PROBABILITY: floatFromString(0.05),
   RSS_FEEDS: z.string().optional(), // comma-separated feed URLs (defaults provided)
   NEWS_MAX_AGE_HOURS: intFromString(12), // only surface items published within this many hours
 
