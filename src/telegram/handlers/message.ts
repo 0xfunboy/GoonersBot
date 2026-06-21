@@ -127,6 +127,41 @@ export async function handleMessage(
     message.repliedAudioBuffer = undefined; // consumed (keep repliedVideoBuffer for the vision frame)
   }
 
+  // Link-media rehost: if the message has media URLs, download and re-upload them as Telegram
+  // attachments. Unaddressed -> rehost and stop; addressed -> rehost + feed media context to the AI.
+  // Honors the per-chat /linkmedia toggle (on by default).
+  if (
+    services.linkMedia.enabled &&
+    message.messageText &&
+    (await services.storage.chats.getLinkMedia(context.chatId))
+  ) {
+    const linkMedia = await services.linkMedia
+      .handleMessage({ ctx, person, context, text: message.messageText, addressed })
+      .catch((err) => {
+        log.warn({ err }, 'link media handler failed');
+        return { handled: false } as { handled: boolean; injectedText?: string };
+      });
+
+    if (linkMedia.injectedText) {
+      message.messageText = `${message.messageText ? `${message.messageText}\n` : ''}[media context]: ${linkMedia.injectedText}`;
+    }
+
+    if (linkMedia.handled && !addressed) {
+      await services.conversation.addUserMessage(
+        context.chatId,
+        person.userHandle,
+        {
+          messageText: message.messageText || null,
+          timestamp: message.timestamp,
+          imageDescription: linkMedia.injectedText ?? null,
+          voiceDescription: null,
+        },
+        metaOf(person, context),
+      );
+      return;
+    }
+  }
+
   // Natural-language music request ("mi canti X", "suona X", "play X", "cántame X"): when the bot is
   // addressed, fetch the track from YouTube and reply with a voice note, bypassing the brain pipeline.
   if (addressed && services.music.enabled) {

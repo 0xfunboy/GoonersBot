@@ -388,6 +388,94 @@ export function resolveMusicConfig(env: Env): MusicConfig {
   };
 }
 
+/** Link-media rehost (download media from posted URLs, re-upload as Telegram attachments). */
+export interface LinkMediaConfig {
+  enabled: boolean;
+  autoRehost: boolean;
+  aiCommentEnabled: boolean;
+  commentOnlyWhenAddressed: boolean;
+  commentUnaddressedProbability: number;
+  maxUrlsPerMessage: number;
+  maxMediaPerUrl: number;
+  maxDownloadBytes: number;
+  maxUploadBytes: number;
+  maxDurationSeconds: number;
+  aiMaxDurationSeconds: number;
+  timeoutMs: number;
+  chatCooldownSeconds: number;
+  userCooldownSeconds: number;
+  tmpDir: string;
+  deleteOriginal: boolean;
+  allowedHosts: string[];
+  blockedHosts: string[];
+  nsfwAllow: boolean;
+  cookies: {
+    instagram: string | undefined;
+    tiktok: string | undefined;
+    facebook: string | undefined;
+    x: string | undefined;
+  };
+  proxy: string | undefined;
+  cacheTtlDays: number;
+  ffmpegBin: string;
+  ffmpegAvailable: boolean;
+  ytdlpBin: string;
+  ytdlpAvailable: boolean;
+  userAgent: string;
+}
+
+const LINK_MEDIA_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+
+export function resolveLinkMediaConfig(env: Env): LinkMediaConfig {
+  const resolve = (p: string): string => (isAbsolute(p) ? p : pathJoin(process.cwd(), p));
+  const exists = (p: string): boolean => {
+    try {
+      return statSync(p).isFile();
+    } catch {
+      return false;
+    }
+  };
+  const ffmpegBin = resolve(env.FFMPEG_BIN);
+  const ffmpegAvailable = exists(ffmpegBin);
+  const ytdlpBin = resolve(env.YTDLP_BIN);
+  const ytdlpAvailable = exists(ytdlpBin);
+  return {
+    enabled: env.LINK_MEDIA_ENABLED && ffmpegAvailable,
+    autoRehost: env.LINK_MEDIA_AUTO_REHOST,
+    aiCommentEnabled: env.LINK_MEDIA_AI_COMMENT_ENABLED,
+    commentOnlyWhenAddressed: env.LINK_MEDIA_COMMENT_ONLY_WHEN_ADDRESSED,
+    commentUnaddressedProbability: env.LINK_MEDIA_COMMENT_UNADDRESSED_PROBABILITY,
+    maxUrlsPerMessage: env.LINK_MEDIA_MAX_URLS_PER_MESSAGE,
+    maxMediaPerUrl: env.LINK_MEDIA_MAX_MEDIA_PER_URL,
+    maxDownloadBytes: env.LINK_MEDIA_MAX_DOWNLOAD_MB * 1024 * 1024,
+    maxUploadBytes: env.LINK_MEDIA_MAX_UPLOAD_MB * 1024 * 1024,
+    maxDurationSeconds: env.LINK_MEDIA_MAX_DURATION_SECONDS,
+    aiMaxDurationSeconds: env.LINK_MEDIA_AI_MAX_DURATION_SECONDS,
+    timeoutMs: env.LINK_MEDIA_TIMEOUT_MS,
+    chatCooldownSeconds: env.LINK_MEDIA_CHAT_COOLDOWN_SECONDS,
+    userCooldownSeconds: env.LINK_MEDIA_USER_COOLDOWN_SECONDS,
+    tmpDir: resolve(env.LINK_MEDIA_TMP_DIR),
+    deleteOriginal: env.LINK_MEDIA_DELETE_ORIGINAL,
+    allowedHosts: csv(env.LINK_MEDIA_ALLOWED_HOSTS, []),
+    blockedHosts: csv(env.LINK_MEDIA_BLOCKED_HOSTS, []),
+    nsfwAllow: env.LINK_MEDIA_NSFW_ALLOW,
+    cookies: {
+      instagram: env.LINK_MEDIA_COOKIES_INSTAGRAM,
+      tiktok: env.LINK_MEDIA_COOKIES_TIKTOK,
+      facebook: env.LINK_MEDIA_COOKIES_FACEBOOK,
+      x: env.LINK_MEDIA_COOKIES_X,
+    },
+    proxy: env.LINK_MEDIA_PROXY,
+    cacheTtlDays: env.LINK_MEDIA_CACHE_TTL_DAYS,
+    ffmpegBin,
+    ffmpegAvailable,
+    ytdlpBin,
+    ytdlpAvailable,
+    userAgent: LINK_MEDIA_USER_AGENT,
+  };
+}
+
 export interface AppConfig {
   env: Env;
   llm: LLMConfig;
@@ -397,6 +485,7 @@ export interface AppConfig {
   auto: AutoConfig;
   stableDiffusion: StableDiffusionConfig;
   music: MusicConfig;
+  linkMedia: LinkMediaConfig;
 }
 
 export function loadConfig(): AppConfig {
@@ -410,5 +499,6 @@ export function loadConfig(): AppConfig {
     auto: resolveAutoConfig(env),
     stableDiffusion: resolveStableDiffusionConfig(env),
     music: resolveMusicConfig(env),
+    linkMedia: resolveLinkMediaConfig(env),
   };
 }

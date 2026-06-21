@@ -60,6 +60,7 @@
 - Image sending: fetches a waifu/anime image online and vision-checks it before posting.
 - Autonomous posting: timed, opt-in takes on current events (RSS) or a commented image, plus `/news`.
 - Music: `/play` and `/sing` (or natural language like "mi canti X", "suona X", "play X", "cantame X") search YouTube, extract the audio and send it as a voice note.
+- Link media rehost: when a media URL is posted, the bot re-uploads it as a native Telegram attachment. Video streams (YouTube, TikTok, adult/cam, ...) are downloaded with yt-dlp; social posts (X, Instagram, Bluesky) are sent as images plus context (post text, likes, reposts). Results are cached by file_id, toggle per chat with `/linkmedia`.
 - Translation: `/translate` (alias `/traduci`) translates the replied message into any language.
 - NSFW routing to a separate uncensored model, decided before generation, with a refusal backstop.
 - Pluggable LLM backends (solclawn, OpenAI, DeepSeek, Ollama, any OpenAI-compatible host) with an
@@ -287,6 +288,61 @@ MUSIC_ENABLED=true
 YTDLP_BIN=vendor/bin/yt-dlp
 MUSIC_MAX_DURATION_SECONDS=720   # 12 minutes
 ```
+
+---
+
+## Link media rehost
+
+When someone posts a media URL in the group, the bot downloads the real content and re-uploads it as
+a native Telegram attachment (so it plays inline, with no preview-stripping), then caches the source
+URL to a Telegram file_id so the next post of the same link is instant. Toggle per chat with
+`/linkmedia` (admin; on by default).
+
+### Two paths, on purpose
+
+The bot treats video streams and social posts differently:
+
+- **Video streams -> the actual video, via yt-dlp.** YouTube/Shorts, TikTok, Vimeo, Streamable,
+  Twitch clips, Facebook, Dailymotion, Kick, Reddit video, and adult/cam sites are handled by the
+  vendored `yt-dlp` binary (the same one `/play` uses). It picks the best clip up to 720p, merges
+  video+audio with ffmpeg, and respects the size and duration caps. yt-dlp covers ~1800 sites, so
+  most "here is a video" links just work. Reddit video specifically goes through yt-dlp because
+  Reddit serves video and audio as separate tracks that must be merged.
+- **Social posts -> image(s) + context, no video.** X/Twitter (via the fxtwitter compatibility
+  API), Instagram, and Bluesky are sent as the post image(s) with a caption that carries the
+  context: the post text, the author, and the engagement counts (likes, reposts, replies, views).
+  A video-only tweet is rehosted as its thumbnail plus that context, never the clip. This is
+  deliberate: for social we want the gist and the numbers, not a re-upload of every video.
+
+Direct file links (`.mp4`, `.gif`, `.jpg`, `.mp3`, ...), Imgur, Giphy and Tenor are fetched
+directly; anything else falls back to a generic OpenGraph/JSON-LD scan.
+
+### Behaviour and safety
+
+- Scope is deliberately small: a couple of links per message, a few files at most, with hard caps on
+  count, size and duration. It is not a profile/feed crawler.
+- ffmpeg normalizes downloaded video to H.264/AAC mp4, GIFs to muted mp4 animations, audio to mp3.
+  (yt-dlp output that is already a small mp4 is uploaded as-is to save a re-encode.)
+- Short clips can be transcribed (STT) or frame-described (vision); that, plus the social post text
+  and stats, is fed to the brain when the bot is tagged, so it can actually comment on the link.
+- SSRF-guarded: only http/https, and hosts resolving to localhost/private/link-local/cloud-metadata
+  addresses are refused. Per-chat and per-user cooldowns prevent spam.
+- **Adult/cam** sites are supported but gated: they are skipped unless `LINK_MEDIA_NSFW_ALLOW=true`.
+  Live cam streams (no fixed duration) are not captured, only recorded videos.
+
+```bash
+# Relevant .env knobs (full list in .env.example):
+LINK_MEDIA_ENABLED=true
+LINK_MEDIA_NSFW_ALLOW=false        # set true to allow adult/cam video hosts
+LINK_MEDIA_MAX_URLS_PER_MESSAGE=2
+LINK_MEDIA_MAX_UPLOAD_MB=45
+LINK_MEDIA_MAX_DURATION_SECONDS=180
+YTDLP_BIN=vendor/bin/yt-dlp        # shared with /play; scripts/setup-voice.sh installs it
+```
+
+> YouTube note: without a JavaScript runtime installed, yt-dlp can only fetch progressive
+> (~360p) formats. That is fine for a Telegram rehost; install a JS runtime if you want higher
+> resolutions.
 
 ---
 

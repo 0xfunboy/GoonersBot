@@ -16,6 +16,8 @@ export interface ChatDoc {
   autoFact: boolean;
   autoengage: boolean;
   autopost?: boolean;
+  /** per-chat link-media rehosting toggle; absent means on (default) */
+  linkMedia?: boolean;
   nsfwMode: NsfwMode;
   createdAt: Date;
   updatedAt: Date;

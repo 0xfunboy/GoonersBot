@@ -18,6 +18,7 @@ import {
   autofactCommand,
   autoengageCommand,
   autopostCommand,
+  linkmediaCommand,
 } from './toggles.js';
 import { newsCommand } from './news.js';
 import { drawCommand, imageCommand } from './image.js';
@@ -43,6 +44,7 @@ export const commandHandlers: CommandSpec[] = [
   autofactCommand,
   autoengageCommand,
   autopostCommand,
+  linkmediaCommand,
   newsCommand,
   imageCommand,
   drawCommand,

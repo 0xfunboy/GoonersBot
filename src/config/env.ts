@@ -346,6 +346,34 @@ const envSchema = z.object({
   MUSIC_MAX_DURATION_SECONDS: intFromString(720), // 12 minutes
   MUSIC_TIMEOUT_MS: intFromString(240000), // search + download + transcode budget
   MUSIC_PROXY: z.string().optional(), // optional outbound proxy for yt-dlp
+
+  // ---- Link media rehost: download media from URLs posted in chat and re-upload as Telegram
+  // attachments (native TypeScript extractors, no Python/yt-dlp). ffmpeg normalizes for Telegram.
+  LINK_MEDIA_ENABLED: boolFromString(true),
+  LINK_MEDIA_AUTO_REHOST: boolFromString(true),
+  LINK_MEDIA_AI_COMMENT_ENABLED: boolFromString(true),
+  LINK_MEDIA_COMMENT_ONLY_WHEN_ADDRESSED: boolFromString(false),
+  LINK_MEDIA_COMMENT_UNADDRESSED_PROBABILITY: floatFromString(0.15),
+  LINK_MEDIA_MAX_URLS_PER_MESSAGE: intFromString(2),
+  LINK_MEDIA_MAX_MEDIA_PER_URL: intFromString(6),
+  LINK_MEDIA_MAX_DOWNLOAD_MB: intFromString(150),
+  LINK_MEDIA_MAX_UPLOAD_MB: intFromString(45),
+  LINK_MEDIA_MAX_DURATION_SECONDS: intFromString(180),
+  LINK_MEDIA_AI_MAX_DURATION_SECONDS: intFromString(90),
+  LINK_MEDIA_TIMEOUT_MS: intFromString(240000),
+  LINK_MEDIA_CHAT_COOLDOWN_SECONDS: intFromString(8),
+  LINK_MEDIA_USER_COOLDOWN_SECONDS: intFromString(20),
+  LINK_MEDIA_TMP_DIR: z.string().default('.tmp-link-media'),
+  LINK_MEDIA_DELETE_ORIGINAL: boolFromString(false),
+  LINK_MEDIA_ALLOWED_HOSTS: z.string().optional(),
+  LINK_MEDIA_BLOCKED_HOSTS: z.string().optional(),
+  LINK_MEDIA_NSFW_ALLOW: boolFromString(false),
+  LINK_MEDIA_COOKIES_INSTAGRAM: z.string().optional(),
+  LINK_MEDIA_COOKIES_TIKTOK: z.string().optional(),
+  LINK_MEDIA_COOKIES_FACEBOOK: z.string().optional(),
+  LINK_MEDIA_COOKIES_X: z.string().optional(),
+  LINK_MEDIA_PROXY: z.string().optional(),
+  LINK_MEDIA_CACHE_TTL_DAYS: intFromString(30),
 });
 
 export type Env = z.infer<typeof envSchema>;

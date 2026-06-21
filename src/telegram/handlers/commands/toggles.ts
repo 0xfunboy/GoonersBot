@@ -48,3 +48,15 @@ export const autopostCommand: CommandSpec = {
     return { text: on ? 'autopost_turned_on' : 'autopost_turned_off' };
   },
 };
+
+/** /linkmedia - toggle automatic rehosting of media links for this chat (on by default). */
+export const linkmediaCommand: CommandSpec = {
+  command: 'linkmedia',
+  permissions: ['admin', 'allowed_user', 'not_banned'],
+  needsTermsAccepted: false,
+  priority: Priority.DEFAULT,
+  async handle({ services, context }) {
+    const on = await services.storage.chats.switchLinkMedia(context.chatId);
+    return { text: on ? 'linkmedia_turned_on' : 'linkmedia_turned_off' };
+  },
+};

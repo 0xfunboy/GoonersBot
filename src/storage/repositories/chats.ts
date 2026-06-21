@@ -141,6 +141,19 @@ export class ChatsRepo {
     return this.toggle(chatId, 'autoengage');
   }
 
+  /** Link-media rehosting is ON by default, so an absent flag reads as enabled. */
+  async getLinkMedia(chatId: number): Promise<boolean> {
+    const doc = await this.col.findOne({ chatId }, { projection: { linkMedia: 1 } });
+    return doc?.linkMedia ?? true;
+  }
+
+  async switchLinkMedia(chatId: number): Promise<boolean> {
+    const current = await this.col.findOne({ chatId }, { projection: { linkMedia: 1 } });
+    const next = !(current?.linkMedia ?? true);
+    await this.col.updateOne({ chatId }, { $set: { linkMedia: next, updatedAt: new Date() } });
+    return next;
+  }
+
   /** Started chats with auto-fact enabled (targets for the background mining job). */
   async listForMining(): Promise<Array<{ chatId: number; language: string; nsfwMode: NsfwMode }>> {
     const docs = await this.col

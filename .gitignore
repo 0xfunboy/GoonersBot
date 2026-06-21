@@ -38,3 +38,6 @@ _tg_rp_bot_source/
 
 # Voice toolchain (provisioned by scripts/setup-voice.sh - binaries/models not committed)
 vendor/
+
+# link-media temp downloads
+.tmp-link-media/

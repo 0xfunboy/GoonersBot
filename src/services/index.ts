@@ -4,6 +4,7 @@ import type { ChatContext, Person } from '../domain/types.js';
 import type { LLMProvider } from '../providers/llm/types.js';
 import { MediaProcessor } from '../providers/media/index.js';
 import { MusicService } from '../providers/media/music.js';
+import { LinkMediaService } from './linkMedia.js';
 import { TtsProvider } from '../providers/voice/tts.js';
 import { SttProvider } from '../providers/voice/stt.js';
 import { StableDiffusionGenerator } from '../providers/image/stableDiffusion.js';
@@ -62,6 +63,7 @@ export class Services {
   readonly reply: ReplyService;
   readonly media: MediaProcessor;
   readonly music: MusicService;
+  readonly linkMedia: LinkMediaService;
   readonly tts: TtsProvider;
   readonly stt: SttProvider;
   readonly modelRouter: ModelRouter;
@@ -99,6 +101,7 @@ export class Services {
       imageGenerator,
     );
     this.music = new MusicService(config.music);
+    this.linkMedia = new LinkMediaService(config.linkMedia, storage, this.media);
     this.permissions = new PermissionService(storage, env.ALLOWED_HANDLES, env.ADMIN_HANDLES);
     this.terms = new TermsService(storage);
     this.bans = new BanService(storage, env.DEFAULT_BAN_SECONDS);

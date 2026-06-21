@@ -19,6 +19,7 @@ import { BrainDebugRepo } from './repositories/brainDebug.js';
 import { UserHeatRepo } from './repositories/userHeat.js';
 import { KnowledgeRepo } from './repositories/knowledge.js';
 import { AutopostHistoryRepo } from './repositories/autopostHistory.js';
+import { LinkMediaCacheRepo } from './repositories/linkMediaCache.js';
 
 const log = childLogger('storage');
 
@@ -44,6 +45,7 @@ export class Storage {
   readonly userHeat: UserHeatRepo;
   readonly knowledge: KnowledgeRepo;
   readonly autopostHistory: AutopostHistoryRepo;
+  readonly linkMediaCache: LinkMediaCacheRepo;
 
   private constructor(
     private readonly connection: MongoConnection,
@@ -71,6 +73,7 @@ export class Storage {
     this.userHeat = new UserHeatRepo(db);
     this.knowledge = new KnowledgeRepo(db);
     this.autopostHistory = new AutopostHistoryRepo(db);
+    this.linkMediaCache = new LinkMediaCacheRepo(db);
   }
 
   static async connect(env: Env): Promise<Storage> {
@@ -96,6 +99,7 @@ export class Storage {
     await UserHeatRepo.ensureIndexes(this.db);
     await KnowledgeRepo.ensureIndexes(this.db);
     await AutopostHistoryRepo.ensureIndexes(this.db);
+    await LinkMediaCacheRepo.ensureIndexes(this.db);
     log.info('indexes ensured');
   }
 

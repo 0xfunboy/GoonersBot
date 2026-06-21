@@ -137,6 +137,24 @@ export const translations: TranslationMap = {
     russian: 'Автопосты ВЫКЛ.',
     spanish: 'Publicaciones autónomas OFF.',
   },
+  linkmedia_description: {
+    italian: 'Attiva/disattiva il re-upload automatico dei link media in questa chat',
+    english: 'Toggle automatic rehosting of media links in this chat',
+    russian: 'Включить/выключить авто-перезалив медиа-ссылок в этом чате',
+    spanish: 'Activa/desactiva la resubida automática de enlaces multimedia en este chat',
+  },
+  linkmedia_turned_on: {
+    italian: 'Rehost link ON. Mi pappo i vostri link e ve li ricarico qua.',
+    english: 'Link rehost ON. I eat your links and spit them back as attachments.',
+    russian: 'Перезалив ссылок ВКЛ.',
+    spanish: 'Resubida de enlaces ON. Me como vuestros enlaces y os los devuelvo aquí.',
+  },
+  linkmedia_turned_off: {
+    italian: 'Rehost link OFF. Arrangiatevi con le anteprime di merda.',
+    english: 'Link rehost OFF. Enjoy your crappy previews.',
+    russian: 'Перезалив ссылок ВЫКЛ.',
+    spanish: 'Resubida de enlaces OFF. Disfrutad de vuestras previsualizaciones de mierda.',
+  },
   news_unavailable: {
     italian: 'Niente news adesso, le fonti fanno i capricci. Riprova.',
     english: 'No news right now, the sources are being little shits. Try again.',
