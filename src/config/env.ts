@@ -126,19 +126,29 @@ const envSchema = z.object({
   SD_ENABLED: boolFromString(true),
   SD_API_URL: z.string().default('http://192.168.178.87:7860'),
   SD_MODEL: optStr, // legacy override for the default realistic checkpoint
-  SD_ANIME_MODEL: z.string().default('waiIllustriousSDXL_v170.safetensors'),
-  SD_REALISTIC_MODEL: z.string().default('majicmixRealistic_v7.safetensors'),
+  // Keep one checkpoint loaded on the shared Forge host. Switching SDXL/SD 1.5 checkpoints was
+  // exhausting host RAM on this deployment, so PonyXL is the common generation checkpoint.
+  SD_ANIME_MODEL: z.string().default('ponyDiffusionV6XL_v6StartWithThisOne.safetensors'),
+  SD_REALISTIC_MODEL: z.string().default('ponyDiffusionV6XL_v6StartWithThisOne.safetensors'),
   SD_NSFW_MODEL: z.string().default('ponyDiffusionV6XL_v6StartWithThisOne.safetensors'),
   SD_NEGATIVE_PROMPT: z
     .string()
     .default(
       'lowres, blurry, bad anatomy, extra fingers, watermark, text, logo, signature, child, loli, shota',
     ),
-  SD_STEPS: intFromString(28),
+  SD_STEPS: intFromString(24),
   SD_WIDTH: intFromString(768),
   SD_HEIGHT: intFromString(768),
   SD_CFG_SCALE: floatFromString(6.5),
-  SD_TIMEOUT_MS: intFromString(90_000),
+  // A checkpoint change on a shared Forge host can take longer than the actual sampling run.
+  // Keep this generous so the bot waits for the server instead of falsely reporting it offline.
+  SD_TIMEOUT_MS: intFromString(300_000),
+  SD_QUEUE_TIMEOUT_MS: intFromString(300_000),
+  SD_QUEUE_POLL_MS: intFromString(2_000),
+  SD_CONTROLNET_ENABLED: boolFromString(true),
+  SD_CONTROLNET_OPENPOSE_MODEL: z.string().default('OpenPoseXL2'),
+  SD_CONTROLNET_WEIGHT: floatFromString(0.85),
+  SD_CONTROLNET_PROCESSOR_RESOLUTION: intFromString(512),
 
   // Autonomous posting: every interval, with a probability, drop an unprompted line (a styled take
   // on a current event from RSS, or a commented waifu image). Also triggerable via /news (/nuovo).

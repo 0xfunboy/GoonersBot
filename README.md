@@ -197,6 +197,8 @@ illegal, no doxxing. NSFW is opt-in per chat and meant for private, consenting a
 | `/sing <query>` | anyone | same as `/play`, phrased for songs (aliases `/canta`, `/cantami`) |
 | `/news` | anyone | force an autonomous post now (alias `/nuovo`) |
 | `/autopost` | admin | toggle timed autonomous posts in this chat |
+| `/genera <prompt>` | anyone | generate an original image with Stable Diffusion (aliases `/image`, `/img`) |
+| `/disegna <prompt>` | anyone | force the high-quality PonyXL manga workflow (alias `/draw`) |
 | `/usage` | anyone | your usage and limits |
 | `/language` | admin | set chat language (it, en, ru, es) |
 | `/terms` | anyone | terms of use and acceptance |
@@ -378,6 +380,28 @@ the bot drops an unprompted line. It is either a styled take on a current event 
 opt-in per chat (`/autopost`, default off) and can be forced on demand with `/news` (alias `/nuovo`).
 Composer in `src/services/autonomousPoster.ts`, feeds in `src/news/newsService.ts`.
 
+### Stable Diffusion generation
+
+`/genera <prompt>` generates an original bitmap through a self-hosted Forge/Automatic1111 API;
+`/image` and `/img` are aliases. The command turns the request into a concise English SD prompt before
+generation. All workflows use Pony Diffusion XL: it stays loaded as the single checkpoint on the shared
+Forge host, avoiding the RAM-heavy swaps that destabilize it. The configured primary LLM compiles every
+request into scene tags; Pony-specific prompt profiles then distinguish anime, manga, photorealistic and
+explicit-adult outputs.
+
+`/disegna <prompt>` is intentionally separate: it forces Pony's manga workflow with Euler a,
+manga key-visual prompting, clean ink lineart and screentone negatives. `/genera` keeps the generic
+routing, with Pony score/rating/source tags matched to safe anime, realistic or explicit adult content.
+
+The defaults are deliberately sized for a shared 12 GB RTX 3080 Ti: normal Pony renders use 28 steps;
+OpenPose-guided renders use a reduced 22-step canvas to preserve VRAM headroom. Before a request the bot
+polls Forge's global queue, and waits up to five minutes rather than treating a model load as downtime.
+
+The normal news/web-image autopost pipeline never sends generated images. A separate generated-image
+scheduler exists behind `GENERATED_IMAGE_AUTOPOST_ENABLED=false` and must remain off until explicitly
+approved. Generated bitmaps are kept in memory for Telegram delivery, never written under the repo;
+the `.gitignore` also excludes generated image artifact paths as a second guardrail.
+
 ---
 
 ## Brain and memory
@@ -457,9 +481,16 @@ The tables below list the common vars; see `.env.example` for the full set with 
 | `IMAGE_LOOKUP_ENABLED` | off | Reverse-image grounding (needs web search and vision). |
 | `IMAGE_SEND_ENABLED` / `IMAGE_SEND_PROBABILITY` | on / `0.15` | Attach a verified waifu image on anime topics. |
 | `IMAGE_QUERY_POOL` | defaults | Comma-separated image query seeds. |
+| `SD_ENABLED` / `SD_API_URL` | on / Forge URL | Enable the self-hosted Forge/Automatic1111 generator. |
+| `SD_ANIME_MODEL` / `SD_REALISTIC_MODEL` / `SD_NSFW_MODEL` | PonyXL | Keep all three set to the same PonyXL checkpoint to avoid Forge model swaps. |
+| `SD_NEGATIVE_PROMPT` / `SD_STEPS` / `SD_WIDTH` / `SD_HEIGHT` / `SD_CFG_SCALE` | tuned defaults | Shared Stable Diffusion generation controls. |
+| `SD_TIMEOUT_MS` / `SD_QUEUE_TIMEOUT_MS` / `SD_QUEUE_POLL_MS` | `300000` / `300000` / `2000` | Per-render timeout and wait policy when Forge is busy. |
+| `SD_CONTROLNET_ENABLED` / `SD_CONTROLNET_OPENPOSE_MODEL` / `SD_CONTROLNET_PROCESSOR_RESOLUTION` | on / `OpenPoseXL2` / `512` | SearXNG pose-reference workflow for complex poses, tuned for the shared GPU. |
 | `AUTOPOST_ENABLED` / `AUTOPOST_DEFAULT_ENABLED` | on / off | Scheduler switch / per-chat default (opt-in). |
 | `AUTOPOST_INTERVAL_MINUTES` / `AUTOPOST_PROBABILITY` | `10` / `0.05` | Tick interval / chance per eligible chat. |
 | `AUTOPOST_IMAGE_RATIO` | `0.4` | Share of autoposts that are an image vs a news take. |
+| `GENERATED_IMAGE_AUTOPOST_ENABLED` | off | Separate generated-image scheduler; leave off until quality is approved. |
+| `GENERATED_IMAGE_AUTOPOST_INTERVAL_MINUTES` / `GENERATED_IMAGE_AUTOPOST_PROBABILITY` | `10` / `0.05` | Separate generated-image scheduler cadence, when enabled. |
 | `RSS_FEEDS` | BBC, CNN, ANSA, Verge | Comma-separated feed URLs. |
 
 ### NSFW, heat, knowledge, brain

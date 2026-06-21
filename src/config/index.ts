@@ -320,6 +320,14 @@ export interface StableDiffusionConfig {
   height: number;
   cfgScale: number;
   timeoutMs: number;
+  queueTimeoutMs: number;
+  queuePollMs: number;
+  controlNet: {
+    enabled: boolean;
+    openPoseModel: string;
+    weight: number;
+    processorResolution: number;
+  };
 }
 
 export function resolveStableDiffusionConfig(env: Env): StableDiffusionConfig {
@@ -335,6 +343,14 @@ export function resolveStableDiffusionConfig(env: Env): StableDiffusionConfig {
     height: env.SD_HEIGHT,
     cfgScale: env.SD_CFG_SCALE,
     timeoutMs: env.SD_TIMEOUT_MS,
+    queueTimeoutMs: env.SD_QUEUE_TIMEOUT_MS,
+    queuePollMs: env.SD_QUEUE_POLL_MS,
+    controlNet: {
+      enabled: env.SD_CONTROLNET_ENABLED,
+      openPoseModel: env.SD_CONTROLNET_OPENPOSE_MODEL,
+      weight: env.SD_CONTROLNET_WEIGHT,
+      processorResolution: env.SD_CONTROLNET_PROCESSOR_RESOLUTION,
+    },
   };
 }
 

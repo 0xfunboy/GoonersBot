@@ -61,6 +61,27 @@ export class ImageFinder {
     return null;
   }
 
+  /**
+   * Find a neutral visual reference used only as an OpenPose source. It is never sent to Telegram
+   * or written to disk: Forge receives its pose map in the generation request.
+   */
+  async findPoseReference(hint: string): Promise<FoundImage | null> {
+    if (!this.enabled) return null;
+    const urls = await this.searxng.searchImages(`${hint} pose reference full body`, { max: 20 });
+    for (const url of shuffle(urls).slice(0, 8)) {
+      const buffer = await this.download(url);
+      if (!buffer) continue;
+      const description = await this.media.describeImage(buffer, guessMime(url));
+      if (!description || MINOR_BLOCK_RE.test(description) || HARDCORE_RE.test(description))
+        continue;
+      if (!/\b(person|people|man|woman|adult|standing|pose|body)\b/i.test(description)) continue;
+      log.info({ hint }, 'selected SearXNG image as an in-memory OpenPose reference');
+      return { buffer, description };
+    }
+    log.info({ hint }, 'no suitable SearXNG OpenPose reference found');
+    return null;
+  }
+
   private randomQuery(): string {
     return this.queryPool[Math.floor(Math.random() * this.queryPool.length)] ?? 'anime waifu';
   }

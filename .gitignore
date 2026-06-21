@@ -25,6 +25,14 @@ logs/
 coverage/
 .vitest/
 
+# Generated image artifacts are transient and must never be committed.
+generated-images/
+tmp-images/
+*.generated.png
+*.generated.jpg
+*.generated.jpeg
+*.generated.webp
+
 # Reference clone of the original Python project (not part of GoonersBot)
 _tg_rp_bot_source/
 

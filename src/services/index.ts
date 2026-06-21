@@ -21,6 +21,7 @@ import { ImageFinder } from '../media/imageFinder.js';
 import { NewsService } from '../news/newsService.js';
 import { AutonomousPoster } from './autonomousPoster.js';
 import { GeneratedImagePoster } from './generatedImagePoster.js';
+import { ImagePromptService } from './imagePrompt.js';
 import { AutoEngageScorer } from './autoengage.js';
 import { BanService } from './bans.js';
 import { ModelRouter } from './modelRouter.js';
@@ -73,6 +74,7 @@ export class Services {
   readonly imageFinder: ImageFinder;
   readonly autonomousPoster: AutonomousPoster;
   readonly generatedImagePoster: GeneratedImagePoster;
+  readonly imagePrompts: ImagePromptService;
   /** per-user, per-chat anti-spam cooldown for command invocations */
   readonly commandRateLimit: Cooldown;
 
@@ -161,6 +163,7 @@ export class Services {
       this.lore,
     );
     this.generatedImagePoster = new GeneratedImagePoster(this.media, config, storage);
+    this.imagePrompts = new ImagePromptService(llm, config);
     this.heat = new HeatService(storage.userHeat, {
       enabled: env.HEAT_ENABLED,
       baseline: env.HEAT_BASELINE,

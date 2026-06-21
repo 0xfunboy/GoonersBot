@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { childLogger } from '../../utils/logger.js';
 import type { ImageResult, LLMProvider } from '../llm/types.js';
-import type { ImageGenerator } from '../image/stableDiffusion.js';
+import type { ImageGenerationOptions, ImageGenerator } from '../image/stableDiffusion.js';
 import type { SttProvider } from '../voice/stt.js';
 import { extractVideoFrame } from '../voice/ffmpeg.js';
 
@@ -149,13 +149,16 @@ export class MediaProcessor {
   }
 
   /** Generate an image; returns null when generation is unavailable or fails. */
-  async generateImage(prompt: string): Promise<ImageResult | null> {
+  async generateImage(
+    prompt: string,
+    options: ImageGenerationOptions = {},
+  ): Promise<ImageResult | null> {
     if (!this.canGenerateImage) {
       log.info('image generation capability unavailable - skipping');
       return null;
     }
     try {
-      if (this.imageGenerator?.enabled) return await this.imageGenerator.generate(prompt);
+      if (this.imageGenerator?.enabled) return await this.imageGenerator.generate(prompt, options);
       if (!this.llm.generateImage) return null;
       return await this.llm.generateImage({ prompt });
     } catch (err) {
