@@ -9,14 +9,15 @@ VENDOR="$ROOT/vendor"
 MODEL="${1:-base}"
 mkdir -p "$VENDOR/bin" "$VENDOR/models"
 
-# ---- static ffmpeg ----
+# ---- static ffmpeg (BtbN build: handles network input + section cutting; the johnvansickle
+#      static build segfaults on HTTPS/HLS input and on --download-sections) ----
 if [ ! -x "$VENDOR/bin/ffmpeg" ]; then
-  echo "==> downloading static ffmpeg"
+  echo "==> downloading static ffmpeg (BtbN)"
   tmp="$(mktemp -d)"
-  curl -sL -o "$tmp/ffmpeg.tar.xz" https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+  curl -sL -o "$tmp/ffmpeg.tar.xz" https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
   tar -xf "$tmp/ffmpeg.tar.xz" -C "$tmp"
-  d="$(ls -d "$tmp"/ffmpeg-*-amd64-static | head -1)"
-  cp "$d/ffmpeg" "$d/ffprobe" "$VENDOR/bin/"
+  d="$(ls -d "$tmp"/ffmpeg-*-linux64-gpl | head -1)"
+  cp "$d/bin/ffmpeg" "$d/bin/ffprobe" "$VENDOR/bin/"
   rm -rf "$tmp"
 fi
 echo "ffmpeg: $("$VENDOR/bin/ffmpeg" -version | head -1)"

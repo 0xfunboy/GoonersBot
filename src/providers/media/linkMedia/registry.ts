@@ -1,7 +1,6 @@
 import type { LinkExtractor } from './types.js';
 import { directExtractor } from './extractors/direct.js';
 import { ytdlpExtractor } from './extractors/ytdlpSites.js';
-import { instagramExtractor } from './extractors/instagram.js';
 import { twitterExtractor } from './extractors/twitter.js';
 import { redditExtractor } from './extractors/reddit.js';
 import { blueskyExtractor } from './extractors/bluesky.js';
@@ -21,7 +20,6 @@ import { genericHtmlExtractor } from './genericHtmlExtractor.js';
 export const linkExtractors: LinkExtractor[] = [
   directExtractor,
   ytdlpExtractor,
-  instagramExtractor,
   twitterExtractor,
   redditExtractor,
   blueskyExtractor,

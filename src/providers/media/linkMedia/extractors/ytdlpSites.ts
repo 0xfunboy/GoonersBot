@@ -19,6 +19,10 @@ const VIDEO_HOSTS = [
   'dailymotion.com',
   'dai.ly',
   'kick.com',
+  // Instagram reels/posts: logged-out scraping no longer returns media, so let yt-dlp handle it
+  // (needs LINK_MEDIA_COOKIES_INSTAGRAM for most content).
+  'instagram.com',
+  'instagr.am',
 ];
 
 // Adult / cam video hosts (only fetched when LINK_MEDIA_NSFW_ALLOW=true; gated in the service).
@@ -50,6 +54,7 @@ function platformFor(host: string): LinkMediaPlatform {
   if (/streamable\.com$/.test(host)) return 'streamable';
   if (/twitch\.tv$/.test(host)) return 'twitch';
   if (/facebook\.com$|fb\.watch$/.test(host)) return 'facebook';
+  if (/instagram\.com$|instagr\.am$/.test(host)) return 'instagram';
   return 'generic';
 }
 

@@ -20,9 +20,9 @@ interface FxTwitterResponse {
 }
 
 /**
- * X/Twitter via the public fxtwitter compatibility API (no Python, no auth). Social policy: we send
- * IMAGES only (a video's thumbnail stands in for the clip) plus rich context - the post text, author
- * and engagement counts (likes / reposts / replies / views) - as the caption.
+ * X/Twitter via the public fxtwitter compatibility API (no Python, no auth). A video/gif tweet is
+ * rehosted as the actual clip (fxtwitter exposes a direct video URL); a photo tweet as the image(s).
+ * Either way the caption carries the context: post text, author and engagement counts.
  */
 export const twitterExtractor: LinkExtractor = {
   platform: 'twitter',
@@ -46,13 +46,18 @@ export const twitterExtractor: LinkExtractor = {
     const tweet = (JSON.parse(raw) as FxTwitterResponse).tweet;
     if (!tweet) return null;
 
-    // Images only: a real photo, otherwise the video/gif thumbnail.
+    // Video/gif tweets -> the real clip via yt-dlp (the fxtwitter direct URL is the uncapped 4K
+    // master, too big for Telegram; yt-dlp gives a bounded <=720p download). Photos -> images.
     const media = tweet.media?.all ?? [];
+    const hasVideo = media.some((m) => m.type === 'video' || m.type === 'gif');
     const items: ExtractedMediaItem[] = [];
-    for (const m of media) {
-      const src = m.type === 'photo' ? m.url : m.thumbnail_url;
-      if (src) items.push({ kind: 'image', url: src });
-      if (items.length >= ctx.maxMediaPerUrl) break;
+    if (hasVideo) {
+      items.push({ kind: 'video', url: url.toString(), via: 'ytdlp' });
+    } else {
+      for (const m of media) {
+        if (m.url && m.type === 'photo') items.push({ kind: 'image', url: m.url });
+        if (items.length >= ctx.maxMediaPerUrl) break;
+      }
     }
 
     const stats: PostStats = {};

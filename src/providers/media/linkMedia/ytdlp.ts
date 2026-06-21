@@ -1,7 +1,9 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { childLogger } from '../../../utils/logger.js';
+import { assertSafeUrl } from './http.js';
 
 const log = childLogger('link-media-ytdlp');
 
@@ -12,8 +14,15 @@ export interface YtdlpDownloadConfig {
   maxDurationSeconds: number;
   timeoutMs: number;
   proxy?: string | undefined;
-  /** raw Cookie header string for the target host, if any */
+  /** either a raw Cookie header string for the host, or a path to a Netscape cookies.txt file */
   cookies?: string | undefined;
+}
+
+/** Translate the cookies config into the right yt-dlp args (file -> --cookies, else header). */
+function cookieArgs(cookies?: string): string[] {
+  if (!cookies) return [];
+  if (existsSync(cookies)) return ['--cookies', cookies];
+  return ['--add-header', `Cookie:${cookies}`];
 }
 
 export interface YtdlpResult {
@@ -78,7 +87,7 @@ export async function downloadWithYtdlp(
     out,
   ];
   if (cfg.proxy) args.push('--proxy', cfg.proxy);
-  if (cfg.cookies) args.push('--add-header', `Cookie:${cfg.cookies}`);
+  args.push(...cookieArgs(cfg.cookies));
   args.push(pageUrl);
 
   try {
@@ -104,4 +113,120 @@ export async function downloadWithYtdlp(
     }
   }
   return result;
+}
+
+/** Run yt-dlp and capture stdout (used for -g URL resolution). */
+function runYtdlpCapture(bin: string, args: string[], timeoutMs: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    let err = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error('yt-dlp timed out'));
+    }, timeoutMs);
+    child.stdout.on('data', (d: Buffer) => {
+      out += d.toString();
+    });
+    child.stderr.on('data', (d: Buffer) => {
+      err += d.toString();
+    });
+    child.on('error', (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(out);
+      else reject(new Error(`yt-dlp exited ${code}: ${err.slice(-300)}`));
+    });
+  });
+}
+
+function ffmpegGrabFrame(bin: string, streamUrl: string, out: string, timeoutMs: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      bin,
+      [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-y',
+        '-user_agent',
+        'Mozilla/5.0',
+        '-i',
+        streamUrl,
+        '-frames:v',
+        '1',
+        '-q:v',
+        '2',
+        '-vf',
+        "scale='min(1024,iw)':-2",
+        out,
+      ],
+      { stdio: ['ignore', 'ignore', 'pipe'] },
+    );
+    let err = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error('ffmpeg snapshot timed out'));
+    }, timeoutMs);
+    child.stderr.on('data', (d: Buffer) => {
+      err += d.toString();
+    });
+    child.on('error', (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(`ffmpeg snapshot exited ${code}: ${err.slice(-300)}`));
+    });
+  });
+}
+
+/**
+ * Grab a single still frame ("snapshot") from a page that is a live/unbounded stream or that we
+ * could not download as a bounded video. yt-dlp resolves the playable stream URL, ffmpeg pulls one
+ * frame. The resolved URL is SSRF-checked before ffmpeg ever touches it.
+ */
+export async function snapshotStream(
+  pageUrl: string,
+  workdir: string,
+  cfg: YtdlpDownloadConfig,
+): Promise<string | null> {
+  const args = ['--no-warnings', '--no-playlist', '-f', 'best[height<=720]/best', '-g'];
+  if (cfg.proxy) args.push('--proxy', cfg.proxy);
+  args.push(...cookieArgs(cfg.cookies));
+  args.push(pageUrl);
+
+  let streamUrl: string;
+  try {
+    const stdout = await runYtdlpCapture(cfg.ytdlpBin, args, Math.min(cfg.timeoutMs, 60000));
+    const first = stdout
+      .split('\n')
+      .map((s) => s.trim())
+      .find(Boolean);
+    if (!first) return null;
+    streamUrl = first;
+  } catch (err) {
+    log.debug({ err, url: pageUrl }, 'snapshot stream-url resolution failed');
+    return null;
+  }
+
+  try {
+    await assertSafeUrl(streamUrl);
+  } catch {
+    return null; // refuse private/loopback resolved targets
+  }
+
+  const out = join(workdir, 'snap.jpg');
+  try {
+    await ffmpegGrabFrame(cfg.ffmpegBin, streamUrl, out, Math.min(cfg.timeoutMs, 45000));
+  } catch (err) {
+    log.debug({ err, url: pageUrl }, 'snapshot ffmpeg grab failed');
+    return null;
+  }
+  return existsSync(out) ? out : null;
 }

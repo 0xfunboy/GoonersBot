@@ -17,7 +17,7 @@ import {
   normalizeVideo,
 } from '../providers/media/linkMedia/normalizer.js';
 import { sendPreparedMedia, sendCachedMedia } from '../providers/media/linkMedia/telegramSender.js';
-import { downloadWithYtdlp } from '../providers/media/linkMedia/ytdlp.js';
+import { downloadWithYtdlp, snapshotStream } from '../providers/media/linkMedia/ytdlp.js';
 import type { ExtractedMediaPost, LinkMediaKind } from '../providers/media/linkMedia/types.js';
 
 const log = childLogger('link-media');
@@ -163,9 +163,9 @@ export class LinkMediaService {
       let durationSec = item.durationSeconds;
 
       if (item.via === 'ytdlp') {
-        // Video streams (YouTube, TikTok, adult/cam, reddit video): download+merge with yt-dlp.
+        // Video streams (YouTube, TikTok, Instagram, adult/cam, reddit video): download+merge with yt-dlp.
         if (!this.cfg.ytdlpAvailable) return null;
-        const dl = await downloadWithYtdlp(item.url, workdir, {
+        const ytcfg = {
           ytdlpBin: this.cfg.ytdlpBin,
           ffmpegBin: this.cfg.ffmpegBin,
           maxDownloadBytes: this.cfg.maxDownloadBytes,
@@ -173,19 +173,27 @@ export class LinkMediaService {
           timeoutMs: this.cfg.timeoutMs,
           proxy: this.cfg.proxy,
           cookies,
-        });
-        if (!dl) return null;
-        durationSec = dl.durationSec ?? durationSec;
-        if (durationSec && durationSec > this.cfg.maxDurationSeconds) return null;
-        if (!post.title && dl.title) post.title = dl.title;
-        sendKind = 'video';
-        // yt-dlp already produced a merged mp4; only re-encode if it exceeds the upload cap.
-        const rawSize = (await stat(dl.file)).size;
-        if (rawSize <= this.cfg.maxUploadBytes) {
-          prepared = dl.file;
+        };
+        const dl = await downloadWithYtdlp(item.url, workdir, ytcfg);
+        if (dl) {
+          durationSec = dl.durationSec ?? durationSec;
+          if (durationSec && durationSec > this.cfg.maxDurationSeconds) return null;
+          if (!post.title && dl.title) post.title = dl.title;
+          sendKind = 'video';
+          // yt-dlp already produced a merged mp4; only re-encode if it exceeds the upload cap.
+          const rawSize = (await stat(dl.file)).size;
+          if (rawSize <= this.cfg.maxUploadBytes) {
+            prepared = dl.file;
+          } else {
+            prepared = join(workdir, 'prepared.mp4');
+            await normalizeVideo(dl.file, prepared, opts);
+          }
         } else {
-          prepared = join(workdir, 'prepared.mp4');
-          await normalizeVideo(dl.file, prepared, opts);
+          // Couldn't download a bounded video (live stream / too long / blocked): grab one frame.
+          const snap = await snapshotStream(item.url, workdir, ytcfg);
+          if (!snap) return null;
+          prepared = snap;
+          sendKind = 'image';
         }
       } else {
         const raw = join(workdir, `raw.${item.ext ?? 'bin'}`);

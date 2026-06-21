@@ -300,22 +300,29 @@ URL to a Telegram file_id so the next post of the same link is instant. Toggle p
 
 ### Two paths, on purpose
 
-The bot treats video streams and social posts differently:
+The bot picks the right kind of media per link:
 
-- **Video streams -> the actual video, via yt-dlp.** YouTube/Shorts, TikTok, Vimeo, Streamable,
-  Twitch clips, Facebook, Dailymotion, Kick, Reddit video, and adult/cam sites are handled by the
-  vendored `yt-dlp` binary (the same one `/play` uses). It picks the best clip up to 720p, merges
-  video+audio with ffmpeg, and respects the size and duration caps. yt-dlp covers ~1800 sites, so
-  most "here is a video" links just work. Reddit video specifically goes through yt-dlp because
-  Reddit serves video and audio as separate tracks that must be merged.
-- **Social posts -> image(s) + context, no video.** X/Twitter (via the fxtwitter compatibility
-  API), Instagram, and Bluesky are sent as the post image(s) with a caption that carries the
-  context: the post text, the author, and the engagement counts (likes, reposts, replies, views).
-  A video-only tweet is rehosted as its thumbnail plus that context, never the clip. This is
-  deliberate: for social we want the gist and the numbers, not a re-upload of every video.
+- **Video -> the actual clip, via yt-dlp.** YouTube/Shorts, TikTok, Vimeo, Streamable, Twitch clips,
+  Facebook, Dailymotion, Kick, Reddit video, Instagram reels, **video tweets**, and adult/cam sites
+  are handled by the vendored `yt-dlp` binary (the same one `/play` uses). It picks the best clip up
+  to 720p, merges video+audio with ffmpeg, and respects the size and duration caps. yt-dlp covers
+  ~1800 sites, so most "here is a video" links just work. Reddit video and X video go through yt-dlp
+  because their direct URLs are either split tracks (Reddit) or an uncapped 4K master (X).
+- **Social photos -> image(s) + context.** A photo tweet (via the fxtwitter API) and Bluesky posts
+  are sent as the image(s) with a caption carrying the context: the post text, the author, and the
+  engagement counts (likes, reposts, replies, views). That context is also fed to the brain when the
+  bot is tagged, so it can comment on what the post says, not just show it.
+- **Live streams / unbounded video -> a single snapshot.** When a link is a live stream (or a video
+  we cannot download within the caps), the bot grabs one frame with ffmpeg and posts that still
+  instead, optionally with a vision description.
 
 Direct file links (`.mp4`, `.gif`, `.jpg`, `.mp3`, ...), Imgur, Giphy and Tenor are fetched
 directly; anything else falls back to a generic OpenGraph/JSON-LD scan.
+
+> **Instagram needs cookies.** Logged-out Instagram no longer exposes media to scrapers or yt-dlp,
+> so IG reels/posts only work if you set `LINK_MEDIA_COOKIES_INSTAGRAM` to either a raw Cookie header
+> string or a path to a Netscape `cookies.txt` exported from a logged-in browser. Without it, IG
+> links are silently skipped.
 
 ### Behaviour and safety
 
