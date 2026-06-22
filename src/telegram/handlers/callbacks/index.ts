@@ -97,11 +97,15 @@ const termsResponse: CallbackSpec = {
   action: TERMS_CALLBACK,
   permissions: ['allowed_user', 'not_banned'],
   needsTermsAccepted: false,
-  async handle({ services, person, args }) {
+  async handle({ services, person, context, args }) {
     const action = args[0];
     const vars = { user_handle: person.userHandle };
     if (action === 'accept') {
       await services.terms.accept(person.userHandle);
+      // In a non-approved private chat, follow the signature with the "request approval" notice.
+      if (!context.isGroup && !services.isApproved(person, context)) {
+        return { text: 'dm_info', vars: { admin_handle: services.adminContact() }, deleteOrigin: true };
+      }
       // delete the (personal) terms prompt and confirm citing who accepted
       return { text: 'terms_accepted', vars, deleteOrigin: true };
     }

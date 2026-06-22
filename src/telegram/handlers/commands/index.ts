@@ -25,6 +25,7 @@ import { drawCommand, imageCommand } from './image.js';
 import { nsfwCommand } from './nsfw.js';
 import { banCommand, unbanCommand } from './moderation.js';
 import { usageCommand, languageCommand, tosCommand, helpCommand } from './misc.js';
+import { approveCommand, unapproveCommand, approvedCommand } from './access.js';
 
 /** All command handlers (original parity + voice/traduci extras). */
 export const commandHandlers: CommandSpec[] = [
@@ -61,4 +62,7 @@ export const commandHandlers: CommandSpec[] = [
   brainCommand,
   debuglastCommand,
   helpCommand,
+  approveCommand,
+  unapproveCommand,
+  approvedCommand,
 ];

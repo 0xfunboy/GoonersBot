@@ -210,10 +210,33 @@ illegal, no doxxing. NSFW is opt-in per chat and meant for private, consenting a
 | `/ban @handle [seconds]` | bot admin | ban a Gooner (reply-aware, duration optional, 0 = permanent) |
 | `/unban @handle` | bot admin | unban a Gooner |
 | `/brain`, `/debuglast` | admin | inspect why the bot answered the way it did |
+| `/approve [id]` | bot admin | approve a community chat or user (no id in a group = approve it) |
+| `/unapprove [id]` | bot admin | revoke approval for a chat or user |
+| `/approved` | bot admin | list approved chats and users |
 | `/help` | anyone | help |
 
 admin means group admin or bot admin (`ADMIN_HANDLES`). bot admin means listed in `ADMIN_HANDLES`.
-Most commands that act on the chat need `/terms` accepted first.
+Most commands that act on the chat need `/terms` accepted first. Outside the basic commands
+(`/start`, `/tos`/`/terms`, `/help`) everything requires approval (see below).
+
+---
+
+## Access and approval
+
+The model, media generation and link-media are gated: they work only for **bot admins**, **approved
+user ids**, or **approved community chats**. Everyone else (including anyone who DMs the bot) is
+limited to `/start`, `/tos`/`/terms` and `/help`, and gets a notice to request access; the model
+never replies and nothing is generated for them.
+
+- **Private DMs**: a stranger who messages the bot is asked to sign the terms, then receives a notice
+  that this is an NSFW bot for approved private communities only and to DM the admin
+  (`ADMIN_HANDLES`) for approval. No conversation, no generation.
+- **Groups**: a group only gets the full bot once its chat id is approved; non-approved groups stay
+  silent.
+- **Approving**: a bot admin runs `/approve` inside a group to approve it, or `/approve <id>` from
+  anywhere (negative id = chat, positive id = user). `/unapprove` and `/approved` manage the list.
+- Approvals are seeded from `APPROVED_CHATS` / `APPROVED_USERS` on first run and then persisted to
+  `APPROVED_STORE_PATH` (a JSON file, gitignored), so runtime `/approve` changes survive restarts.
 
 ---
 

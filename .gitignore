@@ -41,3 +41,6 @@ vendor/
 
 # link-media temp downloads
 .tmp-link-media/
+
+# runtime approval store (chat/user ids)
+data/approved.json

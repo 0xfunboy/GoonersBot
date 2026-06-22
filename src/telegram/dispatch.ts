@@ -10,6 +10,10 @@ import { childLogger } from '../utils/logger.js';
 
 const log = childLogger('dispatch');
 
+// Commands always allowed without approval (the rest require admin / approved user / approved chat).
+// `terms` is an alias of `tos`, so the spec.command checked here is 'tos'.
+const BASIC_COMMANDS = new Set(['start', 'tos', 'help']);
+
 export interface DispatchDeps {
   services: Services;
   botUsername: string;
@@ -66,6 +70,19 @@ export async function runCommand(
   }
   const args = parseArgs(ctx.message?.text ?? '');
   const prepared = await prepare(ctx, deps, spec.permissions, spec.needsTermsAccepted, args);
+  // Approval gate: non-basic commands require an admin / approved user / approved chat. Everyone
+  // else (incl. private DMs) is limited to the basic commands and gets the "request approval" notice.
+  if ('input' in prepared && !BASIC_COMMANDS.has(spec.command)) {
+    const { person, context } = prepared.input;
+    if (!deps.services.isApproved(person, context)) {
+      const localized = await localizeResponse(deps.services, ctx.chat?.id ?? 0, {
+        text: 'approval_required',
+        vars: { admin_handle: deps.services.adminContact() },
+      });
+      await sendResponse(ctx, localized);
+      return;
+    }
+  }
   await finish(ctx, deps, prepared, (input) => spec.handle(input));
 }
 

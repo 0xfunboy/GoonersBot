@@ -209,6 +209,64 @@ export const translations: TranslationMap = {
     russian: 'Команда GoonersBot',
     spanish: 'Un comando de GoonersBot',
   },
+  dm_info: {
+    italian:
+      '🔞 Sono un bot NSFW riservato alle community private approvate, solo su richiesta. Vuoi aggiungermi alla tua community? Scrivi a {admin_handle} in privato per l\'approvazione (mandagli l\'ID della chat). Qui in DM non genero e non rispondo finché tu o la tua chat non siete approvati.',
+    english:
+      '🔞 I am an NSFW bot, reserved for approved private communities, by request only. Want me in your community? DM {admin_handle} for approval (send them the chat ID). Here in DM I will not generate or reply until you or your chat are approved.',
+    russian:
+      '🔞 Я NSFW-бот только для одобренных приватных сообществ, по запросу. Хочешь добавить меня? Напиши {admin_handle} в личку для одобрения (пришли ID чата). В личке я не отвечаю, пока ты или чат не одобрены.',
+    spanish:
+      '🔞 Soy un bot NSFW reservado a comunidades privadas aprobadas, solo por solicitud. ¿Me quieres en tu comunidad? Escribe a {admin_handle} en privado para la aprobación (envíale el ID del chat). Aquí en DM no genero ni respondo hasta que tú o tu chat estéis aprobados.',
+  },
+  approval_required: {
+    italian: '⛔ Non sei approvato. Bot per community private su richiesta: scrivi a {admin_handle} per l\'approvazione.',
+    english: '⛔ You are not approved. Private-community bot, by request: DM {admin_handle} for approval.',
+    russian: '⛔ Ты не одобрен. Бот для приватных сообществ по запросу: напиши {admin_handle} для одобрения.',
+    spanish: '⛔ No estás aprobado. Bot para comunidades privadas por solicitud: escribe a {admin_handle} para la aprobación.',
+  },
+  approve_description: {
+    italian: 'Approva una chat o un utente (admin). In gruppo senza id approva la chat corrente',
+    english: 'Approve a chat or user (admin). In a group with no id, approves the current chat',
+    russian: 'Одобрить чат или пользователя (админ). В группе без id одобряет текущий чат',
+    spanish: 'Aprueba un chat o usuario (admin). En un grupo sin id aprueba el chat actual',
+  },
+  unapprove_description: {
+    italian: 'Revoca l\'approvazione di una chat o utente (admin)',
+    english: 'Revoke approval for a chat or user (admin)',
+    russian: 'Отозвать одобрение чата или пользователя (админ)',
+    spanish: 'Revoca la aprobación de un chat o usuario (admin)',
+  },
+  approved_description: {
+    italian: 'Elenca chat e utenti approvati (admin)',
+    english: 'List approved chats and users (admin)',
+    russian: 'Список одобренных чатов и пользователей (админ)',
+    spanish: 'Lista de chats y usuarios aprobados (admin)',
+  },
+  approve_done: {
+    italian: '✅ Approvato: {target}',
+    english: '✅ Approved: {target}',
+    russian: '✅ Одобрено: {target}',
+    spanish: '✅ Aprobado: {target}',
+  },
+  unapprove_done: {
+    italian: '🗑️ Approvazione revocata: {target}',
+    english: '🗑️ Approval revoked: {target}',
+    russian: '🗑️ Одобрение отозвано: {target}',
+    spanish: '🗑️ Aprobación revocada: {target}',
+  },
+  approve_not_found: {
+    italian: 'Non era approvato: {target}',
+    english: 'Was not approved: {target}',
+    russian: 'Не было одобрено: {target}',
+    spanish: 'No estaba aprobado: {target}',
+  },
+  approve_usage: {
+    italian: 'Uso: /approve <id> (id negativo = chat, positivo = utente), oppure /approve in un gruppo per approvarlo.',
+    english: 'Usage: /approve <id> (negative = chat, positive = user), or /approve inside a group to approve it.',
+    russian: 'Использование: /approve <id> (отрицательный = чат, положительный = пользователь) или /approve в группе.',
+    spanish: 'Uso: /approve <id> (negativo = chat, positivo = usuario), o /approve dentro de un grupo para aprobarlo.',
+  },
   setfact_description: {
     italian: 'Inserisci lore manuale (solo admin)',
     english: 'Manually insert lore (admin only)',

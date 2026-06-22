@@ -54,6 +54,16 @@ const csvHandles = z
       .map((h) => (h.startsWith('@') ? h : `@${h}`));
   });
 
+const csvNumbers = z
+  .string()
+  .optional()
+  .transform((v): number[] =>
+    (v ?? '')
+      .split(',')
+      .map((s) => Number.parseInt(s.trim(), 10))
+      .filter((n) => Number.isFinite(n)),
+  );
+
 /**
  * Provider enum kept open via `custom_openai_compatible` for arbitrary backends.
  */
@@ -78,6 +88,16 @@ const envSchema = z.object({
   // Access control (handles normalized to @handle; null => unrestricted)
   ALLOWED_HANDLES: csvHandles,
   ADMIN_HANDLES: csvHandles,
+
+  // Approval gate: only bot admins, approved user ids, or approved chat ids get the model, media
+  // generation and link-media. Everyone else (incl. private DMs) is limited to tos/terms/help and
+  // receives the "request approval" notice. The JSON store is seeded from these ids on first run.
+  APPROVED_CHATS: csvNumbers,
+  APPROVED_USERS: csvNumbers,
+  APPROVED_STORE_PATH: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() ? v.trim() : 'data/approved.json')),
 
   // MongoDB
   MONGO_URI: z.string().default('mongodb://127.0.0.1:27017/goonerbot'),

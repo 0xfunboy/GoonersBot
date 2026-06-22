@@ -7,9 +7,13 @@ import { termsKeyboard, termsHeader } from './shared.js';
 import { localizeResponse, sendResponse, scheduleDelete } from '../render.js';
 import { fingerprint, escapeHtml } from '../../utils/text.js';
 import { parseMusicRequest } from '../../services/musicIntent.js';
+import { Cooldown } from '../../utils/rateLimit.js';
 import { childLogger } from '../../utils/logger.js';
 
 const log = childLogger('message');
+
+// Rate-limit the "request approval" DM notice so a non-approved user cannot spam it out of the bot.
+const dmInfoCooldown = new Cooldown(30 * 60 * 1000);
 
 export interface MessageDeps {
   services: Services;
@@ -70,6 +74,19 @@ export async function handleMessage(
     });
     const sent = await sendResponse(ctx, localized);
     scheduleDelete(ctx, sent, 60_000); // personal prompt: self-destruct if not signed in 1 minute
+    return;
+  }
+
+  // approval gate: the model only talks to admins, approved users, or approved community chats.
+  // Non-approved DMs get the "request approval" notice (rate-limited); non-approved groups stay silent.
+  if (!services.isApproved(person, context)) {
+    if (!context.isGroup && addressed && dmInfoCooldown.tryAcquire(person.userHandle)) {
+      const localized = await localizeResponse(services, context.chatId, {
+        text: 'dm_info',
+        vars: { admin_handle: services.adminContact() },
+      });
+      await sendResponse(ctx, localized);
+    }
     return;
   }
 

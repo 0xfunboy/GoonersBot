@@ -30,6 +30,7 @@ import { ConversationService } from './conversation.js';
 import { FactService } from './facts.js';
 import { ModeService } from './modes.js';
 import { PermissionService } from './permissions.js';
+import { AccessService } from './access.js';
 import { ReplyService } from './reply.js';
 import { TermsService } from './terms.js';
 import { UsageService } from './usage.js';
@@ -53,6 +54,7 @@ export * from './modelRouter.js';
 export class Services {
   readonly localizer: Localizer;
   readonly permissions: PermissionService;
+  readonly access: AccessService;
   readonly terms: TermsService;
   readonly bans: BanService;
   readonly modes: ModeService;
@@ -103,6 +105,7 @@ export class Services {
     this.music = new MusicService(config.music);
     this.linkMedia = new LinkMediaService(config.linkMedia, storage, this.media);
     this.permissions = new PermissionService(storage, env.ALLOWED_HANDLES, env.ADMIN_HANDLES);
+    this.access = new AccessService(env.APPROVED_STORE_PATH, env.APPROVED_CHATS, env.APPROVED_USERS);
     this.terms = new TermsService(storage);
     this.bans = new BanService(storage, env.DEFAULT_BAN_SECONDS);
     this.modes = new ModeService(storage);
@@ -212,5 +215,16 @@ export class Services {
 
   getLanguage(chatId: number): Promise<string> {
     return this.storage.chats.getLanguage(chatId, this.config.env.DEFAULT_LANGUAGE);
+  }
+
+  /** True if the user/chat may use the model, media generation and link-media (admin/approved). */
+  isApproved(person: Person, context: ChatContext): boolean {
+    const isAdmin = this.permissions.isBotAdmin(person.userHandle);
+    return this.access.isApproved(person, context, isAdmin);
+  }
+
+  /** First configured bot-admin handle, shown to users who must request approval. */
+  adminContact(): string {
+    return this.config.env.ADMIN_HANDLES?.[0] ?? 'the admin';
   }
 }
