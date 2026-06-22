@@ -61,6 +61,11 @@ export type TurnAction =
   | 'ground_search'
   | 'bring_news_context'
   | 'download_music'
+  | 'generate_image'
+  | 'draw_image'
+  | 'translate_text'
+  | 'make_voice'
+  | 'post_news'
   | 'summarize_thread'
   | 'use_group_lore'
   | 'banter_only'
@@ -72,7 +77,10 @@ export type ProviderRequest =
   | 'web_search'
   | 'news'
   | 'image_lookup'
-  | 'music';
+  | 'music'
+  | 'image_generation'
+  | 'translation'
+  | 'tts';
 
 export type ValueTarget =
   | 'truth'
@@ -103,6 +111,10 @@ export interface TurnEvaluation {
   reason: string;
   searchQuery?: string;
   musicQuery?: string;
+  imagePrompt?: string;
+  targetLanguage?: string;
+  sourceText?: string;
+  voiceText?: string;
 }
 
 export interface ProviderBundle {

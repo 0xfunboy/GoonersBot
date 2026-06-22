@@ -42,6 +42,11 @@ export class ReplyPlanner {
       case 'ground_search':
       case 'bring_news_context':
       case 'download_music':
+      case 'generate_image':
+      case 'draw_image':
+      case 'translate_text':
+      case 'make_voice':
+      case 'post_news':
         replyIntent = 'answer_question';
         break;
       case 'summarize_thread':
@@ -66,7 +71,12 @@ export class ReplyPlanner {
       e.action === 'challenge_claim' ||
       e.action === 'ground_search' ||
       e.action === 'bring_news_context' ||
-      e.action === 'download_music';
+      e.action === 'download_music' ||
+      e.action === 'generate_image' ||
+      e.action === 'draw_image' ||
+      e.action === 'translate_text' ||
+      e.action === 'make_voice' ||
+      e.action === 'post_news';
     if (!s.botIsBeingCriticized && usable.length > 0 && e.providerRequests.includes('group_rag')) {
       const hasExplicit = usable.some((m) => m.allowedToUseExplicitly);
       memoryUseMode =

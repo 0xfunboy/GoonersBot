@@ -64,6 +64,11 @@ export const planSchema = z.object({
       'ground_search',
       'bring_news_context',
       'download_music',
+      'generate_image',
+      'draw_image',
+      'translate_text',
+      'make_voice',
+      'post_news',
       'summarize_thread',
       'use_group_lore',
       'banter_only',
@@ -104,6 +109,11 @@ export const turnEvaluationSchema = z.object({
       'ground_search',
       'bring_news_context',
       'download_music',
+      'generate_image',
+      'draw_image',
+      'translate_text',
+      'make_voice',
+      'post_news',
       'summarize_thread',
       'use_group_lore',
       'banter_only',
@@ -111,7 +121,19 @@ export const turnEvaluationSchema = z.object({
     ])
     .default('answer'),
   providerRequests: z
-    .array(z.enum(['group_rag', 'knowledge_rag', 'web_search', 'news', 'image_lookup', 'music']))
+    .array(
+      z.enum([
+        'group_rag',
+        'knowledge_rag',
+        'web_search',
+        'news',
+        'image_lookup',
+        'music',
+        'image_generation',
+        'translation',
+        'tts',
+      ]),
+    )
     .default([]),
   valueTarget: z
     .enum(['truth', 'context', 'joke', 'support', 'technical_help', 'social_glue'])
@@ -124,6 +146,10 @@ export const turnEvaluationSchema = z.object({
   reason: z.string().default(''),
   searchQuery: z.string().optional(),
   musicQuery: z.string().optional(),
+  imagePrompt: z.string().optional(),
+  targetLanguage: z.string().optional(),
+  sourceText: z.string().optional(),
+  voiceText: z.string().optional(),
 });
 
 export type TurnEvaluationPayload = z.infer<typeof turnEvaluationSchema>;

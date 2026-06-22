@@ -350,6 +350,9 @@ export async function handleMessage(
         parse_mode: 'HTML',
       });
       botMessageId = sent.message_id;
+    } else if (outcome.audioBuffer) {
+      const sent = await ctx.replyWithVoice(new InputFile(outcome.audioBuffer), replyOpts);
+      botMessageId = sent.message_id;
     } else if (finalText.trim().length > 0) {
       const ttsCfg = services.config.voice.tts;
       const wantVoiceReply =
@@ -388,7 +391,11 @@ export async function handleMessage(
         messageText: finalText || null,
         timestamp: message.timestamp,
         imageDescription: outcome.imageUrl || outcome.imageBuffer ? 'generated image' : null,
-        voiceDescription: outcome.music ? outcome.music.title : null,
+        voiceDescription: outcome.music
+          ? outcome.music.title
+          : outcome.audioBuffer
+            ? 'voice note'
+            : null,
       },
       botMessageId !== undefined ? { messageId: botMessageId } : {},
     );

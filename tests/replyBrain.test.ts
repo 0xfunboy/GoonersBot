@@ -189,7 +189,16 @@ describe('TurnEvaluator', () => {
     history: [],
     recentBotReplies: [],
     recentNegativeFeedback: false,
-    capabilities: { webSearch: true, imageLookup: true, news: true, knowledge: true, music: true },
+    capabilities: {
+      webSearch: true,
+      imageLookup: true,
+      news: true,
+      knowledge: true,
+      music: true,
+      imageGeneration: true,
+      translation: true,
+      tts: true,
+    },
     groundingHints: { wantsWebSearch: false, wantsImageLookup: false },
   };
 
@@ -281,6 +290,63 @@ describe('TurnEvaluator', () => {
     expect(e.action).toBe('download_music');
     expect(e.providerRequests).toContain('music');
     expect(e.musicQuery).toBe('bohemian rhapsody queen');
+  });
+
+  it.each([
+    {
+      action: 'generate_image',
+      provider: 'image_generation',
+      field: 'imagePrompt',
+      value: 'meme su funboy',
+      message: 'generami un meme su funboy',
+    },
+    {
+      action: 'translate_text',
+      provider: 'translation',
+      field: 'targetLanguage',
+      value: 'English',
+      message: 'traduci questo in inglese',
+    },
+    {
+      action: 'make_voice',
+      provider: 'tts',
+      field: 'voiceText',
+      value: 'ciao stronzi',
+      message: 'mandalo vocale: ciao stronzi',
+    },
+    {
+      action: 'post_news',
+      provider: 'news',
+      field: undefined,
+      value: undefined,
+      message: 'dammi una news di oggi',
+    },
+  ] as const)('uses LLM JSON to route $action through $provider', async (row) => {
+    const json: Record<string, unknown> = {
+      shouldAct: true,
+      action: row.action,
+      providerRequests: [row.provider],
+      valueTarget: row.action === 'post_news' ? 'context' : 'support',
+      roastBudget: 'light',
+      socialRole: 'friend',
+      confidence: 0.95,
+      reason: 'tool request',
+    };
+    if (row.field) json[row.field] = row.value;
+    const llmEvaluator = new TurnEvaluator(fakeLLM({ json }), {
+      enabled: true,
+      model: 'm',
+      temperature: 0.1,
+    });
+    const e = await llmEvaluator.evaluate({
+      ...base,
+      scene: scene({ userIntent: 'ask_bot' }),
+      currentMessage: row.message,
+      botIsAddressed: true,
+    });
+    expect(e.action).toBe(row.action);
+    expect(e.providerRequests).toContain(row.provider);
+    if (row.field) expect(e[row.field]).toBe(row.value);
   });
 });
 

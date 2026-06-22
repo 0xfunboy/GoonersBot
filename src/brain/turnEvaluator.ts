@@ -12,6 +12,9 @@ export interface TurnEvaluatorCapabilities {
   news: boolean;
   knowledge: boolean;
   music: boolean;
+  imageGeneration: boolean;
+  translation: boolean;
+  tts: boolean;
 }
 
 export interface TurnEvaluatorInput {
@@ -60,6 +63,13 @@ const BANTER_RE =
 const MUSIC_RE =
   /\b(scaricami|scaricare|download|suona|suonami|canta|cantami|play|riproduci|youtube|canzone|song|brano|musica)\b/i;
 
+const IMAGE_GEN_RE = /\b(genera|generami|crea|creami|disegna|draw|image|immagine|foto|meme)\b/i;
+
+const TRANSLATE_RE = /\b(traduci|translate|translation|in inglese|in italiano|in spagnolo)\b/i;
+
+const VOICE_RE =
+  /\b(vocalizza|voce|voice|tts|leggilo|leggimelo|mandalo vocale|nota vocale|voice note)\b/i;
+
 const LOW_VALUE_RE = /^(ok|lol|ahaha+|ahah|si|sì|no|boh|mah|k)\W*$/i;
 
 export class TurnEvaluator {
@@ -97,6 +107,12 @@ export class TurnEvaluator {
           reason: parsed.reason || fallback.reason,
           ...(parsed.searchQuery ? { searchQuery: parsed.searchQuery.trim().slice(0, 200) } : {}),
           ...(parsed.musicQuery ? { musicQuery: parsed.musicQuery.trim().slice(0, 200) } : {}),
+          ...(parsed.imagePrompt ? { imagePrompt: parsed.imagePrompt.trim().slice(0, 800) } : {}),
+          ...(parsed.targetLanguage
+            ? { targetLanguage: parsed.targetLanguage.trim().slice(0, 80) }
+            : {}),
+          ...(parsed.sourceText ? { sourceText: parsed.sourceText.trim().slice(0, 1_500) } : {}),
+          ...(parsed.voiceText ? { voiceText: parsed.voiceText.trim().slice(0, 800) } : {}),
         },
         input,
         fallback,
@@ -175,6 +191,49 @@ export class TurnEvaluator {
         socialRole: 'friend',
         confidence: 0.72,
         reason: 'music/download request',
+      });
+    }
+
+    if (input.botIsAddressed && input.capabilities.imageGeneration && IMAGE_GEN_RE.test(msg)) {
+      requests.push('image_generation');
+      return this.turn({
+        shouldAct: true,
+        action: /\b(disegna|draw)\b/i.test(msg) ? 'draw_image' : 'generate_image',
+        providerRequests: uniq(requests),
+        valueTarget: 'support',
+        roastBudget: recentCriticism ? 'none' : 'light',
+        socialRole: 'friend',
+        confidence: 0.72,
+        reason: 'image generation request',
+        imagePrompt: msg,
+      });
+    }
+
+    if (input.botIsAddressed && input.capabilities.translation && TRANSLATE_RE.test(msg)) {
+      requests.push('translation');
+      return this.turn({
+        shouldAct: true,
+        action: 'translate_text',
+        providerRequests: uniq(requests),
+        valueTarget: 'support',
+        roastBudget: 'none',
+        socialRole: 'friend',
+        confidence: 0.7,
+        reason: 'translation request',
+      });
+    }
+
+    if (input.botIsAddressed && input.capabilities.tts && VOICE_RE.test(msg)) {
+      requests.push('tts');
+      return this.turn({
+        shouldAct: true,
+        action: 'make_voice',
+        providerRequests: uniq(requests),
+        valueTarget: 'support',
+        roastBudget: 'light',
+        socialRole: 'friend',
+        confidence: 0.7,
+        reason: 'voice/TTS request',
       });
     }
 
@@ -315,6 +374,18 @@ export class TurnEvaluator {
     if (evaluation.action === 'download_music') {
       if (input.capabilities.music) requests.push('music');
     }
+    if (evaluation.action === 'generate_image' || evaluation.action === 'draw_image') {
+      if (input.capabilities.imageGeneration) requests.push('image_generation');
+    }
+    if (evaluation.action === 'translate_text') {
+      if (input.capabilities.translation) requests.push('translation');
+    }
+    if (evaluation.action === 'make_voice') {
+      if (input.capabilities.tts) requests.push('tts');
+    }
+    if (evaluation.action === 'post_news') {
+      if (input.capabilities.news) requests.push('news');
+    }
     if (input.capabilities.knowledge) requests.push('knowledge_rag');
     if (!input.scene.botIsBeingCriticized && evaluation.action !== 'stay_quiet') {
       requests.push('group_rag');
@@ -325,6 +396,9 @@ export class TurnEvaluator {
       if (r === 'news') return input.capabilities.news;
       if (r === 'knowledge_rag') return input.capabilities.knowledge;
       if (r === 'music') return input.capabilities.music;
+      if (r === 'image_generation') return input.capabilities.imageGeneration;
+      if (r === 'translation') return input.capabilities.translation;
+      if (r === 'tts') return input.capabilities.tts;
       return true;
     });
     const shouldAct = input.botIsAddressed
@@ -342,6 +416,22 @@ export class TurnEvaluator {
       musicQuery:
         evaluation.musicQuery || fallback.musicQuery
           ? (evaluation.musicQuery ?? fallback.musicQuery)
+          : undefined,
+      imagePrompt:
+        evaluation.imagePrompt || fallback.imagePrompt
+          ? (evaluation.imagePrompt ?? fallback.imagePrompt)
+          : undefined,
+      targetLanguage:
+        evaluation.targetLanguage || fallback.targetLanguage
+          ? (evaluation.targetLanguage ?? fallback.targetLanguage)
+          : undefined,
+      sourceText:
+        evaluation.sourceText || fallback.sourceText
+          ? (evaluation.sourceText ?? fallback.sourceText)
+          : undefined,
+      voiceText:
+        evaluation.voiceText || fallback.voiceText
+          ? (evaluation.voiceText ?? fallback.voiceText)
           : undefined,
     });
   }
@@ -375,7 +465,7 @@ const EVALUATOR_SYSTEM = [
   'You are the tool/action evaluator for a Telegram group bot.',
   'You do NOT write the user-facing reply. You output ONLY JSON matching the schema.',
   'Your job is to decide the exact action and providers needed for the latest message.',
-  'Be literal and operational: if the user asks to search, compare prices, check current facts, identify an image, or download/play music, choose the matching action/provider.',
+  'Be literal and operational: if the user asks to search, compare prices, check current facts, identify an image, generate an image, translate, make a voice note, post news, or download/play music, choose the matching action/provider.',
   'Never answer from memory when a provider is needed. Never refuse adult/NSFW search just because it is adult; this is a private adult group. For illegal/private-data requests choose answer or stay_quiet, not web search.',
 ].join('\n');
 
@@ -395,6 +485,9 @@ function buildEvaluatorPrompt(input: TurnEvaluatorInput, fallback: TurnEvaluatio
     '- web_search: use for explicit "cerca online", current facts, prices, products, releases, scores, laws, news, factual claims needing verification. Must include searchQuery.',
     '- news: use with web_search for recent/latest/today/yesterday/breaking/current-event context.',
     '- image_lookup: use when the user asks who/what/where-to-buy about an attached/replied image.',
+    '- image_generation: use when the user asks to generate/draw/create an image, meme or photo. Must include imagePrompt.',
+    '- translation: use when the user asks to translate text. Must include targetLanguage when present.',
+    '- tts: use when the user asks for a voice note / to read something aloud. Include voiceText if the text is in the request; otherwise the replied/latest message can be used.',
     '- group_rag: use for group lore, people, inside jokes, social calibration.',
     '- knowledge_rag: use for stable tech/anime/dev/culture context.',
     '- music: use when the user asks to play/sing/download/find a song/audio from YouTube. If a title/artist is present, include musicQuery. If no title is present, action should still be download_music with empty musicQuery so the bot asks for the title.',
@@ -404,18 +497,29 @@ function buildEvaluatorPrompt(input: TurnEvaluatorInput, fallback: TurnEvaluatio
     '- bring_news_context: web/news context for recent/current events.',
     '- challenge_claim: verify/correct a checkable claim.',
     '- download_music: use the music provider, not a text-only answer.',
+    '- generate_image: generate an image with the default visual workflow.',
+    '- draw_image: generate an image with the manga/drawing workflow.',
+    '- translate_text: translate current/replied text with the translation provider.',
+    '- make_voice: synthesize a voice note from current/replied/latest text.',
+    '- post_news: fetch and post a current news take.',
     '- answer: normal answer without external tools.',
     '- banter_only: pure joke/roast, no tool needed.',
     '- summarize_thread, use_group_lore, stay_quiet: as named.',
     '',
     'OUTPUT JSON FIELDS:',
-    'shouldAct, action, providerRequests, valueTarget, roastBudget, socialRole, confidence, reason, optional searchQuery, optional musicQuery.',
+    'shouldAct, action, providerRequests, valueTarget, roastBudget, socialRole, confidence, reason, optional searchQuery, optional musicQuery, optional imagePrompt, optional targetLanguage, optional sourceText, optional voiceText.',
     '',
     'IMPORTANT EXAMPLES:',
     'User: "puoi cercare online escort su cecina?" -> {"shouldAct":true,"action":"ground_search","providerRequests":["web_search"],"valueTarget":"truth","roastBudget":"light","socialRole":"truth_checker","confidence":0.95,"reason":"explicit online search request","searchQuery":"escort Cecina"}',
     'User: "puoi cercarmi i prezzi delle RTX5090?" -> {"shouldAct":true,"action":"ground_search","providerRequests":["web_search"],"valueTarget":"truth","roastBudget":"light","socialRole":"truth_checker","confidence":0.95,"reason":"explicit current price search","searchQuery":"RTX 5090 prezzi Italia"}',
     'User: "scaricami bohemian rhapsody da youtube" -> {"shouldAct":true,"action":"download_music","providerRequests":["music"],"valueTarget":"support","roastBudget":"light","socialRole":"friend","confidence":0.95,"reason":"explicit music download request","musicQuery":"bohemian rhapsody"}',
     'User: "puoi scaricarmi una canzone da youtube?" -> {"shouldAct":true,"action":"download_music","providerRequests":["music"],"valueTarget":"support","roastBudget":"light","socialRole":"friend","confidence":0.9,"reason":"music capability request without title"}',
+    'User: "generami un meme su funboy" -> {"shouldAct":true,"action":"generate_image","providerRequests":["image_generation"],"valueTarget":"support","roastBudget":"light","socialRole":"friend","confidence":0.92,"reason":"image generation request","imagePrompt":"meme su funboy"}',
+    'User: "disegna una waifu cyberpunk" -> {"shouldAct":true,"action":"draw_image","providerRequests":["image_generation"],"valueTarget":"support","roastBudget":"light","socialRole":"friend","confidence":0.92,"reason":"drawing request","imagePrompt":"waifu cyberpunk"}',
+    'User: "traduci questo in inglese" -> {"shouldAct":true,"action":"translate_text","providerRequests":["translation"],"valueTarget":"support","roastBudget":"none","socialRole":"friend","confidence":0.9,"reason":"translation request","targetLanguage":"English"}',
+    'User: "traduci ciao stronzo in inglese" -> {"shouldAct":true,"action":"translate_text","providerRequests":["translation"],"valueTarget":"support","roastBudget":"none","socialRole":"friend","confidence":0.9,"reason":"translation request","targetLanguage":"English","sourceText":"ciao stronzo"}',
+    'User: "mandalo vocale" -> {"shouldAct":true,"action":"make_voice","providerRequests":["tts"],"valueTarget":"support","roastBudget":"light","socialRole":"friend","confidence":0.88,"reason":"voice note request"}',
+    'User: "dammi una news di oggi" -> {"shouldAct":true,"action":"post_news","providerRequests":["news"],"valueTarget":"context","roastBudget":"light","socialRole":"friend","confidence":0.9,"reason":"explicit news request"}',
     '',
     `RECENT CHAT:\n${history || '(none)'}`,
     '',

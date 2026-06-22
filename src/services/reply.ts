@@ -3,6 +3,8 @@ import type { ChatContext, IncomingMessage, Person, TranscribedMessage } from '.
 import type { LLMProvider } from '../providers/llm/types.js';
 import type { MediaProcessor } from '../providers/media/index.js';
 import type { MusicResult, MusicService } from '../providers/media/music.js';
+import type { TtsProvider } from '../providers/voice/tts.js';
+import type { ImageProfile } from '../providers/image/stableDiffusion.js';
 import type { ConversationService } from './conversation.js';
 import { BOT_LABEL } from './conversation.js';
 import type { MemoryRetriever } from '../memory/memoryRetriever.js';
@@ -12,6 +14,8 @@ import type { HeatService } from './heat.js';
 import type { KnowledgeRetriever } from '../knowledge/knowledgeRetriever.js';
 import type { ImageFinder } from '../media/imageFinder.js';
 import type { NewsService } from '../news/newsService.js';
+import type { AutonomousPoster } from './autonomousPoster.js';
+import type { ImagePromptService } from './imagePrompt.js';
 import type { RetrievedMemory } from '../memory/types.js';
 import { StyleEngine } from '../brain/styleEngine.js';
 import { ReplyPlanner } from '../brain/replyPlanner.js';
@@ -185,6 +189,7 @@ export interface ReplyOutcome {
   text: string;
   suppressed?: boolean;
   music?: MusicResult;
+  audioBuffer?: Buffer;
   imageUrl?: string;
   imageBuffer?: Buffer;
   transcribedUserMessage: TranscribedMessage;
@@ -221,9 +226,10 @@ export class ReplyService {
   private readonly guard: RepetitionGuard;
 
   constructor(
-    llm: LLMProvider,
+    private readonly llm: LLMProvider,
     private readonly media: MediaProcessor,
     private readonly music: MusicService,
+    private readonly tts: TtsProvider,
     private readonly conversation: ConversationService,
     private readonly sceneAnalyzer: SceneAnalyzer,
     private readonly memoryRetriever: MemoryRetriever,
@@ -233,6 +239,8 @@ export class ReplyService {
     private readonly knowledge: KnowledgeRetriever,
     private readonly imageFinder: ImageFinder,
     private readonly news: NewsService,
+    private readonly autonomousPoster: AutonomousPoster,
+    private readonly imagePrompts: ImagePromptService,
   ) {
     this.evaluator = new TurnEvaluator(llm, {
       enabled: config.brain.evaluatorEnabled,
@@ -444,9 +452,60 @@ export class ReplyService {
         news: this.news.enabled,
         knowledge: this.knowledge.enabled,
         music: this.music.enabled,
+        imageGeneration: this.media.canGenerateImage,
+        translation: this.llm.capabilities.chat,
+        tts: this.tts.enabled,
       },
       groundingHints: { wantsWebSearch, wantsImageLookup },
     });
+    const makeImmediatePlan = (retrievedMemories: RetrievedMemory[] = []): ReplyPlan => {
+      const bannedOpenings = [
+        ...this.styleEngine.bannedOpenings(ctx.recentBotReplies),
+        ...this.styleEngine.recurringTics(ctx.recentBotReplies),
+      ];
+      return this.planner.plan({
+        scene,
+        evaluation,
+        retrievedMemories,
+        bannedOpenings,
+        currentHandle: ctx.person.userHandle,
+        maxLines: this.config.env.MAX_REPLY_LINES,
+        maxChars: this.config.env.MAX_REPLY_CHARS,
+      });
+    };
+    const immediateOutcome = (params: {
+      text?: string;
+      styleVariant: string;
+      providerBundle?: ProviderBundle;
+      imageBuffer?: Buffer;
+      audioBuffer?: Buffer;
+      imageCalls?: number;
+      usage?: { inputTokens: number; outputTokens: number; estimated: boolean };
+      model?: string | null;
+    }): ReplyOutcome => {
+      const out: ReplyOutcome = {
+        text: params.text ?? '',
+        transcribedUserMessage: transcribed,
+        usage: params.usage ?? { inputTokens: 0, outputTokens: 0, estimated: true },
+        model: params.model ?? null,
+        visionCalls,
+        transcriptionCalls,
+        imageCalls: params.imageCalls ?? 0,
+        scene,
+        plan: makeImmediatePlan(),
+        styleVariant: params.styleVariant,
+        retrieved: [],
+        usedMemoryIds: [],
+        candidates: [],
+        ranked: [],
+        repetitionChecks: [],
+        evaluation,
+        providerBundle: params.providerBundle ?? { sources: [] },
+      };
+      if (params.imageBuffer) out.imageBuffer = params.imageBuffer;
+      if (params.audioBuffer) out.audioBuffer = params.audioBuffer;
+      return out;
+    };
     if (!evaluation.shouldAct) {
       const bannedOpenings = [
         ...this.styleEngine.bannedOpenings(ctx.recentBotReplies),
@@ -583,6 +642,144 @@ export class ReplyService {
         evaluation,
         providerBundle,
       };
+    }
+
+    if (evaluation.action === 'generate_image' || evaluation.action === 'draw_image') {
+      const prompt = (
+        evaluation.imagePrompt || cleanQuery(ctx.message.messageText, ctx.botUsername)
+      ).trim();
+      if (!this.media.canGenerateImage) {
+        return immediateOutcome({
+          text: 'Generatore immagini non disponibile adesso. Non ti sto ghostando, è proprio il forno spento.',
+          styleVariant: 'image_unavailable',
+        });
+      }
+      if (!prompt) {
+        return immediateOutcome({
+          text: 'Dimmi cosa devo generare, artista. “Fammi un’immagine” senza soggetto è nebbia con le notifiche.',
+          styleVariant: 'image_needs_prompt',
+        });
+      }
+      const profile: ImageProfile | undefined =
+        evaluation.action === 'draw_image' ? 'manga' : undefined;
+      const prepared = await this.imagePrompts.prepare(prompt, profile ? { profile } : {});
+      const poseReference = prepared.poseReferenceQuery
+        ? await this.imageFinder.findPoseReference(prepared.poseReferenceQuery)
+        : null;
+      const image = await this.media.generateImage(prepared.prompt, {
+        ...(profile ? { profile } : {}),
+        ...(poseReference ? { poseReference: poseReference.buffer } : {}),
+      });
+      if (!image?.buffer) {
+        return immediateOutcome({
+          text: 'Generatore immagini non disponibile adesso. Riprova tra poco.',
+          styleVariant: 'image_failed',
+        });
+      }
+      return immediateOutcome({
+        text: `Fatto: ${prompt.slice(0, 180)}`,
+        imageBuffer: image.buffer,
+        imageCalls: 1,
+        styleVariant: evaluation.action,
+      });
+    }
+
+    if (evaluation.action === 'translate_text') {
+      const target = evaluation.targetLanguage?.trim() || 'English';
+      const source = (evaluation.sourceText || ctx.context.repliedToText || '').trim();
+      if (!source) {
+        return immediateOutcome({
+          text: 'Sì, traduco. Però rispondi al messaggio da tradurre o scrivimi il testo, non farmi fare spiritismo linguistico.',
+          styleVariant: 'translate_needs_source',
+        });
+      }
+      try {
+        const result = await this.llm.chatCompletion({
+          system:
+            `You are a precise translator. Translate the user's message into ${target}. ` +
+            'Auto-detect the source language. Preserve tone, register, slang and vulgarity. ' +
+            'Output ONLY the translation - no quotes, no notes, no language labels.',
+          messages: [{ role: 'user', content: source }],
+          temperature: 0.2,
+          maxTokens: 700,
+        });
+        const text = result.text.trim();
+        if (!text) throw new Error('empty translation');
+        return immediateOutcome({
+          text,
+          usage: {
+            inputTokens: result.usage.inputTokens ?? 0,
+            outputTokens: result.usage.outputTokens ?? 0,
+            estimated: result.usage.estimated,
+          },
+          model: result.model,
+          styleVariant: 'translate_text',
+        });
+      } catch {
+        return immediateOutcome({
+          text: 'Traduzione fallita. Il traduttore ha fatto la fine del cervello dopo il terzo spritz.',
+          styleVariant: 'translate_failed',
+        });
+      }
+    }
+
+    if (evaluation.action === 'make_voice') {
+      if (!this.tts.enabled) {
+        return immediateOutcome({
+          text: 'Voice tool non disponibile adesso. La mia ugola sintetica è in sciopero.',
+          styleVariant: 'voice_unavailable',
+        });
+      }
+      const source =
+        evaluation.voiceText?.trim() ||
+        ctx.context.repliedToText?.trim() ||
+        history
+          .slice()
+          .reverse()
+          .find((m) => !m.isBot && m.message.messageText?.trim())
+          ?.message.messageText?.trim() ||
+        '';
+      if (!source) {
+        return immediateOutcome({
+          text: 'Mandami o rispondi a un testo da vocalizzare, non posso leggere il vuoto cosmico.',
+          styleVariant: 'voice_needs_source',
+        });
+      }
+      const ogg = await this.tts.synth(source, ctx.language);
+      if (!ogg) {
+        return immediateOutcome({
+          text: 'Sintesi vocale fallita. Ho provato a parlare e mi è uscito systemd.',
+          styleVariant: 'voice_failed',
+        });
+      }
+      return immediateOutcome({
+        audioBuffer: ogg,
+        styleVariant: 'make_voice',
+      });
+    }
+
+    if (evaluation.action === 'post_news') {
+      if (!this.autonomousPoster.enabled) {
+        return immediateOutcome({
+          text: 'News tool non disponibile adesso.',
+          styleVariant: 'news_unavailable',
+        });
+      }
+      const post = await this.autonomousPoster.compose(ctx.language, 'news', {
+        chatId: ctx.context.chatId,
+        chatName: ctx.context.chatName,
+      });
+      if (!post) {
+        return immediateOutcome({
+          text: 'Non ho trovato news fresche decenti adesso. Meglio zero che una minestra riscaldata.',
+          styleVariant: 'news_empty',
+        });
+      }
+      return immediateOutcome({
+        text: post.text,
+        ...(post.imageBuffer ? { imageBuffer: post.imageBuffer } : {}),
+        styleVariant: 'post_news',
+      });
     }
 
     // 2. retrieve memory + (in parallel) grounding, on-demand knowledge, and update per-user heat

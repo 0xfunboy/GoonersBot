@@ -165,6 +165,11 @@ export function buildGeneratorUserPrompt(params: {
     plan.action === 'download_music'
       ? 'MUSIC TOOL TURN: if the tool already handled the download, keep text empty or tiny. If no title was provided, ask for the song title/artist directly.'
       : '',
+    ['generate_image', 'draw_image', 'translate_text', 'make_voice', 'post_news'].includes(
+      plan.action,
+    )
+      ? 'TOOL TURN: the real tool should do the work. Do not pretend; if the tool result is present, only add a tiny caption if needed.'
+      : '',
   ]
     .filter(Boolean)
     .join('\n');

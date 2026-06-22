@@ -189,6 +189,7 @@ export class Services {
       llm,
       this.media,
       this.music,
+      this.tts,
       this.conversation,
       this.scene,
       this.memoryRetriever,
@@ -198,6 +199,8 @@ export class Services {
       this.knowledge,
       this.imageFinder,
       this.news,
+      this.autonomousPoster,
+      this.imagePrompts,
     );
   }
 
