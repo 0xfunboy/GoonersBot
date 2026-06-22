@@ -11,7 +11,7 @@ function abs(base: URL, value?: string): string | null {
   }
 }
 
-export function kindFromUrl(url: string): LinkMediaKind {
+function kindFromUrl(url: string): LinkMediaKind {
   const clean = (url.split('?')[0] ?? url).toLowerCase();
   if (/\.gif$/.test(clean)) return 'gif';
   if (/\.(jpg|jpeg|png|webp|avif)$/.test(clean)) return 'image';

@@ -5,15 +5,11 @@ import type { Env } from '../../config/env.js';
 import type { AddMessageMeta } from '../../storage/repositories/messages.js';
 import { termsKeyboard, termsHeader } from './shared.js';
 import { localizeResponse, sendResponse, scheduleDelete } from '../render.js';
-import { fingerprint } from '../../utils/text.js';
+import { fingerprint, escapeHtml } from '../../utils/text.js';
 import { parseMusicRequest } from '../../services/musicIntent.js';
 import { childLogger } from '../../utils/logger.js';
 
 const log = childLogger('message');
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
 
 export interface MessageDeps {
   services: Services;

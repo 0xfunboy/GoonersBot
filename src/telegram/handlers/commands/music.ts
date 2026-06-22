@@ -1,15 +1,12 @@
 import type { CommandResponse } from '../../../domain/types.js';
 import type { CommandSpec, HandlerInput } from '../types.js';
 import { Priority } from '../types.js';
+import { escapeHtml } from '../../../utils/text.js';
 
 function captionFor(title: string, url: string, truncated: boolean, maxSeconds: number): string {
   const head = url ? `🎵 <a href="${url}">${escapeHtml(title)}</a>` : `🎵 ${escapeHtml(title)}`;
   const tail = truncated ? `\n(taglio ai primi ${Math.round(maxSeconds / 60)} min)` : '';
   return head + tail;
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /** Shared handler for /play and /sing: resolve a query to a YouTube audio voice note. */

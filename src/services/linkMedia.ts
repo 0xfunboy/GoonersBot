@@ -19,6 +19,7 @@ import {
   probeVideo,
   videoThumbnail,
 } from '../providers/media/linkMedia/normalizer.js';
+import { extractVideoFrame } from '../providers/voice/ffmpeg.js';
 import {
   sendPreparedMedia,
   sendCachedMedia,
@@ -58,6 +59,8 @@ export class LinkMediaService {
   ) {
     this.chatCooldown = new Cooldown(cfg.chatCooldownSeconds * 1000);
     this.userCooldown = new Cooldown(cfg.userCooldownSeconds * 1000);
+    // Best-effort sweep of leftover temp dirs from a previous crash (nothing is in flight at boot).
+    void rm(cfg.tmpDir, { recursive: true, force: true }).catch(() => undefined);
   }
 
   get enabled(): boolean {
@@ -296,14 +299,15 @@ export class LinkMediaService {
 
   private async enrichContext(path: string, kind: LinkMediaKind): Promise<string | undefined> {
     try {
-      const buf = await readFile(path);
+      if (kind === 'video' || kind === 'gif') {
+        // extract one frame straight from the file (no loading the whole video into memory)
+        const frame = await extractVideoFrame(this.cfg.ffmpegBin, path, this.cfg.timeoutMs);
+        if (!frame.length) return undefined;
+        return (await this.media.describeImage(frame, 'image/jpeg')) ?? undefined;
+      }
+      const buf = await readFile(path); // audio/image files are small
       if (kind === 'audio') {
         return (await this.media.transcribeVoice(buf, 'audio/mpeg')) ?? undefined;
-      }
-      if (kind === 'video' || kind === 'gif') {
-        const frame = await this.media.frameFromVideo(buf);
-        if (!frame) return undefined;
-        return (await this.media.describeImage(frame, 'image/jpeg')) ?? undefined;
       }
       if (kind === 'image') {
         return (await this.media.describeImage(buf, 'image/jpeg')) ?? undefined;

@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { childLogger } from '../../../utils/logger.js';
+import { runProcessChecked } from '../../../utils/process.js';
 import { assertSafeUrl } from './http.js';
 
 const log = childLogger('link-media-ytdlp');
@@ -31,27 +31,8 @@ export interface YtdlpResult {
   durationSec?: number;
 }
 
-function runYtdlp(bin: string, args: string[], timeoutMs: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let err = '';
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      reject(new Error('yt-dlp timed out'));
-    }, timeoutMs);
-    child.stderr.on('data', (d: Buffer) => {
-      err += d.toString();
-    });
-    child.on('error', (e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve();
-      else reject(new Error(`yt-dlp exited ${code}: ${err.slice(-400)}`));
-    });
-  });
+async function runYtdlp(bin: string, args: string[], timeoutMs: number): Promise<void> {
+  await runProcessChecked(bin, args, { timeoutMs }, 'yt-dlp');
 }
 
 /**
@@ -116,74 +97,18 @@ export async function downloadWithYtdlp(
 }
 
 /** Run yt-dlp and capture stdout (used for -g URL resolution). */
-function runYtdlpCapture(bin: string, args: string[], timeoutMs: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let out = '';
-    let err = '';
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      reject(new Error('yt-dlp timed out'));
-    }, timeoutMs);
-    child.stdout.on('data', (d: Buffer) => {
-      out += d.toString();
-    });
-    child.stderr.on('data', (d: Buffer) => {
-      err += d.toString();
-    });
-    child.on('error', (e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve(out);
-      else reject(new Error(`yt-dlp exited ${code}: ${err.slice(-300)}`));
-    });
-  });
+async function runYtdlpCapture(bin: string, args: string[], timeoutMs: number): Promise<string> {
+  const r = await runProcessChecked(bin, args, { timeoutMs, collectStdout: true }, 'yt-dlp');
+  return r.stdout.toString();
 }
 
-function ffmpegGrabFrame(bin: string, streamUrl: string, out: string, timeoutMs: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      bin,
-      [
-        '-hide_banner',
-        '-loglevel',
-        'error',
-        '-y',
-        '-user_agent',
-        'Mozilla/5.0',
-        '-i',
-        streamUrl,
-        '-frames:v',
-        '1',
-        '-q:v',
-        '2',
-        '-vf',
-        "scale='min(1024,iw)':-2",
-        out,
-      ],
-      { stdio: ['ignore', 'ignore', 'pipe'] },
-    );
-    let err = '';
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      reject(new Error('ffmpeg snapshot timed out'));
-    }, timeoutMs);
-    child.stderr.on('data', (d: Buffer) => {
-      err += d.toString();
-    });
-    child.on('error', (e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve();
-      else reject(new Error(`ffmpeg snapshot exited ${code}: ${err.slice(-300)}`));
-    });
-  });
+async function ffmpegGrabFrame(bin: string, streamUrl: string, out: string, timeoutMs: number): Promise<void> {
+  await runProcessChecked(
+    bin,
+    ['-hide_banner', '-loglevel', 'error', '-y', '-user_agent', 'Mozilla/5.0', '-i', streamUrl, '-frames:v', '1', '-q:v', '2', '-vf', "scale='min(1024,iw)':-2", out],
+    { timeoutMs },
+    'ffmpeg snapshot',
+  );
 }
 
 /**

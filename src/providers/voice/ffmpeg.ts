@@ -1,42 +1,17 @@
-import { spawn } from 'node:child_process';
+import { runProcessChecked } from '../../utils/process.js';
 
 /**
  * Run ffmpeg with a Buffer on stdin and collect a Buffer from stdout.
  * Used to transcode TTS audio → Telegram OGG/Opus and incoming voice → 16 kHz WAV for whisper.
  */
-export function runFfmpeg(
+export async function runFfmpeg(
   bin: string,
   args: string[],
   input: Buffer,
   timeoutMs = 30000,
 ): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ['pipe', 'pipe', 'pipe'] });
-    const out: Buffer[] = [];
-    let err = '';
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      reject(new Error('ffmpeg timed out'));
-    }, timeoutMs);
-
-    child.stdout.on('data', (d: Buffer) => out.push(d));
-    child.stderr.on('data', (d: Buffer) => {
-      err += d.toString();
-    });
-    child.on('error', (e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve(Buffer.concat(out));
-      else reject(new Error(`ffmpeg exited ${code}: ${err.slice(-400)}`));
-    });
-
-    child.stdin.on('error', () => undefined); // ignore EPIPE if ffmpeg closes early
-    child.stdin.write(input);
-    child.stdin.end();
-  });
+  const r = await runProcessChecked(bin, args, { timeoutMs, input, collectStdout: true }, 'ffmpeg');
+  return r.stdout;
 }
 
 export interface TelegramVoiceOptions {

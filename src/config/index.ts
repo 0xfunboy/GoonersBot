@@ -394,7 +394,6 @@ export interface LinkMediaConfig {
   autoRehost: boolean;
   aiCommentEnabled: boolean;
   commentOnlyWhenAddressed: boolean;
-  commentUnaddressedProbability: number;
   maxUrlsPerMessage: number;
   maxMediaPerUrl: number;
   maxDownloadBytes: number;
@@ -405,7 +404,6 @@ export interface LinkMediaConfig {
   chatCooldownSeconds: number;
   userCooldownSeconds: number;
   tmpDir: string;
-  deleteOriginal: boolean;
   allowedHosts: string[];
   blockedHosts: string[];
   nsfwAllow: boolean;
@@ -445,7 +443,6 @@ export function resolveLinkMediaConfig(env: Env): LinkMediaConfig {
     autoRehost: env.LINK_MEDIA_AUTO_REHOST,
     aiCommentEnabled: env.LINK_MEDIA_AI_COMMENT_ENABLED,
     commentOnlyWhenAddressed: env.LINK_MEDIA_COMMENT_ONLY_WHEN_ADDRESSED,
-    commentUnaddressedProbability: env.LINK_MEDIA_COMMENT_UNADDRESSED_PROBABILITY,
     maxUrlsPerMessage: env.LINK_MEDIA_MAX_URLS_PER_MESSAGE,
     maxMediaPerUrl: env.LINK_MEDIA_MAX_MEDIA_PER_URL,
     maxDownloadBytes: env.LINK_MEDIA_MAX_DOWNLOAD_MB * 1024 * 1024,
@@ -456,7 +453,6 @@ export function resolveLinkMediaConfig(env: Env): LinkMediaConfig {
     chatCooldownSeconds: env.LINK_MEDIA_CHAT_COOLDOWN_SECONDS,
     userCooldownSeconds: env.LINK_MEDIA_USER_COOLDOWN_SECONDS,
     tmpDir: resolve(env.LINK_MEDIA_TMP_DIR),
-    deleteOriginal: env.LINK_MEDIA_DELETE_ORIGINAL,
     allowedHosts: csv(env.LINK_MEDIA_ALLOWED_HOSTS, []),
     blockedHosts: csv(env.LINK_MEDIA_BLOCKED_HOSTS, []),
     nsfwAllow: env.LINK_MEDIA_NSFW_ALLOW,

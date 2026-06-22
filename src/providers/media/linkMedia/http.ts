@@ -1,10 +1,30 @@
-import { request, type Dispatcher } from 'undici';
+import { Agent, request, type Dispatcher } from 'undici';
 import { createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { lookup } from 'node:dns/promises';
+import { lookup as dnsLookupCb } from 'node:dns';
 import net from 'node:net';
 
 const MAX_REDIRECTS = 5;
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// A custom DNS lookup that rejects private/loopback addresses AT CONNECT TIME. This closes the
+// TOCTOU/DNS-rebinding window a pre-flight check alone leaves open (a hostname could resolve public
+// during the check and private when undici actually connects). Typed loosely: it is glue for
+// undici's connect.lookup hook (the net.LookupFunction overloads do not narrow cleanly here).
+function guardedLookup(hostname: string, options: any, callback: any): void {
+  dnsLookupCb(hostname, options, (err: any, address: any, family: any) => {
+    if (err) return callback(err, address, family);
+    const list = Array.isArray(address) ? address : [{ address, family }];
+    for (const a of list) {
+      if (isPrivateAddress(a.address)) return callback(new Error('private address blocked'), '', 0);
+    }
+    callback(null, address, family);
+  });
+}
+
+const guardedAgent = new Agent({ connect: { lookup: guardedLookup as any } });
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export interface HttpFetchOptions {
   timeoutMs: number;
@@ -33,6 +53,7 @@ async function safeGet(
       headers,
       bodyTimeout: timeoutMs,
       headersTimeout: timeoutMs,
+      dispatcher: guardedAgent,
     });
     if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
       const loc = Array.isArray(res.headers.location) ? res.headers.location[0] : res.headers.location;

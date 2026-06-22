@@ -1,10 +1,10 @@
-import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { fileToTelegramVoice } from '../voice/ffmpeg.js';
 import { childLogger } from '../../utils/logger.js';
+import { runProcessChecked } from '../../utils/process.js';
 
 const log = childLogger('music');
 
@@ -137,26 +137,7 @@ export class MusicService {
     }
   }
 
-  private runYtdlp(args: string[]): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const child = spawn(this.cfg.ytdlpBin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-      let err = '';
-      const timer = setTimeout(() => {
-        child.kill('SIGKILL');
-        reject(new Error('yt-dlp timed out'));
-      }, this.cfg.timeoutMs);
-      child.stderr.on('data', (d: Buffer) => {
-        err += d.toString();
-      });
-      child.on('error', (e) => {
-        clearTimeout(timer);
-        reject(e);
-      });
-      child.on('close', (code) => {
-        clearTimeout(timer);
-        if (code === 0) resolve();
-        else reject(new Error(`yt-dlp exited ${code}: ${err.slice(-400)}`));
-      });
-    });
+  private async runYtdlp(args: string[]): Promise<void> {
+    await runProcessChecked(this.cfg.ytdlpBin, args, { timeoutMs: this.cfg.timeoutMs }, 'yt-dlp');
   }
 }
