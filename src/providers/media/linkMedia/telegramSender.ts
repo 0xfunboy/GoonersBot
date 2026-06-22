@@ -1,12 +1,21 @@
 import { InputFile, type Context as GrammyContext } from 'grammy';
 import type { LinkMediaKind } from './types.js';
 
+export interface VideoMeta {
+  width?: number;
+  height?: number;
+  duration?: number;
+  /** local path to a small JPEG poster for the inline preview */
+  thumbnailPath?: string;
+}
+
 export interface SendPreparedMediaInput {
   ctx: GrammyContext;
   kind: LinkMediaKind;
   path: string;
   caption?: string | undefined;
   replyToMessageId?: number | undefined;
+  video?: VideoMeta | undefined;
 }
 
 function sendOpts(caption?: string, replyToMessageId?: number) {
@@ -22,7 +31,18 @@ export async function sendPreparedMedia(input: SendPreparedMediaInput): Promise<
   const file = new InputFile(input.path);
 
   if (input.kind === 'video') {
-    const sent = await input.ctx.replyWithVideo(file, opts);
+    // supports_streaming + dimensions + a thumbnail make Telegram show an inline, autoplaying video
+    // (with a poster) instead of a downloadable file. Requires the mp4 to be +faststart.
+    const v = input.video ?? {};
+    const videoOpts = {
+      ...opts,
+      supports_streaming: true,
+      ...(typeof v.width === 'number' ? { width: v.width } : {}),
+      ...(typeof v.height === 'number' ? { height: v.height } : {}),
+      ...(typeof v.duration === 'number' ? { duration: v.duration } : {}),
+      ...(v.thumbnailPath ? { thumbnail: new InputFile(v.thumbnailPath) } : {}),
+    };
+    const sent = await input.ctx.replyWithVideo(file, videoOpts);
     return sent.video?.file_id ?? null;
   }
   if (input.kind === 'gif') {

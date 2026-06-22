@@ -85,3 +85,100 @@ export async function normalizeGifAsMp4(input: string, output: string, opts: Nor
 export async function normalizeAudio(input: string, output: string, opts: NormalizeOptions): Promise<void> {
   await run(opts.ffmpegBin, ['-y', '-i', input, '-vn', '-c:a', 'libmp3lame', '-b:a', '128k', output], opts.timeoutMs);
 }
+
+/** Derive the ffprobe path from the ffmpeg path (same directory/suffix). */
+function ffprobeOf(ffmpegBin: string): string {
+  return ffmpegBin.replace(/ffmpeg(\.[^./]*)?$/, 'ffprobe$1');
+}
+
+/**
+ * Remux an mp4 in place to put the moov atom at the front (+faststart) WITHOUT re-encoding, so
+ * Telegram can stream it inline (preview + autoplay). Falls back to a re-encode if stream-copy fails.
+ */
+export async function remuxFaststart(input: string, output: string, opts: NormalizeOptions): Promise<void> {
+  try {
+    await run(opts.ffmpegBin, ['-y', '-i', input, '-c', 'copy', '-movflags', '+faststart', output], opts.timeoutMs);
+  } catch {
+    await normalizeVideo(input, output, opts);
+  }
+}
+
+export interface VideoProbe {
+  width?: number;
+  height?: number;
+  duration?: number;
+}
+
+/** Best-effort width/height/duration via ffprobe (resolves {} on any failure). */
+export function probeVideo(ffmpegBin: string, input: string, timeoutMs = 15000): Promise<VideoProbe> {
+  return new Promise((resolve) => {
+    const child = spawn(
+      ffprobeOf(ffmpegBin),
+      [
+        '-v',
+        'error',
+        '-select_streams',
+        'v:0',
+        '-show_entries',
+        'stream=width,height',
+        '-show_entries',
+        'format=duration',
+        '-of',
+        'json',
+        input,
+      ],
+      { stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    let out = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      resolve({});
+    }, timeoutMs);
+    child.stdout.on('data', (d: Buffer) => {
+      out += d.toString();
+    });
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve({});
+    });
+    child.on('close', () => {
+      clearTimeout(timer);
+      try {
+        const j = JSON.parse(out) as { streams?: Array<{ width?: number; height?: number }>; format?: { duration?: string } };
+        const s = j.streams?.[0] ?? {};
+        const dur = j.format?.duration ? Math.round(Number(j.format.duration)) : undefined;
+        const probe: VideoProbe = {};
+        if (typeof s.width === 'number') probe.width = s.width;
+        if (typeof s.height === 'number') probe.height = s.height;
+        if (dur && Number.isFinite(dur)) probe.duration = dur;
+        resolve(probe);
+      } catch {
+        resolve({});
+      }
+    });
+  });
+}
+
+/** Extract a small JPEG poster (<=320px) for the Telegram video thumbnail; resolves false on failure. */
+export function videoThumbnail(ffmpegBin: string, input: string, output: string, timeoutMs = 20000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn(
+      ffmpegBin,
+      // the `thumbnail` filter picks a representative (non-black) frame instead of the first one
+      ['-hide_banner', '-loglevel', 'error', '-y', '-i', input, '-vf', "thumbnail,scale='min(320,iw)':-2", '-frames:v', '1', output],
+      { stdio: ['ignore', 'ignore', 'ignore'] },
+    );
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      resolve(false);
+    }, timeoutMs);
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve(code === 0);
+    });
+  });
+}

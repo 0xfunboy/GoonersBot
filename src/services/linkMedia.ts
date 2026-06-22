@@ -15,8 +15,15 @@ import {
   normalizeAudio,
   normalizeGifAsMp4,
   normalizeVideo,
+  remuxFaststart,
+  probeVideo,
+  videoThumbnail,
 } from '../providers/media/linkMedia/normalizer.js';
-import { sendPreparedMedia, sendCachedMedia } from '../providers/media/linkMedia/telegramSender.js';
+import {
+  sendPreparedMedia,
+  sendCachedMedia,
+  type VideoMeta,
+} from '../providers/media/linkMedia/telegramSender.js';
 import { downloadWithYtdlp, snapshotStream } from '../providers/media/linkMedia/ytdlp.js';
 import type { ExtractedMediaPost, LinkMediaKind } from '../providers/media/linkMedia/types.js';
 
@@ -182,10 +189,11 @@ export class LinkMediaService {
           sendKind = 'video';
           // yt-dlp already produced a merged mp4; only re-encode if it exceeds the upload cap.
           const rawSize = (await stat(dl.file)).size;
+          prepared = join(workdir, 'prepared.mp4');
           if (rawSize <= this.cfg.maxUploadBytes) {
-            prepared = dl.file;
+            // keep quality/size, just move the moov atom to the front so Telegram streams it inline
+            await remuxFaststart(dl.file, prepared, opts);
           } else {
-            prepared = join(workdir, 'prepared.mp4');
             await normalizeVideo(dl.file, prepared, opts);
           }
         } else {
@@ -236,6 +244,16 @@ export class LinkMediaService {
         contextText = await this.enrichContext(prepared, sendKind);
       }
 
+      // For video, give Telegram a poster + dimensions + duration so it shows an inline,
+      // autoplaying player instead of a downloadable file.
+      let videoMeta: VideoMeta | undefined;
+      if (sendKind === 'video') {
+        const probe = await probeVideo(this.cfg.ffmpegBin, prepared).catch(() => ({}));
+        const thumbPath = join(workdir, 'thumb.jpg');
+        const okThumb = await videoThumbnail(this.cfg.ffmpegBin, prepared, thumbPath).catch(() => false);
+        videoMeta = { ...probe, ...(okThumb ? { thumbnailPath: thumbPath } : {}) };
+      }
+
       const caption = this.buildCaption(post);
       const telegramFileId = await sendPreparedMedia({
         ctx,
@@ -243,6 +261,7 @@ export class LinkMediaService {
         path: prepared,
         caption,
         replyToMessageId,
+        ...(videoMeta ? { video: videoMeta } : {}),
       });
       // Context the brain receives: the post's own text/stats plus any AI transcript/vision summary.
       const brainContext = [post.caption, contextText].filter(Boolean).join(' | ') || undefined;

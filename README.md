@@ -328,8 +328,10 @@ directly; anything else falls back to a generic OpenGraph/JSON-LD scan.
 
 - Scope is deliberately small: a couple of links per message, a few files at most, with hard caps on
   count, size and duration. It is not a profile/feed crawler.
-- ffmpeg normalizes downloaded video to H.264/AAC mp4, GIFs to muted mp4 animations, audio to mp3.
-  (yt-dlp output that is already a small mp4 is uploaded as-is to save a re-encode.)
+- Videos are sent as inline, autoplaying Telegram players: the mp4 is remuxed `+faststart` (moov
+  atom moved to the front, no re-encode when already small) and uploaded with `supports_streaming`
+  plus dimensions, duration and a generated poster thumbnail. GIFs become muted mp4 animations,
+  audio becomes mp3.
 - Short clips can be transcribed (STT) or frame-described (vision); that, plus the social post text
   and stats, is fed to the brain when the bot is tagged, so it can actually comment on the link.
 - SSRF-guarded: only http/https, and hosts resolving to localhost/private/link-local/cloud-metadata
