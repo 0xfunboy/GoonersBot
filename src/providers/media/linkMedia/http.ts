@@ -68,7 +68,7 @@ async function safeGet(
 }
 
 /** True for loopback / private / link-local / unique-local addresses (SSRF guard). */
-export function isPrivateAddress(host: string): boolean {
+function isPrivateAddress(host: string): boolean {
   const h = host.trim().replace(/^\[|\]$/g, '').toLowerCase();
   const version = net.isIP(h);
   if (version === 4) {

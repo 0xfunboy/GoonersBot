@@ -17,7 +17,7 @@ import { genericHtmlExtractor } from './genericHtmlExtractor.js';
 //  3. native social extractors (images + context: text, likes, reposts)
 //  4. image/gif hosts
 //  5. generic OpenGraph fallback (catch-all)
-export const linkExtractors: LinkExtractor[] = [
+const linkExtractors: LinkExtractor[] = [
   directExtractor,
   ytdlpExtractor,
   twitterExtractor,
