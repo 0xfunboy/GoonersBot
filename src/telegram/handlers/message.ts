@@ -335,7 +335,22 @@ export async function handleMessage(
     const replyTo = ctx.message?.message_id;
     const replyOpts = replyTo ? { reply_parameters: { message_id: replyTo } } : {};
     let botMessageId: number | undefined;
-    if (finalText.trim().length > 0) {
+    if (outcome.music) {
+      const replyToMusic = ctx.message?.message_id;
+      const musicReplyOpts = replyToMusic ? { reply_parameters: { message_id: replyToMusic } } : {};
+      const captionHead = outcome.music.url
+        ? `🎵 <a href="${outcome.music.url}">${escapeHtml(outcome.music.title)}</a>`
+        : `🎵 ${escapeHtml(outcome.music.title)}`;
+      const captionTail = outcome.music.truncated
+        ? `\n(taglio ai primi ${Math.round(services.config.music.maxDurationSeconds / 60)} min)`
+        : '';
+      const sent = await ctx.replyWithVoice(new InputFile(outcome.music.ogg), {
+        ...musicReplyOpts,
+        caption: captionHead + captionTail,
+        parse_mode: 'HTML',
+      });
+      botMessageId = sent.message_id;
+    } else if (finalText.trim().length > 0) {
       const ttsCfg = services.config.voice.tts;
       const wantVoiceReply =
         services.tts.enabled &&
@@ -373,7 +388,7 @@ export async function handleMessage(
         messageText: finalText || null,
         timestamp: message.timestamp,
         imageDescription: outcome.imageUrl || outcome.imageBuffer ? 'generated image' : null,
-        voiceDescription: null,
+        voiceDescription: outcome.music ? outcome.music.title : null,
       },
       botMessageId !== undefined ? { messageId: botMessageId } : {},
     );

@@ -63,6 +63,7 @@ export const planSchema = z.object({
       'challenge_claim',
       'ground_search',
       'bring_news_context',
+      'download_music',
       'summarize_thread',
       'use_group_lore',
       'banter_only',
@@ -93,3 +94,36 @@ export const rankerSchema = z.object({
   best: z.number().int().min(0),
   reason: z.string().default(''),
 });
+
+export const turnEvaluationSchema = z.object({
+  shouldAct: z.boolean().default(true),
+  action: z
+    .enum([
+      'answer',
+      'challenge_claim',
+      'ground_search',
+      'bring_news_context',
+      'download_music',
+      'summarize_thread',
+      'use_group_lore',
+      'banter_only',
+      'stay_quiet',
+    ])
+    .default('answer'),
+  providerRequests: z
+    .array(z.enum(['group_rag', 'knowledge_rag', 'web_search', 'news', 'image_lookup', 'music']))
+    .default([]),
+  valueTarget: z
+    .enum(['truth', 'context', 'joke', 'support', 'technical_help', 'social_glue'])
+    .default('truth'),
+  roastBudget: z.enum(['none', 'light', 'medium', 'heavy']).default('light'),
+  socialRole: z
+    .enum(['friend', 'truth_checker', 'banter', 'lorekeeper', 'quiet_listener', 'technical_peer'])
+    .default('friend'),
+  confidence: z.number().min(0).max(1).default(0.5),
+  reason: z.string().default(''),
+  searchQuery: z.string().optional(),
+  musicQuery: z.string().optional(),
+});
+
+export type TurnEvaluationPayload = z.infer<typeof turnEvaluationSchema>;

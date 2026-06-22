@@ -31,6 +31,7 @@ export function inMemoryBans() {
 export function fakeLLM(opts: {
   score?: Partial<AutoEngageScore>;
   capabilities?: Partial<LLMProvider['capabilities']>;
+  json?: unknown;
 }): LLMProvider {
   const score: AutoEngageScore = {
     shouldReply: true,
@@ -63,8 +64,10 @@ export function fakeLLM(opts: {
     async scoreAutoEngage() {
       return score;
     },
-    async jsonCompletion() {
-      return null;
+    async jsonCompletion(req) {
+      if (opts.json === undefined) return null;
+      const parsed = req.schema.safeParse(opts.json);
+      return parsed.success ? parsed.data : null;
     },
   };
 }

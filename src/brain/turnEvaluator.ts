@@ -1,11 +1,17 @@
 import type { StoredMessage } from '../storage/repositories/messages.js';
+import type { LLMProvider } from '../providers/llm/types.js';
+import { turnEvaluationSchema } from './schemas.js';
 import type { BotReplyRecord, ProviderRequest, SceneAnalysis, TurnEvaluation } from './types.js';
+import { childLogger } from '../utils/logger.js';
+
+const log = childLogger('turn-evaluator');
 
 export interface TurnEvaluatorCapabilities {
   webSearch: boolean;
   imageLookup: boolean;
   news: boolean;
   knowledge: boolean;
+  music: boolean;
 }
 
 export interface TurnEvaluatorInput {
@@ -20,6 +26,12 @@ export interface TurnEvaluatorInput {
     wantsWebSearch: boolean;
     wantsImageLookup: boolean;
   };
+}
+
+export interface TurnEvaluatorConfig {
+  enabled: boolean;
+  model: string | undefined;
+  temperature: number;
 }
 
 const TECH_RE =
@@ -45,10 +57,57 @@ const SUPPORT_RE =
 const BANTER_RE =
   /\b(stronzo|coglione|vaffanculo|suca|cesso|scemo|rosica|blast|roast|prendi per il culo|lol|lmao|ahah|ahaha)\b/i;
 
+const MUSIC_RE =
+  /\b(scaricami|scaricare|download|suona|suonami|canta|cantami|play|riproduci|youtube|canzone|song|brano|musica)\b/i;
+
 const LOW_VALUE_RE = /^(ok|lol|ahaha+|ahah|si|sì|no|boh|mah|k)\W*$/i;
 
 export class TurnEvaluator {
-  evaluate(input: TurnEvaluatorInput): TurnEvaluation {
+  constructor(
+    private readonly llm: LLMProvider | null = null,
+    private readonly cfg: TurnEvaluatorConfig = {
+      enabled: false,
+      model: undefined,
+      temperature: 0.1,
+    },
+  ) {}
+
+  async evaluate(input: TurnEvaluatorInput): Promise<TurnEvaluation> {
+    const fallback = this.heuristic(input);
+    if (!this.cfg.enabled || !this.llm?.capabilities.chat) return fallback;
+    try {
+      const parsed = await this.llm.jsonCompletion({
+        system: EVALUATOR_SYSTEM,
+        prompt: buildEvaluatorPrompt(input, fallback),
+        schema: turnEvaluationSchema,
+        temperature: this.cfg.temperature,
+        ...(this.cfg.model ? { model: this.cfg.model } : {}),
+        maxTokens: 1400,
+      });
+      if (!parsed) return fallback;
+      return this.normalize(
+        {
+          shouldAct: parsed.shouldAct ?? fallback.shouldAct,
+          action: parsed.action ?? fallback.action,
+          providerRequests: parsed.providerRequests ?? fallback.providerRequests,
+          valueTarget: parsed.valueTarget ?? fallback.valueTarget,
+          roastBudget: parsed.roastBudget ?? fallback.roastBudget,
+          socialRole: parsed.socialRole ?? fallback.socialRole,
+          confidence: parsed.confidence ?? fallback.confidence,
+          reason: parsed.reason || fallback.reason,
+          ...(parsed.searchQuery ? { searchQuery: parsed.searchQuery.trim().slice(0, 200) } : {}),
+          ...(parsed.musicQuery ? { musicQuery: parsed.musicQuery.trim().slice(0, 200) } : {}),
+        },
+        input,
+        fallback,
+      );
+    } catch (err) {
+      log.warn({ err }, 'LLM turn evaluation failed; using heuristic');
+      return fallback;
+    }
+  }
+
+  heuristic(input: TurnEvaluatorInput): TurnEvaluation {
     const msg = input.currentMessage ?? '';
     const lower = msg.toLowerCase();
     const isQuestion = msg.includes('?') || FACTUAL_QUESTION_RE.test(msg);
@@ -102,6 +161,20 @@ export class TurnEvaluator {
         socialRole: 'friend',
         confidence: 0.86,
         reason: 'summary/recap request',
+      });
+    }
+
+    if (input.botIsAddressed && input.capabilities.music && MUSIC_RE.test(msg)) {
+      requests.push('music');
+      return this.turn({
+        shouldAct: true,
+        action: 'download_music',
+        providerRequests: uniq(requests),
+        valueTarget: 'support',
+        roastBudget: recentCriticism ? 'none' : 'light',
+        socialRole: 'friend',
+        confidence: 0.72,
+        reason: 'music/download request',
       });
     }
 
@@ -226,6 +299,53 @@ export class TurnEvaluator {
     };
   }
 
+  private normalize(
+    evaluation: TurnEvaluation,
+    input: TurnEvaluatorInput,
+    fallback: TurnEvaluation,
+  ): TurnEvaluation {
+    const requests = [...evaluation.providerRequests];
+    if (evaluation.action === 'ground_search' || evaluation.action === 'challenge_claim') {
+      if (input.capabilities.webSearch) requests.push('web_search');
+    }
+    if (evaluation.action === 'bring_news_context') {
+      if (input.capabilities.webSearch) requests.push('web_search');
+      if (input.capabilities.news) requests.push('news');
+    }
+    if (evaluation.action === 'download_music') {
+      if (input.capabilities.music) requests.push('music');
+    }
+    if (input.capabilities.knowledge) requests.push('knowledge_rag');
+    if (!input.scene.botIsBeingCriticized && evaluation.action !== 'stay_quiet') {
+      requests.push('group_rag');
+    }
+    const allowed = requests.filter((r) => {
+      if (r === 'web_search') return input.capabilities.webSearch;
+      if (r === 'image_lookup') return input.capabilities.imageLookup;
+      if (r === 'news') return input.capabilities.news;
+      if (r === 'knowledge_rag') return input.capabilities.knowledge;
+      if (r === 'music') return input.capabilities.music;
+      return true;
+    });
+    const shouldAct = input.botIsAddressed
+      ? evaluation.action !== 'stay_quiet'
+      : evaluation.shouldAct;
+    return this.turn({
+      ...evaluation,
+      shouldAct,
+      providerRequests: uniq(allowed),
+      reason: evaluation.reason || fallback.reason,
+      searchQuery:
+        evaluation.searchQuery || fallback.searchQuery
+          ? (evaluation.searchQuery ?? fallback.searchQuery)
+          : undefined,
+      musicQuery:
+        evaluation.musicQuery || fallback.musicQuery
+          ? (evaluation.musicQuery ?? fallback.musicQuery)
+          : undefined,
+    });
+  }
+
   private looksLikeClaim(message: string): boolean {
     const words = message.trim().split(/\s+/).filter(Boolean);
     if (words.length < 4) return false;
@@ -249,4 +369,60 @@ export class TurnEvaluator {
 
 function uniq<T>(items: T[]): T[] {
   return [...new Set(items)];
+}
+
+const EVALUATOR_SYSTEM = [
+  'You are the tool/action evaluator for a Telegram group bot.',
+  'You do NOT write the user-facing reply. You output ONLY JSON matching the schema.',
+  'Your job is to decide the exact action and providers needed for the latest message.',
+  'Be literal and operational: if the user asks to search, compare prices, check current facts, identify an image, or download/play music, choose the matching action/provider.',
+  'Never answer from memory when a provider is needed. Never refuse adult/NSFW search just because it is adult; this is a private adult group. For illegal/private-data requests choose answer or stay_quiet, not web search.',
+].join('\n');
+
+function buildEvaluatorPrompt(input: TurnEvaluatorInput, fallback: TurnEvaluation): string {
+  const history = input.history
+    .slice(-12)
+    .map((m) => `${m.isBot ? 'BOT' : m.handle}: ${m.message.messageText ?? ''}`)
+    .join('\n');
+  const caps = Object.entries(input.capabilities)
+    .filter(([, enabled]) => enabled)
+    .map(([name]) => name)
+    .join(', ');
+  return [
+    `AVAILABLE PROVIDERS: ${caps || 'none'}`,
+    '',
+    'PROVIDER MANIFEST:',
+    '- web_search: use for explicit "cerca online", current facts, prices, products, releases, scores, laws, news, factual claims needing verification. Must include searchQuery.',
+    '- news: use with web_search for recent/latest/today/yesterday/breaking/current-event context.',
+    '- image_lookup: use when the user asks who/what/where-to-buy about an attached/replied image.',
+    '- group_rag: use for group lore, people, inside jokes, social calibration.',
+    '- knowledge_rag: use for stable tech/anime/dev/culture context.',
+    '- music: use when the user asks to play/sing/download/find a song/audio from YouTube. If a title/artist is present, include musicQuery. If no title is present, action should still be download_music with empty musicQuery so the bot asks for the title.',
+    '',
+    'ACTIONS:',
+    '- ground_search: perform web search and answer with fresh facts. Use this for "puoi cercare online...", "prezzi...", "quanto costa...", "cerca X".',
+    '- bring_news_context: web/news context for recent/current events.',
+    '- challenge_claim: verify/correct a checkable claim.',
+    '- download_music: use the music provider, not a text-only answer.',
+    '- answer: normal answer without external tools.',
+    '- banter_only: pure joke/roast, no tool needed.',
+    '- summarize_thread, use_group_lore, stay_quiet: as named.',
+    '',
+    'OUTPUT JSON FIELDS:',
+    'shouldAct, action, providerRequests, valueTarget, roastBudget, socialRole, confidence, reason, optional searchQuery, optional musicQuery.',
+    '',
+    'IMPORTANT EXAMPLES:',
+    'User: "puoi cercare online escort su cecina?" -> {"shouldAct":true,"action":"ground_search","providerRequests":["web_search"],"valueTarget":"truth","roastBudget":"light","socialRole":"truth_checker","confidence":0.95,"reason":"explicit online search request","searchQuery":"escort Cecina"}',
+    'User: "puoi cercarmi i prezzi delle RTX5090?" -> {"shouldAct":true,"action":"ground_search","providerRequests":["web_search"],"valueTarget":"truth","roastBudget":"light","socialRole":"truth_checker","confidence":0.95,"reason":"explicit current price search","searchQuery":"RTX 5090 prezzi Italia"}',
+    'User: "scaricami bohemian rhapsody da youtube" -> {"shouldAct":true,"action":"download_music","providerRequests":["music"],"valueTarget":"support","roastBudget":"light","socialRole":"friend","confidence":0.95,"reason":"explicit music download request","musicQuery":"bohemian rhapsody"}',
+    'User: "puoi scaricarmi una canzone da youtube?" -> {"shouldAct":true,"action":"download_music","providerRequests":["music"],"valueTarget":"support","roastBudget":"light","socialRole":"friend","confidence":0.9,"reason":"music capability request without title"}',
+    '',
+    `RECENT CHAT:\n${history || '(none)'}`,
+    '',
+    `SCENE: topic="${input.scene.currentTopic}" energy=${input.scene.energy} intent=${input.scene.userIntent} addressed=${input.botIsAddressed} criticized=${input.scene.botIsBeingCriticized}`,
+    `GROUNDING HINTS: web=${input.groundingHints.wantsWebSearch} image=${input.groundingHints.wantsImageLookup}`,
+    `HEURISTIC FALLBACK: action=${fallback.action} providers=${fallback.providerRequests.join(',')} reason=${fallback.reason}`,
+    '',
+    'Evaluate the latest user message now. Output only JSON.',
+  ].join('\n');
 }

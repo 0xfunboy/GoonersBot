@@ -188,6 +188,7 @@ export class Services {
     this.reply = new ReplyService(
       llm,
       this.media,
+      this.music,
       this.conversation,
       this.scene,
       this.memoryRetriever,

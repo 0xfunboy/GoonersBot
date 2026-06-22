@@ -10,6 +10,7 @@ import type {
   TurnEvaluation,
 } from '../src/brain/types.js';
 import { TurnEvaluator } from '../src/brain/turnEvaluator.js';
+import { fakeLLM } from './helpers.js';
 
 const emptyPlan = (over: Partial<ReplyPlan> = {}): ReplyPlan => ({
   replyIntent: 'roast_user',
@@ -188,12 +189,12 @@ describe('TurnEvaluator', () => {
     history: [],
     recentBotReplies: [],
     recentNegativeFeedback: false,
-    capabilities: { webSearch: true, imageLookup: true, news: true, knowledge: true },
+    capabilities: { webSearch: true, imageLookup: true, news: true, knowledge: true, music: true },
     groundingHints: { wantsWebSearch: false, wantsImageLookup: false },
   };
 
-  it('routes current factual questions to grounded search', () => {
-    const e = evaluator.evaluate({
+  it('routes current factual questions to grounded search', async () => {
+    const e = await evaluator.evaluate({
       ...base,
       scene: scene({ userIntent: 'ask_bot' }),
       currentMessage: 'quanto costa bitcoin oggi?',
@@ -204,8 +205,8 @@ describe('TurnEvaluator', () => {
     expect(e.providerRequests).toContain('web_search');
   });
 
-  it('routes challenged claims to claim checking', () => {
-    const e = evaluator.evaluate({
+  it('routes challenged claims to claim checking', async () => {
+    const e = await evaluator.evaluate({
       ...base,
       scene: scene({ userIntent: 'random_chatter' }),
       currentMessage: 'non è vero, questa è una cazzata: node non supporta typescript',
@@ -215,8 +216,8 @@ describe('TurnEvaluator', () => {
     expect(e.valueTarget).toBe('truth');
   });
 
-  it('stays quiet on passive low-value chatter', () => {
-    const e = evaluator.evaluate({
+  it('stays quiet on passive low-value chatter', async () => {
+    const e = await evaluator.evaluate({
       ...base,
       scene: scene({ userIntent: 'random_chatter' }),
       currentMessage: 'lol',
@@ -224,6 +225,62 @@ describe('TurnEvaluator', () => {
     });
     expect(e.shouldAct).toBe(false);
     expect(e.action).toBe('stay_quiet');
+  });
+
+  it('uses LLM JSON to force explicit online search with a precise query', async () => {
+    const llmEvaluator = new TurnEvaluator(
+      fakeLLM({
+        json: {
+          shouldAct: true,
+          action: 'ground_search',
+          providerRequests: ['web_search'],
+          valueTarget: 'truth',
+          roastBudget: 'light',
+          socialRole: 'truth_checker',
+          confidence: 0.96,
+          reason: 'explicit online search request',
+          searchQuery: 'escort Cecina',
+        },
+      }),
+      { enabled: true, model: 'm', temperature: 0.1 },
+    );
+    const e = await llmEvaluator.evaluate({
+      ...base,
+      scene: scene({ userIntent: 'ask_bot' }),
+      currentMessage: 'puoi cercare online escort su cecina?',
+      botIsAddressed: true,
+    });
+    expect(e.action).toBe('ground_search');
+    expect(e.providerRequests).toContain('web_search');
+    expect(e.searchQuery).toBe('escort Cecina');
+  });
+
+  it('uses LLM JSON to route YouTube music through the music provider', async () => {
+    const llmEvaluator = new TurnEvaluator(
+      fakeLLM({
+        json: {
+          shouldAct: true,
+          action: 'download_music',
+          providerRequests: ['music'],
+          valueTarget: 'support',
+          roastBudget: 'light',
+          socialRole: 'friend',
+          confidence: 0.95,
+          reason: 'explicit music request',
+          musicQuery: 'bohemian rhapsody queen',
+        },
+      }),
+      { enabled: true, model: 'm', temperature: 0.1 },
+    );
+    const e = await llmEvaluator.evaluate({
+      ...base,
+      scene: scene({ userIntent: 'ask_bot' }),
+      currentMessage: 'scaricami bohemian rhapsody da youtube',
+      botIsAddressed: true,
+    });
+    expect(e.action).toBe('download_music');
+    expect(e.providerRequests).toContain('music');
+    expect(e.musicQuery).toBe('bohemian rhapsody queen');
   });
 });
 

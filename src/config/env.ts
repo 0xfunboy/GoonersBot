@@ -255,6 +255,9 @@ const envSchema = z.object({
 
   // ---- Brain: per-stage model overrides (empty => fall back to LLM_MODEL) ----
   SCENE_MODEL: optStr,
+  REALISTIC_EVALUATOR_ENABLED: boolFromString(true),
+  REALISTIC_EVALUATOR_MODEL: optStr,
+  REALISTIC_EVALUATOR_TEMPERATURE: floatFromString(0.1),
   PLANNER_MODEL: optStr,
   REPLY_MODEL: optStr,
   RANKER_MODEL: optStr,

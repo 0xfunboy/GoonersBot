@@ -41,6 +41,7 @@ export class ReplyPlanner {
       case 'challenge_claim':
       case 'ground_search':
       case 'bring_news_context':
+      case 'download_music':
         replyIntent = 'answer_question';
         break;
       case 'summarize_thread':
@@ -64,7 +65,8 @@ export class ReplyPlanner {
       e.action === 'answer' ||
       e.action === 'challenge_claim' ||
       e.action === 'ground_search' ||
-      e.action === 'bring_news_context';
+      e.action === 'bring_news_context' ||
+      e.action === 'download_music';
     if (!s.botIsBeingCriticized && usable.length > 0 && e.providerRequests.includes('group_rag')) {
       const hasExplicit = usable.some((m) => m.allowedToUseExplicitly);
       memoryUseMode =

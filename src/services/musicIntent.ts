@@ -22,6 +22,11 @@ const VERB_SOURCE = [
   'fammi\\s+ascoltare',
   'fai\\s+ascoltare',
   'fai\\s+partire',
+  'scaricami',
+  'scaricarmi',
+  'scarica',
+  'scaricare',
+  'download',
   'metti\\s+su',
   'let\\s+me\\s+hear',
   'lemme\\s+hear',
@@ -66,7 +71,10 @@ const QUERY_LEAD_RE = /^(?:me|mi|us|nos|ci)\s+/i;
 
 // Trailing politeness to drop from the query.
 const QUERY_TAIL_RE =
-  /[\s,]*(?:per\s+favore|por\s+favor|porfa|please|plz|grazie|gracias|thanks|thx|dai|ti\s+prego|gracie)\s*[!.?]*$/i;
+  /[\s,]*(?:da\s+youtube|su\s+youtube|from\s+youtube|on\s+youtube|per\s+favore|por\s+favor|porfa|please|plz|grazie|gracias|thanks|thx|dai|ti\s+prego|gracie)\s*[!.?]*$/i;
+
+const GENERIC_QUERY_RE =
+  /^(?:una?\s+)?(?:canzone|song|brano|musica|audio|qualcosa)(?:\s+da\s+youtube|\s+su\s+youtube)?$/i;
 
 function stripMention(text: string, botUsername?: string): string {
   let s = text;
@@ -114,5 +122,6 @@ export function parseMusicRequest(text: string, botUsername?: string): string | 
   if (!m || !m[1]) return null;
   const query = cleanQuery(m[1]);
   if (query.length < 2) return null;
+  if (GENERIC_QUERY_RE.test(query)) return null;
   return query;
 }

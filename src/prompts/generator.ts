@@ -162,6 +162,9 @@ export function buildGeneratorUserPrompt(params: {
     plan.action === 'ground_search' || plan.action === 'bring_news_context'
       ? 'GROUNDED TURN: use provided current context if present. Do not say you searched the web. Do not paste links unless asked.'
       : '',
+    plan.action === 'download_music'
+      ? 'MUSIC TOOL TURN: if the tool already handled the download, keep text empty or tiny. If no title was provided, ask for the song title/artist directly.'
+      : '',
   ]
     .filter(Boolean)
     .join('\n');

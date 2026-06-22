@@ -60,6 +60,7 @@ export type TurnAction =
   | 'challenge_claim'
   | 'ground_search'
   | 'bring_news_context'
+  | 'download_music'
   | 'summarize_thread'
   | 'use_group_lore'
   | 'banter_only'
@@ -70,7 +71,8 @@ export type ProviderRequest =
   | 'knowledge_rag'
   | 'web_search'
   | 'news'
-  | 'image_lookup';
+  | 'image_lookup'
+  | 'music';
 
 export type ValueTarget =
   | 'truth'
@@ -99,6 +101,8 @@ export interface TurnEvaluation {
   socialRole: SocialRole;
   confidence: number;
   reason: string;
+  searchQuery?: string;
+  musicQuery?: string;
 }
 
 export interface ProviderBundle {

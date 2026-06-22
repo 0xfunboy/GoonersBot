@@ -2,6 +2,7 @@ import type { AppConfig } from '../config/index.js';
 import type { ChatContext, IncomingMessage, Person, TranscribedMessage } from '../domain/types.js';
 import type { LLMProvider } from '../providers/llm/types.js';
 import type { MediaProcessor } from '../providers/media/index.js';
+import type { MusicResult, MusicService } from '../providers/media/music.js';
 import type { ConversationService } from './conversation.js';
 import { BOT_LABEL } from './conversation.js';
 import type { MemoryRetriever } from '../memory/memoryRetriever.js';
@@ -183,6 +184,7 @@ export interface ReplyContext {
 export interface ReplyOutcome {
   text: string;
   suppressed?: boolean;
+  music?: MusicResult;
   imageUrl?: string;
   imageBuffer?: Buffer;
   transcribedUserMessage: TranscribedMessage;
@@ -213,7 +215,7 @@ export interface ReplyOutcome {
 export class ReplyService {
   private readonly styleEngine = new StyleEngine();
   private readonly planner = new ReplyPlanner();
-  private readonly evaluator = new TurnEvaluator();
+  private readonly evaluator: TurnEvaluator;
   private readonly generator: ResponseGenerator;
   private readonly ranker = new ResponseRanker();
   private readonly guard: RepetitionGuard;
@@ -221,6 +223,7 @@ export class ReplyService {
   constructor(
     llm: LLMProvider,
     private readonly media: MediaProcessor,
+    private readonly music: MusicService,
     private readonly conversation: ConversationService,
     private readonly sceneAnalyzer: SceneAnalyzer,
     private readonly memoryRetriever: MemoryRetriever,
@@ -231,6 +234,11 @@ export class ReplyService {
     private readonly imageFinder: ImageFinder,
     private readonly news: NewsService,
   ) {
+    this.evaluator = new TurnEvaluator(llm, {
+      enabled: config.brain.evaluatorEnabled,
+      model: config.brain.evaluatorModel,
+      temperature: config.brain.evaluatorTemperature,
+    });
     this.generator = new ResponseGenerator(llm, this.styleEngine, {
       model: config.brain.replyModel,
       temperature: config.brain.replyTemperature,
@@ -324,6 +332,7 @@ export class ReplyService {
     ctx: ReplyContext,
     visual: { buffer: Buffer; mime: string } | null,
     force: 'web' | 'image' | null = null,
+    queryOverride?: string | undefined,
   ): Promise<{ block: string; query: string; sources: string[] } | null> {
     if (!this.grounding.enabled) return null;
     const question = ctx.message.messageText || '';
@@ -337,7 +346,7 @@ export class ReplyService {
         });
       }
       if (force === 'web' || this.grounding.wantsWebSearch(question)) {
-        const query = cleanQuery(question, ctx.botUsername);
+        const query = queryOverride?.trim() || cleanQuery(question, ctx.botUsername);
         return await this.grounding.groundWeb(query, ctx.language);
       }
     } catch (err) {
@@ -422,7 +431,7 @@ export class ReplyService {
       visual && this.grounding.wantsImageLookup(ctx.message.messageText || ''),
     );
     const recentNegativeFeedback = ctx.recentBotReplies.some((r) => (r.feedbackScore ?? 0) < 0);
-    const evaluation = this.evaluator.evaluate({
+    const evaluation = await this.evaluator.evaluate({
       scene,
       history,
       currentMessage: ctx.message.messageText,
@@ -434,6 +443,7 @@ export class ReplyService {
         imageLookup: this.grounding.enabled && Boolean(visual),
         news: this.news.enabled,
         knowledge: this.knowledge.enabled,
+        music: this.music.enabled,
       },
       groundingHints: { wantsWebSearch, wantsImageLookup },
     });
@@ -473,6 +483,108 @@ export class ReplyService {
       };
     }
 
+    if (evaluation.action === 'download_music') {
+      const bannedOpenings = [
+        ...this.styleEngine.bannedOpenings(ctx.recentBotReplies),
+        ...this.styleEngine.recurringTics(ctx.recentBotReplies),
+      ];
+      const plan = this.planner.plan({
+        scene,
+        evaluation,
+        retrievedMemories: [],
+        bannedOpenings,
+        currentHandle: ctx.person.userHandle,
+        maxLines: this.config.env.MAX_REPLY_LINES,
+        maxChars: this.config.env.MAX_REPLY_CHARS,
+      });
+      const query = evaluation.musicQuery?.trim();
+      const providerBundle: ProviderBundle = { sources: [] };
+      if (!this.music.enabled) {
+        return {
+          text: 'Vorrei pure, ma il tool musica non è disponibile adesso. Non fare quella faccia, è proprio il pezzo meccanico che manca.',
+          transcribedUserMessage: transcribed,
+          usage: { inputTokens: 0, outputTokens: 0, estimated: true },
+          model: null,
+          visionCalls,
+          transcriptionCalls,
+          imageCalls: 0,
+          scene,
+          plan,
+          styleVariant: 'music_unavailable',
+          retrieved: [],
+          usedMemoryIds: [],
+          candidates: [],
+          ranked: [],
+          repetitionChecks: [],
+          evaluation,
+          providerBundle,
+        };
+      }
+      if (!query) {
+        return {
+          text: 'Sì, posso. Dimmi titolo o artista però: “scaricami Bohemian Rhapsody”, non “una canzone” come se leggessi il tuo algoritmo marcio.',
+          transcribedUserMessage: transcribed,
+          usage: { inputTokens: 0, outputTokens: 0, estimated: true },
+          model: null,
+          visionCalls,
+          transcriptionCalls,
+          imageCalls: 0,
+          scene,
+          plan,
+          styleVariant: 'music_needs_query',
+          retrieved: [],
+          usedMemoryIds: [],
+          candidates: [],
+          ranked: [],
+          repetitionChecks: [],
+          evaluation,
+          providerBundle,
+        };
+      }
+      const music = await this.music.fetch(query);
+      if (!music) {
+        return {
+          text: `Non ho trovato "${query}" su YouTube o yt-dlp ha sputato sangue. Riprova con titolo/artista più preciso.`,
+          transcribedUserMessage: transcribed,
+          usage: { inputTokens: 0, outputTokens: 0, estimated: true },
+          model: null,
+          visionCalls,
+          transcriptionCalls,
+          imageCalls: 0,
+          scene,
+          plan,
+          styleVariant: 'music_not_found',
+          retrieved: [],
+          usedMemoryIds: [],
+          candidates: [],
+          ranked: [],
+          repetitionChecks: [],
+          evaluation,
+          providerBundle,
+        };
+      }
+      return {
+        text: '',
+        music,
+        transcribedUserMessage: transcribed,
+        usage: { inputTokens: 0, outputTokens: 0, estimated: true },
+        model: null,
+        visionCalls,
+        transcriptionCalls,
+        imageCalls: 0,
+        scene,
+        plan,
+        styleVariant: 'music_download',
+        retrieved: [],
+        usedMemoryIds: [],
+        candidates: [],
+        ranked: [],
+        repetitionChecks: [],
+        evaluation,
+        providerBundle,
+      };
+    }
+
     // 2. retrieve memory + (in parallel) grounding, on-demand knowledge, and update per-user heat
     const activeHandles = [...new Set(history.filter((m) => !m.isBot).map((m) => m.handle))];
     const wantsGroupRag = evaluation.providerRequests.includes('group_rag');
@@ -497,7 +609,9 @@ export class ReplyService {
             nsfwEnabled: generationNsfwEnabled,
           })
         : Promise.resolve([]),
-      wantsGrounding ? this.ground(ctx, visual, groundForce) : Promise.resolve(null),
+      wantsGrounding
+        ? this.ground(ctx, visual, groundForce, evaluation.searchQuery)
+        : Promise.resolve(null),
       wantsKnowledgeRag && this.knowledge.enabled
         ? this.knowledge.retrieve(ctx.message.messageText, scene.currentTopic)
         : Promise.resolve([]),

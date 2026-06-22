@@ -101,6 +101,9 @@ export function resolveLLMConfig(env: Env): LLMConfig {
 /** Per-stage model + sampling config for the brain pipeline. Models fall back to the chat model. */
 export interface BrainConfig {
   sceneModel: string | undefined;
+  evaluatorEnabled: boolean;
+  evaluatorModel: string | undefined;
+  evaluatorTemperature: number;
   plannerModel: string | undefined;
   replyModel: string | undefined;
   rankerModel: string | undefined;
@@ -123,6 +126,9 @@ export function resolveBrainConfig(env: Env): BrainConfig {
   const fallback = env.LLM_MODEL;
   return {
     sceneModel: env.SCENE_MODEL ?? fallback,
+    evaluatorEnabled: env.REALISTIC_EVALUATOR_ENABLED,
+    evaluatorModel: env.REALISTIC_EVALUATOR_MODEL ?? fallback,
+    evaluatorTemperature: env.REALISTIC_EVALUATOR_TEMPERATURE,
     plannerModel: env.PLANNER_MODEL ?? fallback,
     replyModel: env.REPLY_MODEL ?? fallback,
     rankerModel: env.RANKER_MODEL ?? fallback,
