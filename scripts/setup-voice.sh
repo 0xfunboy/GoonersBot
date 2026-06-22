@@ -9,18 +9,23 @@ VENDOR="$ROOT/vendor"
 MODEL="${1:-base}"
 mkdir -p "$VENDOR/bin" "$VENDOR/models"
 
-# ---- static ffmpeg (BtbN build: handles network input + section cutting; the johnvansickle
-#      static build segfaults on HTTPS/HLS input and on --download-sections) ----
-if [ ! -x "$VENDOR/bin/ffmpeg" ]; then
-  echo "==> downloading static ffmpeg (BtbN)"
+# ---- ffmpeg ----
+# Prefer a system ffmpeg (apt install ffmpeg): it is dynamically linked with real TLS and handles
+# network/HLS input + section cutting. The johnvansickle static build segfaults on those, so we only
+# fall back to a static BtbN build (also network-capable) when no system ffmpeg is present.
+# When using a system ffmpeg, set FFMPEG_BIN=/usr/bin/ffmpeg in .env.
+if command -v ffmpeg >/dev/null 2>&1; then
+  echo "ffmpeg: using system $(command -v ffmpeg) ($(ffmpeg -version | head -1)). Set FFMPEG_BIN=$(command -v ffmpeg) in .env."
+elif [ ! -x "$VENDOR/bin/ffmpeg" ]; then
+  echo "==> no system ffmpeg; downloading static ffmpeg (BtbN)"
   tmp="$(mktemp -d)"
   curl -sL -o "$tmp/ffmpeg.tar.xz" https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
   tar -xf "$tmp/ffmpeg.tar.xz" -C "$tmp"
   d="$(ls -d "$tmp"/ffmpeg-*-linux64-gpl | head -1)"
   cp "$d/bin/ffmpeg" "$d/bin/ffprobe" "$VENDOR/bin/"
   rm -rf "$tmp"
+  echo "ffmpeg: $("$VENDOR/bin/ffmpeg" -version | head -1)"
 fi
-echo "ffmpeg: $("$VENDOR/bin/ffmpeg" -version | head -1)"
 
 # ---- yt-dlp (standalone, no python needed) for /sing /play music ----
 if [ ! -x "$VENDOR/bin/yt-dlp" ]; then
