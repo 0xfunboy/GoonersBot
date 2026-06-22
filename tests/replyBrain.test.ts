@@ -3,10 +3,21 @@ import { ResponseRanker } from '../src/brain/responseRanker.js';
 import { RepetitionGuard } from '../src/brain/repetitionGuard.js';
 import { ReplyPlanner } from '../src/brain/replyPlanner.js';
 import { StyleEngine } from '../src/brain/styleEngine.js';
-import type { BotReplyRecord, ReplyPlan, SceneAnalysis } from '../src/brain/types.js';
+import type {
+  BotReplyRecord,
+  ReplyPlan,
+  SceneAnalysis,
+  TurnEvaluation,
+} from '../src/brain/types.js';
+import { TurnEvaluator } from '../src/brain/turnEvaluator.js';
 
 const emptyPlan = (over: Partial<ReplyPlan> = {}): ReplyPlan => ({
   replyIntent: 'roast_user',
+  action: 'banter_only',
+  valueTarget: 'joke',
+  roastBudget: 'heavy',
+  socialRole: 'banter',
+  mustBringValue: false,
   targetHandles: ['@bob'],
   tone: 'group-native',
   maxLines: 2,
@@ -37,6 +48,18 @@ const scene = (over: Partial<SceneAnalysis> = {}): SceneAnalysis => ({
   ...over,
 });
 
+const evaluation = (over: Partial<TurnEvaluation> = {}): TurnEvaluation => ({
+  shouldAct: true,
+  action: 'answer',
+  providerRequests: ['group_rag', 'knowledge_rag'],
+  valueTarget: 'truth',
+  roastBudget: 'light',
+  socialRole: 'friend',
+  confidence: 0.8,
+  reason: 'test',
+  ...over,
+});
+
 const reply = (text: string): BotReplyRecord => ({
   chatId: -1,
   text,
@@ -55,6 +78,31 @@ describe('ResponseRanker', () => {
         'ma chi cazzo te lo ha chiesto, vai a dormire',
       ],
       { recent: [], plan: emptyPlan(), memories: [], maxChars: 420 },
+    );
+    expect(ranked[0]?.index).toBe(1);
+  });
+
+  it('prefers useful factual content over roast-only when the turn must bring value', () => {
+    const ranker = new ResponseRanker();
+    const ranked = ranker.rank(
+      [
+        'sei un coglione, fine analisi',
+        'In realtà è falso: la RTX 5090 non costa sempre uguale, dipende da modello e disponibilità. Poi sì, comprarla a caso è da criminale del portafoglio.',
+      ],
+      {
+        recent: [],
+        plan: emptyPlan({
+          replyIntent: 'answer_question',
+          action: 'challenge_claim',
+          valueTarget: 'truth',
+          roastBudget: 'light',
+          socialRole: 'truth_checker',
+          mustBringValue: true,
+        }),
+        memories: [],
+        maxChars: 420,
+        userMessage: 'la rtx 5090 costa sempre 1000 euro',
+      },
     );
     expect(ranked[0]?.index).toBe(1);
   });
@@ -86,6 +134,7 @@ describe('RepetitionGuard', () => {
 describe('ReplyPlanner', () => {
   const planner = new ReplyPlanner();
   const baseInput = {
+    evaluation: evaluation(),
     retrievedMemories: [],
     bannedOpenings: [],
     currentHandle: '@bob',
@@ -95,6 +144,7 @@ describe('ReplyPlanner', () => {
   it('criticism → roast_self with no memory', () => {
     const p = planner.plan({
       ...baseInput,
+      evaluation: evaluation({ action: 'banter_only', valueTarget: 'social_glue' }),
       scene: scene({ botIsBeingCriticized: true, userIntent: 'insult_bot' }),
     });
     expect(p.replyIntent).toBe('roast_self');
@@ -104,15 +154,76 @@ describe('ReplyPlanner', () => {
   it('dangerous → answer', () => {
     const p = planner.plan({
       ...baseInput,
+      evaluation: evaluation({ action: 'answer', valueTarget: 'truth' }),
       scene: scene({ userIntent: 'dangerous_request', risk: 'high' }),
     });
     expect(p.replyIntent).toBe('answer_question');
     expect(p.mustAnswer).toBe(true);
   });
   it('question → answer', () => {
-    const p = planner.plan({ ...baseInput, scene: scene({ userIntent: 'ask_bot' }) });
+    const p = planner.plan({
+      ...baseInput,
+      evaluation: evaluation({ action: 'answer', valueTarget: 'truth' }),
+      scene: scene({ userIntent: 'ask_bot' }),
+    });
     expect(p.replyIntent).toBe('answer_question');
     expect(p.mustAnswer).toBe(true);
+  });
+
+  it('challenge claim plans must bring value and avoid explicit lore callbacks', () => {
+    const p = planner.plan({
+      ...baseInput,
+      evaluation: evaluation({ action: 'challenge_claim', valueTarget: 'truth' }),
+      scene: scene({ userIntent: 'random_chatter' }),
+    });
+    expect(p.replyIntent).toBe('answer_question');
+    expect(p.mustBringValue).toBe(true);
+    expect(p.roastBudget).toBe('light');
+  });
+});
+
+describe('TurnEvaluator', () => {
+  const evaluator = new TurnEvaluator();
+  const base = {
+    history: [],
+    recentBotReplies: [],
+    recentNegativeFeedback: false,
+    capabilities: { webSearch: true, imageLookup: true, news: true, knowledge: true },
+    groundingHints: { wantsWebSearch: false, wantsImageLookup: false },
+  };
+
+  it('routes current factual questions to grounded search', () => {
+    const e = evaluator.evaluate({
+      ...base,
+      scene: scene({ userIntent: 'ask_bot' }),
+      currentMessage: 'quanto costa bitcoin oggi?',
+      botIsAddressed: true,
+      groundingHints: { wantsWebSearch: true, wantsImageLookup: false },
+    });
+    expect(e.action).toBe('bring_news_context');
+    expect(e.providerRequests).toContain('web_search');
+  });
+
+  it('routes challenged claims to claim checking', () => {
+    const e = evaluator.evaluate({
+      ...base,
+      scene: scene({ userIntent: 'random_chatter' }),
+      currentMessage: 'non è vero, questa è una cazzata: node non supporta typescript',
+      botIsAddressed: true,
+    });
+    expect(e.action).toBe('challenge_claim');
+    expect(e.valueTarget).toBe('truth');
+  });
+
+  it('stays quiet on passive low-value chatter', () => {
+    const e = evaluator.evaluate({
+      ...base,
+      scene: scene({ userIntent: 'random_chatter' }),
+      currentMessage: 'lol',
+      botIsAddressed: false,
+    });
+    expect(e.shouldAct).toBe(false);
+    expect(e.action).toBe('stay_quiet');
   });
 });
 

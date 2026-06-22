@@ -76,6 +76,7 @@ export class Services {
   readonly heat: HeatService;
   readonly knowledge: KnowledgeRetriever;
   readonly imageFinder: ImageFinder;
+  readonly news: NewsService;
   readonly autonomousPoster: AutonomousPoster;
   readonly generatedImagePoster: GeneratedImagePoster;
   readonly imagePrompts: ImagePromptService;
@@ -105,7 +106,11 @@ export class Services {
     this.music = new MusicService(config.music);
     this.linkMedia = new LinkMediaService(config.linkMedia, storage, this.media);
     this.permissions = new PermissionService(storage, env.ALLOWED_HANDLES, env.ADMIN_HANDLES);
-    this.access = new AccessService(env.APPROVED_STORE_PATH, env.APPROVED_CHATS, env.APPROVED_USERS);
+    this.access = new AccessService(
+      env.APPROVED_STORE_PATH,
+      env.APPROVED_CHATS,
+      env.APPROVED_USERS,
+    );
     this.terms = new TermsService(storage);
     this.bans = new BanService(storage, env.DEFAULT_BAN_SECONDS);
     this.modes = new ModeService(storage);
@@ -155,14 +160,14 @@ export class Services {
       maxResults: config.search.maxResults,
     });
     this.imageFinder = new ImageFinder(searxng, this.media, config.auto.imageQueryPool);
-    const news = new NewsService(
+    this.news = new NewsService(
       config.auto.rssFeeds,
       config.search.timeoutMs,
       config.auto.newsMaxAgeHours,
     );
     this.autonomousPoster = new AutonomousPoster(
       llm,
-      news,
+      this.news,
       this.imageFinder,
       config,
       storage,
@@ -191,6 +196,7 @@ export class Services {
       this.heat,
       this.knowledge,
       this.imageFinder,
+      this.news,
     );
   }
 

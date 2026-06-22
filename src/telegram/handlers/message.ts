@@ -297,6 +297,40 @@ export async function handleMessage(
       recentBotReplies: recentReplies,
     });
 
+    if (outcome.suppressed) {
+      await services.conversation.addUserMessage(
+        context.chatId,
+        person.userHandle,
+        outcome.transcribedUserMessage,
+        metaOf(person, context),
+      );
+      if (env.BRAIN_DEBUG_ENABLED) {
+        await services.storage.brainDebug
+          .record({
+            chatId: context.chatId,
+            ...(context.messageId !== undefined ? { inputMessageId: context.messageId } : {}),
+            createdAt: new Date(),
+            scene: outcome.scene,
+            evaluation: outcome.evaluation,
+            providerSources: outcome.providerBundle.sources,
+            providerBundle: outcome.providerBundle,
+            retrievedMemories: [],
+            plan: outcome.plan,
+            styleVariant: outcome.styleVariant,
+            candidates: [],
+            ranked: [],
+            repetitionChecks: [],
+            finalText: '',
+          })
+          .catch((err) => log.debug({ err }, 'suppressed brain debug record failed'));
+      }
+      log.debug(
+        { chatId: context.chatId, reason: outcome.evaluation.reason },
+        'reply suppressed by evaluator',
+      );
+      return;
+    }
+
     const finalText = outcome.text;
     const replyTo = ctx.message?.message_id;
     const replyOpts = replyTo ? { reply_parameters: { message_id: replyTo } } : {};
@@ -385,6 +419,9 @@ export async function handleMessage(
           ...(context.messageId !== undefined ? { inputMessageId: context.messageId } : {}),
           createdAt: new Date(),
           scene: outcome.scene,
+          evaluation: outcome.evaluation,
+          providerSources: outcome.providerBundle.sources,
+          providerBundle: outcome.providerBundle,
           retrievedMemories: outcome.retrieved.map((m) => ({
             id: m.item._id ?? '',
             text: m.item.text,

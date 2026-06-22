@@ -12,6 +12,17 @@ export const brainCommand: CommandSpec = {
     if (!services.config.env.BRAIN_DEBUG_ENABLED) return { rawText: 'Brain debug disabled.' };
     const turn = await services.storage.brainDebug.getLast(context.chatId);
     if (!turn) return { rawText: 'No brain turns recorded yet.' };
+    const evaluation = turn.evaluation ?? {
+      shouldAct: true,
+      action: 'answer',
+      providerRequests: [],
+      valueTarget: 'truth',
+      roastBudget: 'light',
+      socialRole: 'friend',
+      confidence: 0,
+      reason: 'legacy debug turn without evaluator data',
+    };
+    const providerSources = turn.providerSources ?? [];
     const mem = turn.retrievedMemories
       .map((m) => `  • ${m.text} (rel ${m.relevance.toFixed(2)})`)
       .join('\n');
@@ -19,7 +30,10 @@ export const brainCommand: CommandSpec = {
       `🧠 last turn @ ${turn.createdAt.toISOString().slice(0, 19)}`,
       `scene: topic="${turn.scene.currentTopic}" energy=${turn.scene.energy} intent=${turn.scene.userIntent}`,
       `  addressed=${turn.scene.botIsBeingAddressed} criticized=${turn.scene.botIsBeingCriticized} risk=${turn.scene.risk}`,
-      `plan: intent=${turn.plan.replyIntent} tone=${turn.plan.tone} memory=${turn.plan.memoryUseMode} maxLines=${turn.plan.maxLines}`,
+      `evaluation: action=${evaluation.action} value=${evaluation.valueTarget} role=${evaluation.socialRole} roast=${evaluation.roastBudget}`,
+      `  providers=${evaluation.providerRequests.join(', ') || 'none'} conf=${evaluation.confidence.toFixed(2)} reason=${evaluation.reason}`,
+      `plan: intent=${turn.plan.replyIntent} action=${turn.plan.action} value=${turn.plan.valueTarget} memory=${turn.plan.memoryUseMode} maxLines=${turn.plan.maxLines}`,
+      `sources: ${providerSources.length ? providerSources.slice(0, 5).join(', ') : '(none)'}`,
       `style: ${turn.styleVariant}`,
       `memories used:\n${mem || '  (none)'}`,
       `candidates: ${turn.candidates.length}`,
@@ -41,8 +55,21 @@ export const debuglastCommand: CommandSpec = {
     if (!services.config.env.BRAIN_DEBUG_ENABLED) return { rawText: 'Brain debug disabled.' };
     const turn = await services.storage.brainDebug.getLast(context.chatId);
     if (!turn) return { rawText: 'No brain turns recorded yet.' };
+    const evaluation = turn.evaluation ?? {
+      shouldAct: true,
+      action: 'answer',
+      providerRequests: [],
+      valueTarget: 'truth',
+      roastBudget: 'light',
+      socialRole: 'friend',
+      confidence: 0,
+      reason: 'legacy debug turn without evaluator data',
+    };
     const compact = {
       scene: turn.scene,
+      evaluation,
+      providerSources: turn.providerSources ?? [],
+      providerBundle: turn.providerBundle,
       plan: turn.plan,
       styleVariant: turn.styleVariant,
       memories: turn.retrievedMemories,

@@ -1,5 +1,11 @@
 import type { RetrievedMemory } from '../memory/types.js';
-import type { ReplyPlan, SceneAnalysis, ReplyIntent, MemoryUseMode } from './types.js';
+import type {
+  ReplyPlan,
+  SceneAnalysis,
+  ReplyIntent,
+  MemoryUseMode,
+  TurnEvaluation,
+} from './types.js';
 
 const HARD_BANNED = [
   'Ah fra',
@@ -12,6 +18,7 @@ const HARD_BANNED = [
 
 export interface PlannerInput {
   scene: SceneAnalysis;
+  evaluation: TurnEvaluation;
   retrievedMemories: RetrievedMemory[];
   bannedOpenings: string[];
   currentHandle: string;
@@ -27,37 +34,43 @@ export interface PlannerInput {
 export class ReplyPlanner {
   plan(input: PlannerInput): ReplyPlan {
     const s = input.scene;
+    const e = input.evaluation;
     let replyIntent: ReplyIntent;
-    switch (s.userIntent) {
-      case 'dangerous_request':
+    switch (e.action) {
+      case 'answer':
+      case 'challenge_claim':
+      case 'ground_search':
+      case 'bring_news_context':
         replyIntent = 'answer_question';
         break;
-      case 'ask_bot':
-        replyIntent = 'answer_question';
-        break;
-      case 'request_summary':
+      case 'summarize_thread':
         replyIntent = 'summarize';
         break;
-      case 'request_memory':
+      case 'use_group_lore':
         replyIntent = 'lore_callback';
         break;
-      case 'insult_bot':
-        replyIntent = s.botIsBeingCriticized ? 'roast_self' : 'roast_user';
-        break;
-      case 'continue_banter':
+      case 'banter_only':
         replyIntent = s.energy === 'chaotic' ? 'chaos_reply' : 'roast_user';
         break;
-      default:
-        replyIntent = s.energy === 'chaotic' ? 'chaos_reply' : 'ignore_memory_and_answer_directly';
+      case 'stay_quiet':
+        replyIntent = 'ignore_memory_and_answer_directly';
+        break;
     }
     if (s.botIsBeingCriticized) replyIntent = 'roast_self';
 
     const usable = input.retrievedMemories.filter((m) => m.relevance > 0.2);
     let memoryUseMode: MemoryUseMode = 'none';
-    if (!s.botIsBeingCriticized && usable.length > 0) {
+    const valueFirst =
+      e.action === 'answer' ||
+      e.action === 'challenge_claim' ||
+      e.action === 'ground_search' ||
+      e.action === 'bring_news_context';
+    if (!s.botIsBeingCriticized && usable.length > 0 && e.providerRequests.includes('group_rag')) {
       const hasExplicit = usable.some((m) => m.allowedToUseExplicitly);
       memoryUseMode =
-        hasExplicit && (replyIntent === 'lore_callback' || s.humorStyle.includes('lore_callback'))
+        !valueFirst &&
+        hasExplicit &&
+        (replyIntent === 'lore_callback' || s.humorStyle.includes('lore_callback'))
           ? 'explicit_callback'
           : 'implicit_style';
     }
@@ -74,9 +87,17 @@ export class ReplyPlanner {
     const forbiddenReferences: string[] = [];
     if (s.botIsBeingCriticized)
       forbiddenReferences.push('repeated callbacks', 'terms of use', 'the same old jokes');
+    if (valueFirst) {
+      forbiddenReferences.push('roast-only answer', 'stale personal callback as the main point');
+    }
 
     return {
       replyIntent,
+      action: e.action,
+      valueTarget: e.valueTarget,
+      roastBudget: e.roastBudget,
+      socialRole: e.socialRole,
+      mustBringValue: valueFirst || e.valueTarget === 'truth' || e.valueTarget === 'technical_help',
       targetHandles: s.mentionedUsers.length ? s.mentionedUsers : [input.currentHandle],
       tone: s.bestAngle || (s.botIsBeingCriticized ? 'self-ironic and venomous' : 'group-native'),
       maxLines,

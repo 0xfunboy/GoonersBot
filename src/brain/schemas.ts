@@ -57,6 +57,26 @@ export const planSchema = z.object({
       'chaos_reply',
     ])
     .default('ignore_memory_and_answer_directly'),
+  action: z
+    .enum([
+      'answer',
+      'challenge_claim',
+      'ground_search',
+      'bring_news_context',
+      'summarize_thread',
+      'use_group_lore',
+      'banter_only',
+      'stay_quiet',
+    ])
+    .default('answer'),
+  valueTarget: z
+    .enum(['truth', 'context', 'joke', 'support', 'technical_help', 'social_glue'])
+    .default('truth'),
+  roastBudget: z.enum(['none', 'light', 'medium', 'heavy']).default('light'),
+  socialRole: z
+    .enum(['friend', 'truth_checker', 'banter', 'lorekeeper', 'quiet_listener', 'technical_peer'])
+    .default('friend'),
+  mustBringValue: z.boolean().default(true),
   targetHandles: z.array(z.string()).default([]),
   tone: z.string().default('group-native'),
   maxLines: z.number().int().min(1).max(8).default(2),

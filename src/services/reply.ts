@@ -10,19 +10,23 @@ import type { GroundingService } from '../search/groundingService.js';
 import type { HeatService } from './heat.js';
 import type { KnowledgeRetriever } from '../knowledge/knowledgeRetriever.js';
 import type { ImageFinder } from '../media/imageFinder.js';
+import type { NewsService } from '../news/newsService.js';
 import type { RetrievedMemory } from '../memory/types.js';
 import { StyleEngine } from '../brain/styleEngine.js';
 import { ReplyPlanner } from '../brain/replyPlanner.js';
 import { ResponseGenerator } from '../brain/responseGenerator.js';
 import { ResponseRanker } from '../brain/responseRanker.js';
 import { RepetitionGuard } from '../brain/repetitionGuard.js';
+import { TurnEvaluator } from '../brain/turnEvaluator.js';
 import { isRefusal } from './modelRouter.js';
 import type {
   BotReplyRecord,
+  ProviderBundle,
   RankedReply,
   RepetitionCheck,
   ReplyPlan,
   SceneAnalysis,
+  TurnEvaluation,
 } from '../brain/types.js';
 import { childLogger } from '../utils/logger.js';
 
@@ -108,6 +112,42 @@ function formatKnowledge(items: { topic: string; text: string }[]): string {
   ].join('\n');
 }
 
+function formatGroupContext(items: RetrievedMemory[]): string | undefined {
+  if (items.length === 0) return undefined;
+  return [
+    'GROUP RAG (who these people are / group lore; use as social context, not as the default insult):',
+    ...items.map((m) => {
+      const subject = m.item.subjectHandle ?? 'group';
+      return `- ${subject}: ${m.item.text} (${m.reason}, rel ${m.relevance.toFixed(2)})`;
+    }),
+  ].join('\n');
+}
+
+function formatNewsContext(
+  items: Array<{ title: string; source: string; summary: string; matchedTopics: string[] }>,
+): string | undefined {
+  if (items.length === 0) return undefined;
+  return [
+    'CURRENT NEWS CONTEXT (fresh RSS items that may match the live topic; use only if relevant, do not infodump):',
+    ...items.map((n) => {
+      const topics = n.matchedTopics.length ? ` topics=${n.matchedTopics.join(',')}` : '';
+      return `- ${n.title} [${n.source}${topics}]: ${n.summary}`;
+    }),
+  ].join('\n');
+}
+
+function formatClaimCheck(evaluation: TurnEvaluation, sources: string[]): string | undefined {
+  if (evaluation.action !== 'challenge_claim') return undefined;
+  const sourceLine = sources.length
+    ? `Fresh/context sources available: ${sources.slice(0, 5).join(', ')}`
+    : 'No fresh source confirmed this turn; be blunt about uncertainty and avoid fake precision.';
+  return [
+    'CLAIM CHECK MODE:',
+    'The reply should correct or pressure-test the claim before making fun of anyone.',
+    sourceLine,
+  ].join('\n');
+}
+
 const FALLBACKS = [
   'almost repeated myself again. delete that thought, I am getting back on track.',
   'ok I was about to go full NPC. mental reset, give me a sec and I am back to being properly mean.',
@@ -142,6 +182,7 @@ export interface ReplyContext {
 
 export interface ReplyOutcome {
   text: string;
+  suppressed?: boolean;
   imageUrl?: string;
   imageBuffer?: Buffer;
   transcribedUserMessage: TranscribedMessage;
@@ -159,6 +200,8 @@ export interface ReplyOutcome {
   candidates: string[];
   ranked: RankedReply[];
   repetitionChecks: RepetitionCheck[];
+  evaluation: TurnEvaluation;
+  providerBundle: ProviderBundle;
 }
 
 /**
@@ -170,6 +213,7 @@ export interface ReplyOutcome {
 export class ReplyService {
   private readonly styleEngine = new StyleEngine();
   private readonly planner = new ReplyPlanner();
+  private readonly evaluator = new TurnEvaluator();
   private readonly generator: ResponseGenerator;
   private readonly ranker = new ResponseRanker();
   private readonly guard: RepetitionGuard;
@@ -185,6 +229,7 @@ export class ReplyService {
     private readonly heat: HeatService,
     private readonly knowledge: KnowledgeRetriever,
     private readonly imageFinder: ImageFinder,
+    private readonly news: NewsService,
   ) {
     this.generator = new ResponseGenerator(llm, this.styleEngine, {
       model: config.brain.replyModel,
@@ -278,11 +323,12 @@ export class ReplyService {
   private async ground(
     ctx: ReplyContext,
     visual: { buffer: Buffer; mime: string } | null,
+    force: 'web' | 'image' | null = null,
   ): Promise<{ block: string; query: string; sources: string[] } | null> {
     if (!this.grounding.enabled) return null;
     const question = ctx.message.messageText || '';
     try {
-      if (visual && this.grounding.wantsImageLookup(question)) {
+      if (visual && (force === 'image' || this.grounding.wantsImageLookup(question))) {
         return await this.grounding.groundImage({
           imageBuffer: visual.buffer,
           imageMime: visual.mime,
@@ -290,7 +336,7 @@ export class ReplyService {
           language: ctx.language,
         });
       }
-      if (this.grounding.wantsWebSearch(question)) {
+      if (force === 'web' || this.grounding.wantsWebSearch(question)) {
         const query = cleanQuery(question, ctx.botUsername);
         return await this.grounding.groundWeb(query, ctx.language);
       }
@@ -298,6 +344,43 @@ export class ReplyService {
       log.warn({ err }, 'grounding failed');
     }
     return null;
+  }
+
+  private async newsContext(
+    ctx: ReplyContext,
+    history: { message: { messageText: string | null } }[],
+    retrieved: RetrievedMemory[],
+    scene: SceneAnalysis,
+  ): Promise<{ block?: string; sources: string[] }> {
+    if (!this.news.enabled) return { sources: [] };
+    try {
+      const dynamicTerms = [
+        scene.currentTopic,
+        ctx.message.messageText,
+        ...history.slice(-8).map((h) => h.message.messageText ?? ''),
+      ]
+        .join(' ')
+        .split(/[^a-zA-Z0-9À-ÿ+#.]+/)
+        .filter((t) => t.length >= 4)
+        .slice(0, 24);
+      const lore = retrieved.map((m) => m.item.text).slice(0, 6);
+      const ranked = await this.news.ranked(
+        {
+          chatName: ctx.context.chatName,
+          dynamicTerms,
+          lore,
+        },
+        8,
+      );
+      const picked = ranked.filter((n) => n.score > 0).slice(0, 3);
+      return {
+        block: formatNewsContext(picked),
+        sources: picked.map((n) => n.link).filter(Boolean),
+      };
+    } catch (err) {
+      log.warn({ err }, 'news context failed');
+      return { sources: [] };
+    }
   }
 
   async generateReply(ctx: ReplyContext): Promise<ReplyOutcome> {
@@ -333,21 +416,89 @@ export class ReplyService {
     );
     const generationModel = sceneForcesNsfw ? ctx.nsfwModel : ctx.model;
     const generationNsfwEnabled = ctx.nsfwEnabled || sceneForcesNsfw;
+    const addressed = ctx.context.isBotMentioned || ctx.context.isReplyToBot;
+    const wantsWebSearch = this.grounding.wantsWebSearch(ctx.message.messageText || '');
+    const wantsImageLookup = Boolean(
+      visual && this.grounding.wantsImageLookup(ctx.message.messageText || ''),
+    );
+    const recentNegativeFeedback = ctx.recentBotReplies.some((r) => (r.feedbackScore ?? 0) < 0);
+    const evaluation = this.evaluator.evaluate({
+      scene,
+      history,
+      currentMessage: ctx.message.messageText,
+      botIsAddressed: addressed,
+      recentBotReplies: ctx.recentBotReplies,
+      recentNegativeFeedback,
+      capabilities: {
+        webSearch: this.grounding.enabled,
+        imageLookup: this.grounding.enabled && Boolean(visual),
+        news: this.news.enabled,
+        knowledge: this.knowledge.enabled,
+      },
+      groundingHints: { wantsWebSearch, wantsImageLookup },
+    });
+    if (!evaluation.shouldAct) {
+      const bannedOpenings = [
+        ...this.styleEngine.bannedOpenings(ctx.recentBotReplies),
+        ...this.styleEngine.recurringTics(ctx.recentBotReplies),
+      ];
+      const plan = this.planner.plan({
+        scene,
+        evaluation,
+        retrievedMemories: [],
+        bannedOpenings,
+        currentHandle: ctx.person.userHandle,
+        maxLines: this.config.env.MAX_REPLY_LINES,
+        maxChars: this.config.env.MAX_REPLY_CHARS,
+      });
+      return {
+        text: '',
+        suppressed: true,
+        transcribedUserMessage: transcribed,
+        usage: { inputTokens: 0, outputTokens: 0, estimated: true },
+        model: null,
+        visionCalls,
+        transcriptionCalls,
+        imageCalls: 0,
+        scene,
+        plan,
+        styleVariant: 'suppressed',
+        retrieved: [],
+        usedMemoryIds: [],
+        candidates: [],
+        ranked: [],
+        repetitionChecks: [],
+        evaluation,
+        providerBundle: { sources: [] },
+      };
+    }
 
     // 2. retrieve memory + (in parallel) grounding, on-demand knowledge, and update per-user heat
     const activeHandles = [...new Set(history.filter((m) => !m.isBot).map((m) => m.handle))];
+    const wantsGroupRag = evaluation.providerRequests.includes('group_rag');
+    const wantsKnowledgeRag = evaluation.providerRequests.includes('knowledge_rag');
+    const wantsGrounding =
+      evaluation.providerRequests.includes('web_search') ||
+      evaluation.providerRequests.includes('image_lookup');
+    const groundForce = evaluation.providerRequests.includes('image_lookup')
+      ? 'image'
+      : evaluation.providerRequests.includes('web_search')
+        ? 'web'
+        : null;
     const [retrieved, grounding, knowledgeItems, heatValue] = await Promise.all([
-      this.memoryRetriever.retrieve({
-        chatId: ctx.context.chatId,
-        currentMessage: ctx.message.messageText,
-        scene,
-        activeHandles,
-        mentionedHandles: mentioned,
-        repliedToHandle: ctx.context.repliedToUserHandle ?? null,
-        nsfwEnabled: generationNsfwEnabled,
-      }),
-      this.ground(ctx, visual),
-      this.knowledge.enabled
+      wantsGroupRag
+        ? this.memoryRetriever.retrieve({
+            chatId: ctx.context.chatId,
+            currentMessage: ctx.message.messageText,
+            scene,
+            activeHandles,
+            mentionedHandles: mentioned,
+            repliedToHandle: ctx.context.repliedToUserHandle ?? null,
+            nsfwEnabled: generationNsfwEnabled,
+          })
+        : Promise.resolve([]),
+      wantsGrounding ? this.ground(ctx, visual, groundForce) : Promise.resolve(null),
+      wantsKnowledgeRag && this.knowledge.enabled
         ? this.knowledge.retrieve(ctx.message.messageText, scene.currentTopic)
         : Promise.resolve([]),
       this.heat.enabled
@@ -358,9 +509,27 @@ export class ReplyService {
           )
         : Promise.resolve(0),
     ]);
-    const groundingBlock = grounding?.block;
-    const hostility = this.heat.enabled ? this.heat.directive(heatValue) : null;
+    const news = evaluation.providerRequests.includes('news')
+      ? await this.newsContext(ctx, history, retrieved, scene)
+      : { sources: [] };
+    const sources = [...new Set([...(grounding?.sources ?? []), ...news.sources])];
+    const providerBundle: ProviderBundle = { sources };
+    const groupContext = formatGroupContext(retrieved);
     const knowledgeBlock = formatKnowledge(knowledgeItems);
+    const claimCheck = formatClaimCheck(evaluation, sources);
+    if (groupContext) providerBundle.groupContext = groupContext;
+    if (knowledgeBlock) providerBundle.knowledgeContext = knowledgeBlock;
+    if (grounding?.block) providerBundle.webContext = grounding.block;
+    if (news.block) providerBundle.newsContext = news.block;
+    if (claimCheck) providerBundle.claimCheck = claimCheck;
+    const providerContextBlock = [
+      providerBundle.webContext,
+      providerBundle.newsContext,
+      providerBundle.claimCheck,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+    const hostility = this.heat.enabled ? this.heat.directive(heatValue) : null;
 
     // 3. style + plan
     const style = this.styleEngine.sample({
@@ -379,6 +548,7 @@ export class ReplyService {
     ];
     const plan = this.planner.plan({
       scene,
+      evaluation,
       retrievedMemories: retrieved,
       bannedOpenings,
       currentHandle: ctx.person.userHandle,
@@ -421,7 +591,7 @@ export class ReplyService {
       botLabel: BOT_LABEL,
       model: generationModel,
       addressee,
-      ...(groundingBlock ? { grounding: groundingBlock } : {}),
+      ...(providerContextBlock ? { grounding: providerContextBlock } : {}),
       ...(media ? { media } : {}),
       ...(hostilityLine ? { hostility: hostilityLine } : {}),
       ...(knowledgeBlock ? { knowledge: knowledgeBlock } : {}),
@@ -493,7 +663,7 @@ export class ReplyService {
         botLabel: BOT_LABEL,
         model: ctx.nsfwModel,
         addressee,
-        ...(groundingBlock ? { grounding: groundingBlock } : {}),
+        ...(providerContextBlock ? { grounding: providerContextBlock } : {}),
         ...(media ? { media } : {}),
         ...(hostilityLine ? { hostility: hostilityLine } : {}),
         ...(knowledgeBlock ? { knowledge: knowledgeBlock } : {}),
@@ -575,6 +745,8 @@ export class ReplyService {
       candidates: allCandidates,
       ranked,
       repetitionChecks,
+      evaluation,
+      providerBundle,
     };
     if (imageUrl !== undefined) outcome.imageUrl = imageUrl;
     if (imageBuffer !== undefined) outcome.imageBuffer = imageBuffer;

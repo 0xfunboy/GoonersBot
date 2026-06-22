@@ -55,8 +55,68 @@ export type ReplyIntent =
 
 export type MemoryUseMode = 'none' | 'implicit_style' | 'explicit_callback';
 
+export type TurnAction =
+  | 'answer'
+  | 'challenge_claim'
+  | 'ground_search'
+  | 'bring_news_context'
+  | 'summarize_thread'
+  | 'use_group_lore'
+  | 'banter_only'
+  | 'stay_quiet';
+
+export type ProviderRequest =
+  | 'group_rag'
+  | 'knowledge_rag'
+  | 'web_search'
+  | 'news'
+  | 'image_lookup';
+
+export type ValueTarget =
+  | 'truth'
+  | 'context'
+  | 'joke'
+  | 'support'
+  | 'technical_help'
+  | 'social_glue';
+
+export type RoastBudget = 'none' | 'light' | 'medium' | 'heavy';
+
+export type SocialRole =
+  | 'friend'
+  | 'truth_checker'
+  | 'banter'
+  | 'lorekeeper'
+  | 'quiet_listener'
+  | 'technical_peer';
+
+export interface TurnEvaluation {
+  shouldAct: boolean;
+  action: TurnAction;
+  providerRequests: ProviderRequest[];
+  valueTarget: ValueTarget;
+  roastBudget: RoastBudget;
+  socialRole: SocialRole;
+  confidence: number;
+  reason: string;
+}
+
+export interface ProviderBundle {
+  groupContext?: string;
+  knowledgeContext?: string;
+  webContext?: string;
+  newsContext?: string;
+  claimCheck?: string;
+  sources: string[];
+}
+
 export interface ReplyPlan {
   replyIntent: ReplyIntent;
+  action: TurnAction;
+  valueTarget: ValueTarget;
+  roastBudget: RoastBudget;
+  socialRole: SocialRole;
+  mustBringValue: boolean;
   targetHandles: string[];
   tone: string;
   maxLines: number;
@@ -121,6 +181,9 @@ export interface BrainDebugTurn {
   inputMessageId?: number;
   createdAt: Date;
   scene: SceneAnalysis;
+  evaluation: TurnEvaluation;
+  providerSources: string[];
+  providerBundle?: ProviderBundle;
   retrievedMemories: Array<{ id: string; text: string; relevance: number; reason: string }>;
   plan: ReplyPlan;
   styleVariant: string;

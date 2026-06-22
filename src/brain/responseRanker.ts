@@ -36,6 +36,15 @@ const STOPWORDS = new Set([
 const FACTUAL_MARKERS =
   /\b(è|sono|significa|vuol dire|in pratica|tipicamente|di solito|risch|pericol|overdose|dose|legale|illegale|farmac|oppioid|codeina|prometazina|destrometorfano|dextromethorphan|respir|mix|mischi|mescol)\b/i;
 
+const VALUE_MARKERS =
+  /\b(perché|perche|infatti|in realtà|in realta|il punto|significa|dipende|fonte|risulta|secondo|dati|contesto|tecnicamente|corretto|sbagliato|non è|non e'|vero|falso|wrong|false|actually|because|means|context|source|according)\b/i;
+
+const ROAST_ONLY_RE =
+  /\b(coglione|stronzo|suca|scemo|idiota|cesso|pagliaccio|rosica|ritardat|porco|minchia|fesso)\b/i;
+
+const CORRECTION_RE =
+  /\b(non è così|non e' cosi|in realtà|in realta|sbagli|sbagliato|falso|no,|actually|wrong|false|not quite)\b/i;
+
 function normalize(s: string): string {
   return s.toLowerCase().replace(/\s+/g, ' ').trim();
 }
@@ -107,18 +116,30 @@ export class ResponseRanker {
       if (len > 0 && len < 200) score += 0.2;
 
       // Serious/technical turns must not win with pure banter or empty deflection.
-      if (mustAnswer) {
+      if (mustAnswer || opts.plan.mustBringValue) {
         const overlap = coverage(norm, questionTerms);
-        if (questionTerms.length > 0 && overlap < 0.34) {
+        const minOverlap = opts.plan.action === 'challenge_claim' ? 0.22 : 0.34;
+        if (questionTerms.length > 0 && overlap < minOverlap) {
           score -= 0.9;
           problems.push('misses question');
-        } else if (overlap >= 0.34) {
+        } else if (overlap >= minOverlap) {
           score += 0.35;
         }
-        if (FACTUAL_MARKERS.test(text)) score += 0.35;
+        if (FACTUAL_MARKERS.test(text) || VALUE_MARKERS.test(text)) score += 0.35;
         else {
           score -= 0.45;
           problems.push('low factual content');
+        }
+        if (opts.plan.mustBringValue && ROAST_ONLY_RE.test(text) && !VALUE_MARKERS.test(text)) {
+          score -= 0.75;
+          problems.push('roast-only');
+        }
+        if (opts.plan.action === 'challenge_claim') {
+          if (CORRECTION_RE.test(text)) score += 0.45;
+          else {
+            score -= 0.35;
+            problems.push('weak correction');
+          }
         }
       }
 
