@@ -25,7 +25,11 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
 
   if (has(msg, HINTS.music) && tools.has('music')) {
     intents.push('play_music');
-    calls.push({ tool: 'music', query: input.currentMessage, reason: 'degraded music hint' });
+    calls.push({
+      tool: 'music',
+      query: cleanFallbackQuery(input.currentMessage, HINTS.music),
+      reason: 'degraded music hint',
+    });
   } else if (has(msg, HINTS.image) && tools.has('image_gen')) {
     intents.push(has(msg, ['draw', 'disegna', 'dibuja']) ? 'draw_image' : 'make_image');
     calls.push({ tool: 'image_gen', query: input.currentMessage, reason: 'degraded image hint' });
@@ -82,4 +86,23 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
 
 function has(message: string, hints: string[]): boolean {
   return hints.some((hint) => message.includes(hint));
+}
+
+function cleanFallbackQuery(message: string, hints: string[]): string {
+  const cleaned = hints
+    .reduce(
+      (text, hint) => text.replace(new RegExp(`\\b${escapeRegExp(hint)}\\b`, 'gi'), ' '),
+      message,
+    )
+    .replace(
+      /\b(scarica\w*|suona\w*|canta\w*|play|grab|me la|me lo|mi|please|por favor|per favore|da youtube)\b/gi,
+      ' ',
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || message;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

@@ -142,12 +142,13 @@ describe('Cortex', () => {
     const out = await cortex.evaluate({
       scene,
       history: [],
-      currentMessage: 'play bohemian rhapsody',
+      currentMessage: 'scaricami bohemian rhapsody',
       botIsAddressed: true,
       recentNegativeFeedback: false,
       capabilities: caps,
     });
     expect(out.source).toBe('fallback');
     expect(out.toolCalls.some((c) => c.tool === 'music')).toBe(true);
+    expect(out.toolCalls.find((c) => c.tool === 'music')?.query).toBe('bohemian rhapsody');
   });
 });
