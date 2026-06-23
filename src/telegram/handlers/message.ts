@@ -375,7 +375,10 @@ export async function handleMessage(
     }
     if (outcome.imageBuffer || outcome.imageUrl) {
       const photo = outcome.imageBuffer ? new InputFile(outcome.imageBuffer) : outcome.imageUrl!;
-      await ctx.replyWithPhoto(photo).catch((err) => log.warn({ err }, 'image send failed'));
+      const imageOptions = outcome.imageSpoiler ? { has_spoiler: true } : {};
+      await ctx
+        .replyWithPhoto(photo, imageOptions)
+        .catch((err) => log.warn({ err }, 'image send failed'));
     }
 
     // persist user + bot messages (with ids for windows + mining)

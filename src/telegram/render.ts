@@ -38,6 +38,7 @@ export async function localizeResponse(
   }
   if (response.imageUrl !== undefined) out.imageUrl = response.imageUrl;
   if (response.imageBuffer !== undefined) out.imageBuffer = response.imageBuffer;
+  if (response.imageSpoiler !== undefined) out.imageSpoiler = response.imageSpoiler;
   if (response.audioBuffer !== undefined) out.audioBuffer = response.audioBuffer;
   if (response.keyboard !== undefined) out.keyboard = response.keyboard;
   return out;
@@ -68,6 +69,7 @@ export async function sendResponse(
       return await ctx.replyWithPhoto(photo, {
         ...baseOpts,
         ...(response.text ? { caption: response.text } : {}),
+        ...(response.imageSpoiler ? { has_spoiler: true } : {}),
         ...(reply_markup ? { reply_markup } : {}),
       });
     }

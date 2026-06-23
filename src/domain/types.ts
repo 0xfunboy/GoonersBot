@@ -95,6 +95,8 @@ export interface CommandResponse {
   /** image to send (url or buffer) */
   imageUrl?: string | undefined;
   imageBuffer?: Buffer | undefined;
+  /** Telegram spoiler overlay; set only for explicitly NSFW generated images. */
+  imageSpoiler?: boolean | undefined;
   /** audio (TTS) to send */
   audioBuffer?: Buffer | undefined;
   keyboard?: KeyboardResponse | undefined;
@@ -109,6 +111,7 @@ export interface LocalizedResponse {
   text?: string | undefined;
   imageUrl?: string | undefined;
   imageBuffer?: Buffer | undefined;
+  imageSpoiler?: boolean | undefined;
   audioBuffer?: Buffer | undefined;
   keyboard?: KeyboardResponse | undefined;
 }

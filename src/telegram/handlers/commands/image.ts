@@ -2,7 +2,7 @@ import type { CommandResponse } from '../../../domain/types.js';
 import type { Services } from '../../../services/index.js';
 import type { CommandSpec, HandlerInput } from '../types.js';
 import { Priority } from '../types.js';
-import type { ImageProfile } from '../../../providers/image/stableDiffusion.js';
+import { selectImageProfile, type ImageProfile } from '../../../providers/image/stableDiffusion.js';
 
 const MINOR_RE =
   /\b(child|children|minor|underage|under-aged|loli|shota|toddler|infant|preteen)\b/i;
@@ -62,5 +62,10 @@ async function generate(
   if (!image?.buffer) {
     return { text: 'image_unavailable' };
   }
-  return { text: 'image_done', vars: { prompt: prompt.slice(0, 180) }, imageBuffer: image.buffer };
+  return {
+    text: 'image_done',
+    vars: { prompt: prompt.slice(0, 180) },
+    imageBuffer: image.buffer,
+    imageSpoiler: selectImageProfile(prompt) === 'nsfw',
+  };
 }

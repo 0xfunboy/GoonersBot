@@ -215,6 +215,7 @@ export interface ReplyOutcome {
   audioBuffer?: Buffer;
   imageUrl?: string;
   imageBuffer?: Buffer;
+  imageSpoiler?: boolean;
   transcribedUserMessage: TranscribedMessage;
   usage: { inputTokens: number; outputTokens: number; estimated: boolean };
   model: string | null;
@@ -540,6 +541,7 @@ export class ReplyService {
       styleVariant: string;
       providerBundle?: ProviderBundle;
       imageBuffer?: Buffer;
+      imageSpoiler?: boolean;
       linkMediaUrl?: string;
       audioBuffer?: Buffer;
       imageCalls?: number;
@@ -567,6 +569,7 @@ export class ReplyService {
         providerBundle: params.providerBundle ?? { sources: [] },
       };
       if (params.imageBuffer) out.imageBuffer = params.imageBuffer;
+      if (params.imageSpoiler) out.imageSpoiler = true;
       if (params.linkMediaUrl) out.linkMediaUrl = params.linkMediaUrl;
       if (params.audioBuffer) out.audioBuffer = params.audioBuffer;
       return out;
@@ -816,6 +819,7 @@ export class ReplyService {
       return immediateOutcome({
         text: t('image_done', { prompt: prompt.slice(0, 180) }),
         imageBuffer: image.buffer,
+        imageSpoiler: profile === 'nsfw' || inferredProfile === 'nsfw',
         imageCalls: 1,
         styleVariant: evaluation.action,
       });
