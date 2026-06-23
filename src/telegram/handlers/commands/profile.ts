@@ -49,28 +49,42 @@ function formatReport(
         conversations_limit: p.conversationDaily,
         conversations_hour: report.hourly.conversations,
         conversations_hour_limit: p.conversationHourly,
+        conversations_remaining: remaining(p.conversationDaily, report.daily.conversations),
+        conversations_hour_remaining: remaining(p.conversationHourly, report.hourly.conversations),
         tokens: report.daily.llmTokens,
         tokens_limit: p.llmTokensDaily,
+        tokens_remaining: remaining(p.llmTokensDaily, report.daily.llmTokens),
         web: report.daily.webSearches,
         web_limit: p.webSearchDaily,
+        web_remaining: remaining(p.webSearchDaily, report.daily.webSearches),
         pages: report.daily.pageScans,
         pages_limit: p.pageScanDaily,
+        pages_remaining: remaining(p.pageScanDaily, report.daily.pageScans),
         news: report.daily.news,
         news_limit: p.newsDaily,
+        news_remaining: remaining(p.newsDaily, report.daily.news),
         images: report.daily.images,
         images_limit: p.imagesDaily,
+        images_remaining: remaining(p.imagesDaily, report.daily.images),
         media: report.daily.media,
         media_limit: p.mediaDaily,
+        media_remaining: remaining(p.mediaDaily, report.daily.media),
         media_mb: mb(report.daily.mediaBytes),
         media_mb_limit: mb(p.mediaBytesDaily),
+        media_mb_remaining: mb(remaining(p.mediaBytesDaily, report.daily.mediaBytes)),
         passive: report.hourly.passiveReplies,
         passive_limit: p.passiveHourly,
+        passive_remaining: remaining(p.passiveHourly, report.hourly.passiveReplies),
         user_burst: p.antiFlood.userBurstPerMinute,
         chat_burst: p.antiFlood.chatBurstPerMinute,
       },
       language,
     ) ?? 'profile_report'
   );
+}
+
+function remaining(limit: number, used: number): number {
+  return Math.max(0, limit - used);
 }
 
 async function setRequestedPlan(services: HandlerInput['services'], chatId: number, plan: string) {
