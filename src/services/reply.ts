@@ -4,7 +4,7 @@ import type { LLMProvider } from '../providers/llm/types.js';
 import type { MediaProcessor } from '../providers/media/index.js';
 import type { MusicResult, MusicService } from '../providers/media/music.js';
 import type { TtsProvider } from '../providers/voice/tts.js';
-import type { ImageProfile } from '../providers/image/stableDiffusion.js';
+import { selectImageProfile, type ImageProfile } from '../providers/image/stableDiffusion.js';
 import type { ConversationService } from './conversation.js';
 import { BOT_LABEL } from './conversation.js';
 import type { MemoryRetrievalInput } from '../memory/memoryRetriever.js';
@@ -39,9 +39,6 @@ import type {
 import { childLogger } from '../utils/logger.js';
 
 const log = childLogger('reply');
-
-const IMAGE_REQUEST_RE =
-  /\b(draw|disegna|generate (an )?image|crea (un'?|una )?(immagine|foto|meme)|make (an? )?(image|pic|picture|meme)|genera (un'?|una )?(immagine|foto))\b/i;
 
 /** Strip the bot @mention and collapse whitespace to make a clean web-search query. */
 function cleanQuery(text: string, botUsername: string): string {
@@ -171,6 +168,17 @@ function usableMusicQuery(query: string | undefined, message: string, botUsernam
   return q;
 }
 
+function firstUrl(text: string | undefined): string | undefined {
+  return text?.match(/https?:\/\/[^\s<>"']+/i)?.[0];
+}
+
+function imageProfileFromTool(value: string | undefined): ImageProfile | undefined {
+  if (value === 'manga' || value === 'anime' || value === 'realistic' || value === 'nsfw') {
+    return value;
+  }
+  return undefined;
+}
+
 /** A resolved still image to react to: a photo or a frame from a video, current or replied-to. */
 interface Visual {
   buffer: Buffer;
@@ -201,6 +209,7 @@ export interface ReplyOutcome {
   text: string;
   suppressed?: boolean;
   music?: MusicResult;
+  linkMediaUrl?: string;
   audioBuffer?: Buffer;
   imageUrl?: string;
   imageBuffer?: Buffer;
@@ -464,6 +473,7 @@ export class ReplyService {
       news: this.news.enabled,
       knowledge: this.knowledge.enabled,
       music: this.music.enabled,
+      linkMedia: this.config.linkMedia.enabled,
       imageGeneration: this.media.canGenerateImage,
       translation: this.llm.capabilities.chat,
       tts: this.tts.enabled,
@@ -520,6 +530,7 @@ export class ReplyService {
       styleVariant: string;
       providerBundle?: ProviderBundle;
       imageBuffer?: Buffer;
+      linkMediaUrl?: string;
       audioBuffer?: Buffer;
       imageCalls?: number;
       usage?: { inputTokens: number; outputTokens: number; estimated: boolean };
@@ -546,6 +557,7 @@ export class ReplyService {
         providerBundle: params.providerBundle ?? { sources: [] },
       };
       if (params.imageBuffer) out.imageBuffer = params.imageBuffer;
+      if (params.linkMediaUrl) out.linkMediaUrl = params.linkMediaUrl;
       if (params.audioBuffer) out.audioBuffer = params.audioBuffer;
       return out;
     };
@@ -584,6 +596,43 @@ export class ReplyService {
         ...(cortexDecision ? { cortex: cortexDecision } : {}),
         providerBundle: { sources: [] },
       };
+    }
+
+    const wantsLinkMedia = wants('link_media', 'link_media') || evaluation.action === 'download_media';
+    if (wantsLinkMedia) {
+      if (!this.config.linkMedia.enabled) {
+        return immediateOutcome({
+          text: 'Il tool media non è disponibile adesso. Non fingo di scaricare roba se il pezzo che scarica è spento.',
+          styleVariant: 'media_unavailable',
+        });
+      }
+      const mediaCall = callFor('link_media');
+      const directUrl =
+        mediaCall?.args?.url ||
+        evaluation.mediaUrl ||
+        firstUrl(mediaCall?.query) ||
+        firstUrl(ctx.message.messageText);
+      const query = (
+        directUrl
+          ? ''
+          : mediaCall?.query ||
+            evaluation.mediaQuery ||
+            cleanQuery(ctx.message.messageText, ctx.botUsername)
+      ).trim();
+      const url = directUrl || (await this.grounding.findMediaUrl(query, ctx.language));
+      if (!url) {
+        return immediateOutcome({
+          text: query
+            ? `Non ho trovato un media scaricabile per "${query}". Serve un risultato con URL video vero, non una pozzanghera di snippet.`
+            : 'Mandami cosa devo scaricare o un link diretto: “scarica questo video” senza URL o soggetto è fumo.',
+          styleVariant: 'media_not_found',
+        });
+      }
+      return immediateOutcome({
+        linkMediaUrl: url,
+        providerBundle: { sources: [url] },
+        styleVariant: 'download_media',
+      });
     }
 
     const wantsMusic = wants('music', 'music') || evaluation.action === 'download_music';
@@ -719,10 +768,15 @@ export class ReplyService {
           styleVariant: 'image_needs_prompt',
         });
       }
+      const requestedProfile = imageProfileFromTool(callFor('image_gen')?.args?.profile);
+      const inferredProfile = selectImageProfile(prompt);
       const profile: ImageProfile | undefined =
-        evaluation.action === 'draw_image' || callFor('image_gen')?.args?.profile === 'manga'
-          ? 'manga'
-          : undefined;
+        requestedProfile ??
+        (inferredProfile === 'nsfw'
+          ? 'nsfw'
+          : evaluation.action === 'draw_image'
+            ? 'manga'
+            : undefined);
       const prepared = await this.imagePrompts.prepare(prompt, profile ? { profile } : {});
       const poseReference = prepared.poseReferenceQuery
         ? await this.imageFinder.findPoseReference(prepared.poseReferenceQuery)
@@ -1078,19 +1132,10 @@ export class ReplyService {
 
     if (!best.trim()) best = FALLBACKS[Math.floor(Math.random() * FALLBACKS.length)] as string;
 
-    // 6. optional image output (explicit request + capability)
+    // 6. optional ambient/verified image output. Explicit generation is handled earlier by image_gen.
     let imageUrl: string | undefined;
     let imageBuffer: Buffer | undefined;
-    let imageCalls = 0;
-    if (IMAGE_REQUEST_RE.test(ctx.message.messageText || '') && this.media.canGenerateImage) {
-      const img = await this.media.generateImage(ctx.message.messageText);
-      if (img) {
-        imageCalls = 1;
-        if (img.url) imageUrl = img.url;
-        if (img.buffer) imageBuffer = img.buffer;
-      }
-    }
-
+    const imageCalls = 0;
     // 6b. send a verified waifu/anime image when the user asked for one, when the reply PROMISED one
     // (a promise must be honored), or ambiently when the topic is anime/waifu (the bot's taste).
     const userMsg = ctx.message.messageText || '';

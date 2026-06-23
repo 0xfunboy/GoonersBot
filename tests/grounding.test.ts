@@ -77,5 +77,19 @@ describe('GroundingService fetching', () => {
     expect(res?.kind).toBe('web');
     expect(res?.block).toContain('WEB CONTEXT');
     expect(res?.block).toContain('instant answer');
+    expect(res?.block).toContain('https://site0.com/p');
+    expect(res?.block).toContain('include direct links');
+  });
+
+  it('finds a media URL through video search', async () => {
+    const web = webStub(true);
+    const g = new GroundingService(web, mediaStub('x'), cfg);
+    const url = await g.findMediaUrl('funny gtav video', 'italian');
+    expect(url).toBe('https://site0.com/p');
+    expect(web.search).toHaveBeenCalledWith('funny gtav video', {
+      language: 'italian',
+      max: 5,
+      categories: 'videos',
+    });
   });
 });

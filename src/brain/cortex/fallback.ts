@@ -3,7 +3,19 @@ import type { CortexDecision, CortexTool, SourcedCortexDecision } from './schema
 const HINTS = {
   search: ['search', 'lookup', 'google', 'online', 'price', 'cost', 'cerca', 'prezzo', 'buscar'],
   news: ['news', 'latest', 'today', 'breaking', 'notizia', 'oggi', 'noticias', 'hoy'],
-  music: ['play', 'song', 'music', 'youtube', 'suona', 'scarica', 'canzone', 'canta', 'cancion'],
+  media: ['video', 'clip', 'reel', 'post', 'media', 'download video', 'scarica video'],
+  music: [
+    'play',
+    'song',
+    'music',
+    'youtube',
+    'suona',
+    'scarica',
+    'scaricami',
+    'canzone',
+    'canta',
+    'cancion',
+  ],
   image: ['image', 'picture', 'draw', 'meme', 'immagine', 'disegna', 'foto', 'dibuja', 'imagen'],
   translate: ['translate', 'traduci', 'traduce', 'inglese', 'english', 'espanol'],
   voice: ['voice', 'read aloud', 'tts', 'vocale', 'voce', 'leer'],
@@ -23,7 +35,14 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
   const calls: CortexDecision['toolCalls'] = [];
   const intents: CortexDecision['intents'] = [];
 
-  if (has(msg, HINTS.music) && tools.has('music')) {
+  if (has(msg, HINTS.media) && tools.has('link_media')) {
+    intents.push('download_media');
+    calls.push({
+      tool: 'link_media',
+      query: input.currentMessage,
+      reason: 'degraded media hint',
+    });
+  } else if (has(msg, HINTS.music) && tools.has('music')) {
     intents.push('play_music');
     calls.push({
       tool: 'music',

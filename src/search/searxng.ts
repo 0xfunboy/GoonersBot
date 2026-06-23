@@ -39,7 +39,7 @@ export class SearxngProvider implements WebSearchProvider {
 
   async search(
     query: string,
-    opts: { language?: string; max?: number } = {},
+    opts: { language?: string; max?: number; categories?: 'general' | 'videos' | 'images' } = {},
   ): Promise<WebSearchResponse | null> {
     if (!this.enabled || !this.cfg.baseUrl || !query.trim()) return null;
     const max = opts.max ?? this.cfg.maxResults;
@@ -47,6 +47,9 @@ export class SearxngProvider implements WebSearchProvider {
     url.searchParams.set('q', query.trim());
     url.searchParams.set('format', 'json');
     url.searchParams.set('safesearch', '0');
+    if (opts.categories && opts.categories !== 'general') {
+      url.searchParams.set('categories', opts.categories);
+    }
     const lang = langToSearx(opts.language);
     if (lang !== 'all') url.searchParams.set('language', lang);
 

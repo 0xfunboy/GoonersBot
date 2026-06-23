@@ -42,6 +42,7 @@ export class ReplyPlanner {
       case 'ground_search':
       case 'bring_news_context':
       case 'download_music':
+      case 'download_media':
       case 'generate_image':
       case 'draw_image':
       case 'translate_text':
@@ -72,6 +73,7 @@ export class ReplyPlanner {
       e.action === 'ground_search' ||
       e.action === 'bring_news_context' ||
       e.action === 'download_music' ||
+      e.action === 'download_media' ||
       e.action === 'generate_image' ||
       e.action === 'draw_image' ||
       e.action === 'translate_text' ||

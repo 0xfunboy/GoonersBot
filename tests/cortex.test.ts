@@ -30,6 +30,7 @@ const caps = {
   news: true,
   knowledge: true,
   music: true,
+  linkMedia: true,
   imageGeneration: true,
   translation: true,
   tts: true,
@@ -130,6 +131,50 @@ describe('Cortex', () => {
     expect(evaluation.providerRequests).toContain('web_search');
     expect(evaluation.roastBudget).toBe('light');
     expect(evaluation.shouldAct).toBe(true);
+  });
+
+  it('routes generic video downloads to link-media, not music', () => {
+    const out = {
+      ...decision({
+        intents: ['download_media'],
+        toolCalls: [
+          {
+            tool: 'link_media',
+            query: 'first downloadable video about GTAV',
+            reason: 'download and rehost a video',
+          },
+        ],
+        needsGrounding: true,
+      }),
+      source: 'llm' as const,
+    };
+    const evaluation = cortexToTurnEvaluation(out, true);
+    expect(evaluation.action).toBe('download_media');
+    expect(evaluation.providerRequests).toContain('link_media');
+    expect(evaluation.providerRequests).not.toContain('music');
+    expect(evaluation.mediaQuery).toBe('first downloadable video about GTAV');
+  });
+
+  it('keeps explicit image subjects in the image generation contract', () => {
+    const out = {
+      ...decision({
+        intents: ['draw_image'],
+        toolCalls: [
+          {
+            tool: 'image_gen',
+            query: 'adult graffiti drawing of a penis on a concrete wall',
+            args: { profile: 'nsfw' },
+            reason: 'preserve exact requested subject',
+          },
+        ],
+        needsGrounding: false,
+      }),
+      source: 'llm' as const,
+    };
+    const evaluation = cortexToTurnEvaluation(out, true);
+    expect(evaluation.action).toBe('draw_image');
+    expect(evaluation.providerRequests).toEqual(['image_generation']);
+    expect(evaluation.imagePrompt).toContain('penis');
   });
 
   it('uses fallback source when jsonCompletion fails', async () => {

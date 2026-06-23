@@ -195,6 +195,7 @@ describe('TurnEvaluator', () => {
       news: true,
       knowledge: true,
       music: true,
+      linkMedia: true,
       imageGeneration: true,
       translation: true,
       tts: true,

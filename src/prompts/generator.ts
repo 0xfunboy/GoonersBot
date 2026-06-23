@@ -160,10 +160,13 @@ export function buildGeneratorUserPrompt(params: {
       ? 'CLAIM CHECK: be concrete. Say what is wrong or uncertain, what is known, and do not fake certainty if the context is thin.'
       : '',
     plan.action === 'ground_search' || plan.action === 'bring_news_context'
-      ? 'GROUNDED TURN: use provided current context if present. Do not say you searched the web. Do not paste links unless asked.'
+      ? 'GROUNDED TURN: use provided current context if present. Do not say you searched the web. Include direct URLs when the answer depends on current prices, listings, availability, a specific source, or the user asks for links.'
       : '',
     plan.action === 'download_music'
       ? 'MUSIC TOOL TURN: if the tool already handled the download, keep text empty or tiny. If no title was provided, ask for the song title/artist directly.'
+      : '',
+    plan.action === 'download_media'
+      ? 'MEDIA TOOL TURN: if the media tool is handling the download/rehost, keep text empty or tiny. Do not turn video requests into songs or voice notes.'
       : '',
     ['generate_image', 'draw_image', 'translate_text', 'make_voice', 'post_news'].includes(
       plan.action,

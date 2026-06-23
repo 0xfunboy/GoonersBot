@@ -61,6 +61,7 @@ export type TurnAction =
   | 'ground_search'
   | 'bring_news_context'
   | 'download_music'
+  | 'download_media'
   | 'generate_image'
   | 'draw_image'
   | 'translate_text'
@@ -78,6 +79,7 @@ export type ProviderRequest =
   | 'news'
   | 'image_lookup'
   | 'music'
+  | 'link_media'
   | 'image_generation'
   | 'translation'
   | 'tts';
@@ -111,6 +113,8 @@ export interface TurnEvaluation {
   reason: string;
   searchQuery?: string;
   musicQuery?: string;
+  mediaQuery?: string;
+  mediaUrl?: string;
   imagePrompt?: string;
   targetLanguage?: string;
   sourceText?: string;

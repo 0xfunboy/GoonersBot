@@ -16,6 +16,7 @@ export const cortexIntentEnum = z.enum([
   'translate',
   'voice_note',
   'play_music',
+  'download_media',
   'stay_quiet',
 ]);
 
@@ -26,6 +27,7 @@ export const cortexToolEnum = z.enum([
   'group_rag',
   'knowledge_rag',
   'music',
+  'link_media',
   'image_gen',
   'translate',
   'tts',

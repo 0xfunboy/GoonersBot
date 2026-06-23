@@ -1,6 +1,7 @@
 import { childLogger } from '../utils/logger.js';
 import type { MediaProcessor } from '../providers/media/index.js';
 import type { WebSearchProvider, WebSearchResponse } from './types.js';
+import type { PageScanner, PageSummary } from './pageScanner.js';
 
 const log = childLogger('grounding');
 
@@ -47,6 +48,7 @@ export class GroundingService {
     private readonly web: WebSearchProvider,
     private readonly media: MediaProcessor,
     private readonly cfg: GroundingConfig,
+    private readonly scanner?: PageScanner,
   ) {}
 
   get enabled(): boolean {
@@ -85,22 +87,45 @@ export class GroundingService {
     if (!this.cfg.webEnabled || !this.web.enabled || !query.trim()) return null;
     const res = await this.web.search(query, { language, max: this.cfg.maxResults });
     if (!res || (res.results.length === 0 && !res.answer)) return null;
+    const pages = this.scanner
+      ? await this.scanner.scan(res.results.slice(0, 3).map((r) => r.url))
+      : [];
     log.debug({ query, hits: res.results.length }, 'web grounding');
     return {
       kind: 'web',
-      block: this.formatWeb(res),
+      block: this.formatWeb(res, pages),
       query,
-      sources: res.results.map((r) => r.url),
+      sources: [...new Set([...res.results.map((r) => r.url), ...pages.map((p) => p.url)])],
     };
   }
 
-  private formatWeb(res: WebSearchResponse): string {
+  async findMediaUrl(query: string, language?: string): Promise<string | null> {
+    if (!this.cfg.webEnabled || !this.web.enabled || !query.trim()) return null;
+    const res = await this.web.search(query, {
+      language,
+      max: Math.max(5, this.cfg.maxResults),
+      categories: 'videos',
+    });
+    return res?.results.find((r) => /^https?:\/\//i.test(r.url))?.url ?? null;
+  }
+
+  private formatWeb(res: WebSearchResponse, pages: PageSummary[] = []): string {
     const lines = [
       `WEB CONTEXT (fresh results from a web search for "${res.query}" - use these facts to be ` +
-        'accurate; do NOT paste links unless asked, never say you "searched the web"):',
+        'accurate; include direct links when the user asks for links, sources, prices, listings, ' +
+        'availability, or "what you found"; never say you "searched the web"):',
     ];
     if (res.answer) lines.push(`answer: ${res.answer}`);
-    for (const r of res.results) lines.push(`- ${r.title}: ${r.content} [${domainOf(r.url)}]`);
+    for (const r of res.results) {
+      lines.push(`- ${r.title}: ${r.content} [${domainOf(r.url)}] ${r.url}`);
+    }
+    if (pages.length) {
+      lines.push('SCANNED PAGES (opened result pages; prefer these concrete details over snippets):');
+      for (const p of pages) {
+        const facts = p.facts.length ? ` facts=${p.facts.join(' | ')}` : '';
+        lines.push(`- ${p.title || domainOf(p.url)} ${p.url}: ${p.text}${facts}`);
+      }
+    }
     return lines.join('\n');
   }
 
@@ -112,7 +137,7 @@ export class GroundingService {
     ];
     if (res?.answer) lines.push(`answer: ${res.answer}`);
     for (const r of res?.results ?? []) {
-      lines.push(`- ${r.title}: ${r.content} [${domainOf(r.url)}]`);
+      lines.push(`- ${r.title}: ${r.content} [${domainOf(r.url)}] ${r.url}`);
     }
     return lines.join('\n');
   }

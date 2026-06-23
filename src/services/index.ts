@@ -18,6 +18,7 @@ import { createEmbedder, type Embedder } from '../rag/embedder.js';
 import { SceneAnalyzer } from '../brain/sceneAnalyzer.js';
 import { SearxngProvider } from '../search/searxng.js';
 import { GroundingService } from '../search/groundingService.js';
+import { PageScanner } from '../search/pageScanner.js';
 import { HeatService } from './heat.js';
 import { KnowledgeRetriever } from '../knowledge/knowledgeRetriever.js';
 import { ImageFinder } from '../media/imageFinder.js';
@@ -165,11 +166,16 @@ export class Services {
       timeoutMs: config.search.timeoutMs,
       maxResults: config.search.maxResults,
     });
+    const pageScanner = new PageScanner({
+      timeoutMs: Math.min(10_000, Math.max(3_000, config.search.timeoutMs)),
+      maxBytes: 512_000,
+      userAgent: config.linkMedia.userAgent,
+    });
     this.grounding = new GroundingService(searxng, this.media, {
       webEnabled: config.search.webEnabled,
       imageEnabled: config.search.imageEnabled,
       maxResults: config.search.maxResults,
-    });
+    }, pageScanner);
     this.imageFinder = new ImageFinder(searxng, this.media, config.auto.imageQueryPool);
     this.news = new NewsService(
       config.auto.rssFeeds,

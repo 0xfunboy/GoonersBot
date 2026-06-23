@@ -104,6 +104,31 @@ export class LinkMediaService {
     };
   }
 
+  async rehostUrl(input: {
+    ctx: GrammyContext;
+    context: ChatContext;
+    url: string | URL;
+    addressed: boolean;
+  }): Promise<LinkMediaResult> {
+    if (!this.enabled) return { handled: false };
+    const url = input.url instanceof URL ? input.url : safeUrl(input.url);
+    if (!url || !this.hostAllowed(url)) return { handled: false };
+    const result = await this.processUrl(
+      input.ctx,
+      url,
+      input.context.messageId,
+      input.addressed,
+    ).catch((err) => {
+      log.warn({ err, url: url.toString() }, 'explicit link media processing failed');
+      return null;
+    });
+    if (!result) return { handled: false };
+    return {
+      handled: true,
+      ...(result.contextText ? { injectedText: result.contextText } : {}),
+    };
+  }
+
   private hostAllowed(url: URL): boolean {
     const host = hostOf(url);
     if (this.cfg.blockedHosts.some((h) => host === h || host.endsWith(`.${h}`))) return false;
@@ -330,5 +355,13 @@ export class LinkMediaService {
 
   private cacheKey(value: string): string {
     return createHash('sha256').update(value).digest('hex');
+  }
+}
+
+function safeUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
   }
 }

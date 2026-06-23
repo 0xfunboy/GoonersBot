@@ -19,6 +19,7 @@ export interface CortexCapabilities {
   news: boolean;
   knowledge: boolean;
   music: boolean;
+  linkMedia: boolean;
   imageGeneration: boolean;
   translation: boolean;
   tts: boolean;
@@ -121,6 +122,7 @@ export function availableToolsFor(capabilities: CortexCapabilities): CortexTool[
   if (capabilities.knowledge) tools.push('knowledge_rag');
   tools.push('group_rag');
   if (capabilities.music) tools.push('music');
+  if (capabilities.linkMedia) tools.push('link_media');
   if (capabilities.imageGeneration) tools.push('image_gen');
   if (capabilities.translation) tools.push('translate');
   if (capabilities.tts) tools.push('tts');
@@ -146,6 +148,8 @@ export function cortexToTurnEvaluation(
     reason: `${decision.source}: ${decision.reason}`,
     ...(tool('web_search')?.query ? { searchQuery: tool('web_search')?.query } : {}),
     ...(tool('music')?.query ? { musicQuery: tool('music')?.query } : {}),
+    ...(tool('link_media')?.query ? { mediaQuery: tool('link_media')?.query } : {}),
+    ...(tool('link_media')?.args?.url ? { mediaUrl: tool('link_media')?.args?.url } : {}),
     ...(tool('image_gen')?.query ? { imagePrompt: tool('image_gen')?.query } : {}),
     ...(tool('translate')?.args?.targetLanguage
       ? { targetLanguage: tool('translate')?.args?.targetLanguage }
@@ -172,6 +176,7 @@ function actionFromDecision(
   const has = (intent: CortexDecision['intents'][number]): boolean =>
     decision.intents.includes(intent);
   const tool = (name: CortexTool): boolean => decision.toolCalls.some((call) => call.tool === name);
+  if (has('download_media') || tool('link_media')) return 'download_media';
   if (has('play_music') || tool('music')) return 'download_music';
   if (has('draw_image')) return 'draw_image';
   if (has('make_image') || tool('image_gen')) return 'generate_image';
