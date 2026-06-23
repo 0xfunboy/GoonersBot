@@ -16,6 +16,9 @@ export class MemoryItemsRepo {
     await col.createIndex({ chatId: 1, subjectHandle: 1, status: 1 });
     await col.createIndex({ chatId: 1, category: 1, status: 1 });
     await col.createIndex({ chatId: 1, involvedHandles: 1 });
+    await col.createIndex({ chatId: 1, status: 1, embedding: 1 });
+    // UPGRADE PATH: when memory_items grows beyond in-process cosine scale, add an Atlas
+    // $vectorSearch index for embedding and keep this normal index for self-hosted Mongo fallback.
     await col.createIndex({ updatedAt: -1 });
     // Dedupe guard: one active doc per (chat, normalizedText). Partial so rejected/expired don't clash.
     await col.createIndex(
@@ -97,6 +100,39 @@ export class MemoryItemsRepo {
       .limit(limit)
       .toArray();
     return docs.map((d) => this.view(d));
+  }
+
+  async listActiveWithEmbedding(
+    chatId: number,
+    embeddingDim: number,
+    limit = 250,
+  ): Promise<MemoryItem[]> {
+    const docs = await this.col
+      .find({ chatId, status: 'active', embedding: { $exists: true } })
+      .sort({ salience: -1, updatedAt: -1 })
+      .limit(limit)
+      .toArray();
+    return docs.map((d) => this.view(d)).filter((d) => d.embedding?.length === embeddingDim);
+  }
+
+  async listMissingEmbedding(embeddingDim: number, limit = 500): Promise<MemoryItem[]> {
+    const docs = await this.col
+      .find({
+        status: 'active',
+        $or: [{ embedding: { $exists: false } }, { embedding: { $not: { $size: embeddingDim } } }],
+      })
+      .sort({ updatedAt: 1 })
+      .limit(limit)
+      .toArray();
+    return docs.map((d) => this.view(d));
+  }
+
+  async setEmbedding(id: string, embedding: number[]): Promise<void> {
+    if (!ObjectId.isValid(id)) return;
+    await this.col.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { embedding, updatedAt: new Date() } },
+    );
   }
 
   async listForSubject(

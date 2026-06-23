@@ -1,3 +1,6 @@
+import type { Embedder } from '../rag/embedder.js';
+import { NullEmbedder } from '../rag/embedder.js';
+import { cosineSimilarity } from '../rag/types.js';
 import { childLogger } from '../utils/logger.js';
 
 const log = childLogger('news');
@@ -99,6 +102,8 @@ export class NewsService {
     private readonly feeds: string[],
     private readonly timeoutMs = 8000,
     private readonly maxAgeHours = 12,
+    private readonly embedder: Embedder = new NullEmbedder(),
+    private readonly semantic: { topK: number; minScore: number } = { topK: 3, minScore: 0.3 },
   ) {}
 
   get enabled(): boolean {
@@ -134,6 +139,7 @@ export class NewsService {
   /** Fresh items ranked for the target chat/group. */
   async ranked(profile: NewsRankingProfile = {}, perFeed = 16): Promise<RankedNewsItem[]> {
     const items = await this.recent(perFeed);
+    if (this.embedder.enabled) return this.rankSemantic(items, profile);
     return rankNews(items, profile);
   }
 
@@ -141,9 +147,43 @@ export class NewsService {
   async pickOne(profile: NewsRankingProfile = {}): Promise<RankedNewsItem | null> {
     const items = await this.recent();
     if (items.length === 0) return null;
-    const ranked = rankNews(items, profile);
+    const ranked = this.embedder.enabled
+      ? await this.rankSemantic(items, profile)
+      : rankNews(items, profile);
     const pool = ranked.slice(0, Math.min(ranked.length, 5));
     return weightedPick(pool);
+  }
+
+  private async rankSemantic(
+    items: NewsItem[],
+    profile: NewsRankingProfile,
+  ): Promise<RankedNewsItem[]> {
+    if (items.length === 0) return [];
+    const topic = [...(profile.dynamicTerms ?? []), ...(profile.lore ?? []), profile.chatName ?? '']
+      .join(' ')
+      .trim();
+    if (!topic) return rankNews(items, profile);
+    const texts = [topic, ...items.map((i) => `${i.title} ${i.summary} ${i.source}`)];
+    const vectors = await this.embedder.embed(texts);
+    const topicVec = vectors[0] ?? [];
+    if (topicVec.length === 0) return rankNews(items, profile);
+    const newest = Math.max(0, ...items.map((i) => i.publishedAt ?? 0));
+    const sixHours = 6 * 3600_000;
+    return items
+      .map((item, idx) => {
+        const cosine = cosineSimilarity(topicVec, vectors[idx + 1] ?? []);
+        const age = newest > 0 && item.publishedAt ? newest - item.publishedAt : 0;
+        const recency = Math.max(0, 0.2 - age / sixHours / 10);
+        return {
+          ...item,
+          score: cosine + recency,
+          matchedTopics: cosine >= this.semantic.minScore ? [`semantic:${cosine.toFixed(2)}`] : [],
+          matchedTerms: [],
+        };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score || (b.publishedAt ?? 0) - (a.publishedAt ?? 0))
+      .slice(0, Math.max(this.semantic.topK, items.length));
   }
 
   private async fetchFeed(url: string, limit: number): Promise<NewsItem[]> {

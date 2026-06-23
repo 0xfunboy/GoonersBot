@@ -1,44 +1,33 @@
 import type { SceneAnalysis } from '../brain/types.js';
+import type { Embedder } from '../rag/embedder.js';
+import { cosineSimilarity } from '../rag/types.js';
 import type { Storage } from '../storage/index.js';
 import { jaccard } from './memoryDeduper.js';
 import type { MemoryItem, RetrievedMemory } from './types.js';
+import type { MemoryRetrieverConfig, MemoryRetrievalInput } from './memoryRetriever.js';
 
-export interface MemoryRetrieverConfig {
-  maxItems: number;
-  maxExplicitCallbacks: number;
-  itemCooldownMinutes: number;
-  subjectCooldownMinutes: number;
+export interface VectorMemoryRetrieverConfig extends MemoryRetrieverConfig {
+  embeddingDim: number;
+  minScore: number;
 }
 
-export interface MemoryRetrievalInput {
-  chatId: number;
-  currentMessage: string;
-  scene: SceneAnalysis;
-  activeHandles: string[];
-  mentionedHandles: string[];
-  repliedToHandle?: string | null;
-  nsfwEnabled: boolean;
-  recentMessages?: string[];
-}
-
-/**
- * Retrieve ONLY the memory that helps this specific reply. Never returns the whole store.
- * Heuristic scoring (no embeddings required): handle relevance + keyword/topic overlap + salience,
- * minus recency cooldowns. Honours scene signals (criticism => nothing; shouldUseMemory=false => ≤1).
- */
-export class MemoryRetriever {
+export class VectorMemoryRetriever {
   constructor(
     private readonly storage: Storage,
-    private readonly cfg: MemoryRetrieverConfig,
+    private readonly embedder: Embedder,
+    private readonly cfg: VectorMemoryRetrieverConfig,
   ) {}
 
   async retrieve(input: MemoryRetrievalInput): Promise<RetrievedMemory[]> {
-    // If the chat is roasting the bot for being repetitive, do not pile on more callbacks.
     if (input.scene.botIsBeingCriticized) return [];
 
     const all = await this.storage.memoryItems.listActive(input.chatId, 250);
     if (all.length === 0) return [];
 
+    const queryText = buildQueryText(input);
+    const queryVec = this.embedder.enabled
+      ? ((await this.embedder.embed([queryText]))[0] ?? [])
+      : [];
     const now = Date.now();
     const itemCdMs = this.cfg.itemCooldownMinutes * 60 * 1000;
     const mentioned = new Set(input.mentionedHandles.map((h) => h.toLowerCase()));
@@ -47,7 +36,7 @@ export class MemoryRetriever {
 
     const scored: RetrievedMemory[] = [];
     for (const item of all) {
-      if (!this.toxicityAllowed(item, input.nsfwEnabled)) continue;
+      if (!toxicityAllowed(item, input.nsfwEnabled)) continue;
       if (item.lastUsedAt && now - new Date(item.lastUsedAt).getTime() < itemCdMs) continue;
 
       const handle = (item.subjectHandle ?? '').toLowerCase();
@@ -60,24 +49,35 @@ export class MemoryRetriever {
         score += 0.3;
         reasons.push('subject active');
       }
-      const kw = jaccard(item.text, input.currentMessage);
-      if (kw > 0) {
-        score += kw * 0.4;
-        reasons.push('keyword overlap');
-      }
-      if (input.scene.currentTopic) {
-        const t = jaccard(item.text, input.scene.currentTopic);
-        if (t > 0) {
-          score += t * 0.2;
-          reasons.push('topic overlap');
+
+      const cosine =
+        queryVec.length === this.cfg.embeddingDim &&
+        item.embedding?.length === this.cfg.embeddingDim
+          ? cosineSimilarity(queryVec, item.embedding)
+          : 0;
+      if (cosine > 0) {
+        score += cosine * 0.4;
+        reasons.push(`cos ${cosine.toFixed(2)}`);
+      } else {
+        const kw = jaccard(item.text, input.currentMessage);
+        if (kw > 0) {
+          score += kw * 0.4;
+          reasons.push('keyword overlap');
+        }
+        if (input.scene.currentTopic) {
+          const t = jaccard(item.text, input.scene.currentTopic);
+          if (t > 0) {
+            score += t * 0.2;
+            reasons.push('topic overlap');
+          }
         }
       }
-      // group lore gets a small baseline so the bot has callbacks even with no handle match
       if (item.subjectType !== 'user') score += 0.1;
 
       scored.push({
         item,
         relevance: Math.min(1, score),
+        cosineScore: cosine,
         reason: reasons.join(', ') || 'baseline salience',
         allowedToUseExplicitly: false,
       });
@@ -89,7 +89,6 @@ export class MemoryRetriever {
     if (!input.scene.shouldUseMemory) cap = Math.min(cap, 1);
     const top = scored.slice(0, cap).filter((r) => r.relevance > 0.2);
 
-    // allow at most N explicit callbacks (the highest-relevance ones)
     let explicit = 0;
     for (const r of top) {
       if (explicit < this.cfg.maxExplicitCallbacks && r.relevance >= 0.45) {
@@ -99,10 +98,18 @@ export class MemoryRetriever {
     }
     return top;
   }
-
-  private toxicityAllowed(item: MemoryItem, nsfw: boolean): boolean {
-    if (item.toxicity === 'blocked') return false;
-    if (!nsfw && (item.toxicity === 'nsfw' || item.toxicity === 'risky')) return false;
-    return true;
-  }
 }
+
+function buildQueryText(input: MemoryRetrievalInput): string {
+  return [input.currentMessage, input.scene.currentTopic, ...(input.recentMessages ?? []).slice(-3)]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function toxicityAllowed(item: MemoryItem, nsfw: boolean): boolean {
+  if (item.toxicity === 'blocked') return false;
+  if (!nsfw && (item.toxicity === 'nsfw' || item.toxicity === 'risky')) return false;
+  return true;
+}
+
+export type VectorMemoryRetrievalInput = MemoryRetrievalInput & { scene: SceneAnalysis };

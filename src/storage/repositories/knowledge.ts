@@ -13,6 +13,7 @@ export interface KnowledgeDoc {
   aliases: string[];
   text: string;
   tags: string[];
+  embedding?: number[];
   /** 0..1 - baseline importance when keyword scores tie */
   salience: number;
   updatedAt: Date;
@@ -46,10 +47,34 @@ export class KnowledgeRepo {
       entries.map((e) => ({
         updateOne: {
           filter: { key: e.key },
-          update: { $set: { ...e, updatedAt: now } },
+          update: {
+            $set: {
+              key: e.key,
+              topic: e.topic,
+              aliases: e.aliases,
+              text: e.text,
+              tags: e.tags,
+              salience: e.salience,
+              updatedAt: now,
+            },
+          },
           upsert: true,
         },
       })),
     );
+  }
+
+  async listMissingEmbedding(embeddingDim: number, limit = 500): Promise<KnowledgeDoc[]> {
+    return this.col
+      .find({
+        $or: [{ embedding: { $exists: false } }, { embedding: { $not: { $size: embeddingDim } } }],
+      })
+      .sort({ updatedAt: 1 })
+      .limit(limit)
+      .toArray();
+  }
+
+  async setEmbedding(key: string, embedding: number[]): Promise<void> {
+    await this.col.updateOne({ key }, { $set: { embedding, updatedAt: new Date() } });
   }
 }

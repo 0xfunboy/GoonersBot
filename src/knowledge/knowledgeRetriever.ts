@@ -1,5 +1,8 @@
 import type { Storage } from '../storage/index.js';
 import type { KnowledgeDoc } from '../storage/repositories/knowledge.js';
+import type { Embedder } from '../rag/embedder.js';
+import { NullEmbedder } from '../rag/embedder.js';
+import { cosineSimilarity } from '../rag/types.js';
 import { childLogger } from '../utils/logger.js';
 
 const log = childLogger('knowledge');
@@ -7,12 +10,15 @@ const log = childLogger('knowledge');
 export interface KnowledgeRetrieverConfig {
   enabled: boolean;
   maxItems: number;
+  embeddingDim?: number;
+  minScore?: number;
 }
 
 export interface RetrievedKnowledge {
   topic: string;
   text: string;
   score: number;
+  reason?: string;
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -30,6 +36,7 @@ export class KnowledgeRetriever {
   constructor(
     private readonly storage: Storage,
     private readonly cfg: KnowledgeRetrieverConfig,
+    private readonly embedder: Embedder = new NullEmbedder(),
   ) {}
 
   get enabled(): boolean {
@@ -43,14 +50,37 @@ export class KnowledgeRetriever {
     const entries = await this.load();
     if (entries.length === 0) return [];
 
+    const queryVec = this.embedder.enabled
+      ? ((await this.embedder.embed([`${message} ${topic}`]))[0] ?? [])
+      : [];
+    const embeddingDim = this.cfg.embeddingDim ?? queryVec.length;
+    const minScore = this.cfg.minScore ?? 0.3;
     const scored: RetrievedKnowledge[] = [];
     for (const e of entries) {
+      const cosine =
+        queryVec.length === embeddingDim && e.embedding?.length === embeddingDim
+          ? cosineSimilarity(queryVec, e.embedding)
+          : 0;
+      if (cosine >= minScore) {
+        scored.push({
+          topic: e.topic,
+          text: e.text,
+          score: cosine,
+          reason: `cos ${cosine.toFixed(2)}`,
+        });
+        continue;
+      }
       let hits = 0;
       for (const term of [e.topic, ...e.aliases, ...e.tags]) {
         if (matches(hay, term)) hits += 1;
       }
       if (hits === 0) continue;
-      scored.push({ topic: e.topic, text: e.text, score: hits + e.salience });
+      scored.push({
+        topic: e.topic,
+        text: e.text,
+        score: hits + e.salience,
+        reason: 'keyword fallback',
+      });
     }
     scored.sort((a, b) => b.score - a.score);
     return scored.slice(0, this.cfg.maxItems);

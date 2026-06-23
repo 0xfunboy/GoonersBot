@@ -13,6 +13,8 @@ import { Cooldown } from '../utils/rateLimit.js';
 import { MemoryMiner } from '../memory/memoryMiner.js';
 import { LoreEngine } from '../memory/loreEngine.js';
 import { MemoryRetriever } from '../memory/memoryRetriever.js';
+import { VectorMemoryRetriever } from '../memory/vectorRetriever.js';
+import { createEmbedder, type Embedder } from '../rag/embedder.js';
 import { SceneAnalyzer } from '../brain/sceneAnalyzer.js';
 import { SearxngProvider } from '../search/searxng.js';
 import { GroundingService } from '../search/groundingService.js';
@@ -71,7 +73,8 @@ export class Services {
   readonly modelRouter: ModelRouter;
   readonly lore: LoreEngine;
   readonly scene: SceneAnalyzer;
-  readonly memoryRetriever: MemoryRetriever;
+  readonly embedder: Embedder;
+  readonly memoryRetriever: MemoryRetriever | VectorMemoryRetriever;
   readonly grounding: GroundingService;
   readonly heat: HeatService;
   readonly knowledge: KnowledgeRetriever;
@@ -131,6 +134,7 @@ export class Services {
       refusalBufferChars: env.LLM_REFUSAL_BUFFER_CHARS,
     });
     this.commandRateLimit = new Cooldown(env.COMMAND_RATE_LIMIT_SECONDS * 1000);
+    this.embedder = createEmbedder(llm, config.embeddings);
     const miner = new MemoryMiner(llm, {
       model: config.brain.memoryModel,
       temperature: env.MEMORY_TEMPERATURE,
@@ -142,12 +146,19 @@ export class Services {
       model: config.brain.sceneModel,
       temperature: env.SCENE_TEMPERATURE,
     });
-    this.memoryRetriever = new MemoryRetriever(storage, {
+    const memoryRetrieverConfig = {
       maxItems: env.MEMORY_MAX_ITEMS_PER_REPLY,
       maxExplicitCallbacks: env.MEMORY_MAX_EXPLICIT_CALLBACKS_PER_REPLY,
       itemCooldownMinutes: env.MEMORY_ITEM_COOLDOWN_MINUTES,
       subjectCooldownMinutes: env.MEMORY_SUBJECT_COOLDOWN_MINUTES,
-    });
+    };
+    this.memoryRetriever = this.embedder.enabled
+      ? new VectorMemoryRetriever(storage, this.embedder, {
+          ...memoryRetrieverConfig,
+          embeddingDim: config.embeddings.dim,
+          minScore: config.embeddings.minScore,
+        })
+      : new MemoryRetriever(storage, memoryRetrieverConfig);
     const searxng = new SearxngProvider({
       enabled: config.search.webEnabled,
       baseUrl: config.search.searxngUrl,
@@ -164,6 +175,8 @@ export class Services {
       config.auto.rssFeeds,
       config.search.timeoutMs,
       config.auto.newsMaxAgeHours,
+      this.embedder,
+      { topK: config.embeddings.newsTopK, minScore: config.embeddings.minScore },
     );
     this.autonomousPoster = new AutonomousPoster(
       llm,
@@ -181,10 +194,16 @@ export class Services {
       max: env.HEAT_MAX,
       decayPerMinute: env.HEAT_DECAY_PER_MINUTE,
     });
-    this.knowledge = new KnowledgeRetriever(storage, {
-      enabled: env.KNOWLEDGE_ENABLED,
-      maxItems: env.KNOWLEDGE_MAX_ITEMS,
-    });
+    this.knowledge = new KnowledgeRetriever(
+      storage,
+      {
+        enabled: env.KNOWLEDGE_ENABLED,
+        maxItems: config.embeddings.knowledgeTopK || env.KNOWLEDGE_MAX_ITEMS,
+        embeddingDim: config.embeddings.dim,
+        minScore: config.embeddings.minScore,
+      },
+      this.embedder,
+    );
     this.reply = new ReplyService(
       llm,
       this.media,

@@ -85,6 +85,7 @@ export interface MemoryCandidate {
 export interface RetrievedMemory {
   item: MemoryItem;
   relevance: number;
+  cosineScore?: number;
   reason: string;
   allowedToUseExplicitly: boolean;
 }
