@@ -13,9 +13,11 @@ Use these commands inside the group:
 /profile free
 /profile plus
 /profile pro
+/groupplan
+/groupquota
 ```
 
-`/profile` displays the active plan and current day/hour counters. Changing a plan preserves the
+`/profile`, `/groupplan`, and `/groupquota` display the active plan and current day/hour counters. Changing a plan preserves the
 current counters and applies the new limits immediately.
 
 ## Included resources

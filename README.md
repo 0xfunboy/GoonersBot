@@ -177,44 +177,44 @@ illegal, no doxxing. NSFW is opt-in per chat and meant for private, consenting a
 
 ## Commands
 
-| Command                      | Who           | What                                                                               |
-| ---------------------------- | ------------- | ---------------------------------------------------------------------------------- |
-| `/start`                     | admin         | wake GoonersBot in this chat                                                       |
-| `/stop`                      | admin         | put it to sleep                                                                    |
-| `/reset`                     | admin         | wipe conversation memory                                                           |
-| `/mode`                      | admin         | pick a mode                                                                        |
-| `/addmode <description>`     | admin         | add a custom mode (`[nsfw]` prefix flags it adult)                                 |
-| `/deletemode`                | admin         | delete a mode                                                                      |
-| `/introduce <text>`          | anyone        | tell GoonersBot who you are (saved as lore)                                        |
-| `/fact`                      | anyone        | mine durable lore from recent chat or the replied-to window                        |
-| `/setfact @handle <text>`    | admin         | manually insert lore                                                               |
-| `/facts [@handle]`           | anyone        | show stored lore                                                                   |
-| `/clearfacts [@handle]`      | self / admin  | expire stored lore (self anytime, others need admin)                               |
-| `/lore`                      | anyone        | top group lore (max 5)                                                             |
-| `/forget`                    | reply / admin | reply to forget lore mined from a message; admin `/forget <id>`                    |
-| `/translate <language>`      | anyone        | translate the replied message (alias `/traduci`)                                   |
-| `/voice`                     | anyone        | turn the last message, or the replied one, into a voice note                       |
-| `/play <query>`              | anyone        | search YouTube and send the audio as a voice note (aliases `/suona`, `/riproduci`) |
-| `/sing <query>`              | anyone        | same as `/play`, phrased for songs (aliases `/canta`, `/cantami`)                  |
-| `/news`                      | anyone        | force an autonomous post now (alias `/nuovo`)                                      |
-| `/autopost`                  | admin         | toggle timed autonomous posts in this chat                                         |
-| `/genera <prompt>`           | anyone        | generate an original image with Stable Diffusion (aliases `/image`, `/img`)        |
-| `/disegna <prompt>`          | anyone        | force the high-quality PonyXL manga workflow (alias `/draw`)                       |
-| `/usage`                     | anyone        | your usage and limits                                                              |
-| `/profile [free\|plus\|pro]` | admin         | show or set the shared group plan and live quotas                                  |
-| `/language`                  | admin         | set chat language (it, en, ru, es)                                                 |
-| `/terms`                     | anyone        | terms of use and acceptance                                                        |
-| `/conversationtracker`       | admin         | toggle passive tracking                                                            |
-| `/autofact`                  | admin         | toggle automatic fact extraction                                                   |
-| `/autoengage`                | admin         | toggle auto-engage                                                                 |
-| `/nsfw [off\|base\|smart]`   | admin         | NSFW model routing                                                                 |
-| `/ban @handle [seconds]`     | bot admin     | ban a Gooner (reply-aware, duration optional, 0 = permanent)                       |
-| `/unban @handle`             | bot admin     | unban a Gooner                                                                     |
-| `/brain`, `/debuglast`       | admin         | inspect why the bot answered the way it did                                        |
-| `/approve [id]`              | bot admin     | approve a community chat or user (no id in a group = approve it)                   |
-| `/unapprove [id]`            | bot admin     | revoke approval for a chat or user                                                 |
-| `/approved`                  | bot admin     | list approved chats and users                                                      |
-| `/help`                      | anyone        | help                                                                               |
+| Command                      | Who           | What                                                                                     |
+| ---------------------------- | ------------- | ---------------------------------------------------------------------------------------- |
+| `/start`                     | admin         | wake GoonersBot in this chat                                                             |
+| `/stop`                      | admin         | put it to sleep                                                                          |
+| `/reset`                     | admin         | wipe conversation memory                                                                 |
+| `/mode`                      | admin         | pick a mode                                                                              |
+| `/addmode <description>`     | admin         | add a custom mode (`[nsfw]` prefix flags it adult)                                       |
+| `/deletemode`                | admin         | delete a mode                                                                            |
+| `/introduce <text>`          | anyone        | tell GoonersBot who you are (saved as lore)                                              |
+| `/fact`                      | anyone        | mine durable lore from recent chat or the replied-to window                              |
+| `/setfact @handle <text>`    | admin         | manually insert lore                                                                     |
+| `/facts [@handle]`           | anyone        | show stored lore                                                                         |
+| `/clearfacts [@handle]`      | self / admin  | expire stored lore (self anytime, others need admin)                                     |
+| `/lore`                      | anyone        | top group lore (max 5)                                                                   |
+| `/forget`                    | reply / admin | reply to forget lore mined from a message; admin `/forget <id>`                          |
+| `/translate <language>`      | anyone        | translate the replied message (alias `/traduci`)                                         |
+| `/voice`                     | anyone        | turn the last message, or the replied one, into a voice note                             |
+| `/play <query>`              | anyone        | search YouTube and send the audio as a voice note (aliases `/suona`, `/riproduci`)       |
+| `/sing <query>`              | anyone        | same as `/play`, phrased for songs (aliases `/canta`, `/cantami`)                        |
+| `/news`                      | anyone        | force an autonomous post now (alias `/nuovo`)                                            |
+| `/autopost`                  | admin         | toggle timed autonomous posts in this chat                                               |
+| `/genera <prompt>`           | anyone        | generate an original image with Stable Diffusion (aliases `/image`, `/img`)              |
+| `/disegna <prompt>`          | anyone        | force the high-quality PonyXL manga workflow (alias `/draw`)                             |
+| `/usage`                     | anyone        | your usage and limits                                                                    |
+| `/profile [free\|plus\|pro]` | admin         | show or set the shared group plan and live quotas (aliases: `/groupplan`, `/groupquota`) |
+| `/language`                  | admin         | set chat language (it, en, ru, es)                                                       |
+| `/terms`                     | anyone        | terms of use and acceptance                                                              |
+| `/conversationtracker`       | admin         | toggle passive tracking                                                                  |
+| `/autofact`                  | admin         | toggle automatic fact extraction                                                         |
+| `/autoengage`                | admin         | toggle auto-engage                                                                       |
+| `/nsfw [off\|base\|smart]`   | admin         | NSFW model routing                                                                       |
+| `/ban @handle [seconds]`     | bot admin     | ban a Gooner (reply-aware, duration optional, 0 = permanent)                             |
+| `/unban @handle`             | bot admin     | unban a Gooner                                                                           |
+| `/brain`, `/debuglast`       | admin         | inspect why the bot answered the way it did                                              |
+| `/approve [id]`              | bot admin     | approve a community chat or user (no id in a group = approve it)                         |
+| `/unapprove [id]`            | bot admin     | revoke approval for a chat or user                                                       |
+| `/approved`                  | bot admin     | list approved chats and users                                                            |
+| `/help`                      | anyone        | help                                                                                     |
 
 admin means group admin or bot admin (`ADMIN_HANDLES`). bot admin means listed in `ADMIN_HANDLES`.
 Most commands that act on the chat need `/terms` accepted first. Outside the basic commands

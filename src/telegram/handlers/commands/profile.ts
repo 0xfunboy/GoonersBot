@@ -6,7 +6,7 @@ import { Priority } from '../types.js';
 /** /profile [free|plus|pro] - show or change the resource plan for this group. */
 export const profileCommand: CommandSpec = {
   command: 'profile',
-  aliases: ['plan', 'piano'],
+  aliases: ['plan', 'piano', 'groupplan', 'groupquota'],
   permissions: ['admin', 'allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.ADMIN,

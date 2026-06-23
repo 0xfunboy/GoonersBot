@@ -89,6 +89,18 @@ export const translations: TranslationMap = {
     russian: 'Показать или установить план квот группы',
     spanish: 'Muestra o configura el plan de cuotas del grupo',
   },
+  groupplan_description: {
+    italian: 'Alias di /profile per il piano del gruppo',
+    english: 'Alias of /profile for the group plan',
+    russian: 'Псевдоним /profile для плана группы',
+    spanish: 'Alias de /profile para el plan del grupo',
+  },
+  groupquota_description: {
+    italian: 'Alias di /profile per le quote del gruppo',
+    english: 'Alias of /profile for the group quotas',
+    russian: 'Псевдоним /profile для квот группы',
+    spanish: 'Alias de /profile para las cuotas del grupo',
+  },
   language_description: {
     italian: 'Imposta la lingua della chat',
     english: 'Set the chat language',
