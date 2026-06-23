@@ -16,6 +16,7 @@ import type { ImageFinder } from '../media/imageFinder.js';
 import type { NewsService } from '../news/newsService.js';
 import type { AutonomousPoster } from './autonomousPoster.js';
 import type { ImagePromptService } from './imagePrompt.js';
+import { parseMusicRequest } from './musicIntent.js';
 import type { RetrievedMemory } from '../memory/types.js';
 import { StyleEngine } from '../brain/styleEngine.js';
 import { ReplyPlanner } from '../brain/replyPlanner.js';
@@ -158,6 +159,15 @@ const FALLBACKS = [
   'ok I was about to go full NPC. mental reset, give me a sec and I am back to being properly mean.',
   'wait no, I already did that joke. I deserve the ban myself.',
 ];
+
+const BAD_MUSIC_QUERY_RE =
+  /\b(una canzone|qualche canzone|canzone da youtube|comando\s*\/|\/suona|\/play|il tuo comando)\b/i;
+
+function usableMusicQuery(query: string | undefined, message: string, botUsername: string): string {
+  const q = (query || parseMusicRequest(message, botUsername) || '').trim();
+  if (!q || BAD_MUSIC_QUERY_RE.test(q)) return '';
+  return q;
+}
 
 /** A resolved still image to react to: a photo or a frame from a video, current or replied-to. */
 interface Visual {
@@ -433,7 +443,8 @@ export class ReplyService {
     );
     const generationModel = sceneForcesNsfw ? ctx.nsfwModel : ctx.model;
     const generationNsfwEnabled = ctx.nsfwEnabled || sceneForcesNsfw;
-    const addressed = ctx.context.isBotMentioned || ctx.context.isReplyToBot;
+    const addressed =
+      !ctx.context.isGroup || ctx.context.isBotMentioned || ctx.context.isReplyToBot;
     const wantsWebSearch = this.grounding.wantsWebSearch(ctx.message.messageText || '');
     const wantsImageLookup = Boolean(
       visual && this.grounding.wantsImageLookup(ctx.message.messageText || ''),
@@ -556,7 +567,11 @@ export class ReplyService {
         maxLines: this.config.env.MAX_REPLY_LINES,
         maxChars: this.config.env.MAX_REPLY_CHARS,
       });
-      const query = evaluation.musicQuery?.trim();
+      const query = usableMusicQuery(
+        evaluation.musicQuery,
+        ctx.message.messageText,
+        ctx.botUsername,
+      );
       const providerBundle: ProviderBundle = { sources: [] };
       if (!this.music.enabled) {
         return {

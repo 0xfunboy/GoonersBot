@@ -63,12 +63,19 @@ const BANTER_RE =
 const MUSIC_RE =
   /\b(scaricami|scaricare|download|suona|suonami|canta|cantami|play|riproduci|youtube|canzone|song|brano|musica)\b/i;
 
-const IMAGE_GEN_RE = /\b(genera|generami|crea|creami|disegna|draw|image|immagine|foto|meme)\b/i;
+const IMAGE_GEN_RE =
+  /\b(genera|generami|crea|creami|disegna|disegni|disegnami|draw|image|immagine|foto|meme)\b/i;
 
 const TRANSLATE_RE = /\b(traduci|translate|translation|in inglese|in italiano|in spagnolo)\b/i;
 
 const VOICE_RE =
   /\b(vocalizza|voce|voice|tts|leggilo|leggimelo|mandalo vocale|nota vocale|voice note)\b/i;
+
+const EXPLICIT_NEWS_RE =
+  /\b(dammi|cercami|trova|voglio|posta|postami)\b[^.?!\n]{0,40}\b(news|notizi[ae]|ultim[aeo]|oggi|breaking)\b/i;
+
+const EXPLICIT_WEB_RE =
+  /\b(cerca(?:mi|re|rmi)?|cerchi|cercami|trovami|trova|online|google|prezzi?|price|quanto costa|dal pi[uù] basso|schede video|escort|annunci)\b/i;
 
 const LOW_VALUE_RE = /^(ok|lol|ahaha+|ahah|si|sì|no|boh|mah|k)\W*$/i;
 
@@ -95,7 +102,7 @@ export class TurnEvaluator {
         maxTokens: 1400,
       });
       if (!parsed) return fallback;
-      return this.normalize(
+      const normalized = this.normalize(
         {
           shouldAct: parsed.shouldAct ?? fallback.shouldAct,
           action: parsed.action ?? fallback.action,
@@ -117,6 +124,22 @@ export class TurnEvaluator {
         input,
         fallback,
       );
+      return this.hardToolAction(fallback) && normalized.action !== fallback.action
+        ? this.normalize(
+            {
+              ...fallback,
+              searchQuery: normalized.searchQuery ?? fallback.searchQuery,
+              musicQuery: normalized.musicQuery ?? fallback.musicQuery,
+              imagePrompt: normalized.imagePrompt ?? fallback.imagePrompt,
+              targetLanguage: normalized.targetLanguage ?? fallback.targetLanguage,
+              sourceText: normalized.sourceText ?? fallback.sourceText,
+              voiceText: normalized.voiceText ?? fallback.voiceText,
+              reason: `${fallback.reason}; LLM tried ${normalized.action}`,
+            },
+            input,
+            fallback,
+          )
+        : normalized;
     } catch (err) {
       log.warn({ err }, 'LLM turn evaluation failed; using heuristic');
       return fallback;
@@ -180,6 +203,20 @@ export class TurnEvaluator {
       });
     }
 
+    if (input.botIsAddressed && input.capabilities.news && EXPLICIT_NEWS_RE.test(msg)) {
+      requests.push('news');
+      return this.turn({
+        shouldAct: true,
+        action: 'post_news',
+        providerRequests: uniq(requests),
+        valueTarget: 'context',
+        roastBudget: recentCriticism ? 'none' : 'light',
+        socialRole: 'friend',
+        confidence: 0.9,
+        reason: 'explicit news request',
+      });
+    }
+
     if (input.botIsAddressed && input.capabilities.music && MUSIC_RE.test(msg)) {
       requests.push('music');
       return this.turn({
@@ -198,7 +235,7 @@ export class TurnEvaluator {
       requests.push('image_generation');
       return this.turn({
         shouldAct: true,
-        action: /\b(disegna|draw)\b/i.test(msg) ? 'draw_image' : 'generate_image',
+        action: /\b(disegna|disegni|disegnami|draw)\b/i.test(msg) ? 'draw_image' : 'generate_image',
         providerRequests: uniq(requests),
         valueTarget: 'support',
         roastBudget: recentCriticism ? 'none' : 'light',
@@ -234,6 +271,22 @@ export class TurnEvaluator {
         socialRole: 'friend',
         confidence: 0.7,
         reason: 'voice/TTS request',
+      });
+    }
+
+    if (input.capabilities.webSearch && EXPLICIT_WEB_RE.test(msg)) {
+      requests.push('web_search');
+      if (NEWS_RE.test(msg) && input.capabilities.news) requests.push('news');
+      return this.turn({
+        shouldAct: true,
+        action: NEWS_RE.test(msg) ? 'bring_news_context' : 'ground_search',
+        providerRequests: uniq(requests),
+        valueTarget: 'truth',
+        roastBudget: recentCriticism ? 'none' : 'light',
+        socialRole: 'truth_checker',
+        confidence: 0.94,
+        reason: 'explicit web/search/price request',
+        searchQuery: searchQueryFromMessage(msg),
       });
     }
 
@@ -455,10 +508,37 @@ export class TurnEvaluator {
   private recentlyCriticized(input: TurnEvaluatorInput): boolean {
     return input.recentBotReplies.some((r) => (r.feedbackScore ?? 0) < 0);
   }
+
+  private hardToolAction(evaluation: TurnEvaluation): boolean {
+    return [
+      'ground_search',
+      'bring_news_context',
+      'download_music',
+      'generate_image',
+      'draw_image',
+      'translate_text',
+      'make_voice',
+      'post_news',
+    ].includes(evaluation.action);
+  }
 }
 
 function uniq<T>(items: T[]): T[] {
   return [...new Set(items)];
+}
+
+function searchQueryFromMessage(message: string): string {
+  const q = message
+    .replace(/@\w+/g, ' ')
+    .replace(/\b(puoi|potresti|mi|me|per favore|grazie|allora|dai)\b/gi, ' ')
+    .replace(
+      /\b(cerca(?:mi|re|rmi)?|cerchi|cercami|trovami|trova|online|su google|google)\b/gi,
+      ' ',
+    )
+    .replace(/[?!.,;:]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return (q || message).slice(0, 200);
 }
 
 const EVALUATOR_SYSTEM = [
@@ -480,6 +560,7 @@ function buildEvaluatorPrompt(input: TurnEvaluatorInput, fallback: TurnEvaluatio
     .join(', ');
   return [
     `AVAILABLE PROVIDERS: ${caps || 'none'}`,
+    `LATEST USER MESSAGE: ${input.currentMessage || '(empty)'}`,
     '',
     'PROVIDER MANIFEST:',
     '- web_search: use for explicit "cerca online", current facts, prices, products, releases, scores, laws, news, factual claims needing verification. Must include searchQuery.',

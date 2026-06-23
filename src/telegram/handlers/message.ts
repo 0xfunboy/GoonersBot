@@ -58,7 +58,7 @@ export async function handleMessage(
   const started = await services.conversation.isStarted(context.chatId);
   if (!started) return;
   const tracking = await services.conversation.isTrackingEnabled(context.chatId);
-  const addressed = context.isBotMentioned || context.isReplyToBot;
+  const addressed = !context.isGroup || context.isBotMentioned || context.isReplyToBot;
   if (!tracking && !addressed) return;
 
   // terms gate
