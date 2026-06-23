@@ -365,6 +365,12 @@ export const translations: TranslationMap = {
     russian: 'Ни хрена не нашёл по "{query}". Попробуй другое название.',
     spanish: 'No encontré una mierda para "{query}". Prueba con otro título.',
   },
+  music_truncated: {
+    italian: 'taglio ai primi {minutes} min',
+    english: 'trimmed to the first {minutes} min',
+    russian: 'обрезано до первых {minutes} мин',
+    spanish: 'recortado a los primeros {minutes} min',
+  },
   translate_description: {
     italian: 'Traduci il messaggio in reply nella lingua indicata (es. /translate spagnolo)',
     english: 'Translate the replied message into the given language (e.g. /translate spanish)',
@@ -590,6 +596,106 @@ export const translations: TranslationMap = {
     russian: 'Лимит группы достигнут ({reason}). Повтори через {retry_after}с или после сброса.',
     spanish:
       'Cuota del grupo alcanzada ({reason}). Reintenta en {retry_after}s o tras el reinicio.',
+  },
+  profile_group_only: {
+    italian: 'Questo comando si usa in un gruppo.',
+    english: 'This command can only be used in a group.',
+    russian: 'Эта команда работает только в группе.',
+    spanish: 'Este comando solo se puede usar en un grupo.',
+  },
+  profile_usage: {
+    italian: 'Uso: /profile free | plus | pro',
+    english: 'Usage: /profile free | plus | pro',
+    russian: 'Использование: /profile free | plus | pro',
+    spanish: 'Uso: /profile free | plus | pro',
+  },
+  profile_report: {
+    italian:
+      '{title}: {plan}\nConversazioni: {conversations_day}/{conversations_limit} oggi, {conversations_hour}/{conversations_hour_limit} ora\nToken LLM: {tokens}/{tokens_limit} oggi\nWeb: {web}/{web_limit} | pagine: {pages}/{pages_limit}\nNews: {news}/{news_limit} | immagini: {images}/{images_limit}\nMedia: {media}/{media_limit}, {media_mb}/{media_mb_limit}\nPassive: {passive}/{passive_limit} ora\nAnti-flood: utente {user_burst}/min, chat {chat_burst}/min',
+    english:
+      '{title}: {plan}\nConversations: {conversations_day}/{conversations_limit} today, {conversations_hour}/{conversations_hour_limit} this hour\nLLM tokens: {tokens}/{tokens_limit} today\nWeb: {web}/{web_limit} | pages: {pages}/{pages_limit}\nNews: {news}/{news_limit} | images: {images}/{images_limit}\nMedia: {media}/{media_limit}, {media_mb}/{media_mb_limit}\nPassive: {passive}/{passive_limit} this hour\nAnti-flood: user {user_burst}/min, chat {chat_burst}/min',
+    russian:
+      '{title}: {plan}\nДиалоги: {conversations_day}/{conversations_limit} сегодня, {conversations_hour}/{conversations_hour_limit} за час\nТокены LLM: {tokens}/{tokens_limit} сегодня\nWeb: {web}/{web_limit} | страницы: {pages}/{pages_limit}\nНовости: {news}/{news_limit} | изображения: {images}/{images_limit}\nМедиа: {media}/{media_limit}, {media_mb}/{media_mb_limit}\nПассивно: {passive}/{passive_limit} за час\nАнтифлуд: пользователь {user_burst}/мин, чат {chat_burst}/мин',
+    spanish:
+      '{title}: {plan}\nConversaciones: {conversations_day}/{conversations_limit} hoy, {conversations_hour}/{conversations_hour_limit} esta hora\nTokens LLM: {tokens}/{tokens_limit} hoy\nWeb: {web}/{web_limit} | páginas: {pages}/{pages_limit}\nNoticias: {news}/{news_limit} | imágenes: {images}/{images_limit}\nMedia: {media}/{media_limit}, {media_mb}/{media_mb_limit}\nPasivas: {passive}/{passive_limit} esta hora\nAntiflood: usuario {user_burst}/min, chat {chat_burst}/min',
+  },
+  profile_current_title: {
+    italian: 'Profilo gruppo',
+    english: 'Group plan',
+    russian: 'План группы',
+    spanish: 'Plan del grupo',
+  },
+  profile_set_title: {
+    italian: 'Profilo gruppo impostato',
+    english: 'Group plan set',
+    russian: 'План группы установлен',
+    spanish: 'Plan del grupo configurado',
+  },
+  media_tool_unavailable: {
+    italian: 'Il tool media non è disponibile adesso.',
+    english: 'The media tool is not available right now.',
+    russian: 'Медиа-инструмент сейчас недоступен.',
+    spanish: 'La herramienta de media no está disponible ahora.',
+  },
+  media_not_found: {
+    italian: 'Non ho trovato un media scaricabile per "{query}".',
+    english: 'I could not find downloadable media for "{query}".',
+    russian: 'Не нашёл скачиваемое медиа для "{query}".',
+    spanish: 'No encontré media descargable para "{query}".',
+  },
+  media_needs_query: {
+    italian: 'Dimmi cosa devo scaricare o mandami un link diretto.',
+    english: 'Tell me what to download or send a direct link.',
+    russian: 'Скажи, что скачать, или пришли прямую ссылку.',
+    spanish: 'Dime qué descargar o envíame un enlace directo.',
+  },
+  media_quota_exhausted: {
+    italian: 'Il budget media del gruppo è esaurito per oggi.',
+    english: 'The group media budget is exhausted for today.',
+    russian: 'Медиа-бюджет группы на сегодня исчерпан.',
+    spanish: 'El presupuesto de media del grupo se agotó por hoy.',
+  },
+  image_unavailable: {
+    italian: 'Generatore immagini non disponibile adesso. Riprova tra poco.',
+    english: 'Image generation is unavailable right now. Try again shortly.',
+    russian: 'Генерация изображений сейчас недоступна. Попробуй позже.',
+    spanish: 'La generación de imágenes no está disponible ahora. Inténtalo luego.',
+  },
+  image_needs_prompt: {
+    italian: 'Dimmi cosa devo generare.',
+    english: 'Tell me what to generate.',
+    russian: 'Скажи, что нужно сгенерировать.',
+    spanish: 'Dime qué debo generar.',
+  },
+  image_minor_refused: {
+    italian: 'No: niente immagini sessualizzate o ambigue con minori.',
+    english: 'No: no sexualized or ambiguous images involving minors.',
+    russian: 'Нет: никаких сексуализированных или неоднозначных изображений с несовершеннолетними.',
+    spanish: 'No: nada de imágenes sexualizadas o ambiguas con menores.',
+  },
+  image_quota_exhausted: {
+    italian: 'Il budget immagini del gruppo è esaurito per oggi.',
+    english: 'The group image budget is exhausted for today.',
+    russian: 'Бюджет изображений группы на сегодня исчерпан.',
+    spanish: 'El presupuesto de imágenes del grupo se agotó por hoy.',
+  },
+  image_done: {
+    italian: 'Fatto: {prompt}',
+    english: 'Done: {prompt}',
+    russian: 'Готово: {prompt}',
+    spanish: 'Hecho: {prompt}',
+  },
+  media_rehost_failed: {
+    italian: 'Non sono riuscito a rehostarlo, ma ecco il link: {url}',
+    english: 'I could not rehost it, but here is the link: {url}',
+    russian: 'Не смог перезалить, но вот ссылка: {url}',
+    spanish: 'No pude resubirlo, pero aquí tienes el enlace: {url}',
+  },
+  generated_image_autopost: {
+    italian: 'Originale appena sfornata. Non fate i critici d’arte per finta.',
+    english: 'Fresh original. Do not pretend you suddenly became art critics.',
+    russian: 'Свежий оригинал. Не притворяйтесь внезапно искусствоведами.',
+    spanish: 'Original recién hecho. No finjan que ahora son críticos de arte.',
   },
   choose_language: {
     italian: 'Scegli una lingua:',

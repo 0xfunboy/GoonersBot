@@ -12,38 +12,65 @@ export const profileCommand: CommandSpec = {
   priority: Priority.ADMIN,
   adminOnly: true,
   async handle({ services, context, args }: HandlerInput): Promise<CommandResponse> {
+    const language = await services.getLanguage(context.chatId);
     if (!context.isGroup) {
-      return { rawText: 'Questo comando si usa in un gruppo.' };
+      return {
+        rawText: services.localizer.t('profile_group_only', {}, language) ?? 'profile_group_only',
+      };
     }
     const requested = args[0]?.toLowerCase();
     if (requested && !isQuotaPlanId(requested)) {
-      return { rawText: 'Uso: /profile free | plus | pro' };
+      return { rawText: services.localizer.t('profile_usage', {}, language) ?? 'profile_usage' };
     }
     const report = requested
       ? await setRequestedPlan(services, context.chatId, requested)
       : await services.quota.getReport(context.chatId);
-    return { rawText: formatReport(report, Boolean(requested)) };
+    return { rawText: formatReport(services, language, report, Boolean(requested)) };
   },
 };
 
 function formatReport(
+  services: HandlerInput['services'],
+  language: string,
   report: Awaited<ReturnType<HandlerInput['services']['quota']['getReport']>>,
   changed: boolean,
 ): string {
   const p = report.plan;
   const mb = (bytes: number): string => `${Math.round(bytes / (1024 * 1024))} MB`;
-  return [
-    changed
-      ? `Profilo gruppo impostato: ${p.id.toUpperCase()}`
-      : `Profilo gruppo: ${p.id.toUpperCase()}`,
-    `Conversazioni: ${report.daily.conversations}/${p.conversationDaily} oggi, ${report.hourly.conversations}/${p.conversationHourly} ora`,
-    `Token LLM: ${report.daily.llmTokens}/${p.llmTokensDaily} oggi`,
-    `Web: ${report.daily.webSearches}/${p.webSearchDaily} | pagine: ${report.daily.pageScans}/${p.pageScanDaily}`,
-    `News: ${report.daily.news}/${p.newsDaily} | immagini: ${report.daily.images}/${p.imagesDaily}`,
-    `Media: ${report.daily.media}/${p.mediaDaily}, ${mb(report.daily.mediaBytes)}/${mb(p.mediaBytesDaily)}`,
-    `Passive: ${report.hourly.passiveReplies}/${p.passiveHourly} ora`,
-    `Anti-flood: utente ${p.antiFlood.userBurstPerMinute}/min, chat ${p.antiFlood.chatBurstPerMinute}/min`,
-  ].join('\n');
+  const titleKey = changed ? 'profile_set_title' : 'profile_current_title';
+  const title = services.localizer.t(titleKey, {}, language) ?? titleKey;
+  return (
+    services.localizer.t(
+      'profile_report',
+      {
+        title,
+        plan: p.id.toUpperCase(),
+        conversations_day: report.daily.conversations,
+        conversations_limit: p.conversationDaily,
+        conversations_hour: report.hourly.conversations,
+        conversations_hour_limit: p.conversationHourly,
+        tokens: report.daily.llmTokens,
+        tokens_limit: p.llmTokensDaily,
+        web: report.daily.webSearches,
+        web_limit: p.webSearchDaily,
+        pages: report.daily.pageScans,
+        pages_limit: p.pageScanDaily,
+        news: report.daily.news,
+        news_limit: p.newsDaily,
+        images: report.daily.images,
+        images_limit: p.imagesDaily,
+        media: report.daily.media,
+        media_limit: p.mediaDaily,
+        media_mb: mb(report.daily.mediaBytes),
+        media_mb_limit: mb(p.mediaBytesDaily),
+        passive: report.hourly.passiveReplies,
+        passive_limit: p.passiveHourly,
+        user_burst: p.antiFlood.userBurstPerMinute,
+        chat_burst: p.antiFlood.chatBurstPerMinute,
+      },
+      language,
+    ) ?? 'profile_report'
+  );
 }
 
 async function setRequestedPlan(services: HandlerInput['services'], chatId: number, plan: string) {

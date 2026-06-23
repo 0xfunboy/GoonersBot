@@ -4,6 +4,7 @@ import type { MediaProcessor } from '../providers/media/index.js';
 import type { Storage } from '../storage/index.js';
 import { childLogger } from '../utils/logger.js';
 import type { GroupQuotaService } from './groupQuota.js';
+import type { Localizer } from '../config/i18n.js';
 
 const log = childLogger('generated-image-autopost');
 
@@ -23,13 +24,14 @@ export class GeneratedImagePoster {
     private readonly config: AppConfig,
     private readonly storage: Storage,
     private readonly quota: GroupQuotaService,
+    private readonly localizer: Localizer,
   ) {}
 
   get enabled(): boolean {
     return this.config.auto.generatedImageAutopostEnabled && this.media.canGenerateImage;
   }
 
-  async compose(chatId: number): Promise<GeneratedImagePost | null> {
+  async compose(chatId: number, language: string): Promise<GeneratedImagePost | null> {
     if (!this.enabled) return null;
     if (!(await this.quota.reserve(chatId, 'image')).allowed) return null;
     const subjects = this.config.auto.imageQueryPool;
@@ -49,7 +51,8 @@ export class GeneratedImagePoster {
       return null;
     }
     return {
-      text: 'Originale appena sfornata. Non fate i critici d’arte per finta.',
+      text:
+        this.localizer.t('generated_image_autopost', {}, language) ?? 'generated_image_autopost',
       imageBuffer: generated.buffer,
     };
   }

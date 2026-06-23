@@ -61,7 +61,7 @@ async function main(): Promise<void> {
     const chats = await storage.chats.listForAutopost();
     for (const c of chats) {
       if (Math.random() >= config.auto.generatedImageAutopostProbability) continue;
-      const post = await services.generatedImagePoster.compose(c.chatId);
+      const post = await services.generatedImagePoster.compose(c.chatId, c.language);
       if (!post) continue;
       try {
         await goonerBot.bot.api.sendPhoto(c.chatId, new InputFile(post.imageBuffer), {

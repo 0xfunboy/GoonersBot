@@ -16,7 +16,7 @@ export const imageCommand: CommandSpec = {
   priority: Priority.DEFAULT,
   quotaConversation: true,
   async handle({ services, context, args }: HandlerInput): Promise<CommandResponse | null> {
-    return generate(services, context.chatId, args, undefined, '/genera');
+    return generate(services, context.chatId, args, undefined);
   },
 };
 
@@ -29,7 +29,7 @@ export const drawCommand: CommandSpec = {
   priority: Priority.DEFAULT,
   quotaConversation: true,
   async handle({ services, context, args }: HandlerInput): Promise<CommandResponse | null> {
-    return generate(services, context.chatId, args, 'manga', '/disegna');
+    return generate(services, context.chatId, args, 'manga');
   },
 };
 
@@ -38,12 +38,11 @@ async function generate(
   chatId: number,
   args: string[],
   profile: ImageProfile | undefined,
-  command: string,
 ): Promise<CommandResponse> {
   const prompt = args.join(' ').trim();
-  if (!prompt) return { rawText: `Dimmi cosa devo generare: ${command} <prompt>` };
+  if (!prompt) return { text: 'image_needs_prompt' };
   if (MINOR_RE.test(prompt)) {
-    return { rawText: 'No: niente immagini sessualizzate o ambigue con minori.' };
+    return { text: 'image_minor_refused' };
   }
   const quota = await services.quota.reserve(chatId, 'image');
   if (!quota.allowed) {
@@ -61,7 +60,7 @@ async function generate(
     ...(poseReference ? { poseReference: poseReference.buffer } : {}),
   });
   if (!image?.buffer) {
-    return { rawText: 'Generatore immagini non disponibile adesso. Riprova tra poco.' };
+    return { text: 'image_unavailable' };
   }
-  return { rawText: `Fatto: ${prompt.slice(0, 180)}`, imageBuffer: image.buffer };
+  return { text: 'image_done', vars: { prompt: prompt.slice(0, 180) }, imageBuffer: image.buffer };
 }

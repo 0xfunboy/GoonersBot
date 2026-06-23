@@ -1,4 +1,5 @@
 import type { AppConfig } from '../config/index.js';
+import type { Localizer } from '../config/i18n.js';
 import type { ChatContext, IncomingMessage, Person, TranscribedMessage } from '../domain/types.js';
 import type { LLMProvider } from '../providers/llm/types.js';
 import type { MediaProcessor } from '../providers/media/index.js';
@@ -268,6 +269,7 @@ export class ReplyService {
     private readonly autonomousPoster: AutonomousPoster,
     private readonly imagePrompts: ImagePromptService,
     private readonly quota: GroupQuotaService,
+    private readonly localizer: Localizer,
   ) {
     this.evaluator = new TurnEvaluator(llm, {
       enabled: config.brain.evaluatorEnabled,
@@ -514,6 +516,8 @@ export class ReplyService {
         });
     const callFor = (tool: CortexTool) =>
       cortexDecision?.toolCalls.find((call) => call.tool === tool);
+    const t = (key: string, vars: Record<string, string | number> = {}): string =>
+      this.localizer.t(key, vars, ctx.language) ?? key;
     const wants = (tool: CortexTool, legacy: TurnEvaluation['providerRequests'][number]) =>
       cortexDecision ? Boolean(callFor(tool)) : evaluation.providerRequests.includes(legacy);
     const makeImmediatePlan = (retrievedMemories: RetrievedMemory[] = []): ReplyPlan => {
@@ -609,7 +613,7 @@ export class ReplyService {
     if (wantsLinkMedia) {
       if (!this.config.linkMedia.enabled) {
         return immediateOutcome({
-          text: 'Il tool media non è disponibile adesso. Non fingo di scaricare roba se il pezzo che scarica è spento.',
+          text: t('media_tool_unavailable'),
           styleVariant: 'media_unavailable',
         });
       }
@@ -630,15 +634,13 @@ export class ReplyService {
         directUrl || (await this.grounding.findMediaUrl(query, ctx.language, ctx.context.chatId));
       if (!url) {
         return immediateOutcome({
-          text: query
-            ? `Non ho trovato un media scaricabile per "${query}". Serve un risultato con URL video vero, non una pozzanghera di snippet.`
-            : 'Mandami cosa devo scaricare o un link diretto: “scarica questo video” senza URL o soggetto è fumo.',
+          text: query ? t('media_not_found', { query }) : t('media_needs_query'),
           styleVariant: 'media_not_found',
         });
       }
       if (!(await this.quota.reserve(ctx.context.chatId, 'media')).allowed) {
         return immediateOutcome({
-          text: 'Il budget media del gruppo oggi è finito. Fate respirare la linea e riprovate domani.',
+          text: t('media_quota_exhausted'),
           styleVariant: 'media_quota_exhausted',
         });
       }
@@ -670,7 +672,7 @@ export class ReplyService {
       const providerBundle: ProviderBundle = { sources: [] };
       if (!this.music.enabled) {
         return {
-          text: 'Vorrei pure, ma il tool musica non è disponibile adesso. Non fare quella faccia, è proprio il pezzo meccanico che manca.',
+          text: t('music_unavailable'),
           transcribedUserMessage: transcribed,
           usage: { inputTokens: 0, outputTokens: 0, estimated: true },
           model: null,
@@ -692,7 +694,7 @@ export class ReplyService {
       }
       if (!query) {
         return {
-          text: 'Sì, posso. Dimmi titolo o artista però: “scaricami Bohemian Rhapsody”, non “una canzone” come se leggessi il tuo algoritmo marcio.',
+          text: t('music_none'),
           transcribedUserMessage: transcribed,
           usage: { inputTokens: 0, outputTokens: 0, estimated: true },
           model: null,
@@ -715,7 +717,7 @@ export class ReplyService {
       const music = await this.music.fetch(query);
       if (!music) {
         return {
-          text: `Non ho trovato "${query}" su YouTube o yt-dlp ha sputato sangue. Riprova con titolo/artista più preciso.`,
+          text: t('music_not_found', { query }),
           transcribedUserMessage: transcribed,
           usage: { inputTokens: 0, outputTokens: 0, estimated: true },
           model: null,
@@ -772,19 +774,19 @@ export class ReplyService {
       ).trim();
       if (!this.media.canGenerateImage) {
         return immediateOutcome({
-          text: 'Generatore immagini non disponibile adesso. Non ti sto ghostando, è proprio il forno spento.',
+          text: t('image_unavailable'),
           styleVariant: 'image_unavailable',
         });
       }
       if (!prompt) {
         return immediateOutcome({
-          text: 'Dimmi cosa devo generare, artista. “Fammi un’immagine” senza soggetto è nebbia con le notifiche.',
+          text: t('image_needs_prompt'),
           styleVariant: 'image_needs_prompt',
         });
       }
       if (!(await this.quota.reserve(ctx.context.chatId, 'image')).allowed) {
         return immediateOutcome({
-          text: 'Il budget immagini del gruppo è esaurito per oggi. Il forno resta spento fino a domani.',
+          text: t('image_quota_exhausted'),
           styleVariant: 'image_quota_exhausted',
         });
       }
@@ -807,12 +809,12 @@ export class ReplyService {
       });
       if (!image?.buffer) {
         return immediateOutcome({
-          text: 'Generatore immagini non disponibile adesso. Riprova tra poco.',
+          text: t('image_unavailable'),
           styleVariant: 'image_failed',
         });
       }
       return immediateOutcome({
-        text: `Fatto: ${prompt.slice(0, 180)}`,
+        text: t('image_done', { prompt: prompt.slice(0, 180) }),
         imageBuffer: image.buffer,
         imageCalls: 1,
         styleVariant: evaluation.action,
@@ -834,7 +836,7 @@ export class ReplyService {
       ).trim();
       if (!source) {
         return immediateOutcome({
-          text: 'Sì, traduco. Però rispondi al messaggio da tradurre o scrivimi il testo, non farmi fare spiritismo linguistico.',
+          text: t('translate_usage'),
           styleVariant: 'translate_needs_source',
         });
       }
@@ -862,7 +864,7 @@ export class ReplyService {
         });
       } catch {
         return immediateOutcome({
-          text: 'Traduzione fallita. Il traduttore ha fatto la fine del cervello dopo il terzo spritz.',
+          text: t('translate_failed'),
           styleVariant: 'translate_failed',
         });
       }
@@ -871,7 +873,7 @@ export class ReplyService {
     if (wants('tts', 'tts') || evaluation.action === 'make_voice') {
       if (!this.tts.enabled) {
         return immediateOutcome({
-          text: 'Voice tool non disponibile adesso. La mia ugola sintetica è in sciopero.',
+          text: t('voice_unavailable'),
           styleVariant: 'voice_unavailable',
         });
       }
@@ -888,14 +890,14 @@ export class ReplyService {
         '';
       if (!source) {
         return immediateOutcome({
-          text: 'Mandami o rispondi a un testo da vocalizzare, non posso leggere il vuoto cosmico.',
+          text: t('voice_none'),
           styleVariant: 'voice_needs_source',
         });
       }
       const ogg = await this.tts.synth(source, ctx.language);
       if (!ogg) {
         return immediateOutcome({
-          text: 'Sintesi vocale fallita. Ho provato a parlare e mi è uscito systemd.',
+          text: t('voice_failed'),
           styleVariant: 'voice_failed',
         });
       }
@@ -908,7 +910,7 @@ export class ReplyService {
     if (evaluation.action === 'post_news') {
       if (!this.autonomousPoster.enabled) {
         return immediateOutcome({
-          text: 'News tool non disponibile adesso.',
+          text: t('news_unavailable'),
           styleVariant: 'news_unavailable',
         });
       }
@@ -918,7 +920,7 @@ export class ReplyService {
       });
       if (!post) {
         return immediateOutcome({
-          text: 'Non ho trovato news fresche decenti adesso. Meglio zero che una minestra riscaldata.',
+          text: t('news_unavailable'),
           styleVariant: 'news_empty',
         });
       }

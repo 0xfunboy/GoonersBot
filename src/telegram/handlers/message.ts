@@ -96,7 +96,7 @@ export async function handleMessage(
     services.storage.botReplies.getRecent(context.chatId, 8),
   ]);
   const modeName = mode?.name ?? 'Default';
-  const modeDescription = mode?.description ?? 'Partecipante naturale del gruppo.';
+  const modeDescription = mode?.description ?? 'Natural group participant.';
   const recentNegativeFeedback = recentReplies.some((r) => (r.feedbackScore ?? 0) < 0);
 
   const language = await services.getLanguage(context.chatId);
@@ -344,7 +344,8 @@ export async function handleMessage(
       });
       if (!sent.handled) {
         const fallback = await ctx.reply(
-          `Non sono riuscito a rehostarlo, ma il link trovato e': ${outcome.linkMediaUrl}`,
+          services.localizer.t('media_rehost_failed', { url: outcome.linkMediaUrl }, language) ??
+            outcome.linkMediaUrl,
           replyOpts,
         );
         botMessageId = fallback.message_id;

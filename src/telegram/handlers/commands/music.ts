@@ -3,9 +3,14 @@ import type { CommandSpec, HandlerInput } from '../types.js';
 import { Priority } from '../types.js';
 import { escapeHtml } from '../../../utils/text.js';
 
-function captionFor(title: string, url: string, truncated: boolean, maxSeconds: number): string {
+function captionFor(
+  title: string,
+  url: string,
+  truncated: boolean,
+  truncationLabel: string,
+): string {
   const head = url ? `🎵 <a href="${url}">${escapeHtml(title)}</a>` : `🎵 ${escapeHtml(title)}`;
-  const tail = truncated ? `\n(taglio ai primi ${Math.round(maxSeconds / 60)} min)` : '';
+  const tail = truncated ? `\n(${truncationLabel})` : '';
   return head + tail;
 }
 
@@ -33,13 +38,18 @@ async function handleMusic({
   const result = await services.music.fetch(query);
   if (!result) return { text: 'music_not_found', vars: { query } };
 
+  const language = await services.getLanguage(context.chatId);
   return {
     audioBuffer: result.ogg,
     rawText: captionFor(
       result.title,
       result.url,
       result.truncated,
-      services.config.music.maxDurationSeconds,
+      services.localizer.t(
+        'music_truncated',
+        { minutes: Math.round(services.config.music.maxDurationSeconds / 60) },
+        language,
+      ) ?? 'music_truncated',
     ),
   };
 }

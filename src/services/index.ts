@@ -203,7 +203,13 @@ export class Services {
       this.lore,
       this.quota,
     );
-    this.generatedImagePoster = new GeneratedImagePoster(this.media, config, storage, this.quota);
+    this.generatedImagePoster = new GeneratedImagePoster(
+      this.media,
+      config,
+      storage,
+      this.quota,
+      this.localizer,
+    );
     this.imagePrompts = new ImagePromptService(llm, config);
     this.heat = new HeatService(storage.userHeat, {
       enabled: env.HEAT_ENABLED,
@@ -238,6 +244,7 @@ export class Services {
       this.autonomousPoster,
       this.imagePrompts,
       this.quota,
+      this.localizer,
     );
   }
 
