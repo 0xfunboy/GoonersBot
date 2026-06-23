@@ -101,6 +101,9 @@ export async function handleMessage(
 
   const language = await services.getLanguage(context.chatId);
 
+  // Avoid spending an autoengage scorer call when the group's passive budget is already exhausted.
+  if (!addressed && !(await services.quota.canPassiveReply(context.chatId))) return;
+
   // Transcribe incoming voice/audio/video up-front so its words feed scene/autoengage/storage/reply.
   const wasVoice = Boolean(message.audioBuffer);
   if (wasVoice && services.stt.enabled && message.audioBuffer) {
@@ -227,6 +230,22 @@ export async function handleMessage(
     return;
   }
 
+  const quota = await services.quota.admitConversation({
+    chatId: context.chatId,
+    telegramId: person.telegramId,
+    passive: !addressed,
+  });
+  if (!quota.allowed) {
+    if (addressed) {
+      const localized = await localizeResponse(services, context.chatId, {
+        text: 'group_quota_exceeded',
+        vars: { reason: quota.reason ?? 'limit', retry_after: quota.retryAfterSeconds ?? 0 },
+      });
+      await sendResponse(ctx, localized);
+    }
+    return;
+  }
+
   // model routing (NSFW)
   const chatNsfwMode = await services.storage.chats.getNsfwMode(
     context.chatId,
@@ -285,6 +304,11 @@ export async function handleMessage(
           })
           .catch((err) => log.debug({ err }, 'suppressed brain debug record failed'));
       }
+      await services.quota.recordLlmTokens(
+        context.chatId,
+        outcome.usage.inputTokens + outcome.usage.outputTokens,
+        quota.tokenReservation ?? 0,
+      );
       log.debug(
         { chatId: context.chatId, reason: outcome.evaluation.reason },
         'reply suppressed by evaluator',
@@ -370,9 +394,9 @@ export async function handleMessage(
           ? outcome.music.title
           : outcome.linkMediaUrl
             ? 'downloaded media'
-          : outcome.audioBuffer
-            ? 'voice note'
-            : null,
+            : outcome.audioBuffer
+              ? 'voice note'
+              : null,
       },
       botMessageId !== undefined ? { messageId: botMessageId } : {},
     );
@@ -396,6 +420,11 @@ export async function handleMessage(
       points,
       costEstimate: 0,
     });
+    await services.quota.recordLlmTokens(
+      context.chatId,
+      outcome.usage.inputTokens + outcome.usage.outputTokens,
+      quota.tokenReservation ?? 0,
+    );
 
     // record bot reply (repetition guard + feedback) + brain debug + memory usage
     const reply: import('../../brain/types.js').BotReplyRecord = {

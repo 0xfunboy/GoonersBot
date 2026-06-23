@@ -12,6 +12,7 @@ export const newsCommand: CommandSpec = {
   permissions: ['allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.DEFAULT,
+  quotaConversation: true,
   async handle({ services, context }: HandlerInput): Promise<CommandResponse | null> {
     if (!services.autonomousPoster.enabled) return { text: 'news_unavailable' };
     const language = await services.getLanguage(context.chatId);

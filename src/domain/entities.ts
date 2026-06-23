@@ -23,6 +23,37 @@ export interface ChatDoc {
   updatedAt: Date;
 }
 
+export interface ChatQuotaDoc {
+  chatId: number;
+  plan: import('../quota/plans.js').QuotaPlanId;
+  /** Optimistic-concurrency version; every quota mutation must increment it. */
+  version: number;
+  dayKey: string;
+  hourKey: string;
+  minuteKey: string;
+  daily: {
+    conversations: number;
+    llmTokens: number;
+    webSearches: number;
+    pageScans: number;
+    news: number;
+    images: number;
+    media: number;
+    mediaBytes: number;
+  };
+  hourly: {
+    conversations: number;
+    passiveReplies: number;
+  };
+  minute: {
+    chatRequests: number;
+    userRequests: Record<string, number>;
+  };
+  lastChatRequestAt?: Date;
+  lastUserRequestAt: Record<string, Date>;
+  updatedAt: Date;
+}
+
 export interface UserDoc {
   handle: string;
   telegramId: number;

@@ -10,13 +10,25 @@ function captionFor(title: string, url: string, truncated: boolean, maxSeconds: 
 }
 
 /** Shared handler for /play and /sing: resolve a query to a YouTube audio voice note. */
-async function handleMusic({ services, context, args }: HandlerInput): Promise<CommandResponse | null> {
+async function handleMusic({
+  services,
+  context,
+  args,
+}: HandlerInput): Promise<CommandResponse | null> {
   if (!services.music.enabled) return { text: 'music_unavailable' };
 
   // query from command args, else the text of the message being replied to
   let query = args.join(' ').trim();
   if (!query && context.repliedToText) query = context.repliedToText.trim();
   if (!query) return { text: 'music_none' };
+
+  const quota = await services.quota.reserve(context.chatId, 'media');
+  if (!quota.allowed) {
+    return {
+      text: 'group_quota_exceeded',
+      vars: { reason: quota.reason ?? 'media', retry_after: 0 },
+    };
+  }
 
   const result = await services.music.fetch(query);
   if (!result) return { text: 'music_not_found', vars: { query } };
@@ -42,6 +54,7 @@ export const playCommand: CommandSpec = {
   permissions: ['allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.DEFAULT,
+  quotaConversation: true,
   handle: handleMusic,
 };
 
@@ -52,5 +65,6 @@ export const singCommand: CommandSpec = {
   permissions: ['allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.DEFAULT,
+  quotaConversation: true,
   handle: handleMusic,
 };

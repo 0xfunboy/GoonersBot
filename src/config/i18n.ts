@@ -83,6 +83,12 @@ export const translations: TranslationMap = {
     russian: 'Показать использование и лимиты',
     spanish: 'Muestra tu uso y límites',
   },
+  profile_description: {
+    italian: 'Mostra o imposta il piano quote del gruppo',
+    english: 'Show or set the group quota plan',
+    russian: 'Показать или установить план квот группы',
+    spanish: 'Muestra o configura el plan de cuotas del grupo',
+  },
   language_description: {
     italian: 'Imposta la lingua della chat',
     english: 'Set the chat language',
@@ -211,7 +217,7 @@ export const translations: TranslationMap = {
   },
   dm_info: {
     italian:
-      '🔞 Sono un bot NSFW riservato alle community private approvate, solo su richiesta. Vuoi aggiungermi alla tua community? Scrivi a {admin_handle} in privato per l\'approvazione (mandagli l\'ID della chat). Qui in DM non genero e non rispondo finché tu o la tua chat non siete approvati.',
+      "🔞 Sono un bot NSFW riservato alle community private approvate, solo su richiesta. Vuoi aggiungermi alla tua community? Scrivi a {admin_handle} in privato per l'approvazione (mandagli l'ID della chat). Qui in DM non genero e non rispondo finché tu o la tua chat non siete approvati.",
     english:
       '🔞 I am an NSFW bot, reserved for approved private communities, by request only. Want me in your community? DM {admin_handle} for approval (send them the chat ID). Here in DM I will not generate or reply until you or your chat are approved.',
     russian:
@@ -220,10 +226,14 @@ export const translations: TranslationMap = {
       '🔞 Soy un bot NSFW reservado a comunidades privadas aprobadas, solo por solicitud. ¿Me quieres en tu comunidad? Escribe a {admin_handle} en privado para la aprobación (envíale el ID del chat). Aquí en DM no genero ni respondo hasta que tú o tu chat estéis aprobados.',
   },
   approval_required: {
-    italian: '⛔ Non sei approvato. Bot per community private su richiesta: scrivi a {admin_handle} per l\'approvazione.',
-    english: '⛔ You are not approved. Private-community bot, by request: DM {admin_handle} for approval.',
-    russian: '⛔ Ты не одобрен. Бот для приватных сообществ по запросу: напиши {admin_handle} для одобрения.',
-    spanish: '⛔ No estás aprobado. Bot para comunidades privadas por solicitud: escribe a {admin_handle} para la aprobación.',
+    italian:
+      "⛔ Non sei approvato. Bot per community private su richiesta: scrivi a {admin_handle} per l'approvazione.",
+    english:
+      '⛔ You are not approved. Private-community bot, by request: DM {admin_handle} for approval.',
+    russian:
+      '⛔ Ты не одобрен. Бот для приватных сообществ по запросу: напиши {admin_handle} для одобрения.',
+    spanish:
+      '⛔ No estás aprobado. Bot para comunidades privadas por solicitud: escribe a {admin_handle} para la aprobación.',
   },
   approve_description: {
     italian: 'Approva una chat o un utente (admin). In gruppo senza id approva la chat corrente',
@@ -232,7 +242,7 @@ export const translations: TranslationMap = {
     spanish: 'Aprueba un chat o usuario (admin). En un grupo sin id aprueba el chat actual',
   },
   unapprove_description: {
-    italian: 'Revoca l\'approvazione di una chat o utente (admin)',
+    italian: "Revoca l'approvazione di una chat o utente (admin)",
     english: 'Revoke approval for a chat or user (admin)',
     russian: 'Отозвать одобрение чата или пользователя (админ)',
     spanish: 'Revoca la aprobación de un chat o usuario (admin)',
@@ -262,10 +272,14 @@ export const translations: TranslationMap = {
     spanish: 'No estaba aprobado: {target}',
   },
   approve_usage: {
-    italian: 'Uso: /approve <id> (id negativo = chat, positivo = utente), oppure /approve in un gruppo per approvarlo.',
-    english: 'Usage: /approve <id> (negative = chat, positive = user), or /approve inside a group to approve it.',
-    russian: 'Использование: /approve <id> (отрицательный = чат, положительный = пользователь) или /approve в группе.',
-    spanish: 'Uso: /approve <id> (negativo = chat, positivo = usuario), o /approve dentro de un grupo para aprobarlo.',
+    italian:
+      'Uso: /approve <id> (id negativo = chat, positivo = utente), oppure /approve in un gruppo per approvarlo.',
+    english:
+      'Usage: /approve <id> (negative = chat, positive = user), or /approve inside a group to approve it.',
+    russian:
+      'Использование: /approve <id> (отрицательный = чат, положительный = пользователь) или /approve в группе.',
+    spanish:
+      'Uso: /approve <id> (negativo = chat, positivo = usuario), o /approve dentro de un grupo para aprobarlo.',
   },
   setfact_description: {
     italian: 'Inserisci lore manuale (solo admin)',
@@ -570,6 +584,13 @@ export const translations: TranslationMap = {
     russian: '{user_handle}, ты достиг лимита ({usage_limit}). Остынь немного.',
     spanish: '{user_handle}, llegaste a tu límite ({usage_limit}). Relájate un poco.',
   },
+  group_quota_exceeded: {
+    italian: 'Quota gruppo raggiunta ({reason}). Riprova tra {retry_after}s o al prossimo reset.',
+    english: 'Group quota reached ({reason}). Retry in {retry_after}s or after the next reset.',
+    russian: 'Лимит группы достигнут ({reason}). Повтори через {retry_after}с или после сброса.',
+    spanish:
+      'Cuota del grupo alcanzada ({reason}). Reintenta en {retry_after}s o tras el reinicio.',
+  },
   choose_language: {
     italian: 'Scegli una lingua:',
     english: 'Pick a language:',
@@ -766,7 +787,7 @@ export const translations: TranslationMap = {
       "• Le <b>immagini</b> che invii (quando ti rivolgi a GoonersBot) possono essere descritte dall'AI.",
       "• L'<b>audio</b> che invii (quando ti rivolgi a GoonersBot) può essere trascritto in testo.",
       '• I <b>fatti</b> su utenti/gruppo vengono salvati per tenere viva la lore.',
-      "• L'<b>utilizzo</b> è tracciato in punti per applicare i limiti.",
+      "• L'<b>utilizzo</b> personale e le quote condivise del gruppo (richieste, web, news, immagini e media) vengono tracciati per applicare i limiti del piano.",
       '',
       '<strong>⚡ I tuoi controlli</strong>',
       '• /reset cancella la memoria della conversazione.',
@@ -786,7 +807,7 @@ export const translations: TranslationMap = {
       '• <b>Images</b> you send (when GoonersBot is addressed) may be described by AI.',
       '• <b>Voice</b> you send (when GoonersBot is addressed) may be transcribed to text.',
       '• <b>Facts</b> about users/group are stored to keep the lore alive.',
-      '• <b>Usage</b> is tracked as points to enforce limits.',
+      '• Personal <b>usage</b> and shared group quotas (requests, web, news, images and media) are tracked to enforce the selected plan.',
       '',
       '<strong>⚡ Your controls</strong>',
       '• /reset wipes the conversation memory.',
@@ -806,7 +827,7 @@ export const translations: TranslationMap = {
       '• <b>Изображения</b> (когда обращаются к GoonersBot) могут описываться ИИ.',
       '• <b>Голос</b> (когда обращаются к GoonersBot) может транскрибироваться.',
       '• <b>Факты</b> о пользователях/группе хранятся для истории.',
-      '• <b>Использование</b> отслеживается в виде очков для лимитов.',
+      '• Личное <b>использование</b> и общие квоты группы (запросы, web, новости, изображения и медиа) отслеживаются для лимитов плана.',
       '',
       '<strong>⚡ Твои возможности</strong>',
       '• /reset очищает память разговора.',
@@ -826,7 +847,7 @@ export const translations: TranslationMap = {
       '• Las <b>imágenes</b> que envíes (cuando te diriges a GoonersBot) pueden ser descritas por IA.',
       '• El <b>audio</b> que envíes (cuando te diriges a GoonersBot) puede transcribirse a texto.',
       '• Los <b>datos</b> de usuarios/grupo se guardan para mantener la lore.',
-      '• El <b>uso</b> se rastrea como puntos para aplicar límites.',
+      '• El <b>uso</b> personal y las cuotas compartidas del grupo (solicitudes, web, noticias, imágenes y media) se rastrean para aplicar el plan.',
       '',
       '<strong>⚡ Tus controles</strong>',
       '• /reset borra la memoria de conversación.',
@@ -862,6 +883,7 @@ export const translations: TranslationMap = {
       '• <em>/lore</em> - la lore top del gruppo',
       '• <em>/forget</em> - dimentica la lore (rispondi al messaggio)',
       '• <em>/usage</em> - il tuo utilizzo e i limiti',
+      '• <em>/profile [free|plus|pro]</em> (admin) - piano e quote del gruppo',
       '• <em>/language</em> - imposta la lingua della chat',
       "• <em>/terms</em> - termini d'uso",
       '• <em>/conversationtracker</em> - ascolto passivo on/off',
@@ -902,6 +924,7 @@ export const translations: TranslationMap = {
       '• <em>/lore</em> - top group lore',
       '• <em>/forget</em> - forget lore (reply to the message)',
       '• <em>/usage</em> - your usage and limits',
+      '• <em>/profile [free|plus|pro]</em> (admin) - group plan and quotas',
       '• <em>/language</em> - set chat language',
       '• <em>/terms</em> - terms of use',
       '• <em>/conversationtracker</em> - toggle passive listening',
@@ -934,6 +957,7 @@ export const translations: TranslationMap = {
       '• <em>/facts [@handle]</em> - показать факты',
       '• <em>/clearfacts [@handle]</em> - очистить факты',
       '• <em>/usage</em> - использование и лимиты',
+      '• <em>/profile [free|plus|pro]</em> (админ) - план и квоты группы',
       '• <em>/language</em> - язык чата',
       '• <em>/terms</em> - условия',
       '• <em>/conversationtracker</em> - пассивное слушание',
@@ -963,6 +987,7 @@ export const translations: TranslationMap = {
       '• <em>/facts [@handle]</em> - mostrar datos',
       '• <em>/clearfacts [@handle]</em> - borrar datos',
       '• <em>/usage</em> - uso y límites',
+      '• <em>/profile [free|plus|pro]</em> (admin) - plan y cuotas del grupo',
       '• <em>/language</em> - idioma del chat',
       '• <em>/terms</em> - términos',
       '• <em>/conversationtracker</em> - escucha pasiva',

@@ -95,15 +95,15 @@ pnpm build && pnpm start
 
 ### Scripts
 
-| Script | Purpose |
-| --- | --- |
-| `pnpm dev` | run with hot reload (tsx) |
-| `pnpm build` | compile TypeScript to `dist/` |
-| `pnpm start` | run the compiled bot (`node dist/main.js`) |
-| `pnpm typecheck` | strict type check, no emit |
-| `pnpm lint` / `pnpm lint:fix` | eslint |
-| `pnpm format` / `pnpm format:check` | prettier |
-| `pnpm test` / `pnpm test:watch` | vitest |
+| Script                              | Purpose                                    |
+| ----------------------------------- | ------------------------------------------ |
+| `pnpm dev`                          | run with hot reload (tsx)                  |
+| `pnpm build`                        | compile TypeScript to `dist/`              |
+| `pnpm start`                        | run the compiled bot (`node dist/main.js`) |
+| `pnpm typecheck`                    | strict type check, no emit                 |
+| `pnpm lint` / `pnpm lint:fix`       | eslint                                     |
+| `pnpm format` / `pnpm format:check` | prettier                                   |
+| `pnpm test` / `pnpm test:watch`     | vitest                                     |
 
 ---
 
@@ -161,11 +161,11 @@ GoonersBot can route adult turns to a separate uncensored model while keeping a 
 everyday banter. Set `LLM_NSFW_MODEL`. Routing is decided before generation (no extra LLM call) and
 gated per chat by an admin.
 
-| `/nsfw <mode>` | behaviour |
-| --- | --- |
-| `base` (or `on`) | the whole chat uses the uncensored model. |
-| `off` | never use the uncensored model. |
-| `smart` | default. Per message: an instant lexicon picks the uncensored model for NSFW-looking turns; for the rest the default model runs with a buffered refusal backstop, so a refusal is silently retried on the uncensored model and never shown. |
+| `/nsfw <mode>`   | behaviour                                                                                                                                                                                                                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `base` (or `on`) | the whole chat uses the uncensored model.                                                                                                                                                                                                   |
+| `off`            | never use the uncensored model.                                                                                                                                                                                                             |
+| `smart`          | default. Per message: an instant lexicon picks the uncensored model for NSFW-looking turns; for the rest the default model runs with a buffered refusal backstop, so a refusal is silently retried on the uncensored model and never shown. |
 
 A custom mode created with a leading `[nsfw]` tag always routes to the uncensored model in
 NSFW-enabled chats. Hard limits always apply regardless of model or mode: nothing involving minors,
@@ -177,43 +177,44 @@ illegal, no doxxing. NSFW is opt-in per chat and meant for private, consenting a
 
 ## Commands
 
-| Command | Who | What |
-| --- | --- | --- |
-| `/start` | admin | wake GoonersBot in this chat |
-| `/stop` | admin | put it to sleep |
-| `/reset` | admin | wipe conversation memory |
-| `/mode` | admin | pick a mode |
-| `/addmode <description>` | admin | add a custom mode (`[nsfw]` prefix flags it adult) |
-| `/deletemode` | admin | delete a mode |
-| `/introduce <text>` | anyone | tell GoonersBot who you are (saved as lore) |
-| `/fact` | anyone | mine durable lore from recent chat or the replied-to window |
-| `/setfact @handle <text>` | admin | manually insert lore |
-| `/facts [@handle]` | anyone | show stored lore |
-| `/clearfacts [@handle]` | self / admin | expire stored lore (self anytime, others need admin) |
-| `/lore` | anyone | top group lore (max 5) |
-| `/forget` | reply / admin | reply to forget lore mined from a message; admin `/forget <id>` |
-| `/translate <language>` | anyone | translate the replied message (alias `/traduci`) |
-| `/voice` | anyone | turn the last message, or the replied one, into a voice note |
-| `/play <query>` | anyone | search YouTube and send the audio as a voice note (aliases `/suona`, `/riproduci`) |
-| `/sing <query>` | anyone | same as `/play`, phrased for songs (aliases `/canta`, `/cantami`) |
-| `/news` | anyone | force an autonomous post now (alias `/nuovo`) |
-| `/autopost` | admin | toggle timed autonomous posts in this chat |
-| `/genera <prompt>` | anyone | generate an original image with Stable Diffusion (aliases `/image`, `/img`) |
-| `/disegna <prompt>` | anyone | force the high-quality PonyXL manga workflow (alias `/draw`) |
-| `/usage` | anyone | your usage and limits |
-| `/language` | admin | set chat language (it, en, ru, es) |
-| `/terms` | anyone | terms of use and acceptance |
-| `/conversationtracker` | admin | toggle passive tracking |
-| `/autofact` | admin | toggle automatic fact extraction |
-| `/autoengage` | admin | toggle auto-engage |
-| `/nsfw [off\|base\|smart]` | admin | NSFW model routing |
-| `/ban @handle [seconds]` | bot admin | ban a Gooner (reply-aware, duration optional, 0 = permanent) |
-| `/unban @handle` | bot admin | unban a Gooner |
-| `/brain`, `/debuglast` | admin | inspect why the bot answered the way it did |
-| `/approve [id]` | bot admin | approve a community chat or user (no id in a group = approve it) |
-| `/unapprove [id]` | bot admin | revoke approval for a chat or user |
-| `/approved` | bot admin | list approved chats and users |
-| `/help` | anyone | help |
+| Command                      | Who           | What                                                                               |
+| ---------------------------- | ------------- | ---------------------------------------------------------------------------------- |
+| `/start`                     | admin         | wake GoonersBot in this chat                                                       |
+| `/stop`                      | admin         | put it to sleep                                                                    |
+| `/reset`                     | admin         | wipe conversation memory                                                           |
+| `/mode`                      | admin         | pick a mode                                                                        |
+| `/addmode <description>`     | admin         | add a custom mode (`[nsfw]` prefix flags it adult)                                 |
+| `/deletemode`                | admin         | delete a mode                                                                      |
+| `/introduce <text>`          | anyone        | tell GoonersBot who you are (saved as lore)                                        |
+| `/fact`                      | anyone        | mine durable lore from recent chat or the replied-to window                        |
+| `/setfact @handle <text>`    | admin         | manually insert lore                                                               |
+| `/facts [@handle]`           | anyone        | show stored lore                                                                   |
+| `/clearfacts [@handle]`      | self / admin  | expire stored lore (self anytime, others need admin)                               |
+| `/lore`                      | anyone        | top group lore (max 5)                                                             |
+| `/forget`                    | reply / admin | reply to forget lore mined from a message; admin `/forget <id>`                    |
+| `/translate <language>`      | anyone        | translate the replied message (alias `/traduci`)                                   |
+| `/voice`                     | anyone        | turn the last message, or the replied one, into a voice note                       |
+| `/play <query>`              | anyone        | search YouTube and send the audio as a voice note (aliases `/suona`, `/riproduci`) |
+| `/sing <query>`              | anyone        | same as `/play`, phrased for songs (aliases `/canta`, `/cantami`)                  |
+| `/news`                      | anyone        | force an autonomous post now (alias `/nuovo`)                                      |
+| `/autopost`                  | admin         | toggle timed autonomous posts in this chat                                         |
+| `/genera <prompt>`           | anyone        | generate an original image with Stable Diffusion (aliases `/image`, `/img`)        |
+| `/disegna <prompt>`          | anyone        | force the high-quality PonyXL manga workflow (alias `/draw`)                       |
+| `/usage`                     | anyone        | your usage and limits                                                              |
+| `/profile [free\|plus\|pro]` | admin         | show or set the shared group plan and live quotas                                  |
+| `/language`                  | admin         | set chat language (it, en, ru, es)                                                 |
+| `/terms`                     | anyone        | terms of use and acceptance                                                        |
+| `/conversationtracker`       | admin         | toggle passive tracking                                                            |
+| `/autofact`                  | admin         | toggle automatic fact extraction                                                   |
+| `/autoengage`                | admin         | toggle auto-engage                                                                 |
+| `/nsfw [off\|base\|smart]`   | admin         | NSFW model routing                                                                 |
+| `/ban @handle [seconds]`     | bot admin     | ban a Gooner (reply-aware, duration optional, 0 = permanent)                       |
+| `/unban @handle`             | bot admin     | unban a Gooner                                                                     |
+| `/brain`, `/debuglast`       | admin         | inspect why the bot answered the way it did                                        |
+| `/approve [id]`              | bot admin     | approve a community chat or user (no id in a group = approve it)                   |
+| `/unapprove [id]`            | bot admin     | revoke approval for a chat or user                                                 |
+| `/approved`                  | bot admin     | list approved chats and users                                                      |
+| `/help`                      | anyone        | help                                                                               |
 
 admin means group admin or bot admin (`ADMIN_HANDLES`). bot admin means listed in `ADMIN_HANDLES`.
 Most commands that act on the chat need `/terms` accepted first. Outside the basic commands
@@ -240,16 +241,44 @@ never replies and nothing is generated for them.
 
 ---
 
+## Group plans and quotas
+
+Every approved group has one persistent plan. New groups start on **Free**; a group admin changes
+the plan with `/profile free`, `/profile plus`, or `/profile pro`. `/profile` without arguments
+shows current counters and limits. Limits reset on calendar boundaries in the `Europe/Rome` timezone.
+
+| Resource                |           Free |           Plus |             Pro |
+| ----------------------- | -------------: | -------------: | --------------: |
+| Conversational requests | 24/day, 6/hour | 32/day, 9/hour | 72/day, 18/hour |
+| LLM tokens              |       100k/day |       150k/day |        250k/day |
+| Web searches            |         25/day |         33/day |          75/day |
+| Opened/scanned pages    |         50/day |         75/day |         200/day |
+| News retrievals         |          6/day |          9/day |          24/day |
+| Generated images        |          5/day |         18/day |          48/day |
+| Downloaded media        | 10/day, 300 MB | 20/day, 600 MB |  40/day, 1.2 GB |
+| Passive replies         |         6/hour |         9/hour |         12/hour |
+| Per-user cooldown       |           12 s |            6 s |             1 s |
+| Per-chat cooldown       |            8 s |            3 s |             1 s |
+| User/chat burst         |  3 / 8 per min | 6 / 16 per min | 20 / 60 per min |
+
+The bot applies a per-user and per-chat anti-flood bucket before expensive work. Free is deliberately
+strict; Plus allows normal group use; Pro has a much wider burst allowance while retaining hard
+hour/day caps. Image generation is globally serialized: one image job runs at a time across every
+group and the rest wait in queue. Counters are persisted atomically in Mongo, so restarting the bot
+does not reset a group's budget.
+
+---
+
 ## Built-in modes
 
-| Mode | Vibe |
-| --- | --- |
-| `default` | natural group participant, funny, short, contextual |
-| `roast` | light roast and banter, never hateful, no protected categories |
-| `hype` | hypes the group: raids, announcements, wins, updates |
-| `lorekeeper` | tracks recurring jokes, group and user facts, callbacks |
-| `chaos` | unpredictable but rate-limited and safe |
-| `market_degen` | crypto and degen vibes, never financial advice as certainty |
+| Mode            | Vibe                                                              |
+| --------------- | ----------------------------------------------------------------- |
+| `default`       | natural group participant, funny, short, contextual               |
+| `roast`         | light roast and banter, never hateful, no protected categories    |
+| `hype`          | hypes the group: raids, announcements, wins, updates              |
+| `lorekeeper`    | tracks recurring jokes, group and user facts, callbacks           |
+| `chaos`         | unpredictable but rate-limited and safe                           |
+| `market_degen`  | crypto and degen vibes, never financial advice as certainty       |
 | `meme_recorder` | turns funny moments into quote/meme candidates and remembers them |
 
 Add your own with `/addmode <description>` (the mode name is the first sentence). Prefix with
@@ -532,78 +561,78 @@ The tables below list the common vars; see `.env.example` for the full set with 
 
 ### Core
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `TELEGRAM_BOT_TOKEN` | required | Token from @BotFather. |
-| `BOT_USERNAME` | `GoonersBot` | Hint only; the real username is resolved at boot. |
-| `ALLOWED_HANDLES` | `*` | Comma `@handles` allowed to use the bot. Empty or `*` means everyone. |
-| `ADMIN_HANDLES` | none | Comma `@handles` that are bot admins. |
-| `MONGO_URI` | `mongodb://127.0.0.1:27017/goonerbot` | Connection string. |
-| `MONGO_DB` | `goonerbot` | Database name. |
-| `NODE_ENV` | `development` | `production` gives JSON logs. |
-| `LOG_LEVEL` | `info` | pino level. |
+| Variable             | Default                               | Description                                                           |
+| -------------------- | ------------------------------------- | --------------------------------------------------------------------- |
+| `TELEGRAM_BOT_TOKEN` | required                              | Token from @BotFather.                                                |
+| `BOT_USERNAME`       | `GoonersBot`                          | Hint only; the real username is resolved at boot.                     |
+| `ALLOWED_HANDLES`    | `*`                                   | Comma `@handles` allowed to use the bot. Empty or `*` means everyone. |
+| `ADMIN_HANDLES`      | none                                  | Comma `@handles` that are bot admins.                                 |
+| `MONGO_URI`          | `mongodb://127.0.0.1:27017/goonerbot` | Connection string.                                                    |
+| `MONGO_DB`           | `goonerbot`                           | Database name.                                                        |
+| `NODE_ENV`           | `development`                         | `production` gives JSON logs.                                         |
+| `LOG_LEVEL`          | `info`                                | pino level.                                                           |
 
 ### LLM and media
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `LLM_PROVIDER` | `ollama` | `solclawn`, `openai`, `deepseek`, `ollama`, `custom_openai_compatible`. |
-| `LLM_BASE_URL` | per-provider | OpenAI-compatible base URL. |
-| `LLM_API_KEY` | none | Bearer token. |
-| `LLM_MODEL` | none | Chat model (required for text replies). |
-| `LLM_VISION_MODEL` | none | Enables image and video-frame understanding. |
-| `LLM_VISION_BASE_URL` / `LLM_VISION_API_KEY` | none | Separate vision endpoint; empty reuses the main one. |
-| `LLM_TRANSCRIPTION_MODEL` | none | Remote STT fallback; local whisper covers this otherwise. |
-| `LLM_TTS_MODEL` / `LLM_IMAGE_MODEL` | none | Enable remote TTS / image generation if your backend has them. |
-| `LLM_FALLBACK_BASE_URL` / `LLM_FALLBACK_MODEL` / `LLM_FALLBACK_API_KEY` | none | Fallback chat endpoint when the primary throws. |
-| `LLM_REQUEST_TIMEOUT_MS` | `60000` | Per-request timeout. |
+| Variable                                                                | Default      | Description                                                             |
+| ----------------------------------------------------------------------- | ------------ | ----------------------------------------------------------------------- |
+| `LLM_PROVIDER`                                                          | `ollama`     | `solclawn`, `openai`, `deepseek`, `ollama`, `custom_openai_compatible`. |
+| `LLM_BASE_URL`                                                          | per-provider | OpenAI-compatible base URL.                                             |
+| `LLM_API_KEY`                                                           | none         | Bearer token.                                                           |
+| `LLM_MODEL`                                                             | none         | Chat model (required for text replies).                                 |
+| `LLM_VISION_MODEL`                                                      | none         | Enables image and video-frame understanding.                            |
+| `LLM_VISION_BASE_URL` / `LLM_VISION_API_KEY`                            | none         | Separate vision endpoint; empty reuses the main one.                    |
+| `LLM_TRANSCRIPTION_MODEL`                                               | none         | Remote STT fallback; local whisper covers this otherwise.               |
+| `LLM_TTS_MODEL` / `LLM_IMAGE_MODEL`                                     | none         | Enable remote TTS / image generation if your backend has them.          |
+| `LLM_FALLBACK_BASE_URL` / `LLM_FALLBACK_MODEL` / `LLM_FALLBACK_API_KEY` | none         | Fallback chat endpoint when the primary throws.                         |
+| `LLM_REQUEST_TIMEOUT_MS`                                                | `60000`      | Per-request timeout.                                                    |
 
 ### Voice, grounding, images, autopost
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `TTS_ENABLED` / `TTS_BASE_URL` / `TTS_VOICE` / `TTS_FORMAT` | off | Kokoro TTS. Server audio is finalized for Telegram when ffmpeg is available. |
-| `TTS_TAIL_PADDING_MS` | `600` | Silent tail appended after TTS so Telegram clients do not clip the last word. |
-| `STT_ENABLED` / `WHISPER_MODEL` / `FFMPEG_BIN` | off | Local whisper.cpp STT (vendor/ defaults). |
-| `WEB_SEARCH_ENABLED` / `SEARXNG_URL` | off | Web grounding via SearXNG. |
-| `IMAGE_LOOKUP_ENABLED` | off | Reverse-image grounding (needs web search and vision). |
-| `IMAGE_SEND_ENABLED` / `IMAGE_SEND_PROBABILITY` | on / `0.15` | Attach a verified waifu image on anime topics. |
-| `IMAGE_QUERY_POOL` | defaults | Comma-separated image query seeds. |
-| `SD_ENABLED` / `SD_API_URL` | on / Forge URL | Enable the self-hosted Forge/Automatic1111 generator. |
-| `SD_ANIME_MODEL` / `SD_REALISTIC_MODEL` / `SD_NSFW_MODEL` | PonyXL | Keep all three set to the same PonyXL checkpoint to avoid Forge model swaps. |
-| `SD_NEGATIVE_PROMPT` / `SD_STEPS` / `SD_WIDTH` / `SD_HEIGHT` / `SD_CFG_SCALE` | tuned defaults | Shared Stable Diffusion generation controls. |
-| `SD_TIMEOUT_MS` / `SD_QUEUE_TIMEOUT_MS` / `SD_QUEUE_POLL_MS` | `300000` / `300000` / `2000` | Per-render timeout and wait policy when Forge is busy. |
-| `SD_CONTROLNET_ENABLED` / `SD_CONTROLNET_OPENPOSE_MODEL` / `SD_CONTROLNET_PROCESSOR_RESOLUTION` | on / `OpenPoseXL2` / `512` | SearXNG pose-reference workflow for complex poses, tuned for the shared GPU. |
-| `AUTOPOST_ENABLED` / `AUTOPOST_DEFAULT_ENABLED` | on / off | Scheduler switch / per-chat default (opt-in). |
-| `AUTOPOST_INTERVAL_MINUTES` / `AUTOPOST_PROBABILITY` | `10` / `0.05` | Tick interval / chance per eligible chat. |
-| `AUTOPOST_IMAGE_RATIO` | `0.4` | Share of autoposts that are an image vs a news take. |
-| `GENERATED_IMAGE_AUTOPOST_ENABLED` | off | Separate generated-image scheduler; leave off until quality is approved. |
-| `GENERATED_IMAGE_AUTOPOST_INTERVAL_MINUTES` / `GENERATED_IMAGE_AUTOPOST_PROBABILITY` | `10` / `0.05` | Separate generated-image scheduler cadence, when enabled. |
-| `RSS_FEEDS` | BBC, CNN, ANSA, Verge | Comma-separated feed URLs. |
+| Variable                                                                                        | Default                      | Description                                                                   |
+| ----------------------------------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------- |
+| `TTS_ENABLED` / `TTS_BASE_URL` / `TTS_VOICE` / `TTS_FORMAT`                                     | off                          | Kokoro TTS. Server audio is finalized for Telegram when ffmpeg is available.  |
+| `TTS_TAIL_PADDING_MS`                                                                           | `600`                        | Silent tail appended after TTS so Telegram clients do not clip the last word. |
+| `STT_ENABLED` / `WHISPER_MODEL` / `FFMPEG_BIN`                                                  | off                          | Local whisper.cpp STT (vendor/ defaults).                                     |
+| `WEB_SEARCH_ENABLED` / `SEARXNG_URL`                                                            | off                          | Web grounding via SearXNG.                                                    |
+| `IMAGE_LOOKUP_ENABLED`                                                                          | off                          | Reverse-image grounding (needs web search and vision).                        |
+| `IMAGE_SEND_ENABLED` / `IMAGE_SEND_PROBABILITY`                                                 | on / `0.15`                  | Attach a verified waifu image on anime topics.                                |
+| `IMAGE_QUERY_POOL`                                                                              | defaults                     | Comma-separated image query seeds.                                            |
+| `SD_ENABLED` / `SD_API_URL`                                                                     | on / Forge URL               | Enable the self-hosted Forge/Automatic1111 generator.                         |
+| `SD_ANIME_MODEL` / `SD_REALISTIC_MODEL` / `SD_NSFW_MODEL`                                       | PonyXL                       | Keep all three set to the same PonyXL checkpoint to avoid Forge model swaps.  |
+| `SD_NEGATIVE_PROMPT` / `SD_STEPS` / `SD_WIDTH` / `SD_HEIGHT` / `SD_CFG_SCALE`                   | tuned defaults               | Shared Stable Diffusion generation controls.                                  |
+| `SD_TIMEOUT_MS` / `SD_QUEUE_TIMEOUT_MS` / `SD_QUEUE_POLL_MS`                                    | `300000` / `300000` / `2000` | Per-render timeout and wait policy when Forge is busy.                        |
+| `SD_CONTROLNET_ENABLED` / `SD_CONTROLNET_OPENPOSE_MODEL` / `SD_CONTROLNET_PROCESSOR_RESOLUTION` | on / `OpenPoseXL2` / `512`   | SearXNG pose-reference workflow for complex poses, tuned for the shared GPU.  |
+| `AUTOPOST_ENABLED` / `AUTOPOST_DEFAULT_ENABLED`                                                 | on / off                     | Scheduler switch / per-chat default (opt-in).                                 |
+| `AUTOPOST_INTERVAL_MINUTES` / `AUTOPOST_PROBABILITY`                                            | `10` / `0.05`                | Tick interval / chance per eligible chat.                                     |
+| `AUTOPOST_IMAGE_RATIO`                                                                          | `0.4`                        | Share of autoposts that are an image vs a news take.                          |
+| `GENERATED_IMAGE_AUTOPOST_ENABLED`                                                              | off                          | Separate generated-image scheduler; leave off until quality is approved.      |
+| `GENERATED_IMAGE_AUTOPOST_INTERVAL_MINUTES` / `GENERATED_IMAGE_AUTOPOST_PROBABILITY`            | `10` / `0.05`                | Separate generated-image scheduler cadence, when enabled.                     |
+| `RSS_FEEDS`                                                                                     | BBC, CNN, ANSA, Verge        | Comma-separated feed URLs.                                                    |
 
 ### NSFW, heat, knowledge, brain
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `LLM_NSFW_MODEL` | none | Uncensored model. Empty disables NSFW routing. |
-| `LLM_NSFW_DEFAULT_MODE` | `smart` | Initial per-chat mode: `off`, `base`, `smart`. |
-| `LLM_REFUSAL_FALLBACK` | `true` | Retry on the NSFW model if the default refuses. |
-| `HEAT_ENABLED` / `HEAT_BASELINE` / `HEAT_DECAY_PER_MINUTE` | on / `12` / `1` | Per-user hostility escalation. |
-| `KNOWLEDGE_ENABLED` / `KNOWLEDGE_MAX_ITEMS` / `KNOWLEDGE_SEED_ON_BOOT` | on / `2` / on | On-demand knowledge recall. |
-| `REPLY_TEMPERATURE` / `REPLY_CANDIDATE_COUNT` | `0.95` / `1` | Generation temperature / candidates per reply. |
-| `MAX_REPLY_LINES` / `MAX_REPLY_CHARS` | `3` / `420` | Reply length caps. |
-| `MEMORY_MINING_ENABLED` / `FEEDBACK_LEARNING_ENABLED` | on / on | Background lore mining and feedback learning. |
+| Variable                                                               | Default         | Description                                     |
+| ---------------------------------------------------------------------- | --------------- | ----------------------------------------------- |
+| `LLM_NSFW_MODEL`                                                       | none            | Uncensored model. Empty disables NSFW routing.  |
+| `LLM_NSFW_DEFAULT_MODE`                                                | `smart`         | Initial per-chat mode: `off`, `base`, `smart`.  |
+| `LLM_REFUSAL_FALLBACK`                                                 | `true`          | Retry on the NSFW model if the default refuses. |
+| `HEAT_ENABLED` / `HEAT_BASELINE` / `HEAT_DECAY_PER_MINUTE`             | on / `12` / `1` | Per-user hostility escalation.                  |
+| `KNOWLEDGE_ENABLED` / `KNOWLEDGE_MAX_ITEMS` / `KNOWLEDGE_SEED_ON_BOOT` | on / `2` / on   | On-demand knowledge recall.                     |
+| `REPLY_TEMPERATURE` / `REPLY_CANDIDATE_COUNT`                          | `0.95` / `1`    | Generation temperature / candidates per reply.  |
+| `MAX_REPLY_LINES` / `MAX_REPLY_CHARS`                                  | `3` / `420`     | Reply length caps.                              |
+| `MEMORY_MINING_ENABLED` / `FEEDBACK_LEARNING_ENABLED`                  | on / on         | Background lore mining and feedback learning.   |
 
 ### Behaviour and limits
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `DEFAULT_LANGUAGE` | `italian` | `italian`, `english`, `russian`, `spanish`; per chat via `/language`. |
-| `AUTOENGAGE_DEFAULT_ENABLED` / `CONVERSATION_TRACKER_DEFAULT_ENABLED` | on / on | Initial toggles for new chats. |
-| `MAX_REPLIES_PER_CHAT_PER_HOUR` | `15` | Hard cap on bot replies per chat per hour. |
-| `AUTOENGAGE_MIN_COOLDOWN_SECONDS` / `AUTOENGAGE_USER_COOLDOWN_SECONDS` | `45` / `20` | Passive-reply cooldowns. |
-| `MESSAGE_HISTORY_RETENTION_DAYS` / `MAX_CONTEXT_MESSAGES` | `30` / `25` | Message TTL / context window. |
-| `COMMAND_RATE_LIMIT_SECONDS` | `1` | Min seconds between accepted commands per user. |
+| Variable                                                               | Default     | Description                                                                         |
+| ---------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------- |
+| `DEFAULT_LANGUAGE`                                                     | `italian`   | `italian`, `english`, `russian`, `spanish`; per chat via `/language`.               |
+| `AUTOENGAGE_DEFAULT_ENABLED` / `CONVERSATION_TRACKER_DEFAULT_ENABLED`  | on / on     | Initial toggles for new chats.                                                      |
+| `MAX_REPLIES_PER_CHAT_PER_HOUR`                                        | `72`        | Global safety ceiling; the active `/profile` plan enforces the lower per-group cap. |
+| `AUTOENGAGE_MIN_COOLDOWN_SECONDS` / `AUTOENGAGE_USER_COOLDOWN_SECONDS` | `45` / `20` | Passive-reply cooldowns.                                                            |
+| `MESSAGE_HISTORY_RETENTION_DAYS` / `MAX_CONTEXT_MESSAGES`              | `30` / `25` | Message TTL / context window.                                                       |
+| `COMMAND_RATE_LIMIT_SECONDS`                                           | `1`         | Min seconds between accepted commands per user.                                     |
 
 ---
 
@@ -611,17 +640,17 @@ The tables below list the common vars; see `.env.example` for the full set with 
 
 GoonersBot is built for an authorized, self-hosted deployment.
 
-| Area | Posture |
-| --- | --- |
-| Secrets | Only in `.env` (gitignored). No hardcoded tokens or keys in source. The LLM key is sent as a Bearer header and never logged. |
-| Logging | Structured (pino). The bot token, LLM key and Mongo URI are never logged. |
-| Auth | Centralized permission service. Control commands require group admin or bot admin; `/ban` requires bot admin. Callback queries are permission-checked. |
-| Bans | Gated on commands and in the message handler; timed bans auto-expire. |
-| NoSQL injection | Mongo queries use fixed field names with user input only as scalar values; no `$where` or `eval`; ids guarded by `ObjectId.isValid`. |
-| Rate limiting | Per-user command cooldown, autoengage cooldowns and hourly cap, usage limits, media download size cap (20 MB). |
-| Media and SSRF | Inbound files come only from Telegram's file API. Outbound hosts are operator-configured, not user input. Fetched images are size-capped and vision-checked. |
-| MongoDB | Run it bound to `127.0.0.1` with `--auth` and a least-privilege app user (`scripts/mongo-local.sh` does this). |
-| Content safety | NSFW is opt-in per chat with non-negotiable hard limits in the system prompt. |
+| Area            | Posture                                                                                                                                                        |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Secrets         | Only in `.env` (gitignored). No hardcoded tokens or keys in source. The LLM key is sent as a Bearer header and never logged.                                   |
+| Logging         | Structured (pino). The bot token, LLM key and Mongo URI are never logged.                                                                                      |
+| Auth            | Centralized permission service. Control commands require group admin or bot admin; `/ban` requires bot admin. Callback queries are permission-checked.         |
+| Bans            | Gated on commands and in the message handler; timed bans auto-expire.                                                                                          |
+| NoSQL injection | Mongo queries use fixed field names with user input only as scalar values; no `$where` or `eval`; ids guarded by `ObjectId.isValid`.                           |
+| Rate limiting   | Per-user command cooldown, plan-aware per-group anti-flood, durable hourly/daily quotas, globally serialized image jobs, usage limits and media download caps. |
+| Media and SSRF  | Inbound files come only from Telegram's file API. Outbound hosts are operator-configured, not user input. Fetched images are size-capped and vision-checked.   |
+| MongoDB         | Run it bound to `127.0.0.1` with `--auth` and a least-privilege app user (`scripts/mongo-local.sh` does this).                                                 |
+| Content safety  | NSFW is opt-in per chat with non-negotiable hard limits in the system prompt.                                                                                  |
 
 Prompt-injection and jailbreak attempts in user messages are mitigated by system-prompt guardrails
 but not eliminated; treat model output as untrusted. Keep `ADMIN_HANDLES` tight and Mongo off the
@@ -652,14 +681,14 @@ pnpm tsx scripts/smoke-search.ts        # SearXNG query and grounding gating
 
 ## Troubleshooting
 
-| Symptom | Cause and fix |
-| --- | --- |
-| `/start` says you cannot do that here | You are not a group admin and not in `ADMIN_HANDLES`. Add your `@handle`. |
-| Bot ignores normal messages | Privacy Mode is ON. Disable it in @BotFather (then re-add the bot) or make the bot a group admin. |
-| Replies in the wrong language | Existing chats keep their stored language; run `/language`. New chats use `DEFAULT_LANGUAGE`. |
-| A capability is unavailable | The relevant `LLM_*_MODEL` is not set (vision, image, transcription). Set it or ignore. |
-| Web search or images do nothing | SearXNG is not running or `SEARXNG_URL` is wrong. Start it with `scripts/searxng.sh start`. |
-| Bot will not start | Read the fail-fast error, usually a missing `TELEGRAM_BOT_TOKEN` or unreachable `MONGO_URI`. |
+| Symptom                               | Cause and fix                                                                                     |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `/start` says you cannot do that here | You are not a group admin and not in `ADMIN_HANDLES`. Add your `@handle`.                         |
+| Bot ignores normal messages           | Privacy Mode is ON. Disable it in @BotFather (then re-add the bot) or make the bot a group admin. |
+| Replies in the wrong language         | Existing chats keep their stored language; run `/language`. New chats use `DEFAULT_LANGUAGE`.     |
+| A capability is unavailable           | The relevant `LLM_*_MODEL` is not set (vision, image, transcription). Set it or ignore.           |
+| Web search or images do nothing       | SearXNG is not running or `SEARXNG_URL` is wrong. Start it with `scripts/searxng.sh start`.       |
+| Bot will not start                    | Read the fail-fast error, usually a missing `TELEGRAM_BOT_TOKEN` or unreachable `MONGO_URI`.      |
 
 ---
 

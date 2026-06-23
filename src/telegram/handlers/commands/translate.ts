@@ -80,6 +80,7 @@ export const translateCommand: CommandSpec = {
   permissions: ['allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.DEFAULT,
+  quotaConversation: true,
   async handle({ services, context, args }: HandlerInput): Promise<CommandResponse | null> {
     const target = parseTargetLanguage(args);
     if (!target) return { text: 'translate_no_target' };

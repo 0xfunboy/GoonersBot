@@ -233,7 +233,8 @@ const envSchema = z.object({
   AUTOFACT_DEFAULT_ENABLED: boolFromString(false),
 
   // Autoengage limits / cooldowns
-  MAX_REPLIES_PER_CHAT_PER_HOUR: intFromString(15),
+  // Emergency ceiling. The persistent group plan applies the effective lower cap.
+  MAX_REPLIES_PER_CHAT_PER_HOUR: intFromString(72),
   AUTOENGAGE_MIN_COOLDOWN_SECONDS: intFromString(45),
   AUTOENGAGE_USER_COOLDOWN_SECONDS: intFromString(20),
   AUTOENGAGE_MIN_CONFIDENCE: z

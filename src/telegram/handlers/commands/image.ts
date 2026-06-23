@@ -14,8 +14,9 @@ export const imageCommand: CommandSpec = {
   permissions: ['allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.DEFAULT,
-  async handle({ services, args }: HandlerInput): Promise<CommandResponse | null> {
-    return generate(services, args, undefined, '/genera');
+  quotaConversation: true,
+  async handle({ services, context, args }: HandlerInput): Promise<CommandResponse | null> {
+    return generate(services, context.chatId, args, undefined, '/genera');
   },
 };
 
@@ -26,13 +27,15 @@ export const drawCommand: CommandSpec = {
   permissions: ['allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.DEFAULT,
-  async handle({ services, args }: HandlerInput): Promise<CommandResponse | null> {
-    return generate(services, args, 'manga', '/disegna');
+  quotaConversation: true,
+  async handle({ services, context, args }: HandlerInput): Promise<CommandResponse | null> {
+    return generate(services, context.chatId, args, 'manga', '/disegna');
   },
 };
 
 async function generate(
   services: Services,
+  chatId: number,
   args: string[],
   profile: ImageProfile | undefined,
   command: string,
@@ -41,6 +44,13 @@ async function generate(
   if (!prompt) return { rawText: `Dimmi cosa devo generare: ${command} <prompt>` };
   if (MINOR_RE.test(prompt)) {
     return { rawText: 'No: niente immagini sessualizzate o ambigue con minori.' };
+  }
+  const quota = await services.quota.reserve(chatId, 'image');
+  if (!quota.allowed) {
+    return {
+      text: 'group_quota_exceeded',
+      vars: { reason: quota.reason ?? 'image', retry_after: 0 },
+    };
   }
   const prepared = await services.imagePrompts.prepare(prompt, profile ? { profile } : {});
   const poseReference = prepared.poseReferenceQuery

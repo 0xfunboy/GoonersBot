@@ -24,6 +24,8 @@ export interface CommandSpec {
   priority: number;
   /** documented as admin-only in help (does not change permission logic) */
   adminOnly?: boolean;
+  /** This command starts a billable/limited conversational turn. */
+  quotaConversation?: boolean;
   handle(input: HandlerInput): Promise<CommandResponse | null>;
 }
 

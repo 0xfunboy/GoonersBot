@@ -3,6 +3,7 @@ import type { AppConfig } from '../config/index.js';
 import type { MediaProcessor } from '../providers/media/index.js';
 import type { Storage } from '../storage/index.js';
 import { childLogger } from '../utils/logger.js';
+import type { GroupQuotaService } from './groupQuota.js';
 
 const log = childLogger('generated-image-autopost');
 
@@ -21,6 +22,7 @@ export class GeneratedImagePoster {
     private readonly media: MediaProcessor,
     private readonly config: AppConfig,
     private readonly storage: Storage,
+    private readonly quota: GroupQuotaService,
   ) {}
 
   get enabled(): boolean {
@@ -29,6 +31,7 @@ export class GeneratedImagePoster {
 
   async compose(chatId: number): Promise<GeneratedImagePost | null> {
     if (!this.enabled) return null;
+    if (!(await this.quota.reserve(chatId, 'image')).allowed) return null;
     const subjects = this.config.auto.imageQueryPool;
     const subject = subjects[Math.floor(Math.random() * subjects.length)] ?? 'anime waifu';
     const prompt =

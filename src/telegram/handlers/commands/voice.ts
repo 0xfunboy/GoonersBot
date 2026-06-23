@@ -12,6 +12,7 @@ export const voiceCommand: CommandSpec = {
   permissions: ['allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.DEFAULT,
+  quotaConversation: true,
   async handle({ services, context }) {
     if (!services.tts.enabled) return { text: 'voice_unavailable' };
 

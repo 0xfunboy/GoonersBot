@@ -5,6 +5,7 @@ import type { LLMProvider } from '../providers/llm/types.js';
 import type { NewsService } from '../news/newsService.js';
 import type { ImageFinder } from '../media/imageFinder.js';
 import type { LoreEngine } from '../memory/loreEngine.js';
+import type { GroupQuotaService } from './groupQuota.js';
 import { buildGeneratorSystem } from '../prompts/generator.js';
 import { childLogger } from '../utils/logger.js';
 
@@ -47,6 +48,7 @@ export class AutonomousPoster {
     private readonly config: AppConfig,
     private readonly storage: Storage,
     private readonly lore: LoreEngine,
+    private readonly quota: GroupQuotaService,
   ) {}
 
   get enabled(): boolean {
@@ -98,6 +100,12 @@ export class AutonomousPoster {
     context?: { chatId?: number | undefined; chatName?: string | undefined },
   ): Promise<AutoPost | null> {
     if (!this.news.enabled) return null;
+    if (
+      context?.chatId !== undefined &&
+      !(await this.quota.reserve(context.chatId, 'news')).allowed
+    ) {
+      return null;
+    }
     const profile = await this.newsProfile(context);
     const candidates = await this.news.ranked(profile);
     const item = await this.pickUnseenNews(candidates, context?.chatId);

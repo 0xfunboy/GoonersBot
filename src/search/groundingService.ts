@@ -2,6 +2,7 @@ import { childLogger } from '../utils/logger.js';
 import type { MediaProcessor } from '../providers/media/index.js';
 import type { WebSearchProvider, WebSearchResponse } from './types.js';
 import type { PageScanner, PageSummary } from './pageScanner.js';
+import type { GroupQuotaService } from '../services/groupQuota.js';
 
 const log = childLogger('grounding');
 
@@ -49,6 +50,7 @@ export class GroundingService {
     private readonly media: MediaProcessor,
     private readonly cfg: GroundingConfig,
     private readonly scanner?: PageScanner,
+    private readonly quota?: GroupQuotaService,
   ) {}
 
   get enabled(): boolean {
@@ -67,8 +69,9 @@ export class GroundingService {
   }
 
   /** Identify the pictured subject via the vision model, then enrich it with a web search. */
-  async groundImage(input: GroundImageInput): Promise<GroundingResult | null> {
+  async groundImage(input: GroundImageInput, chatId?: number): Promise<GroundingResult | null> {
     if (!this.cfg.imageEnabled || !this.web.enabled) return null;
+    if (!(await this.reserve(chatId, 'web_search'))) return null;
     const label = await this.media.identifyImage(input.imageBuffer, input.imageMime);
     if (!label) return null;
     const query = WHERE_TO_BUY_RE.test(input.question) ? `${label} prezzo acquisto` : label;
@@ -83,13 +86,20 @@ export class GroundingService {
   }
 
   /** Run a web search for the given query and format the result block. */
-  async groundWeb(query: string, language?: string): Promise<GroundingResult | null> {
+  async groundWeb(
+    query: string,
+    language?: string,
+    chatId?: number,
+  ): Promise<GroundingResult | null> {
     if (!this.cfg.webEnabled || !this.web.enabled || !query.trim()) return null;
+    if (!(await this.reserve(chatId, 'web_search'))) return null;
     const res = await this.web.search(query, { language, max: this.cfg.maxResults });
     if (!res || (res.results.length === 0 && !res.answer)) return null;
-    const pages = this.scanner
-      ? await this.scanner.scan(res.results.slice(0, 3).map((r) => r.url))
-      : [];
+    const candidates = res.results.slice(0, 3).map((r) => r.url);
+    const pages =
+      this.scanner && (await this.reserve(chatId, 'page_scan', candidates.length))
+        ? await this.scanner.scan(candidates)
+        : [];
     log.debug({ query, hits: res.results.length }, 'web grounding');
     return {
       kind: 'web',
@@ -99,8 +109,9 @@ export class GroundingService {
     };
   }
 
-  async findMediaUrl(query: string, language?: string): Promise<string | null> {
+  async findMediaUrl(query: string, language?: string, chatId?: number): Promise<string | null> {
     if (!this.cfg.webEnabled || !this.web.enabled || !query.trim()) return null;
+    if (!(await this.reserve(chatId, 'web_search'))) return null;
     const res = await this.web.search(query, {
       language,
       max: Math.max(5, this.cfg.maxResults),
@@ -120,13 +131,24 @@ export class GroundingService {
       lines.push(`- ${r.title}: ${r.content} [${domainOf(r.url)}] ${r.url}`);
     }
     if (pages.length) {
-      lines.push('SCANNED PAGES (opened result pages; prefer these concrete details over snippets):');
+      lines.push(
+        'SCANNED PAGES (opened result pages; prefer these concrete details over snippets):',
+      );
       for (const p of pages) {
         const facts = p.facts.length ? ` facts=${p.facts.join(' | ')}` : '';
         lines.push(`- ${p.title || domainOf(p.url)} ${p.url}: ${p.text}${facts}`);
       }
     }
     return lines.join('\n');
+  }
+
+  private async reserve(
+    chatId: number | undefined,
+    resource: 'web_search' | 'page_scan',
+    amount = 1,
+  ): Promise<boolean> {
+    if (chatId === undefined || !this.quota) return true;
+    return (await this.quota.reserve(chatId, resource, amount)).allowed;
   }
 
   private formatImage(label: string, res: WebSearchResponse | null): string {

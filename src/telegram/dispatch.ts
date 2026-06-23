@@ -83,6 +83,25 @@ export async function runCommand(
       return;
     }
   }
+  if ('input' in prepared && spec.quotaConversation) {
+    const decision = await deps.services.quota.admitConversation({
+      chatId: prepared.input.context.chatId,
+      telegramId: prepared.input.person.telegramId,
+      passive: false,
+      reserveTokens: false,
+    });
+    if (!decision.allowed) {
+      const localized = await localizeResponse(deps.services, ctx.chat?.id ?? 0, {
+        text: 'group_quota_exceeded',
+        vars: {
+          reason: decision.reason ?? 'limit',
+          retry_after: decision.retryAfterSeconds ?? 0,
+        },
+      });
+      await sendResponse(ctx, localized);
+      return;
+    }
+  }
   await finish(ctx, deps, prepared, (input) => spec.handle(input));
 }
 

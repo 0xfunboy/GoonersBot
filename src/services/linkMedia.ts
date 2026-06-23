@@ -6,6 +6,7 @@ import type { ChatContext, Person } from '../domain/types.js';
 import type { Storage } from '../storage/index.js';
 import type { MediaProcessor } from '../providers/media/index.js';
 import type { LinkMediaConfig } from '../config/index.js';
+import type { GroupQuotaService } from './groupQuota.js';
 import { Cooldown } from '../utils/rateLimit.js';
 import { childLogger } from '../utils/logger.js';
 import { extractUrls, hostOf } from '../providers/media/linkMedia/url.js';
@@ -56,6 +57,7 @@ export class LinkMediaService {
     private readonly cfg: LinkMediaConfig,
     private readonly storage: Storage,
     private readonly media: MediaProcessor,
+    private readonly quota: GroupQuotaService,
   ) {
     this.chatCooldown = new Cooldown(cfg.chatCooldownSeconds * 1000);
     this.userCooldown = new Cooldown(cfg.userCooldownSeconds * 1000);
@@ -76,7 +78,9 @@ export class LinkMediaService {
   }): Promise<LinkMediaResult> {
     if (!this.enabled) return { handled: false };
 
-    const urls = extractUrls(input.text, this.cfg.maxUrlsPerMessage).filter((u) => this.hostAllowed(u));
+    const urls = extractUrls(input.text, this.cfg.maxUrlsPerMessage).filter((u) =>
+      this.hostAllowed(u),
+    );
     if (urls.length === 0) return { handled: false };
 
     // Anti-spam: one rehost burst per chat/user window.
@@ -87,12 +91,17 @@ export class LinkMediaService {
     let sentAny = false;
 
     for (const url of urls) {
-      const result = await this.processUrl(input.ctx, url, input.context.messageId, input.addressed).catch(
-        (err) => {
-          log.warn({ err, url: url.toString() }, 'link media processing failed');
-          return null;
-        },
-      );
+      if (!(await this.quota.reserve(input.context.chatId, 'media')).allowed) break;
+      const result = await this.processUrl(
+        input.ctx,
+        url,
+        input.context.chatId,
+        input.context.messageId,
+        input.addressed,
+      ).catch((err) => {
+        log.warn({ err, url: url.toString() }, 'link media processing failed');
+        return null;
+      });
       if (!result) continue;
       sentAny = true;
       if (result.contextText) injected.push(result.contextText);
@@ -113,9 +122,12 @@ export class LinkMediaService {
     if (!this.enabled) return { handled: false };
     const url = input.url instanceof URL ? input.url : safeUrl(input.url);
     if (!url || !this.hostAllowed(url)) return { handled: false };
+    if (!(await this.quota.reserve(input.context.chatId, 'media')).allowed)
+      return { handled: false };
     const result = await this.processUrl(
       input.ctx,
       url,
+      input.context.chatId,
       input.context.messageId,
       input.addressed,
     ).catch((err) => {
@@ -132,10 +144,14 @@ export class LinkMediaService {
   private hostAllowed(url: URL): boolean {
     const host = hostOf(url);
     if (this.cfg.blockedHosts.some((h) => host === h || host.endsWith(`.${h}`))) return false;
-    if (this.cfg.allowedHosts.length > 0 && !this.cfg.allowedHosts.some((h) => host === h || host.endsWith(`.${h}`))) {
+    if (
+      this.cfg.allowedHosts.length > 0 &&
+      !this.cfg.allowedHosts.some((h) => host === h || host.endsWith(`.${h}`))
+    ) {
       return false;
     }
-    if (!this.cfg.nsfwAllow && NSFW_HOSTS.some((h) => host === h || host.endsWith(`.${h}`))) return false;
+    if (!this.cfg.nsfwAllow && NSFW_HOSTS.some((h) => host === h || host.endsWith(`.${h}`)))
+      return false;
     return true;
   }
 
@@ -150,12 +166,19 @@ export class LinkMediaService {
   private async processUrl(
     ctx: GrammyContext,
     url: URL,
+    chatId: number,
     replyToMessageId: number | undefined,
     addressed: boolean,
   ): Promise<{ contextText?: string } | null> {
     const key = this.cacheKey(url.toString());
     const cached = await this.storage.linkMediaCache.get(key);
     if (cached) {
+      if (
+        cached.byteSize &&
+        !(await this.quota.reserve(chatId, 'media_bytes', cached.byteSize)).allowed
+      ) {
+        return null;
+      }
       await this.storage.linkMediaCache.touch(key);
       await sendCachedMedia(
         ctx,
@@ -262,6 +285,7 @@ export class LinkMediaService {
 
       const size = (await stat(prepared)).size;
       if (size > this.cfg.maxUploadBytes) return null;
+      if (!(await this.quota.reserve(chatId, 'media_bytes', size)).allowed) return null;
 
       let contextText: string | undefined;
       const wantComment =
@@ -278,7 +302,9 @@ export class LinkMediaService {
       if (sendKind === 'video') {
         const probe = await probeVideo(this.cfg.ffmpegBin, prepared).catch(() => ({}));
         const thumbPath = join(workdir, 'thumb.jpg');
-        const okThumb = await videoThumbnail(this.cfg.ffmpegBin, prepared, thumbPath).catch(() => false);
+        const okThumb = await videoThumbnail(this.cfg.ffmpegBin, prepared, thumbPath).catch(
+          () => false,
+        );
         videoMeta = { ...probe, ...(okThumb ? { thumbnailPath: thumbPath } : {}) };
       }
 

@@ -37,6 +37,7 @@ import { AccessService } from './access.js';
 import { ReplyService } from './reply.js';
 import { TermsService } from './terms.js';
 import { UsageService } from './usage.js';
+import { GroupQuotaService } from './groupQuota.js';
 
 export * from './permissions.js';
 export * from './terms.js';
@@ -48,6 +49,7 @@ export * from './conversation.js';
 export * from './autoengage.js';
 export * from './reply.js';
 export * from './modelRouter.js';
+export * from './groupQuota.js';
 
 /**
  * Service container. Built once at boot and shared by all handlers. Holds every domain service
@@ -63,6 +65,7 @@ export class Services {
   readonly modes: ModeService;
   readonly facts: FactService;
   readonly usage: UsageService;
+  readonly quota: GroupQuotaService;
   readonly conversation: ConversationService;
   readonly autoengage: AutoEngageScorer;
   readonly reply: ReplyService;
@@ -108,7 +111,8 @@ export class Services {
       imageGenerator,
     );
     this.music = new MusicService(config.music);
-    this.linkMedia = new LinkMediaService(config.linkMedia, storage, this.media);
+    this.quota = new GroupQuotaService(storage);
+    this.linkMedia = new LinkMediaService(config.linkMedia, storage, this.media, this.quota);
     this.permissions = new PermissionService(storage, env.ALLOWED_HANDLES, env.ADMIN_HANDLES);
     this.access = new AccessService(
       env.APPROVED_STORE_PATH,
@@ -171,11 +175,17 @@ export class Services {
       maxBytes: 512_000,
       userAgent: config.linkMedia.userAgent,
     });
-    this.grounding = new GroundingService(searxng, this.media, {
-      webEnabled: config.search.webEnabled,
-      imageEnabled: config.search.imageEnabled,
-      maxResults: config.search.maxResults,
-    }, pageScanner);
+    this.grounding = new GroundingService(
+      searxng,
+      this.media,
+      {
+        webEnabled: config.search.webEnabled,
+        imageEnabled: config.search.imageEnabled,
+        maxResults: config.search.maxResults,
+      },
+      pageScanner,
+      this.quota,
+    );
     this.imageFinder = new ImageFinder(searxng, this.media, config.auto.imageQueryPool);
     this.news = new NewsService(
       config.auto.rssFeeds,
@@ -191,8 +201,9 @@ export class Services {
       config,
       storage,
       this.lore,
+      this.quota,
     );
-    this.generatedImagePoster = new GeneratedImagePoster(this.media, config, storage);
+    this.generatedImagePoster = new GeneratedImagePoster(this.media, config, storage, this.quota);
     this.imagePrompts = new ImagePromptService(llm, config);
     this.heat = new HeatService(storage.userHeat, {
       enabled: env.HEAT_ENABLED,
@@ -226,6 +237,7 @@ export class Services {
       this.news,
       this.autonomousPoster,
       this.imagePrompts,
+      this.quota,
     );
   }
 

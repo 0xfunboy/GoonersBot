@@ -22,6 +22,7 @@ export interface FfmpegConfig {
  * Every method degrades gracefully (returns null + logs) so one missing capability never crashes.
  */
 export class MediaProcessor {
+  private imageTail: Promise<void> = Promise.resolve();
   constructor(
     private readonly llm: LLMProvider,
     private readonly stt?: SttProvider,
@@ -157,13 +158,31 @@ export class MediaProcessor {
       log.info('image generation capability unavailable - skipping');
       return null;
     }
+    return this.runImageExclusive(async () => {
+      try {
+        if (this.imageGenerator?.enabled)
+          return await this.imageGenerator.generate(prompt, options);
+        if (!this.llm.generateImage) return null;
+        return await this.llm.generateImage({ prompt });
+      } catch (err) {
+        log.warn({ err }, 'image generation failed');
+        return null;
+      }
+    });
+  }
+
+  /** Stable Diffusion is intentionally shared and strictly serial across every group. */
+  private async runImageExclusive<T>(task: () => Promise<T>): Promise<T> {
+    const previous = this.imageTail;
+    let release: (() => void) | undefined;
+    this.imageTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous.catch(() => undefined);
     try {
-      if (this.imageGenerator?.enabled) return await this.imageGenerator.generate(prompt, options);
-      if (!this.llm.generateImage) return null;
-      return await this.llm.generateImage({ prompt });
-    } catch (err) {
-      log.warn({ err }, 'image generation failed');
-      return null;
+      return await task();
+    } finally {
+      release?.();
     }
   }
 }

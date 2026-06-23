@@ -16,6 +16,7 @@ import type { ImageFinder } from '../media/imageFinder.js';
 import type { NewsService } from '../news/newsService.js';
 import type { AutonomousPoster } from './autonomousPoster.js';
 import type { ImagePromptService } from './imagePrompt.js';
+import type { GroupQuotaService } from './groupQuota.js';
 import { parseMusicRequest } from './musicIntent.js';
 import type { RetrievedMemory } from '../memory/types.js';
 import { StyleEngine } from '../brain/styleEngine.js';
@@ -266,6 +267,7 @@ export class ReplyService {
     private readonly news: NewsService,
     private readonly autonomousPoster: AutonomousPoster,
     private readonly imagePrompts: ImagePromptService,
+    private readonly quota: GroupQuotaService,
   ) {
     this.evaluator = new TurnEvaluator(llm, {
       enabled: config.brain.evaluatorEnabled,
@@ -377,16 +379,19 @@ export class ReplyService {
     const question = ctx.message.messageText || '';
     try {
       if (visual && (force === 'image' || this.grounding.wantsImageLookup(question))) {
-        return await this.grounding.groundImage({
-          imageBuffer: visual.buffer,
-          imageMime: visual.mime,
-          question,
-          language: ctx.language,
-        });
+        return await this.grounding.groundImage(
+          {
+            imageBuffer: visual.buffer,
+            imageMime: visual.mime,
+            question,
+            language: ctx.language,
+          },
+          ctx.context.chatId,
+        );
       }
       if (force === 'web' || this.grounding.wantsWebSearch(question)) {
         const query = queryOverride?.trim() || cleanQuery(question, ctx.botUsername);
-        return await this.grounding.groundWeb(query, ctx.language);
+        return await this.grounding.groundWeb(query, ctx.language, ctx.context.chatId);
       }
     } catch (err) {
       log.warn({ err }, 'grounding failed');
@@ -401,6 +406,7 @@ export class ReplyService {
     scene: SceneAnalysis,
   ): Promise<{ block?: string; sources: string[] }> {
     if (!this.news.enabled) return { sources: [] };
+    if (!(await this.quota.reserve(ctx.context.chatId, 'news')).allowed) return { sources: [] };
     try {
       const dynamicTerms = [
         scene.currentTopic,
@@ -598,7 +604,8 @@ export class ReplyService {
       };
     }
 
-    const wantsLinkMedia = wants('link_media', 'link_media') || evaluation.action === 'download_media';
+    const wantsLinkMedia =
+      wants('link_media', 'link_media') || evaluation.action === 'download_media';
     if (wantsLinkMedia) {
       if (!this.config.linkMedia.enabled) {
         return immediateOutcome({
@@ -619,13 +626,20 @@ export class ReplyService {
             evaluation.mediaQuery ||
             cleanQuery(ctx.message.messageText, ctx.botUsername)
       ).trim();
-      const url = directUrl || (await this.grounding.findMediaUrl(query, ctx.language));
+      const url =
+        directUrl || (await this.grounding.findMediaUrl(query, ctx.language, ctx.context.chatId));
       if (!url) {
         return immediateOutcome({
           text: query
             ? `Non ho trovato un media scaricabile per "${query}". Serve un risultato con URL video vero, non una pozzanghera di snippet.`
             : 'Mandami cosa devo scaricare o un link diretto: “scarica questo video” senza URL o soggetto è fumo.',
           styleVariant: 'media_not_found',
+        });
+      }
+      if (!(await this.quota.reserve(ctx.context.chatId, 'media')).allowed) {
+        return immediateOutcome({
+          text: 'Il budget media del gruppo oggi è finito. Fate respirare la linea e riprovate domani.',
+          styleVariant: 'media_quota_exhausted',
         });
       }
       return immediateOutcome({
@@ -766,6 +780,12 @@ export class ReplyService {
         return immediateOutcome({
           text: 'Dimmi cosa devo generare, artista. “Fammi un’immagine” senza soggetto è nebbia con le notifiche.',
           styleVariant: 'image_needs_prompt',
+        });
+      }
+      if (!(await this.quota.reserve(ctx.context.chatId, 'image')).allowed) {
+        return immediateOutcome({
+          text: 'Il budget immagini del gruppo è esaurito per oggi. Il forno resta spento fino a domani.',
+          styleVariant: 'image_quota_exhausted',
         });
       }
       const requestedProfile = imageProfileFromTool(callFor('image_gen')?.args?.profile);
