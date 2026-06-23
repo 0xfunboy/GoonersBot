@@ -7,7 +7,7 @@ import type { TtsProvider } from '../providers/voice/tts.js';
 import type { ImageProfile } from '../providers/image/stableDiffusion.js';
 import type { ConversationService } from './conversation.js';
 import { BOT_LABEL } from './conversation.js';
-import type { MemoryRetriever } from '../memory/memoryRetriever.js';
+import type { MemoryRetrievalInput } from '../memory/memoryRetriever.js';
 import type { SceneAnalyzer } from '../brain/sceneAnalyzer.js';
 import type { GroundingService } from '../search/groundingService.js';
 import type { HeatService } from './heat.js';
@@ -24,6 +24,8 @@ import { ResponseGenerator } from '../brain/responseGenerator.js';
 import { ResponseRanker } from '../brain/responseRanker.js';
 import { RepetitionGuard } from '../brain/repetitionGuard.js';
 import { TurnEvaluator } from '../brain/turnEvaluator.js';
+import { Cortex, cortexToTurnEvaluation } from '../brain/cortex/evaluator.js';
+import type { CortexTool, SourcedCortexDecision } from '../brain/cortex/schema.js';
 import { isRefusal } from './modelRouter.js';
 import type {
   BotReplyRecord,
@@ -218,6 +220,7 @@ export interface ReplyOutcome {
   ranked: RankedReply[];
   repetitionChecks: RepetitionCheck[];
   evaluation: TurnEvaluation;
+  cortex?: SourcedCortexDecision;
   providerBundle: ProviderBundle;
 }
 
@@ -231,6 +234,7 @@ export class ReplyService {
   private readonly styleEngine = new StyleEngine();
   private readonly planner = new ReplyPlanner();
   private readonly evaluator: TurnEvaluator;
+  private readonly cortex: Cortex;
   private readonly generator: ResponseGenerator;
   private readonly ranker = new ResponseRanker();
   private readonly guard: RepetitionGuard;
@@ -242,7 +246,9 @@ export class ReplyService {
     private readonly tts: TtsProvider,
     private readonly conversation: ConversationService,
     private readonly sceneAnalyzer: SceneAnalyzer,
-    private readonly memoryRetriever: MemoryRetriever,
+    private readonly memoryRetriever: {
+      retrieve(input: MemoryRetrievalInput): Promise<RetrievedMemory[]>;
+    },
     private readonly config: AppConfig,
     private readonly grounding: GroundingService,
     private readonly heat: HeatService,
@@ -256,6 +262,12 @@ export class ReplyService {
       enabled: config.brain.evaluatorEnabled,
       model: config.brain.evaluatorModel,
       temperature: config.brain.evaluatorTemperature,
+    });
+    this.cortex = new Cortex(llm, {
+      enabled: config.brain.cortex.enabled,
+      model: config.brain.cortex.model,
+      temperature: config.brain.cortex.temperature,
+      maxTokens: config.brain.cortex.maxTokens,
     });
     this.generator = new ResponseGenerator(llm, this.styleEngine, {
       model: config.brain.replyModel,
@@ -445,30 +457,49 @@ export class ReplyService {
     const generationNsfwEnabled = ctx.nsfwEnabled || sceneForcesNsfw;
     const addressed =
       !ctx.context.isGroup || ctx.context.isBotMentioned || ctx.context.isReplyToBot;
-    const wantsWebSearch = this.grounding.wantsWebSearch(ctx.message.messageText || '');
-    const wantsImageLookup = Boolean(
-      visual && this.grounding.wantsImageLookup(ctx.message.messageText || ''),
-    );
     const recentNegativeFeedback = ctx.recentBotReplies.some((r) => (r.feedbackScore ?? 0) < 0);
-    const evaluation = await this.evaluator.evaluate({
-      scene,
-      history,
-      currentMessage: ctx.message.messageText,
-      botIsAddressed: addressed,
-      recentBotReplies: ctx.recentBotReplies,
-      recentNegativeFeedback,
-      capabilities: {
-        webSearch: this.grounding.enabled,
-        imageLookup: this.grounding.enabled && Boolean(visual),
-        news: this.news.enabled,
-        knowledge: this.knowledge.enabled,
-        music: this.music.enabled,
-        imageGeneration: this.media.canGenerateImage,
-        translation: this.llm.capabilities.chat,
-        tts: this.tts.enabled,
-      },
-      groundingHints: { wantsWebSearch, wantsImageLookup },
-    });
+    const capabilities = {
+      webSearch: this.grounding.enabled,
+      imageLookup: this.grounding.enabled && Boolean(visual),
+      news: this.news.enabled,
+      knowledge: this.knowledge.enabled,
+      music: this.music.enabled,
+      imageGeneration: this.media.canGenerateImage,
+      translation: this.llm.capabilities.chat,
+      tts: this.tts.enabled,
+    };
+    let cortexDecision: SourcedCortexDecision | undefined;
+    const evaluation = this.config.brain.cortex.enabled
+      ? await (async () => {
+          cortexDecision = await this.cortex.evaluate({
+            scene,
+            history,
+            currentMessage: ctx.message.messageText,
+            botIsAddressed: addressed,
+            recentNegativeFeedback,
+            capabilities,
+          });
+          return cortexToTurnEvaluation(cortexDecision, addressed);
+        })()
+      : await this.evaluator.evaluate({
+          scene,
+          history,
+          currentMessage: ctx.message.messageText,
+          botIsAddressed: addressed,
+          recentBotReplies: ctx.recentBotReplies,
+          recentNegativeFeedback,
+          capabilities,
+          groundingHints: {
+            wantsWebSearch: this.grounding.wantsWebSearch(ctx.message.messageText || ''),
+            wantsImageLookup: Boolean(
+              visual && this.grounding.wantsImageLookup(ctx.message.messageText || ''),
+            ),
+          },
+        });
+    const callFor = (tool: CortexTool) =>
+      cortexDecision?.toolCalls.find((call) => call.tool === tool);
+    const wants = (tool: CortexTool, legacy: TurnEvaluation['providerRequests'][number]) =>
+      cortexDecision ? Boolean(callFor(tool)) : evaluation.providerRequests.includes(legacy);
     const makeImmediatePlan = (retrievedMemories: RetrievedMemory[] = []): ReplyPlan => {
       const bannedOpenings = [
         ...this.styleEngine.bannedOpenings(ctx.recentBotReplies),
@@ -511,6 +542,7 @@ export class ReplyService {
         ranked: [],
         repetitionChecks: [],
         evaluation,
+        ...(cortexDecision ? { cortex: cortexDecision } : {}),
         providerBundle: params.providerBundle ?? { sources: [] },
       };
       if (params.imageBuffer) out.imageBuffer = params.imageBuffer;
@@ -549,11 +581,13 @@ export class ReplyService {
         ranked: [],
         repetitionChecks: [],
         evaluation,
+        ...(cortexDecision ? { cortex: cortexDecision } : {}),
         providerBundle: { sources: [] },
       };
     }
 
-    if (evaluation.action === 'download_music') {
+    const wantsMusic = wants('music', 'music') || evaluation.action === 'download_music';
+    if (wantsMusic) {
       const bannedOpenings = [
         ...this.styleEngine.bannedOpenings(ctx.recentBotReplies),
         ...this.styleEngine.recurringTics(ctx.recentBotReplies),
@@ -567,11 +601,9 @@ export class ReplyService {
         maxLines: this.config.env.MAX_REPLY_LINES,
         maxChars: this.config.env.MAX_REPLY_CHARS,
       });
-      const query = usableMusicQuery(
-        evaluation.musicQuery,
-        ctx.message.messageText,
-        ctx.botUsername,
-      );
+      const query = cortexDecision
+        ? (callFor('music')?.query ?? '').trim()
+        : usableMusicQuery(evaluation.musicQuery, ctx.message.messageText, ctx.botUsername);
       const providerBundle: ProviderBundle = { sources: [] };
       if (!this.music.enabled) {
         return {
@@ -591,6 +623,7 @@ export class ReplyService {
           ranked: [],
           repetitionChecks: [],
           evaluation,
+          ...(cortexDecision ? { cortex: cortexDecision } : {}),
           providerBundle,
         };
       }
@@ -612,6 +645,7 @@ export class ReplyService {
           ranked: [],
           repetitionChecks: [],
           evaluation,
+          ...(cortexDecision ? { cortex: cortexDecision } : {}),
           providerBundle,
         };
       }
@@ -634,6 +668,7 @@ export class ReplyService {
           ranked: [],
           repetitionChecks: [],
           evaluation,
+          ...(cortexDecision ? { cortex: cortexDecision } : {}),
           providerBundle,
         };
       }
@@ -655,13 +690,22 @@ export class ReplyService {
         ranked: [],
         repetitionChecks: [],
         evaluation,
+        ...(cortexDecision ? { cortex: cortexDecision } : {}),
         providerBundle,
       };
     }
 
-    if (evaluation.action === 'generate_image' || evaluation.action === 'draw_image') {
+    if (
+      wants('image_gen', 'image_generation') ||
+      evaluation.action === 'generate_image' ||
+      evaluation.action === 'draw_image'
+    ) {
       const prompt = (
-        evaluation.imagePrompt || cleanQuery(ctx.message.messageText, ctx.botUsername)
+        callFor('image_gen')?.query ||
+        evaluation.imagePrompt ||
+        (cortexDecision
+          ? ctx.message.messageText
+          : cleanQuery(ctx.message.messageText, ctx.botUsername))
       ).trim();
       if (!this.media.canGenerateImage) {
         return immediateOutcome({
@@ -676,7 +720,9 @@ export class ReplyService {
         });
       }
       const profile: ImageProfile | undefined =
-        evaluation.action === 'draw_image' ? 'manga' : undefined;
+        evaluation.action === 'draw_image' || callFor('image_gen')?.args?.profile === 'manga'
+          ? 'manga'
+          : undefined;
       const prepared = await this.imagePrompts.prepare(prompt, profile ? { profile } : {});
       const poseReference = prepared.poseReferenceQuery
         ? await this.imageFinder.findPoseReference(prepared.poseReferenceQuery)
@@ -699,9 +745,19 @@ export class ReplyService {
       });
     }
 
-    if (evaluation.action === 'translate_text') {
-      const target = evaluation.targetLanguage?.trim() || 'English';
-      const source = (evaluation.sourceText || ctx.context.repliedToText || '').trim();
+    if (wants('translate', 'translation') || evaluation.action === 'translate_text') {
+      const translateCall = callFor('translate');
+      const target =
+        translateCall?.args?.targetLanguage?.trim() ||
+        evaluation.targetLanguage?.trim() ||
+        'English';
+      const source = (
+        translateCall?.args?.sourceText ||
+        translateCall?.query ||
+        evaluation.sourceText ||
+        ctx.context.repliedToText ||
+        ''
+      ).trim();
       if (!source) {
         return immediateOutcome({
           text: 'Sì, traduco. Però rispondi al messaggio da tradurre o scrivimi il testo, non farmi fare spiritismo linguistico.',
@@ -738,7 +794,7 @@ export class ReplyService {
       }
     }
 
-    if (evaluation.action === 'make_voice') {
+    if (wants('tts', 'tts') || evaluation.action === 'make_voice') {
       if (!this.tts.enabled) {
         return immediateOutcome({
           text: 'Voice tool non disponibile adesso. La mia ugola sintetica è in sciopero.',
@@ -746,6 +802,8 @@ export class ReplyService {
         });
       }
       const source =
+        callFor('tts')?.args?.voiceText?.trim() ||
+        callFor('tts')?.query?.trim() ||
         evaluation.voiceText?.trim() ||
         ctx.context.repliedToText?.trim() ||
         history
@@ -799,14 +857,13 @@ export class ReplyService {
 
     // 2. retrieve memory + (in parallel) grounding, on-demand knowledge, and update per-user heat
     const activeHandles = [...new Set(history.filter((m) => !m.isBot).map((m) => m.handle))];
-    const wantsGroupRag = evaluation.providerRequests.includes('group_rag');
-    const wantsKnowledgeRag = evaluation.providerRequests.includes('knowledge_rag');
+    const wantsGroupRag = wants('group_rag', 'group_rag');
+    const wantsKnowledgeRag = wants('knowledge_rag', 'knowledge_rag');
     const wantsGrounding =
-      evaluation.providerRequests.includes('web_search') ||
-      evaluation.providerRequests.includes('image_lookup');
-    const groundForce = evaluation.providerRequests.includes('image_lookup')
+      wants('web_search', 'web_search') || wants('image_lookup', 'image_lookup');
+    const groundForce = wants('image_lookup', 'image_lookup')
       ? 'image'
-      : evaluation.providerRequests.includes('web_search')
+      : wants('web_search', 'web_search')
         ? 'web'
         : null;
     const [retrieved, grounding, knowledgeItems, heatValue] = await Promise.all([
@@ -819,10 +876,16 @@ export class ReplyService {
             mentionedHandles: mentioned,
             repliedToHandle: ctx.context.repliedToUserHandle ?? null,
             nsfwEnabled: generationNsfwEnabled,
+            recentMessages: history.slice(-3).map((m) => m.message.messageText ?? ''),
           })
         : Promise.resolve([]),
       wantsGrounding
-        ? this.ground(ctx, visual, groundForce, evaluation.searchQuery)
+        ? this.ground(
+            ctx,
+            visual,
+            groundForce,
+            callFor('web_search')?.query ?? evaluation.searchQuery,
+          )
         : Promise.resolve(null),
       wantsKnowledgeRag && this.knowledge.enabled
         ? this.knowledge.retrieve(ctx.message.messageText, scene.currentTopic)
@@ -835,7 +898,7 @@ export class ReplyService {
           )
         : Promise.resolve(0),
     ]);
-    const news = evaluation.providerRequests.includes('news')
+    const news = wants('news', 'news')
       ? await this.newsContext(ctx, history, retrieved, scene)
       : { sources: [] };
     const sources = [...new Set([...(grounding?.sources ?? []), ...news.sources])];
@@ -1072,6 +1135,7 @@ export class ReplyService {
       ranked,
       repetitionChecks,
       evaluation,
+      ...(cortexDecision ? { cortex: cortexDecision } : {}),
       providerBundle,
     };
     if (imageUrl !== undefined) outcome.imageUrl = imageUrl;
