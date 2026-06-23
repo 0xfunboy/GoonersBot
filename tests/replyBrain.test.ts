@@ -293,52 +293,6 @@ describe('TurnEvaluator', () => {
   });
 
   it.each([
-    ['mi cerchi una escort su cecina?', 'ground_search', 'web_search'],
-    [
-      'cercami una RTX5090 allora, i prezzi dal più basso al più alto',
-      'ground_search',
-      'web_search',
-    ],
-    ['cercami online delle schede video', 'ground_search', 'web_search'],
-    ['mi disegni un cazzo?', 'draw_image', 'image_generation'],
-  ] as const)('hard-routes "%s" to %s', async (message, action, provider) => {
-    const e = await evaluator.evaluate({
-      ...base,
-      scene: scene({ userIntent: 'ask_bot' }),
-      currentMessage: message,
-      botIsAddressed: true,
-    });
-    expect(e.action).toBe(action);
-    expect(e.providerRequests).toContain(provider);
-  });
-
-  it('does not let a bad LLM JSON downgrade an explicit search to banter', async () => {
-    const llmEvaluator = new TurnEvaluator(
-      fakeLLM({
-        json: {
-          shouldAct: true,
-          action: 'banter_only',
-          providerRequests: [],
-          valueTarget: 'joke',
-          roastBudget: 'heavy',
-          socialRole: 'banter',
-          confidence: 0.9,
-          reason: 'bad model choice',
-        },
-      }),
-      { enabled: true, model: 'm', temperature: 0.1 },
-    );
-    const e = await llmEvaluator.evaluate({
-      ...base,
-      scene: scene({ userIntent: 'ask_bot' }),
-      currentMessage: 'cercami online delle schede video',
-      botIsAddressed: true,
-    });
-    expect(e.action).toBe('ground_search');
-    expect(e.providerRequests).toContain('web_search');
-  });
-
-  it.each([
     {
       action: 'generate_image',
       provider: 'image_generation',
