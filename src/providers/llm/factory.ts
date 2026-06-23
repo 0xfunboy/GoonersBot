@@ -1,4 +1,4 @@
-import type { LLMConfig } from '../../config/index.js';
+import type { EmbeddingsConfig, LLMConfig } from '../../config/index.js';
 import { childLogger } from '../../utils/logger.js';
 import { DeepSeekProvider } from './deepseek.js';
 import { OpenAICompatibleProvider } from './openaiCompatible.js';
@@ -11,7 +11,7 @@ const log = childLogger('llm-factory');
  * Select and construct the LLM provider based on resolved config (env-driven).
  * The host (e.g. llm.solclawn.com) is never hardcoded here - it arrives via LLMConfig.baseUrl.
  */
-export function createLLMProvider(cfg: LLMConfig): LLMProvider {
+export function createLLMProvider(cfg: LLMConfig, embeddings?: EmbeddingsConfig): LLMProvider {
   const base = {
     baseUrl: cfg.baseUrl,
     apiKey: cfg.apiKey,
@@ -25,6 +25,9 @@ export function createLLMProvider(cfg: LLMConfig): LLMProvider {
     imageModel: cfg.imageModel,
     transcriptionModel: cfg.transcriptionModel,
     ttsModel: cfg.ttsModel,
+    embeddingModel: embeddings?.enabled ? embeddings.model : undefined,
+    embeddingBaseUrl: embeddings?.enabled ? embeddings.baseUrl : undefined,
+    embeddingApiKey: embeddings?.enabled ? embeddings.apiKey : undefined,
     requestTimeoutMs: cfg.requestTimeoutMs,
   };
 
@@ -57,6 +60,9 @@ export function createLLMProvider(cfg: LLMConfig): LLMProvider {
       imageModel: undefined,
       transcriptionModel: undefined,
       ttsModel: undefined,
+      embeddingModel: embeddings?.enabled ? embeddings.model : undefined,
+      embeddingBaseUrl: embeddings?.enabled ? embeddings.baseUrl : undefined,
+      embeddingApiKey: embeddings?.enabled ? embeddings.apiKey : undefined,
       requestTimeoutMs: cfg.requestTimeoutMs,
     });
     log.info(
@@ -75,7 +81,7 @@ export function createLLMProvider(cfg: LLMConfig): LLMProvider {
       'LLM chat model is not configured (LLM_MODEL/DEEPSEEK_MODEL). Text replies will fail until set.',
     );
   }
-  for (const cap of ['vision', 'transcription', 'imageGeneration', 'tts'] as const) {
+  for (const cap of ['vision', 'transcription', 'imageGeneration', 'tts', 'embeddings'] as const) {
     if (!provider.capabilities[cap]) {
       log.info({ capability: cap }, 'capability not configured - will degrade gracefully');
     }

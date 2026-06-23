@@ -123,6 +123,17 @@ const envSchema = z.object({
   LLM_FALLBACK_API_KEY: z.string().optional(),
   LLM_FALLBACK_MODEL: z.string().optional(),
 
+  // Embeddings (semantic RAG): default bge-m3 on local/Ollama OpenAI-compatible endpoint.
+  EMBEDDINGS_ENABLED: boolFromString(true),
+  EMBEDDING_MODEL: z.string().default('bge-m3'),
+  EMBEDDING_DIM: intFromString(1024),
+  EMBEDDING_BASE_URL: optStr,
+  EMBEDDING_API_KEY: optStr,
+  RAG_GROUP_TOPK: intFromString(6),
+  RAG_KNOWLEDGE_TOPK: intFromString(2),
+  RAG_NEWS_TOPK: intFromString(3),
+  RAG_MIN_SCORE: floatFromString(0.3),
+
   // Per-user "heat": verbal-hostility escalation that rises when a user pushes the bot and
   // cools over time / when the user de-escalates. Scored 0..100.
   HEAT_ENABLED: boolFromString(true),
@@ -258,6 +269,10 @@ const envSchema = z.object({
   REALISTIC_EVALUATOR_ENABLED: boolFromString(true),
   REALISTIC_EVALUATOR_MODEL: optStr,
   REALISTIC_EVALUATOR_TEMPERATURE: floatFromString(0.1),
+  CORTEX_LLM_ENABLED: boolFromString(true),
+  CORTEX_MODEL: optStr,
+  CORTEX_TEMPERATURE: floatFromString(0.1),
+  CORTEX_MAX_TOKENS: intFromString(1200),
   PLANNER_MODEL: optStr,
   REPLY_MODEL: optStr,
   RANKER_MODEL: optStr,

@@ -25,7 +25,7 @@ async function main(): Promise<void> {
   }
 
   // 3. LLM provider (env-selected; capabilities logged).
-  const llm = createLLMProvider(config.llm);
+  const llm = createLLMProvider(config.llm, config.embeddings);
 
   // 4. Services.
   const services = new Services(config, storage, llm);

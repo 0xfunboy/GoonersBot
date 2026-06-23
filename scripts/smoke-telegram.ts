@@ -60,14 +60,19 @@ async function main(): Promise<void> {
   await storage.ensureIndexes();
   // fresh chat
   await storage.messages.reset(CHAT_ID);
-  const llm = createLLMProvider(config.llm);
+  const llm = createLLMProvider(config.llm, config.embeddings);
   const services = new Services(config, storage, llm);
 
   const { bot } = await createBot(config, services);
   await bot.init();
 
   // Capture transformer: short-circuit outgoing calls, record sends. Treat the user as admin.
-  (bot.api as Api<RawApi>).config.use((async (prev, method, payload: Record<string, unknown>, signal) => {
+  (bot.api as Api<RawApi>).config.use((async (
+    prev,
+    method,
+    payload: Record<string, unknown>,
+    signal,
+  ) => {
     if (method === 'getChatMember') {
       return {
         ok: true,
@@ -130,9 +135,15 @@ async function main(): Promise<void> {
   // pick the Roast mode by id
   const modes = await services.modes.list(CHAT_ID);
   const roast = modes.find((m) => m.name.includes('Roast'))!;
-  await step(`callback set_chat_mode|${roast.id}`, makeCallbackUpdate(uid++, `set_chat_mode|${roast.id}`));
+  await step(
+    `callback set_chat_mode|${roast.id}`,
+    makeCallbackUpdate(uid++, `set_chat_mode|${roast.id}`),
+  );
 
-  await step('/addmode Pirate', makeMessageUpdate(uid++, '/addmode Pirate. talk like a salty pirate'));
+  await step(
+    '/addmode Pirate',
+    makeMessageUpdate(uid++, '/addmode Pirate. talk like a salty pirate'),
+  );
   await step('/introduce', makeMessageUpdate(uid++, '/introduce I am the resident doom-metal DJ'));
   await step('/fact @bob', makeMessageUpdate(uid++, '/fact @bob runs the Friday raid'));
   await step('/facts @bob', makeMessageUpdate(uid++, '/facts @bob'));
@@ -147,7 +158,10 @@ async function main(): Promise<void> {
   );
 
   // A passive (non-mention) message while tracking + autoengage are ON
-  await step('passive chatter (autoengage decides)', makeMessageUpdate(uid++, 'anyone up for a raid tonight?'));
+  await step(
+    'passive chatter (autoengage decides)',
+    makeMessageUpdate(uid++, 'anyone up for a raid tonight?'),
+  );
 
   console.log(`\n=== Done. ${sent.length} outbound Telegram calls captured. ===`);
   await storage.close();

@@ -49,6 +49,7 @@ export function fakeLLM(opts: {
       transcription: false,
       imageGeneration: false,
       tts: false,
+      embeddings: false,
       ...opts.capabilities,
     },
     async chatCompletion() {

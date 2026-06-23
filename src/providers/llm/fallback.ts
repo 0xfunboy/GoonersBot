@@ -34,16 +34,21 @@ export class FallbackLLMProvider implements LLMProvider {
   visionCompletion?: (req: VisionRequest) => Promise<ChatResult>;
   transcribeAudio?: (req: TranscribeRequest) => Promise<string>;
   generateImage?: (req: ImageRequest) => Promise<ImageResult>;
+  embed?: (texts: string[]) => Promise<number[][]>;
 
   constructor(
     private readonly primary: LLMProvider,
     private readonly fallback: LLMProvider,
   ) {
     this.name = `${primary.name}->${fallback.name}`;
-    this.capabilities = primary.capabilities;
+    this.capabilities = {
+      ...primary.capabilities,
+      embeddings: primary.capabilities.embeddings || fallback.capabilities.embeddings,
+    };
     if (primary.visionCompletion) this.visionCompletion = (r) => primary.visionCompletion!(r);
     if (primary.transcribeAudio) this.transcribeAudio = (r) => primary.transcribeAudio!(r);
     if (primary.generateImage) this.generateImage = (r) => primary.generateImage!(r);
+    if (this.capabilities.embeddings) this.embed = (texts) => this.doEmbed(texts);
   }
 
   private async withFallback<T>(label: string, fn: (p: LLMProvider) => Promise<T>): Promise<T> {
@@ -69,6 +74,12 @@ export class FallbackLLMProvider implements LLMProvider {
 
   jsonCompletion<T>(req: JsonRequest<T>): Promise<T | null> {
     return this.withFallback('jsonCompletion', (p) => p.jsonCompletion(req));
+  }
+
+  private async doEmbed(texts: string[]): Promise<number[][]> {
+    const provider = this.primary.capabilities.embeddings ? this.primary : this.fallback;
+    if (!provider.embed) throw new Error('embedding provider missing embed method');
+    return provider.embed(texts);
   }
 
   async *streamChatCompletion(req: ChatRequest): AsyncGenerator<string, ChatResult, void> {

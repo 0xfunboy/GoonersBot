@@ -31,6 +31,9 @@ export interface OpenAICompatibleOptions {
   imageModel: string | undefined;
   transcriptionModel: string | undefined;
   ttsModel: string | undefined;
+  embeddingModel?: string | undefined;
+  embeddingBaseUrl?: string | undefined;
+  embeddingApiKey?: string | undefined;
   requestTimeoutMs: number;
 }
 
@@ -68,6 +71,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
   visionCompletion?: (req: VisionRequest) => Promise<ChatResult>;
   transcribeAudio?: (req: TranscribeRequest) => Promise<string>;
   generateImage?: (req: ImageRequest) => Promise<ImageResult>;
+  embed?: (texts: string[]) => Promise<number[][]>;
 
   constructor(opts: OpenAICompatibleOptions) {
     this.opts = opts;
@@ -78,10 +82,12 @@ export class OpenAICompatibleProvider implements LLMProvider {
       transcription: Boolean(opts.transcriptionModel),
       imageGeneration: Boolean(opts.imageModel),
       tts: Boolean(opts.ttsModel),
+      embeddings: Boolean(opts.embeddingModel),
     };
     if (this.capabilities.vision) this.visionCompletion = (req) => this.doVision(req);
     if (this.capabilities.transcription) this.transcribeAudio = (req) => this.doTranscribe(req);
     if (this.capabilities.imageGeneration) this.generateImage = (req) => this.doGenerateImage(req);
+    if (this.capabilities.embeddings) this.embed = (texts) => this.doEmbed(texts);
   }
 
   protected headers(extra: Record<string, string> = {}): Record<string, string> {
@@ -317,6 +323,27 @@ export class OpenAICompatibleProvider implements LLMProvider {
     throw new Error('image generation returned no data');
   }
 
+  private async doEmbed(texts: string[]): Promise<number[][]> {
+    const model = this.opts.embeddingModel;
+    if (!model) throw new CapabilityUnavailableError('embeddings');
+    if (texts.length === 0) return [];
+    const baseUrl = (this.opts.embeddingBaseUrl ?? this.opts.baseUrl).replace(/\/+$/, '');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const apiKey = this.opts.embeddingBaseUrl ? this.opts.embeddingApiKey : this.opts.apiKey;
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    const res = await this.fetchWithTimeout(`${baseUrl}/embeddings`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ model, input: texts }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`embeddings failed (${res.status}): ${text.slice(0, 500)}`);
+    }
+    const json = (await res.json()) as EmbeddingsResponse;
+    return texts.map((_, i) => json.data?.[i]?.embedding ?? []);
+  }
+
   async extractFacts(req: ExtractFactsRequest): Promise<Fact[]> {
     const system =
       'You extract durable, useful, non-sensitive facts about group chat members. ' +
@@ -429,4 +456,7 @@ interface ChatCompletionStreamChunk {
 }
 interface ImageGenResponse {
   data?: Array<{ url?: string; b64_json?: string }>;
+}
+interface EmbeddingsResponse {
+  data?: Array<{ embedding?: number[] }>;
 }

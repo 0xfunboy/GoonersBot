@@ -33,6 +33,18 @@ export interface LLMConfig {
   fallback: { baseUrl: string; apiKey: string | undefined; model: string } | undefined;
 }
 
+export interface EmbeddingsConfig {
+  enabled: boolean;
+  baseUrl: string;
+  apiKey: string | undefined;
+  model: string;
+  dim: number;
+  groupTopK: number;
+  knowledgeTopK: number;
+  newsTopK: number;
+  minScore: number;
+}
+
 /** Resolve the optional fallback LLM endpoint (active only when base URL + model are set). */
 function resolveFallback(env: Env): LLMConfig['fallback'] {
   if (!env.LLM_FALLBACK_BASE_URL || !env.LLM_FALLBACK_MODEL) return undefined;
@@ -98,12 +110,38 @@ export function resolveLLMConfig(env: Env): LLMConfig {
   };
 }
 
+export function resolveEmbeddingsConfig(env: Env): EmbeddingsConfig {
+  const fallbackBase = env.LLM_FALLBACK_BASE_URL;
+  const primaryBase =
+    env.LLM_PROVIDER === 'deepseek'
+      ? (env.DEEPSEEK_BASE_URL || PROVIDER_DEFAULT_BASE_URL.deepseek).replace(/\/+$/, '') +
+        (env.DEEPSEEK_BASE_URL?.endsWith('/v1') ? '' : '/v1')
+      : env.LLM_BASE_URL || PROVIDER_DEFAULT_BASE_URL[env.LLM_PROVIDER];
+  return {
+    enabled: env.EMBEDDINGS_ENABLED,
+    baseUrl: (env.EMBEDDING_BASE_URL || fallbackBase || primaryBase).replace(/\/+$/, ''),
+    apiKey: env.EMBEDDING_API_KEY ?? env.LLM_FALLBACK_API_KEY ?? env.LLM_API_KEY,
+    model: env.EMBEDDING_MODEL,
+    dim: env.EMBEDDING_DIM,
+    groupTopK: env.RAG_GROUP_TOPK,
+    knowledgeTopK: env.RAG_KNOWLEDGE_TOPK,
+    newsTopK: env.RAG_NEWS_TOPK,
+    minScore: env.RAG_MIN_SCORE,
+  };
+}
+
 /** Per-stage model + sampling config for the brain pipeline. Models fall back to the chat model. */
 export interface BrainConfig {
   sceneModel: string | undefined;
   evaluatorEnabled: boolean;
   evaluatorModel: string | undefined;
   evaluatorTemperature: number;
+  cortex: {
+    enabled: boolean;
+    model: string | undefined;
+    temperature: number;
+    maxTokens: number;
+  };
   plannerModel: string | undefined;
   replyModel: string | undefined;
   rankerModel: string | undefined;
@@ -129,6 +167,12 @@ export function resolveBrainConfig(env: Env): BrainConfig {
     evaluatorEnabled: env.REALISTIC_EVALUATOR_ENABLED,
     evaluatorModel: env.REALISTIC_EVALUATOR_MODEL ?? fallback,
     evaluatorTemperature: env.REALISTIC_EVALUATOR_TEMPERATURE,
+    cortex: {
+      enabled: env.CORTEX_LLM_ENABLED,
+      model: env.CORTEX_MODEL ?? fallback,
+      temperature: env.CORTEX_TEMPERATURE,
+      maxTokens: env.CORTEX_MAX_TOKENS,
+    },
     plannerModel: env.PLANNER_MODEL ?? fallback,
     replyModel: env.REPLY_MODEL ?? fallback,
     rankerModel: env.RANKER_MODEL ?? fallback,
@@ -481,6 +525,7 @@ export function resolveLinkMediaConfig(env: Env): LinkMediaConfig {
 export interface AppConfig {
   env: Env;
   llm: LLMConfig;
+  embeddings: EmbeddingsConfig;
   brain: BrainConfig;
   voice: VoiceConfig;
   search: SearchConfig;
@@ -495,6 +540,7 @@ export function loadConfig(): AppConfig {
   return {
     env,
     llm: resolveLLMConfig(env),
+    embeddings: resolveEmbeddingsConfig(env),
     brain: resolveBrainConfig(env),
     voice: resolveVoiceConfig(env),
     search: resolveSearchConfig(env),

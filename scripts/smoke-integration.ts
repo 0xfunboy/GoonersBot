@@ -27,7 +27,7 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const storage = await Storage.connect(config.env);
   await storage.ensureIndexes();
-  const llm = createLLMProvider(config.llm);
+  const llm = createLLMProvider(config.llm, config.embeddings);
   const services = new Services(config, storage, llm);
 
   const chatId = -100999000001; // synthetic test chat
@@ -51,7 +51,11 @@ async function main(): Promise<void> {
     messages: [{ role: 'user', content: 'Reply with exactly: PING_OK' }],
     temperature: 0,
   });
-  check('chatCompletion returns text', chat.text.includes('PING_OK'), JSON.stringify(chat.text).slice(0, 60));
+  check(
+    'chatCompletion returns text',
+    chat.text.includes('PING_OK'),
+    JSON.stringify(chat.text).slice(0, 60),
+  );
   check('usage reported', (chat.usage.inputTokens ?? 0) > 0 || chat.usage.estimated);
 
   let streamed = '';
@@ -66,12 +70,20 @@ async function main(): Promise<void> {
     chunks += 1;
     n = await gen.next();
   }
-  check('streamChatCompletion yields chunks', chunks > 0 && streamed.length > 0, `${chunks} chunks`);
+  check(
+    'streamChatCompletion yields chunks',
+    chunks > 0 && streamed.length > 0,
+    `${chunks} chunks`,
+  );
 
   const score = await llm.scoreAutoEngage({
     prompt: 'A user said "@bot what is the weather". Bot directly addressed: YES. Decide.',
   });
-  check('scoreAutoEngage returns shape', typeof score.shouldReply === 'boolean' && score.risk !== undefined, `shouldReply=${score.shouldReply} conf=${score.confidence}`);
+  check(
+    'scoreAutoEngage returns shape',
+    typeof score.shouldReply === 'boolean' && score.risk !== undefined,
+    `shouldReply=${score.shouldReply} conf=${score.confidence}`,
+  );
 
   const facts = await llm.extractFacts({
     context: '@bob said: I am the resident doom-metal DJ and I run the Friday raid.',
@@ -95,11 +107,21 @@ async function main(): Promise<void> {
   const added = await services.modes.add(chatId, 'Pirate. talk like a pirate', person.userHandle);
   check('add custom mode', added === 'Pirate', String(added));
 
-  const factOk = await services.facts.addManualFact(chatId, '@bob', 'is the meme lord', person.userHandle);
+  const factOk = await services.facts.addManualFact(
+    chatId,
+    '@bob',
+    'is the meme lord',
+    person.userHandle,
+  );
   check('addManualFact', factOk);
   const bobFacts = await services.facts.getForUser(chatId, '@bob');
   check('getForUser fact persisted', bobFacts.includes('is the meme lord'));
-  const sensitive = await services.facts.addManualFact(chatId, '@bob', 'his password is hunter2', person.userHandle);
+  const sensitive = await services.facts.addManualFact(
+    chatId,
+    '@bob',
+    'his password is hunter2',
+    person.userHandle,
+  );
   check('sensitive fact rejected', sensitive === false);
 
   await services.conversation.addUserMessage(chatId, '@bob', {
@@ -109,7 +131,10 @@ async function main(): Promise<void> {
     voiceDescription: null,
   });
   const recent = await services.conversation.getRecent(chatId);
-  check('message stored + retrieved', recent.some((m) => m.message.messageText === 'gm gooners'));
+  check(
+    'message stored + retrieved',
+    recent.some((m) => m.message.messageText === 'gm gooners'),
+  );
 
   await services.usage.record({
     handle: person.userHandle,
@@ -163,7 +188,11 @@ async function main(): Promise<void> {
   check('reply produced text', result.text.length > 0, JSON.stringify(result.text.slice(0, 120)));
   check('scene analyzed', Boolean(result.scene), `intent=${result.scene.userIntent}`);
   check('plan produced', Boolean(result.plan.replyIntent), `intent=${result.plan.replyIntent}`);
-  check('candidates generated', result.candidates.length > 0, `${result.candidates.length} candidates`);
+  check(
+    'candidates generated',
+    result.candidates.length > 0,
+    `${result.candidates.length} candidates`,
+  );
   check('reply usage captured', result.usage.outputTokens > 0 || result.usage.estimated);
 
   console.log('\n[4] Autoengage decision (mention path)');
@@ -228,7 +257,11 @@ async function main(): Promise<void> {
       recentBotReplies: [],
     });
     const out = ngOut.text;
-    check('nsfw model produced a non-refusal reply', out.length > 0 && !isRefusal(out), out.slice(0, 80));
+    check(
+      'nsfw model produced a non-refusal reply',
+      out.length > 0 && !isRefusal(out),
+      out.slice(0, 80),
+    );
   }
 
   await storage.close();

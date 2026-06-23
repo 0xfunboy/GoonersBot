@@ -12,6 +12,7 @@ export interface ProviderCapabilities {
   transcription: boolean;
   imageGeneration: boolean;
   tts: boolean;
+  embeddings: boolean;
 }
 
 export interface ChatMessage {
@@ -124,6 +125,7 @@ export interface LLMProvider {
   visionCompletion?(req: VisionRequest): Promise<ChatResult>;
   transcribeAudio?(req: TranscribeRequest): Promise<string>;
   generateImage?(req: ImageRequest): Promise<ImageResult>;
+  embed?(texts: string[]): Promise<number[][]>;
 
   extractFacts(req: ExtractFactsRequest): Promise<Fact[]>;
   scoreAutoEngage(req: ScoreAutoEngageRequest): Promise<AutoEngageScore>;
