@@ -196,4 +196,49 @@ describe('Cortex', () => {
     expect(out.toolCalls.some((c) => c.tool === 'music')).toBe(true);
     expect(out.toolCalls.find((c) => c.tool === 'music')?.query).toBe('bohemian rhapsody');
   });
+
+  it('does not turn a technical proposal into a media download when cortex falls back', async () => {
+    const cortex = new Cortex(fakeLLM({}), {
+      enabled: true,
+      model: 'm',
+      temperature: 0.1,
+      maxTokens: 1200,
+    });
+    const out = await cortex.evaluate({
+      scene,
+      history: [],
+      currentMessage:
+        'serve un analisi tecnica lunga e completa su tutta la proposta di boop, repo e snippet',
+      botIsAddressed: true,
+      recentNegativeFeedback: false,
+      capabilities: caps,
+    });
+    expect(out.source).toBe('fallback');
+    expect(out.toolCalls.some((call) => call.tool === 'link_media')).toBe(false);
+    expect(cortexToTurnEvaluation(out, true).action).toBe('answer');
+  });
+
+  it('keeps direct URL rehosting available when cortex falls back', async () => {
+    const cortex = new Cortex(fakeLLM({}), {
+      enabled: true,
+      model: 'm',
+      temperature: 0.1,
+      maxTokens: 1200,
+    });
+    const out = await cortex.evaluate({
+      scene,
+      history: [],
+      currentMessage: 'mandami questo https://example.test/video.mp4',
+      botIsAddressed: true,
+      recentNegativeFeedback: false,
+      capabilities: caps,
+    });
+    expect(out.toolCalls).toContainEqual(
+      expect.objectContaining({
+        tool: 'link_media',
+        args: { url: 'https://example.test/video.mp4' },
+      }),
+    );
+    expect(cortexToTurnEvaluation(out, true).action).toBe('download_media');
+  });
 });

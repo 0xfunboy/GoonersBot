@@ -1,9 +1,9 @@
 import type { CortexDecision, CortexTool, SourcedCortexDecision } from './schema.js';
+import { extractUrls } from '../../providers/media/linkMedia/url.js';
 
 const HINTS = {
   search: ['search', 'lookup', 'google', 'online', 'price', 'cost', 'cerca', 'prezzo', 'buscar'],
   news: ['news', 'latest', 'today', 'breaking', 'notizia', 'oggi', 'noticias', 'hoy'],
-  media: ['video', 'clip', 'reel', 'post', 'media', 'download video', 'scarica video'],
   music: [
     'play',
     'song',
@@ -34,13 +34,17 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
   const tools = new Set(input.availableTools);
   const calls: CortexDecision['toolCalls'] = [];
   const intents: CortexDecision['intents'] = [];
+  const directMediaUrl = extractUrls(input.currentMessage, 1)[0];
 
-  if (has(msg, HINTS.media) && tools.has('link_media')) {
+  // A degraded evaluator must never invent a media download from prose. Rehosting a concrete URL
+  // is deterministic; discovering one from a natural-language request belongs to the LLM cortex.
+  if (directMediaUrl && tools.has('link_media')) {
     intents.push('download_media');
     calls.push({
       tool: 'link_media',
-      query: input.currentMessage,
-      reason: 'degraded media hint',
+      query: directMediaUrl.toString(),
+      args: { url: directMediaUrl.toString() },
+      reason: 'degraded direct media URL',
     });
   } else if (has(msg, HINTS.music) && tools.has('music')) {
     intents.push('play_music');
