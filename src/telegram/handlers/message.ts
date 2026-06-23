@@ -312,6 +312,7 @@ export async function handleMessage(
             createdAt: new Date(),
             scene: outcome.scene,
             evaluation: outcome.evaluation,
+            ...(outcome.cortex ? { cortex: outcome.cortex } : {}),
             providerSources: outcome.providerBundle.sources,
             providerBundle: outcome.providerBundle,
             retrievedMemories: [],
@@ -442,6 +443,7 @@ export async function handleMessage(
           createdAt: new Date(),
           scene: outcome.scene,
           evaluation: outcome.evaluation,
+          ...(outcome.cortex ? { cortex: outcome.cortex } : {}),
           providerSources: outcome.providerBundle.sources,
           providerBundle: outcome.providerBundle,
           retrievedMemories: outcome.retrieved.map((m) => ({
@@ -449,6 +451,7 @@ export async function handleMessage(
             text: m.item.text,
             relevance: m.relevance,
             reason: m.reason,
+            ...(m.cosineScore !== undefined ? { cosineScore: m.cosineScore } : {}),
           })),
           plan: outcome.plan,
           styleVariant: outcome.styleVariant,

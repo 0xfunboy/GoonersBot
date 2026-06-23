@@ -198,9 +198,16 @@ export interface BrainDebugTurn {
   createdAt: Date;
   scene: SceneAnalysis;
   evaluation: TurnEvaluation;
+  cortex?: import('./cortex/schema.js').SourcedCortexDecision;
   providerSources: string[];
   providerBundle?: ProviderBundle;
-  retrievedMemories: Array<{ id: string; text: string; relevance: number; reason: string }>;
+  retrievedMemories: Array<{
+    id: string;
+    text: string;
+    relevance: number;
+    reason: string;
+    cosineScore?: number;
+  }>;
   plan: ReplyPlan;
   styleVariant: string;
   candidates: string[];
