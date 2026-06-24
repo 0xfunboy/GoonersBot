@@ -7,6 +7,7 @@ import { termsKeyboard, termsHeader } from './handlers/shared.js';
 import { parseArgs } from '../utils/args.js';
 import { parseCallbackData } from './keyboards.js';
 import { childLogger } from '../utils/logger.js';
+import { runWithGroupPlan } from '../providers/llm/requestContext.js';
 
 const log = childLogger('dispatch');
 
@@ -146,7 +147,8 @@ async function finish(
   }
 
   try {
-    const response = await run(prepared.input);
+    const plan = await services.planForChat(prepared.input.context.chatId);
+    const response = await runWithGroupPlan(plan.id, () => run(prepared.input));
     if (!response) return;
     // for terms accept/decline: remove the (personal) prompt the button was attached to
     if (response.deleteOrigin && ctx.callbackQuery) {

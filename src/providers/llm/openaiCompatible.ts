@@ -1,4 +1,5 @@
 import { childLogger } from '../../utils/logger.js';
+import { currentGroupPlan } from './requestContext.js';
 import {
   CapabilityUnavailableError,
   type AutoEngageScore,
@@ -98,6 +99,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
   protected headers(extra: Record<string, string> = {}): Record<string, string> {
     const h: Record<string, string> = { 'Content-Type': 'application/json', ...extra };
     if (this.opts.apiKey) h['Authorization'] = `Bearer ${this.opts.apiKey}`;
+    const groupPlan = currentGroupPlan();
+    if (groupPlan) h['X-LeakRouter-Group-Plan'] = groupPlan;
     return h;
   }
 
@@ -113,6 +116,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
     if (this.opts.nsfwModel && model === this.opts.nsfwModel && this.opts.nsfwBaseUrl) {
       const h: Record<string, string> = { 'Content-Type': 'application/json' };
       if (this.opts.nsfwApiKey) h['Authorization'] = `Bearer ${this.opts.nsfwApiKey}`;
+      const groupPlan = currentGroupPlan();
+      if (groupPlan) h['X-LeakRouter-Group-Plan'] = groupPlan;
       return { url: `${this.opts.nsfwBaseUrl.replace(/\/+$/, '')}/chat/completions`, headers: h };
     }
     return { url: this.url('/chat/completions'), headers: this.headers() };
@@ -261,6 +266,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
     const visionHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
     const visionKey = this.opts.visionBaseUrl ? this.opts.visionApiKey : this.opts.apiKey;
     if (visionKey) visionHeaders['Authorization'] = `Bearer ${visionKey}`;
+    const groupPlan = currentGroupPlan();
+    if (groupPlan) visionHeaders['X-LeakRouter-Group-Plan'] = groupPlan;
 
     const res = await this.fetchWithTimeout(visionUrl, {
       method: 'POST',

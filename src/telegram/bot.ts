@@ -7,6 +7,7 @@ import { handleMessage } from './handlers/message.js';
 import { runCallback, runCommand, type DispatchDeps } from './dispatch.js';
 import { buildChatContext, buildIncomingMessage, buildPerson, isBotAddressed } from './context.js';
 import { childLogger } from '../utils/logger.js';
+import { runWithGroupPlan } from '../providers/llm/requestContext.js';
 
 const log = childLogger('bot');
 
@@ -60,11 +61,20 @@ export async function createBot(config: AppConfig, services: Services): Promise<
       // through inference until someone explicitly mentions or replies to the bot.
       const wantVoice = addressed;
       const message = await buildIncomingMessage(ctx, { image: addressed, voice: wantVoice });
-      await handleMessage(ctx, person, context, message, {
+      if (!addressed) {
+        await handleMessage(ctx, person, context, message, {
+          services,
+          env: config.env,
+          botUsername,
+        });
+        return;
+      }
+      const plan = await services.planForChat(context.chatId);
+      await runWithGroupPlan(plan.id, () => handleMessage(ctx, person, context, message, {
         services,
         env: config.env,
         botUsername,
-      });
+      }));
     },
   );
 
