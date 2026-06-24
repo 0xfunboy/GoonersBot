@@ -293,6 +293,7 @@ export async function handleMessage(
       nsfwEnabled: route.nsfw,
       allowVision: !freePlan,
       model,
+      ...(freePlan ? { internalModel: model } : {}),
       allowRefusalFallback: freePlan ? false : route.allowRefusalFallback,
       nsfwModel: freePlan ? undefined : services.modelRouter.nsfwModel,
       recentBotReplies: recentReplies,

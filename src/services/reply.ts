@@ -203,6 +203,8 @@ export interface ReplyContext {
   allowVision: boolean;
   /** model from the NSFW router for this turn */
   model?: string | undefined;
+  /** Economy model enforced for Free groups; paid plans use the configured fast brain models. */
+  internalModel?: string | undefined;
   /** when the default model refuses, retry with the uncensored model */
   allowRefusalFallback?: boolean | undefined;
   nsfwModel?: string | undefined;
@@ -471,7 +473,7 @@ export class ReplyService {
       mentionedHandles: mentioned,
       botIsAddressed: ctx.context.isBotMentioned || ctx.context.isReplyToBot,
       botLabel: BOT_LABEL,
-      model: ctx.model,
+      model: ctx.internalModel,
     });
     const sceneForcesNsfw = Boolean(
       scene.userIntent === 'dangerous_request' && ctx.allowRefusalFallback && ctx.nsfwModel,
@@ -502,7 +504,7 @@ export class ReplyService {
             botIsAddressed: addressed,
             recentNegativeFeedback,
             capabilities,
-            model: ctx.model,
+            model: ctx.internalModel,
           });
           return cortexToTurnEvaluation(cortexDecision, addressed);
         })()
@@ -522,7 +524,7 @@ export class ReplyService {
               this.grounding.wantsImageLookup(ctx.message.messageText || ''),
             ),
           },
-          model: ctx.model,
+          model: ctx.internalModel,
         });
     const callFor = (tool: CortexTool) =>
       cortexDecision?.toolCalls.find((call) => call.tool === tool);
