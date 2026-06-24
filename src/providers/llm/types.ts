@@ -31,6 +31,8 @@ export interface ChatResult {
   text: string;
   usage: TokenUsage;
   model: string;
+  /** OpenAI-compatible finish reason when the upstream exposes one. */
+  finishReason?: 'stop' | 'length' | 'content_filter';
 }
 
 export interface ChatRequest {

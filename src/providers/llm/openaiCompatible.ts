@@ -44,6 +44,11 @@ function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
 }
 
+function normalizeFinishReason(value: unknown): ChatResult['finishReason'] {
+  if (value === 'length' || value === 'content_filter' || value === 'stop') return value;
+  return undefined;
+}
+
 /** Apply OpenAI sampling params onto a request body. */
 function applySampling(body: Record<string, unknown>, req: ChatRequest): void {
   if (req.temperature !== undefined) body['temperature'] = req.temperature;
@@ -155,6 +160,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     return {
       text,
       model,
+      finishReason: normalizeFinishReason(json.choices?.[0]?.finish_reason),
       usage: usage
         ? {
             inputTokens: usage.prompt_tokens,
@@ -187,6 +193,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     }
 
     let full = '';
+    let finishReason: ChatResult['finishReason'];
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -204,6 +211,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         try {
           const chunk = JSON.parse(data) as ChatCompletionStreamChunk;
           const delta = chunk.choices?.[0]?.delta?.content;
+          finishReason = normalizeFinishReason(chunk.choices?.[0]?.finish_reason) ?? finishReason;
           if (delta) {
             full += delta;
             yield delta;
@@ -216,6 +224,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     return {
       text: full,
       model,
+      finishReason,
       usage: {
         inputTokens: estimateTokens(messages.map((m) => m.content).join('\n')),
         outputTokens: estimateTokens(full),
@@ -448,11 +457,11 @@ export function safeJson<T>(text: string): T | null {
 
 // ---- response shapes ----
 interface ChatCompletionResponse {
-  choices?: Array<{ message?: { content?: string } }>;
+  choices?: Array<{ message?: { content?: string }; finish_reason?: string | null }>;
   usage?: { prompt_tokens?: number; completion_tokens?: number };
 }
 interface ChatCompletionStreamChunk {
-  choices?: Array<{ delta?: { content?: string } }>;
+  choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
 }
 interface ImageGenResponse {
   data?: Array<{ url?: string; b64_json?: string }>;

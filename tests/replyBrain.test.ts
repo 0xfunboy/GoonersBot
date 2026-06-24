@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ResponseRanker } from '../src/brain/responseRanker.js';
+import { ResponseGenerator } from '../src/brain/responseGenerator.js';
 import { RepetitionGuard } from '../src/brain/repetitionGuard.js';
 import { ReplyPlanner } from '../src/brain/replyPlanner.js';
 import { StyleEngine } from '../src/brain/styleEngine.js';
@@ -106,6 +107,55 @@ describe('ResponseRanker', () => {
       },
     );
     expect(ranked[0]?.index).toBe(1);
+  });
+});
+
+describe('ResponseGenerator', () => {
+  it('rewrites a candidate only when the upstream reports an output-length stop', async () => {
+    const chatCompletion = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: 'Siete talmente disper',
+        model: 'gemini-3.5-flash',
+        finishReason: 'length',
+        usage: { inputTokens: 10, outputTokens: 20, estimated: false },
+      })
+      .mockResolvedValueOnce({
+        text: 'Siete talmente disperati che pure i ciottoli vi fanno concorrenza.',
+        model: 'gemini-3.5-flash',
+        finishReason: 'stop',
+        usage: { inputTokens: 12, outputTokens: 14, estimated: false },
+      });
+    const generator = new ResponseGenerator(
+      { chatCompletion } as never,
+      new StyleEngine(),
+      {
+        model: 'gemini-3.5-flash',
+        temperature: 0.8,
+        topP: 0.9,
+        frequencyPenalty: 0,
+        presencePenalty: 0,
+        candidateCount: 1,
+        maxReplyChars: 420,
+      },
+    );
+    const callOne = (generator as unknown as {
+      callOne(system: string, prompt: string, model?: string): Promise<{
+        text: string;
+        usage: { inputTokens?: number; outputTokens?: number };
+      }>;
+    }).callOne.bind(generator);
+
+    const result = await callOne('system', 'prompt', 'gemini-3.5-flash');
+
+    expect(chatCompletion).toHaveBeenCalledTimes(2);
+    expect(chatCompletion.mock.calls[1]?.[0].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'assistant', content: 'Siete talmente disper' }),
+    ]));
+    expect(result).toMatchObject({
+      text: 'Siete talmente disperati che pure i ciottoli vi fanno concorrenza.',
+      usage: { inputTokens: 22, outputTokens: 34 },
+    });
   });
 });
 

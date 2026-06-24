@@ -129,12 +129,12 @@ export class ResponseGenerator {
     return this.aggregate(ok, params.system, augmented);
   }
 
-  private callOne(
+  private async callOne(
     system: string,
     userPrompt: string,
     model: string | undefined,
   ): Promise<ChatResult> {
-    return this.llm.chatCompletion({
+    const first = await this.llm.chatCompletion({
       system,
       messages: [{ role: 'user', content: userPrompt }],
       temperature: this.cfg.temperature,
@@ -144,6 +144,37 @@ export class ResponseGenerator {
       maxTokens: this.maxTokens(),
       ...(model ? { model } : {}),
     });
+    if (first.finishReason !== 'length' || !first.text.trim()) return first;
+
+    // A partial message is worse than a fresh one in a group chat. Re-write it once
+    // only when the upstream explicitly says it stopped for its output limit.
+    const repair = await this.llm.chatCompletion({
+      system,
+      messages: [
+        { role: 'user', content: userPrompt },
+        { role: 'assistant', content: first.text },
+        {
+          role: 'user',
+          content:
+            'Your previous candidate was cut off by the output limit. Rewrite it as one complete, natural Telegram reply. ' +
+            'Keep the same point and tone, finish the thought, and never mention the interruption or this instruction.',
+        },
+      ],
+      temperature: this.cfg.temperature,
+      topP: this.cfg.topP,
+      frequencyPenalty: this.cfg.frequencyPenalty,
+      presencePenalty: this.cfg.presencePenalty,
+      maxTokens: this.maxTokens(),
+      ...(model ? { model } : {}),
+    });
+    return {
+      ...repair,
+      usage: {
+        inputTokens: (first.usage.inputTokens ?? 0) + (repair.usage.inputTokens ?? 0),
+        outputTokens: (first.usage.outputTokens ?? 0) + (repair.usage.outputTokens ?? 0),
+        estimated: first.usage.estimated || repair.usage.estimated,
+      },
+    };
   }
 
   private aggregate(
