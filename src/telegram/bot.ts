@@ -56,8 +56,9 @@ export async function createBot(config: AppConfig, services: Services): Promise<
       if (!person || !context) return;
       const { mentioned, replyToBot } = isBotAddressed(ctx, botUsername);
       const addressed = mentioned || replyToBot;
-      // Download voice even when not addressed, so STT can transcribe passive voice notes.
-      const wantVoice = addressed || (services.stt.enabled && config.env.STT_TRANSCRIBE_ALL);
+      // Unaddressed group traffic is stored as text-only context. Never download media or send it
+      // through inference until someone explicitly mentions or replies to the bot.
+      const wantVoice = addressed;
       const message = await buildIncomingMessage(ctx, { image: addressed, voice: wantVoice });
       await handleMessage(ctx, person, context, message, {
         services,

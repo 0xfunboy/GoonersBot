@@ -25,15 +25,14 @@ export const autofactCommand: CommandSpec = {
   },
 };
 
-/** /autoengage - toggle auto-engage. */
+/** /autoengage - passive LLM replies are disabled globally to protect shared model capacity. */
 export const autoengageCommand: CommandSpec = {
   command: 'autoengage',
   permissions: ['admin', 'allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.DEFAULT,
-  async handle({ services, context }) {
-    const on = await services.storage.chats.switchAutoengage(context.chatId);
-    return { text: on ? 'autoengage_turned_on' : 'autoengage_turned_off' };
+  async handle() {
+    return { text: 'autoengage_disabled' };
   },
 };
 

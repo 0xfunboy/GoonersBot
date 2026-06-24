@@ -13,6 +13,8 @@ export interface SceneInput {
   mentionedHandles: string[];
   botIsAddressed: boolean;
   botLabel: string;
+  /** Per-turn model policy (Free groups use their economy model for internal analysis too). */
+  model?: string;
 }
 
 export interface SceneAnalyzerConfig {
@@ -55,12 +57,13 @@ export class SceneAnalyzer {
     ].join('\n');
 
     try {
+      const model = input.model ?? this.cfg.model;
       const parsed = await this.llm.jsonCompletion({
         system,
         prompt,
         schema: sceneSchema,
         temperature: this.cfg.temperature,
-        ...(this.cfg.model ? { model: this.cfg.model } : {}),
+        ...(model ? { model } : {}),
         maxTokens: 1200,
       });
       if (!parsed) return heuristic;

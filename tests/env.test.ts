@@ -13,8 +13,9 @@ describe('loadEnv', () => {
     const env = loadEnv(base);
     expect(env.BOT_USERNAME).toBe('GoonersBot');
     expect(env.LLM_PROVIDER).toBe('ollama');
+    expect(env.FREE_LLM_MODEL).toBe('gemma4:31b');
     expect(env.MAX_CONTEXT_MESSAGES).toBe(25);
-    expect(env.AUTOENGAGE_DEFAULT_ENABLED).toBe(true);
+    expect(env.AUTOENGAGE_DEFAULT_ENABLED).toBe(false);
     expect(env.CONVERSATION_TRACKER_DEFAULT_ENABLED).toBe(true);
     expect(env.AUTOFACT_DEFAULT_ENABLED).toBe(false);
     expect(env.LLM_NSFW_DEFAULT_MODE).toBe('smart');

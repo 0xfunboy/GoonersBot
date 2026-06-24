@@ -38,6 +38,7 @@ import { ReplyService } from './reply.js';
 import { TermsService } from './terms.js';
 import { UsageService } from './usage.js';
 import { GroupQuotaService } from './groupQuota.js';
+import type { QuotaPlan, QuotaPlanId } from '../quota/plans.js';
 
 export * from './permissions.js';
 export * from './terms.js';
@@ -269,6 +270,23 @@ export class Services {
 
   getLanguage(chatId: number): Promise<string> {
     return this.storage.chats.getLanguage(chatId, this.config.env.DEFAULT_LANGUAGE);
+  }
+
+  /** Free groups are always pinned to the economy model, including internal brain stages. */
+  modelForPlan(plan: Pick<QuotaPlan, 'id'>, requestedModel?: string): string | undefined {
+    return plan.id === 'free' ? this.config.env.FREE_LLM_MODEL : requestedModel;
+  }
+
+  async planForChat(chatId: number): Promise<QuotaPlan> {
+    return (await this.quota.getReport(chatId)).plan;
+  }
+
+  async modelForChat(chatId: number, requestedModel?: string): Promise<string | undefined> {
+    return this.modelForPlan(await this.planForChat(chatId), requestedModel);
+  }
+
+  isFreePlan(plan: Pick<QuotaPlan, 'id'> | QuotaPlanId): boolean {
+    return (typeof plan === 'string' ? plan : plan.id) === 'free';
   }
 
   /** True if the user/chat may use the model, media generation and link-media (admin/approved). */

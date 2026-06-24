@@ -37,6 +37,8 @@ export interface MemoryMiningInput {
   language: string;
   nsfwEnabled: boolean;
   minConfidence: number;
+  /** Group-plan model override for manual extraction. */
+  model?: string;
 }
 
 export class MemoryMiner {
@@ -55,12 +57,13 @@ export class MemoryMiner {
       nsfwEnabled: input.nsfwEnabled,
       maxCandidates: this.cfg.maxCandidates,
     });
+    const model = input.model ?? this.cfg.model;
     const result = await this.llm.jsonCompletion({
       system: MEMORY_MINING_SYSTEM,
       prompt,
       schema: memoryMiningResultSchema,
       temperature: this.cfg.temperature,
-      ...(this.cfg.model ? { model: this.cfg.model } : {}),
+      ...(model ? { model } : {}),
       maxTokens: 1500,
     });
     if (!result) return [];

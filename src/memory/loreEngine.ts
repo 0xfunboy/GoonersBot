@@ -34,6 +34,7 @@ export class LoreEngine {
     minConfidence: number;
     source: MemoryItem['source'];
     createdByHandle: string | null;
+    model?: string;
   }): Promise<MineAndStoreResult> {
     const existing = await this.storage.memoryItems.listActive(params.chatId, 300);
     const candidates = await this.miner.extractCandidates({
@@ -42,6 +43,7 @@ export class LoreEngine {
       language: params.language,
       nsfwEnabled: params.nsfwEnabled,
       minConfidence: params.minConfidence,
+      ...(params.model ? { model: params.model } : {}),
     });
 
     let stored = 0;

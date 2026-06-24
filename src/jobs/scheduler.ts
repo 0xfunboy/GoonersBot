@@ -1,6 +1,7 @@
 import type { AppConfig } from '../config/index.js';
 import type { Storage } from '../storage/index.js';
 import type { LoreEngine } from '../memory/loreEngine.js';
+import type { GroupQuotaService } from '../services/groupQuota.js';
 import { childLogger } from '../utils/logger.js';
 import { runRetentionCleanup } from './cleanup.js';
 import { runMemoryMiningJob } from './memoryMiningJob.js';
@@ -21,6 +22,7 @@ export class Scheduler {
     private readonly config: AppConfig,
     private readonly storage: Storage,
     private readonly lore: LoreEngine,
+    private readonly quota: GroupQuotaService,
     /** optional autonomous-posting tick (sends unprompted posts); needs the bot's send API */
     private readonly autopostTick?: () => Promise<void>,
     /** independent generated-image posting tick; intentionally has separate enablement/pace */
@@ -36,7 +38,9 @@ export class Scheduler {
 
     if (this.config.env.MEMORY_MINING_ENABLED) {
       this.every(this.config.env.MEMORY_MINING_INTERVAL_SECONDS * 1000, 60_000, () =>
-        this.safe('mining', () => runMemoryMiningJob(this.storage, this.lore, this.config)),
+        this.safe('mining', () =>
+          runMemoryMiningJob(this.storage, this.lore, this.quota, this.config),
+        ),
       );
     }
     if (this.config.env.FEEDBACK_LEARNING_ENABLED) {

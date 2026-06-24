@@ -53,6 +53,28 @@ describe('SceneAnalyzer.heuristic', () => {
   });
 });
 
+describe('SceneAnalyzer model policy', () => {
+  it('uses a per-turn model override for internal analysis', async () => {
+    let model: string | undefined;
+    const llm = fakeLLM({});
+    llm.jsonCompletion = async (req) => {
+      model = req.model;
+      return null;
+    };
+    const analyzer = new SceneAnalyzer(llm, { model: 'premium-model', temperature: 0.2 });
+    await analyzer.analyze({
+      history: [],
+      currentMessage: 'hello',
+      currentHandle: '@bob',
+      mentionedHandles: [],
+      botIsAddressed: true,
+      botLabel: 'bot',
+      model: 'economy-model',
+    });
+    expect(model).toBe('economy-model');
+  });
+});
+
 function item(over: Partial<MemoryItem> = {}): MemoryItem {
   const now = new Date();
   return {

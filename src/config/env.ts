@@ -108,6 +108,9 @@ const envSchema = z.object({
   LLM_BASE_URL: z.string().optional(),
   LLM_API_KEY: z.string().optional(),
   LLM_MODEL: z.string().optional(),
+  // Economy model used for every LLM turn in Free groups. It must be exposed by LLM_BASE_URL.
+  // This is deliberately separate from LLM_MODEL so Free traffic never consumes the premium route.
+  FREE_LLM_MODEL: z.string().min(1).default('gemma4:31b'),
   LLM_VISION_MODEL: z.string().optional(),
   // Vision usually lives on a different backend (solclawn has no vision). Point these at a
   // vision-capable Ollama (e.g. llama3.2-vision). Empty => vision reuses LLM_BASE_URL/LLM_API_KEY.
@@ -228,7 +231,7 @@ const envSchema = z.object({
 
   // Behaviour defaults (per-chat toggles seed values)
   DEFAULT_LANGUAGE: z.string().default('italian'),
-  AUTOENGAGE_DEFAULT_ENABLED: boolFromString(true),
+  AUTOENGAGE_DEFAULT_ENABLED: boolFromString(false),
   CONVERSATION_TRACKER_DEFAULT_ENABLED: boolFromString(true),
   AUTOFACT_DEFAULT_ENABLED: boolFromString(false),
 

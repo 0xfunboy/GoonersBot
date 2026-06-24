@@ -99,12 +99,14 @@ export const translateCommand: CommandSpec = {
     }
 
     try {
+      const model = await services.modelForChat(context.chatId);
       const result = await services.llm.chatCompletion({
         system:
           `You are a precise translator. Translate the user's message into ${target}. ` +
           'Auto-detect the source language. Preserve the tone, register, slang and any vulgarity. ' +
           'Output ONLY the translation - no quotes, no notes, no language labels, no preamble.',
         messages: [{ role: 'user', content: source }],
+        ...(model ? { model } : {}),
         temperature: 0.2,
       });
       const text = result.text.trim();

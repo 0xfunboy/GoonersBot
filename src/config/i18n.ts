@@ -132,10 +132,10 @@ export const translations: TranslationMap = {
     spanish: 'Activa/desactiva la extracción automática de datos',
   },
   autoengage_description: {
-    italian: "Attiva/disattiva l'auto-intervento (il bot si intromette da solo)",
-    english: 'Toggle auto-engage (bot jumps in on its own)',
-    russian: 'Включить/выключить авто-участие',
-    spanish: 'Activa/desactiva la auto-participación',
+    italian: 'Stato delle risposte passive',
+    english: 'Show passive reply status',
+    russian: 'Статус пассивных ответов',
+    spanish: 'Estado de respuestas pasivas',
   },
   autopost_description: {
     italian: 'Attiva/disattiva i post autonomi (news/immagini) in questa chat',
@@ -751,6 +751,15 @@ export const translations: TranslationMap = {
     russian: 'Авто-участие ВЫКЛ. Жду, когда позовут.',
     spanish: 'Auto-participación DESACTIVADA. Esperaré a que me llamen.',
   },
+  autoengage_disabled: {
+    italian: 'Risposte passive disattivate: rispondo solo a comandi, mention o reply dirette.',
+    english:
+      'Passive replies are disabled: I only respond to commands, direct mentions, or replies.',
+    russian:
+      'Пассивные ответы отключены: отвечаю только на команды, прямые упоминания или ответы мне.',
+    spanish:
+      'Las respuestas pasivas están desactivadas: solo respondo a comandos, menciones directas o respuestas.',
+  },
   autofact_turned_on: {
     italian: 'Auto-fatti ATTIVI. Mi ricordo le cose buone.',
     english: "Auto-facts ON. I'll remember the good stuff.",
@@ -1006,7 +1015,7 @@ export const translations: TranslationMap = {
       "• <em>/terms</em> - termini d'uso",
       '• <em>/conversationtracker</em> - ascolto passivo on/off',
       '• <em>/autofact</em> - estrazione fatti automatica on/off',
-      '• <em>/autoengage</em> - auto-intervento on/off',
+      '• <em>/autoengage</em> - stato risposte passive',
       '• <em>/nsfw off|base|smart</em> (admin) - routing modello NSFW',
       '• <em>/genera &lt;prompt&gt;</em> - genera un’immagine originale (alias /image, /img)',
       '• <em>/disegna &lt;prompt&gt;</em> - illustrazione manga ad alta qualità (alias /draw)',
@@ -1047,7 +1056,7 @@ export const translations: TranslationMap = {
       '• <em>/terms</em> - terms of use',
       '• <em>/conversationtracker</em> - toggle passive listening',
       '• <em>/autofact</em> - toggle auto fact extraction',
-      '• <em>/autoengage</em> - toggle auto-engage',
+      '• <em>/autoengage</em> - passive reply status',
       '• <em>/nsfw off|base|smart</em> (admin) - NSFW model routing',
       '• <em>/genera &lt;prompt&gt;</em> - generate an original image (aliases /image, /img)',
       '• <em>/disegna &lt;prompt&gt;</em> - high-quality manga illustration (alias /draw)',
@@ -1080,7 +1089,7 @@ export const translations: TranslationMap = {
       '• <em>/terms</em> - условия',
       '• <em>/conversationtracker</em> - пассивное слушание',
       '• <em>/autofact</em> - авто-факты',
-      '• <em>/autoengage</em> - авто-участие',
+      '• <em>/autoengage</em> - статус пассивных ответов',
       '• <em>/genera &lt;запрос&gt;</em> - создать оригинальное изображение (алиасы /image, /img)',
       '• <em>/disegna &lt;запрос&gt;</em> - качественная манга-иллюстрация (алиас /draw)',
       '• <em>/ban @handle [секунды]</em> (админ) - забанить',
@@ -1110,7 +1119,7 @@ export const translations: TranslationMap = {
       '• <em>/terms</em> - términos',
       '• <em>/conversationtracker</em> - escucha pasiva',
       '• <em>/autofact</em> - auto-datos',
-      '• <em>/autoengage</em> - auto-participación',
+      '• <em>/autoengage</em> - estado de respuestas pasivas',
       '• <em>/genera &lt;prompt&gt;</em> - genera una imagen original (alias /image, /img)',
       '• <em>/disegna &lt;prompt&gt;</em> - ilustración manga de alta calidad (alias /draw)',
       '• <em>/ban @handle [segundos]</em> (admin) - banear',

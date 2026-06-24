@@ -60,6 +60,7 @@ export const factCommand: CommandSpec = {
       minConfidence: env.MEMORY_MANUAL_MIN_CONFIDENCE,
       source: 'manual_extract',
       createdByHandle: null,
+      model: await services.modelForChat(context.chatId),
     });
     if (res.stored === 0 && res.reinforced === 0) return { text: 'fact_mined_none' };
     return { text: 'fact_mined', vars: { stored: res.stored, reinforced: res.reinforced } };

@@ -29,6 +29,8 @@ export interface TurnEvaluatorInput {
     wantsWebSearch: boolean;
     wantsImageLookup: boolean;
   };
+  /** Per-turn model policy, applied to the evaluator rather than only final generation. */
+  model?: string;
 }
 
 export interface TurnEvaluatorConfig {
@@ -87,12 +89,13 @@ export class TurnEvaluator {
     const fallback = this.heuristic(input);
     if (!this.cfg.enabled || !this.llm?.capabilities.chat) return fallback;
     try {
+      const model = input.model ?? this.cfg.model;
       const parsed = await this.llm.jsonCompletion({
         system: EVALUATOR_SYSTEM,
         prompt: buildEvaluatorPrompt(input, fallback),
         schema: turnEvaluationSchema,
         temperature: this.cfg.temperature,
-        ...(this.cfg.model ? { model: this.cfg.model } : {}),
+        ...(model ? { model } : {}),
         maxTokens: 1400,
       });
       if (!parsed) return fallback;

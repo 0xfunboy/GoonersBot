@@ -37,6 +37,7 @@ async function main(): Promise<void> {
   const autopostTick = async (): Promise<void> => {
     const chats = await storage.chats.listForAutopost();
     for (const c of chats) {
+      if (services.isFreePlan(await services.planForChat(c.chatId))) continue;
       if (Math.random() >= config.auto.autopostProbability) continue;
       const post = await services.autonomousPoster.compose(c.language, undefined, {
         chatId: c.chatId,
@@ -60,6 +61,7 @@ async function main(): Promise<void> {
   const generatedImageTick = async (): Promise<void> => {
     const chats = await storage.chats.listForAutopost();
     for (const c of chats) {
+      if (services.isFreePlan(await services.planForChat(c.chatId))) continue;
       if (Math.random() >= config.auto.generatedImageAutopostProbability) continue;
       const post = await services.generatedImagePoster.compose(c.chatId, c.language);
       if (!post) continue;
@@ -72,7 +74,14 @@ async function main(): Promise<void> {
       }
     }
   };
-  const scheduler = new Scheduler(config, storage, services.lore, autopostTick, generatedImageTick);
+  const scheduler = new Scheduler(
+    config,
+    storage,
+    services.lore,
+    services.quota,
+    autopostTick,
+    generatedImageTick,
+  );
   scheduler.start();
 
   // 7. Start polling.

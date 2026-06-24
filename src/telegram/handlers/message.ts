@@ -89,7 +89,27 @@ export async function handleMessage(
     return;
   }
 
-  const autoengageEnabled = await services.storage.chats.getAutoengage(context.chatId);
+  // Passive group traffic is retained as lightweight conversation context, but it never reaches
+  // STT, link-media, scene analysis, evaluator/Cortex, or any LLM. A mention/reply is the sole
+  // explicit opt-in for inference.
+  if (!addressed) {
+    if (tracking) {
+      await services.conversation.addUserMessage(
+        context.chatId,
+        person.userHandle,
+        {
+          messageText: message.messageText || null,
+          timestamp: message.timestamp,
+          imageDescription: null,
+          voiceDescription: null,
+        },
+        metaOf(person, context),
+      );
+    }
+    log.debug({ chatId: context.chatId }, 'passive message stored without inference');
+    return;
+  }
+
   const [history, mode, recentReplies] = await Promise.all([
     services.conversation.getRecent(context.chatId),
     services.modes.getActive(context.chatId),
@@ -100,9 +120,6 @@ export async function handleMessage(
   const recentNegativeFeedback = recentReplies.some((r) => (r.feedbackScore ?? 0) < 0);
 
   const language = await services.getLanguage(context.chatId);
-
-  // Avoid spending an autoengage scorer call when the group's passive budget is already exhausted.
-  if (!addressed && !(await services.quota.canPassiveReply(context.chatId))) return;
 
   // Transcribe incoming voice/audio/video up-front so its words feed scene/autoengage/storage/reply.
   const wasVoice = Boolean(message.audioBuffer);
@@ -190,7 +207,7 @@ export async function handleMessage(
       recentNegativeFeedback,
     },
     addressed,
-    autoengageEnabled,
+    false,
   );
 
   // not engaging → store as context (if tracking) and bail
@@ -246,7 +263,8 @@ export async function handleMessage(
     return;
   }
 
-  // model routing (NSFW)
+  // Model routing (NSFW) followed by plan policy. Free is pinned to the economy model and cannot
+  // escalate to a separate refusal fallback model.
   const chatNsfwMode = await services.storage.chats.getNsfwMode(
     context.chatId,
     env.LLM_NSFW_DEFAULT_MODE,
@@ -257,6 +275,9 @@ export async function handleMessage(
     messageText: message.messageText,
     contextText: history.map((h) => h.message.messageText ?? '').join(' '),
   });
+  const plan = await services.planForChat(context.chatId);
+  const model = services.modelForPlan(plan, route.model);
+  const freePlan = services.isFreePlan(plan);
 
   await ctx.replyWithChatAction('typing').catch(() => undefined);
 
@@ -270,9 +291,10 @@ export async function handleMessage(
       modeName,
       modeDescription,
       nsfwEnabled: route.nsfw,
-      model: route.model,
-      allowRefusalFallback: route.allowRefusalFallback,
-      nsfwModel: services.modelRouter.nsfwModel,
+      allowVision: !freePlan,
+      model,
+      allowRefusalFallback: freePlan ? false : route.allowRefusalFallback,
+      nsfwModel: freePlan ? undefined : services.modelRouter.nsfwModel,
       recentBotReplies: recentReplies,
     });
 

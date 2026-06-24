@@ -1,6 +1,7 @@
 import type { AppConfig } from '../config/index.js';
 import type { Storage } from '../storage/index.js';
 import type { LoreEngine } from '../memory/loreEngine.js';
+import type { GroupQuotaService } from '../services/groupQuota.js';
 import { childLogger } from '../utils/logger.js';
 
 const log = childLogger('job-mining');
@@ -12,6 +13,7 @@ const log = childLogger('job-mining');
 export async function runMemoryMiningJob(
   storage: Storage,
   lore: LoreEngine,
+  quota: GroupQuotaService,
   config: AppConfig,
 ): Promise<void> {
   if (!config.env.MEMORY_MINING_ENABLED) return;
@@ -19,6 +21,8 @@ export async function runMemoryMiningJob(
   const chats = await storage.chats.listForMining();
   for (const chat of chats) {
     try {
+      // Free is direct-request only: no background LLM work while the group is idle.
+      if ((await quota.getReport(chat.chatId)).plan.id === 'free') continue;
       const messages = await storage.messages.getRecent(
         chat.chatId,
         env.FACT_EXTRACTION_CONTEXT_MESSAGES,

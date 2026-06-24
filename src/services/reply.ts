@@ -199,6 +199,8 @@ export interface ReplyContext {
   modeName: string;
   modeDescription: string;
   nsfwEnabled: boolean;
+  /** Free groups do not invoke a separate vision model; their economy model handles text only. */
+  allowVision: boolean;
   /** model from the NSFW router for this turn */
   model?: string | undefined;
   /** when the default model refuses, retry with the uncensored model */
@@ -331,6 +333,7 @@ export class ReplyService {
   async transcribe(
     message: IncomingMessage,
     visual: { buffer: Buffer; mime: string } | null,
+    allowVision: boolean,
   ): Promise<{
     transcribed: TranscribedMessage;
     visionCalls: number;
@@ -340,7 +343,7 @@ export class ReplyService {
     let voiceDescription: string | null = null;
     let visionCalls = 0;
     let transcriptionCalls = 0;
-    if (visual) {
+    if (visual && allowVision) {
       imageDescription = await this.media.describeImage(visual.buffer, visual.mime);
       if (imageDescription !== null) visionCalls = 1;
     }
@@ -447,6 +450,7 @@ export class ReplyService {
     const { transcribed, visionCalls, transcriptionCalls } = await this.transcribe(
       ctx.message,
       visual,
+      ctx.allowVision,
     );
     log.info(
       {
@@ -467,6 +471,7 @@ export class ReplyService {
       mentionedHandles: mentioned,
       botIsAddressed: ctx.context.isBotMentioned || ctx.context.isReplyToBot,
       botLabel: BOT_LABEL,
+      model: ctx.model,
     });
     const sceneForcesNsfw = Boolean(
       scene.userIntent === 'dangerous_request' && ctx.allowRefusalFallback && ctx.nsfwModel,
@@ -478,7 +483,7 @@ export class ReplyService {
     const recentNegativeFeedback = ctx.recentBotReplies.some((r) => (r.feedbackScore ?? 0) < 0);
     const capabilities = {
       webSearch: this.grounding.enabled,
-      imageLookup: this.grounding.enabled && Boolean(visual),
+      imageLookup: this.grounding.enabled && ctx.allowVision && Boolean(visual),
       news: this.news.enabled,
       knowledge: this.knowledge.enabled,
       music: this.music.enabled,
@@ -497,6 +502,7 @@ export class ReplyService {
             botIsAddressed: addressed,
             recentNegativeFeedback,
             capabilities,
+            model: ctx.model,
           });
           return cortexToTurnEvaluation(cortexDecision, addressed);
         })()
@@ -511,9 +517,12 @@ export class ReplyService {
           groundingHints: {
             wantsWebSearch: this.grounding.wantsWebSearch(ctx.message.messageText || ''),
             wantsImageLookup: Boolean(
-              visual && this.grounding.wantsImageLookup(ctx.message.messageText || ''),
+              visual &&
+              ctx.allowVision &&
+              this.grounding.wantsImageLookup(ctx.message.messageText || ''),
             ),
           },
+          model: ctx.model,
         });
     const callFor = (tool: CortexTool) =>
       cortexDecision?.toolCalls.find((call) => call.tool === tool);
@@ -802,7 +811,10 @@ export class ReplyService {
           : evaluation.action === 'draw_image'
             ? 'manga'
             : undefined);
-      const prepared = await this.imagePrompts.prepare(prompt, profile ? { profile } : {});
+      const prepared = await this.imagePrompts.prepare(prompt, {
+        ...(profile ? { profile } : {}),
+        ...(ctx.model ? { model: ctx.model } : {}),
+      });
       const poseReference = prepared.poseReferenceQuery
         ? await this.imageFinder.findPoseReference(prepared.poseReferenceQuery)
         : null;
@@ -851,6 +863,7 @@ export class ReplyService {
             'Auto-detect the source language. Preserve tone, register, slang and vulgarity. ' +
             'Output ONLY the translation - no quotes, no notes, no language labels.',
           messages: [{ role: 'user', content: source }],
+          ...(ctx.model ? { model: ctx.model } : {}),
           temperature: 0.2,
           maxTokens: 700,
         });

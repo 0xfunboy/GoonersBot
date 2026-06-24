@@ -23,11 +23,11 @@ export class ImagePromptService {
 
   async prepare(
     request: string,
-    options: { profile?: ImageProfile } = {},
+    options: { profile?: ImageProfile; model?: string } = {},
   ): Promise<PreparedImagePrompt> {
     const profile = options.profile ?? selectImageProfile(request);
     // Keep one reachable prompt model for every image profile; PonyXL still handles explicit images.
-    const model = this.config.llm.model;
+    const model = options.model ?? this.config.llm.model;
     const fallback = fallbackPrompt(request, profile);
     try {
       const result = await this.llm.chatCompletion({

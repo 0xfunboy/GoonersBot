@@ -51,6 +51,32 @@ function decision(over: Partial<CortexDecision> = {}): CortexDecision {
 }
 
 describe('Cortex', () => {
+  it('uses a per-turn model override for evaluation', async () => {
+    let model: string | undefined;
+    const llm = fakeLLM({ json: decision() });
+    const original = llm.jsonCompletion.bind(llm);
+    llm.jsonCompletion = async (req) => {
+      model = req.model;
+      return original(req);
+    };
+    const cortex = new Cortex(llm, {
+      enabled: true,
+      model: 'premium-model',
+      temperature: 0.1,
+      maxTokens: 1200,
+    });
+    await cortex.evaluate({
+      scene,
+      history: [],
+      currentMessage: 'check this',
+      botIsAddressed: true,
+      recentNegativeFeedback: false,
+      capabilities: caps,
+      model: 'economy-model',
+    });
+    expect(model).toBe('economy-model');
+  });
+
   it.each([
     'quanto costa una RTX 5090 adesso?',
     'what do RTX 5090s cost now?',

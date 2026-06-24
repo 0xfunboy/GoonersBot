@@ -24,6 +24,23 @@ describe('ImagePromptService', () => {
     expect(chatCompletion).toHaveBeenCalledWith(expect.objectContaining({ model: 'default-llm' }));
   });
 
+  it('honors a group-plan model override', async () => {
+    const chatCompletion = vi.fn(async () => ({
+      text: 'adult woman, neon city, anime illustration',
+      usage: { estimated: true },
+      model: 'economy-model',
+    }));
+    const service = new ImagePromptService(
+      { chatCompletion } as unknown as LLMProvider,
+      { llm: { model: 'premium-model' } } as AppConfig,
+    );
+
+    await service.prepare('una donna adulta in citta', { model: 'economy-model' });
+    expect(chatCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'economy-model' }),
+    );
+  });
+
   it('keeps Italian explicit acts meaningful when the prompt LLM fails', async () => {
     const llm = {
       chatCompletion: vi.fn(async () => {

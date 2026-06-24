@@ -115,10 +115,11 @@ pnpm build && pnpm start
    without being a group admin. `ALLOWED_HANDLES=*` lets everyone chat.
 
 By default Telegram bots run with Privacy Mode ON: the bot only receives commands, replies to its own
-messages, and messages that mention it. Conversation tracking and auto-engage need every message, so
-either disable Privacy Mode in @BotFather (`/setprivacy`, then remove and re-add the bot) or make the
-bot a group admin. With Privacy Mode ON and no admin rights, commands, mentions and replies still work;
-the bot just cannot passively track or auto-engage. No group ID is ever hardcoded.
+messages, and messages that mention it. Make the bot a group admin or disable Privacy Mode in
+@BotFather (`/setprivacy`, then remove and re-add the bot) only when you want it to retain unaddressed
+text as lightweight conversation context. Unaddressed messages never trigger STT, media handling,
+scene analysis, Cortex/evaluator calls, or any LLM request. A command, @mention, or reply to the bot
+is required for inference. No group ID is ever hardcoded.
 
 ---
 
@@ -134,6 +135,8 @@ LLM_PROVIDER=solclawn
 LLM_BASE_URL=https://llm.solclawn.com/v1
 LLM_API_KEY=<router client bearer token>
 LLM_MODEL=<a model exposed by the router, e.g. gpt-oss:latest>
+# Every Free-group LLM stage uses this economy model instead of LLM_MODEL.
+FREE_LLM_MODEL=gemma4:31b
 
 # DeepSeek
 LLM_PROVIDER=deepseek
@@ -206,7 +209,7 @@ illegal, no doxxing. NSFW is opt-in per chat and meant for private, consenting a
 | `/terms`                     | anyone        | terms of use and acceptance                                                              |
 | `/conversationtracker`       | admin         | toggle passive tracking                                                                  |
 | `/autofact`                  | admin         | toggle automatic fact extraction                                                         |
-| `/autoengage`                | admin         | toggle auto-engage                                                                       |
+| `/autoengage`                | admin         | show passive-reply status                                                                |
 | `/nsfw [off\|base\|smart]`   | admin         | NSFW model routing                                                                       |
 | `/ban @handle [seconds]`     | bot admin     | ban a Gooner (reply-aware, duration optional, 0 = permanent)                             |
 | `/unban @handle`             | bot admin     | unban a Gooner                                                                           |
@@ -249,17 +252,23 @@ shows current counters and limits. Limits reset on calendar boundaries in the `E
 
 | Resource                |           Free |           Plus |             Pro |
 | ----------------------- | -------------: | -------------: | --------------: |
-| Conversational requests | 24/day, 6/hour | 32/day, 9/hour | 72/day, 18/hour |
-| LLM tokens              |       100k/day |       150k/day |        250k/day |
-| Web searches            |         25/day |         33/day |          75/day |
-| Opened/scanned pages    |         50/day |         75/day |         200/day |
-| News retrievals         |          6/day |          9/day |          24/day |
-| Generated images        |          5/day |         18/day |          48/day |
-| Downloaded media        | 10/day, 300 MB | 20/day, 600 MB |  40/day, 1.2 GB |
-| Passive replies         |         6/hour |         9/hour |         12/hour |
-| Per-user cooldown       |           12 s |            6 s |             1 s |
-| Per-chat cooldown       |            8 s |            3 s |             1 s |
-| User/chat burst         |  3 / 8 per min | 6 / 16 per min | 20 / 60 per min |
+| Conversational requests | 12/day, 3/hour | 32/day, 9/hour | 72/day, 18/hour |
+| LLM tokens              |        30k/day |       150k/day |        250k/day |
+| Web searches            |          8/day |         33/day |          75/day |
+| Opened/scanned pages    |         15/day |         75/day |         200/day |
+| News retrievals         |          2/day |          9/day |          24/day |
+| Generated images        |          1/day |         18/day |          48/day |
+| Downloaded media        |  3/day, 100 MB | 20/day, 600 MB |  40/day, 1.2 GB |
+| Passive LLM replies     |       disabled |       disabled |        disabled |
+| Per-user cooldown       |           30 s |            6 s |             1 s |
+| Per-chat cooldown       |           20 s |            3 s |             1 s |
+| User/chat burst         |  1 / 3 per min | 6 / 16 per min | 20 / 60 per min |
+
+Free groups are pinned to `FREE_LLM_MODEL` for every direct LLM operation (scene, evaluator/Cortex,
+generation, translation, image-prompt preparation and manual fact extraction); embeddings retain their
+separate configured endpoint. Free groups do not invoke the separate vision model and also skip
+autonomous posting and background memory mining.
+All plans store passive messages as context only and never infer or reply until the bot is addressed.
 
 The bot applies a per-user and per-chat anti-flood bucket before expensive work. Free is deliberately
 strict; Plus allows normal group use; Pro has a much wider burst allowance while retaining hard
@@ -580,6 +589,7 @@ The tables below list the common vars; see `.env.example` for the full set with 
 | `LLM_BASE_URL`                                                          | per-provider | OpenAI-compatible base URL.                                             |
 | `LLM_API_KEY`                                                           | none         | Bearer token.                                                           |
 | `LLM_MODEL`                                                             | none         | Chat model (required for text replies).                                 |
+| `FREE_LLM_MODEL`                                                        | `gemma4:31b` | Economy model forced for every LLM operation in Free groups.            |
 | `LLM_VISION_MODEL`                                                      | none         | Enables image and video-frame understanding.                            |
 | `LLM_VISION_BASE_URL` / `LLM_VISION_API_KEY`                            | none         | Separate vision endpoint; empty reuses the main one.                    |
 | `LLM_TRANSCRIPTION_MODEL`                                               | none         | Remote STT fallback; local whisper covers this otherwise.               |

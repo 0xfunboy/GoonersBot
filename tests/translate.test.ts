@@ -60,7 +60,10 @@ describe('/translate command', () => {
     const chatCompletion = vi
       .fn()
       .mockResolvedValue({ text: 'hola mundo', model: 'm', usage: { estimated: true } });
-    const services = { llm: { chatCompletion } };
+    const services = {
+      llm: { chatCompletion },
+      modelForChat: vi.fn().mockResolvedValue('economy'),
+    };
     const res = await translateCommand.handle(
       input(services, ctx({ repliedToText: 'ciao mondo', repliedToMessageId: 7 }), [
         'in',
@@ -70,6 +73,7 @@ describe('/translate command', () => {
     expect(chatCompletion).toHaveBeenCalledTimes(1);
     expect(chatCompletion.mock.calls[0][0].system).toContain('Spanish');
     expect(chatCompletion.mock.calls[0][0].messages[0].content).toBe('ciao mondo');
+    expect(chatCompletion.mock.calls[0][0].model).toBe('economy');
     expect(res?.rawText).toBe('hola mundo');
   });
 
@@ -78,7 +82,11 @@ describe('/translate command', () => {
       .fn()
       .mockResolvedValue({ text: 'hello', model: 'm', usage: { estimated: true } });
     const findByMessageId = vi.fn().mockResolvedValue({ message: { messageText: 'ciao' } });
-    const services = { llm: { chatCompletion }, storage: { messages: { findByMessageId } } };
+    const services = {
+      llm: { chatCompletion },
+      modelForChat: vi.fn().mockResolvedValue('economy'),
+      storage: { messages: { findByMessageId } },
+    };
     const res = await translateCommand.handle(
       input(services, ctx({ repliedToMessageId: 9 }), ['inglese']),
     );

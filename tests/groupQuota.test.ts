@@ -27,14 +27,14 @@ describe('GroupQuotaService', () => {
     const { service } = quotaService();
     const report = await service.getReport(-100);
     expect(report.plan.id).toBe('free');
-    expect(report.plan.conversationDaily).toBe(24);
-    expect(report.plan.imagesDaily).toBe(5);
-    expect(report.plan.mediaBytesDaily).toBe(300 * 1024 * 1024);
+    expect(report.plan.conversationDaily).toBe(12);
+    expect(report.plan.imagesDaily).toBe(1);
+    expect(report.plan.mediaBytesDaily).toBe(100 * 1024 * 1024);
   });
 
   it('enforces the free image cap durably', async () => {
     const { service } = quotaService();
-    for (let n = 0; n < 5; n += 1) {
+    for (let n = 0; n < 1; n += 1) {
       expect((await service.reserve(-100, 'image')).allowed).toBe(true);
     }
     const denied = await service.reserve(-100, 'image');
@@ -69,7 +69,7 @@ describe('GroupQuotaService', () => {
     await service.admitConversation({ chatId: -100, telegramId: 1, passive: false });
     const doc = getDoc();
     if (!doc) throw new Error('quota document missing');
-    doc.hourly.passiveReplies = 6;
+    doc.hourly.passiveReplies = 0;
     expect(await service.canPassiveReply(-100)).toBe(false);
   });
 });

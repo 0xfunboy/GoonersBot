@@ -51,7 +51,11 @@ async function generate(
       vars: { reason: quota.reason ?? 'image', retry_after: 0 },
     };
   }
-  const prepared = await services.imagePrompts.prepare(prompt, profile ? { profile } : {});
+  const model = await services.modelForChat(chatId);
+  const prepared = await services.imagePrompts.prepare(prompt, {
+    ...(profile ? { profile } : {}),
+    ...(model ? { model } : {}),
+  });
   const poseReference = prepared.poseReferenceQuery
     ? await services.imageFinder.findPoseReference(prepared.poseReferenceQuery)
     : null;

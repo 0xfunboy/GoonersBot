@@ -32,6 +32,8 @@ export interface CortexInput {
   botIsAddressed: boolean;
   recentNegativeFeedback: boolean;
   capabilities: CortexCapabilities;
+  /** Per-turn model policy, applied to Cortex before any provider work is selected. */
+  model?: string;
 }
 
 export interface CortexConfig {
@@ -56,6 +58,7 @@ export class Cortex {
     });
     if (!this.cfg.enabled || !this.llm?.capabilities.chat) return degraded;
     try {
+      const model = input.model ?? this.cfg.model;
       const parsed = await this.llm.jsonCompletion({
         system: CORTEX_SYSTEM,
         prompt: buildCortexPrompt({
@@ -69,7 +72,7 @@ export class Cortex {
         }),
         schema: cortexDecisionSchema,
         temperature: this.cfg.temperature,
-        ...(this.cfg.model ? { model: this.cfg.model } : {}),
+        ...(model ? { model } : {}),
         maxTokens: this.cfg.maxTokens,
       });
       if (!parsed) return degraded;
