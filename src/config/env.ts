@@ -110,7 +110,7 @@ const envSchema = z.object({
   LLM_MODEL: z.string().optional(),
   // Economy model used for every LLM turn in Free groups. It must be exposed by LLM_BASE_URL.
   // This is deliberately separate from LLM_MODEL so Free traffic never consumes the premium route.
-  FREE_LLM_MODEL: z.string().min(1).default('gemma4:31b'),
+  FREE_LLM_MODEL: z.string().min(1).default('gemma-4-31b-it'),
   LLM_VISION_MODEL: z.string().optional(),
   // Vision usually lives on a different backend (solclawn has no vision). Point these at a
   // vision-capable Ollama (e.g. llama3.2-vision). Empty => vision reuses LLM_BASE_URL/LLM_API_KEY.

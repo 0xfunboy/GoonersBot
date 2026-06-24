@@ -136,7 +136,7 @@ LLM_BASE_URL=https://llm.solclawn.com/v1
 LLM_API_KEY=<router client bearer token>
 LLM_MODEL=<a model exposed by the router, e.g. gpt-oss:latest>
 # Every Free-group LLM stage uses this economy model instead of LLM_MODEL.
-FREE_LLM_MODEL=gemma4:31b
+FREE_LLM_MODEL=gemma-4-31b-it
 
 # DeepSeek
 LLM_PROVIDER=deepseek
@@ -589,7 +589,7 @@ The tables below list the common vars; see `.env.example` for the full set with 
 | `LLM_BASE_URL`                                                          | per-provider | OpenAI-compatible base URL.                                             |
 | `LLM_API_KEY`                                                           | none         | Bearer token.                                                           |
 | `LLM_MODEL`                                                             | none         | Chat model (required for text replies).                                 |
-| `FREE_LLM_MODEL`                                                        | `gemma4:31b` | Economy model forced for every LLM operation in Free groups.            |
+| `FREE_LLM_MODEL`                                                        | `gemma-4-31b-it` | Economy model forced for every LLM operation in Free groups.            |
 | `LLM_VISION_MODEL`                                                      | none         | Enables image and video-frame understanding.                            |
 | `LLM_VISION_BASE_URL` / `LLM_VISION_API_KEY`                            | none         | Separate vision endpoint; empty reuses the main one.                    |
 | `LLM_TRANSCRIPTION_MODEL`                                               | none         | Remote STT fallback; local whisper covers this otherwise.               |
