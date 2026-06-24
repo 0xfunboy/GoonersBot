@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { loadEnv } from '../src/config/env.js';
 import { resolveLLMConfig } from '../src/config/index.js';
 import { createLLMProvider, safeJson } from '../src/providers/llm/index.js';
+import { FallbackLLMProvider } from '../src/providers/llm/fallback.js';
+import type { JsonRequest } from '../src/providers/llm/types.js';
+import { fakeLLM } from './helpers.js';
 
 const base = { TELEGRAM_BOT_TOKEN: 't' };
 
@@ -70,5 +74,64 @@ describe('safeJson', () => {
   });
   it('returns null on garbage', () => {
     expect(safeJson('no json here')).toBeNull();
+  });
+});
+
+describe('FallbackLLMProvider', () => {
+  it('uses its configured model instead of a failed primary model override', async () => {
+    const primary = fakeLLM({});
+    primary.chatCompletion = async () => {
+      throw new Error('primary unavailable');
+    };
+    primary.streamChatCompletion = async function* () {
+      throw new Error('primary unavailable');
+    };
+    primary.jsonCompletion = async () => {
+      throw new Error('primary unavailable');
+    };
+
+    const fallback = fakeLLM({ json: { ok: true } });
+    let chatModel: string | undefined;
+    let streamModel: string | undefined;
+    let jsonModel: string | undefined;
+    fallback.chatCompletion = async (req) => {
+      chatModel = req.model;
+      return { text: 'recovered', usage: { estimated: true }, model: 'local-model' };
+    };
+    fallback.streamChatCompletion = async function* (req) {
+      streamModel = req.model;
+      yield 'recovered';
+      return { text: 'recovered', usage: { estimated: true }, model: 'local-model' };
+    };
+    const originalJsonCompletion = fallback.jsonCompletion.bind(fallback);
+    fallback.jsonCompletion = async <T>(req: JsonRequest<T>) => {
+      jsonModel = req.model;
+      return originalJsonCompletion(req);
+    };
+
+    const provider = new FallbackLLMProvider(primary, fallback);
+    await expect(
+      provider.chatCompletion({ messages: [{ role: 'user', content: 'hello' }], model: 'remote-model' }),
+    ).resolves.toMatchObject({ text: 'recovered', model: 'local-model' });
+    expect(chatModel).toBeUndefined();
+
+    const chunks: string[] = [];
+    for await (const chunk of provider.streamChatCompletion({
+      messages: [{ role: 'user', content: 'hello' }],
+      model: 'remote-model',
+    })) {
+      chunks.push(chunk);
+    }
+    expect(chunks).toEqual(['recovered']);
+    expect(streamModel).toBeUndefined();
+
+    await expect(
+      provider.jsonCompletion({
+        prompt: 'return JSON',
+        model: 'remote-model',
+        schema: z.object({ ok: z.boolean() }),
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(jsonModel).toBeUndefined();
   });
 });

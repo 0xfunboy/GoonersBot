@@ -51,29 +51,58 @@ export class FallbackLLMProvider implements LLMProvider {
     if (this.capabilities.embeddings) this.embed = (texts) => this.doEmbed(texts);
   }
 
-  private async withFallback<T>(label: string, fn: (p: LLMProvider) => Promise<T>): Promise<T> {
+  private async withFallback<T>(
+    label: string,
+    primaryCall: () => Promise<T>,
+    fallbackCall: () => Promise<T>,
+  ): Promise<T> {
     try {
-      return await fn(this.primary);
+      return await primaryCall();
     } catch (err) {
       log.warn({ err, label }, 'primary LLM failed - retrying on fallback');
-      return fn(this.fallback);
+      return fallbackCall();
     }
   }
 
+  /**
+   * Per-call model overrides belong to the primary route. A fallback endpoint has its own
+   * configured model and may not expose the primary model name at all.
+   */
+  private fallbackRequest<T extends { model?: string }>(req: T): Omit<T, 'model'> {
+    const { model: _primaryModel, ...fallbackReq } = req;
+    return fallbackReq;
+  }
+
   chatCompletion(req: ChatRequest): Promise<ChatResult> {
-    return this.withFallback('chatCompletion', (p) => p.chatCompletion(req));
+    return this.withFallback(
+      'chatCompletion',
+      () => this.primary.chatCompletion(req),
+      () => this.fallback.chatCompletion(this.fallbackRequest(req)),
+    );
   }
 
   extractFacts(req: ExtractFactsRequest): Promise<Fact[]> {
-    return this.withFallback('extractFacts', (p) => p.extractFacts(req));
+    return this.withFallback(
+      'extractFacts',
+      () => this.primary.extractFacts(req),
+      () => this.fallback.extractFacts(req),
+    );
   }
 
   scoreAutoEngage(req: ScoreAutoEngageRequest): Promise<AutoEngageScore> {
-    return this.withFallback('scoreAutoEngage', (p) => p.scoreAutoEngage(req));
+    return this.withFallback(
+      'scoreAutoEngage',
+      () => this.primary.scoreAutoEngage(req),
+      () => this.fallback.scoreAutoEngage(req),
+    );
   }
 
   jsonCompletion<T>(req: JsonRequest<T>): Promise<T | null> {
-    return this.withFallback('jsonCompletion', (p) => p.jsonCompletion(req));
+    return this.withFallback(
+      'jsonCompletion',
+      () => this.primary.jsonCompletion(req),
+      () => this.fallback.jsonCompletion(this.fallbackRequest(req)),
+    );
   }
 
   private async doEmbed(texts: string[]): Promise<number[][]> {
@@ -96,7 +125,7 @@ export class FallbackLLMProvider implements LLMProvider {
     } catch (err) {
       if (yielded) throw err; // can't restart mid-stream without duplicating output
       log.warn({ err }, 'primary stream failed before output - falling back');
-      return yield* this.fallback.streamChatCompletion(req);
+      return yield* this.fallback.streamChatCompletion(this.fallbackRequest(req));
     }
   }
 }
