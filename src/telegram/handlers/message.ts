@@ -8,6 +8,8 @@ import { localizeResponse, sendResponse, scheduleDelete } from '../render.js';
 import { fingerprint, escapeHtml } from '../../utils/text.js';
 import { Cooldown } from '../../utils/rateLimit.js';
 import { childLogger } from '../../utils/logger.js';
+import type { LinkMediaResult } from '../../services/linkMedia.js';
+import { extractUrls } from '../../providers/media/linkMedia/url.js';
 
 const log = childLogger('message');
 
@@ -59,6 +61,18 @@ export async function handleMessage(
   const tracking = await services.conversation.isTrackingEnabled(context.chatId);
   const addressed = !context.isGroup || context.isBotMentioned || context.isReplyToBot;
   if (!tracking && !addressed) return;
+  // Passive inference is an explicit per-chat opt-in. Without it, unaddressed traffic is stored
+  // only as context and costs neither a model request nor a group quota turn.
+  const autoengageEnabled =
+    !addressed && tracking && (await services.storage.chats.getAutoengage(context.chatId));
+  const mediaUrls = message.messageText
+    ? extractUrls(message.messageText, services.config.linkMedia.maxUrlsPerMessage)
+    : [];
+  const linkMediaEnabled =
+    services.linkMedia.enabled &&
+    mediaUrls.length > 0 &&
+    (await services.storage.chats.getLinkMedia(context.chatId));
+  const hasMediaUrl = linkMediaEnabled;
 
   // terms gate
   if (await services.terms.hasDeclined(person.userHandle)) return;
@@ -89,10 +103,9 @@ export async function handleMessage(
     return;
   }
 
-  // Passive group traffic is retained as lightweight conversation context, but it never reaches
-  // STT, link-media, scene analysis, evaluator/Cortex, or any LLM. A mention/reply is the sole
-  // explicit opt-in for inference.
-  if (!addressed) {
+  // Passive group traffic is retained as lightweight conversation context unless this specific
+  // chat has opted into autoengage. That keeps background traffic free by default.
+  if (!addressed && !autoengageEnabled && !hasMediaUrl) {
     if (tracking) {
       await services.conversation.addUserMessage(
         context.chatId,
@@ -162,17 +175,20 @@ export async function handleMessage(
   // Link-media rehost: if the message has media URLs, download and re-upload them as Telegram
   // attachments. Unaddressed -> rehost and stop; addressed -> rehost + feed media context to the AI.
   // Honors the per-chat /linkmedia toggle (on by default).
-  if (
-    services.linkMedia.enabled &&
-    message.messageText &&
-    (await services.storage.chats.getLinkMedia(context.chatId))
-  ) {
+  if (linkMediaEnabled && message.messageText) {
     const linkMedia = await services.linkMedia
       .handleMessage({ ctx, person, context, text: message.messageText, addressed })
       .catch((err) => {
         log.warn({ err }, 'link media handler failed');
-        return { handled: false } as { handled: boolean; injectedText?: string };
+        return { handled: false, reason: 'handler_error' } as LinkMediaResult;
       });
+
+    if (!linkMedia.handled && linkMedia.reason && linkMedia.reason !== 'no_supported_url') {
+      log.info(
+        { chatId: context.chatId, reason: linkMedia.reason },
+        'link media did not rehost a detected URL',
+      );
+    }
 
     if (linkMedia.injectedText) {
       message.messageText = `${message.messageText ? `${message.messageText}\n` : ''}[media context]: ${linkMedia.injectedText}`;
@@ -194,6 +210,25 @@ export async function handleMessage(
     }
   }
 
+  // A passive URL may fail to rehost (for example a social site demanding cookies). It must not
+  // then fall through into the evaluator unless this chat explicitly enabled autoengage.
+  if (!addressed && !autoengageEnabled) {
+    if (tracking) {
+      await services.conversation.addUserMessage(
+        context.chatId,
+        person.userHandle,
+        {
+          messageText: message.messageText || null,
+          timestamp: message.timestamp,
+          imageDescription: null,
+          voiceDescription: null,
+        },
+        metaOf(person, context),
+      );
+    }
+    return;
+  }
+
   const decision = await services.autoengage.decide(
     {
       person,
@@ -207,7 +242,7 @@ export async function handleMessage(
       recentNegativeFeedback,
     },
     addressed,
-    false,
+    autoengageEnabled,
   );
 
   // not engaging → store as context (if tracking) and bail

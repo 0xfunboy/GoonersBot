@@ -137,6 +137,12 @@ export const translations: TranslationMap = {
     russian: 'Статус пассивных ответов',
     spanish: 'Estado de respuestas pasivas',
   },
+  vision_description: {
+    italian: 'analizza una foto o video',
+    english: 'analyze a photo or video',
+    russian: 'анализ фото или видео',
+    spanish: 'analizar una foto o video',
+  },
   autopost_description: {
     italian: 'Attiva/disattiva i post autonomi (news/immagini) in questa chat',
     english: 'Toggle autonomous posts (news/images) in this chat',
@@ -984,6 +990,24 @@ export const translations: TranslationMap = {
       '',
       `<strong>🔗 Código abierto:</strong> <a href="${GITHUB_URL}">GoonersBot en GitHub</a>`,
     ].join('\n'),
+  },
+  vision_usage: {
+    italian: 'Mandami o rispondi a una foto/video con <em>/visione</em>.',
+    english: 'Send or reply to a photo/video with <em>/vision</em>.',
+    russian: 'Отправьте или ответьте на фото/видео командой <em>/vision</em>.',
+    spanish: 'Envía o responde a una foto/video con <em>/vision</em>.',
+  },
+  vision_unavailable: {
+    italian: 'La visione non riesce a leggere questo media adesso.',
+    english: 'Vision cannot read this media right now.',
+    russian: 'Сейчас vision не может прочитать этот медиафайл.',
+    spanish: 'Vision no puede leer este contenido ahora mismo.',
+  },
+  vision_result: {
+    italian: '<strong>Visione:</strong> {description}',
+    english: '<strong>Vision:</strong> {description}',
+    russian: '<strong>Vision:</strong> {description}',
+    spanish: '<strong>Vision:</strong> {description}',
   },
   help_text: {
     italian: [

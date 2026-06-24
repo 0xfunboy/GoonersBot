@@ -8,6 +8,8 @@ import { runCallback, runCommand, type DispatchDeps } from './dispatch.js';
 import { buildChatContext, buildIncomingMessage, buildPerson, isBotAddressed } from './context.js';
 import { childLogger } from '../utils/logger.js';
 import { runWithGroupPlan } from '../providers/llm/requestContext.js';
+import { aliasesForCommand, menuNameForCommand } from './handlers/commands/aliases.js';
+import { extractUrls } from '../providers/media/linkMedia/url.js';
 
 const log = childLogger('bot');
 
@@ -27,9 +29,9 @@ export async function createBot(config: AppConfig, services: Services): Promise<
 
   const deps: DispatchDeps = { services, botUsername };
 
-  // Register commands (with any aliases; only the canonical name appears in the menu).
+  // Register every English/Italian alias; the menu exposes the English baseline below.
   for (const spec of commandHandlers) {
-    const names = [spec.command, ...(spec.aliases ?? [])];
+    const names = [spec.command, ...aliasesForCommand(spec)];
     bot.command(names, (ctx) => runCommand(ctx, spec, deps));
   }
 
@@ -57,11 +59,16 @@ export async function createBot(config: AppConfig, services: Services): Promise<
       if (!person || !context) return;
       const { mentioned, replyToBot } = isBotAddressed(ctx, botUsername);
       const addressed = mentioned || replyToBot;
-      // Unaddressed group traffic is stored as text-only context. Never download media or send it
-      // through inference until someone explicitly mentions or replies to the bot.
+      // Unaddressed traffic stays text-only. It enters inference only when this chat explicitly
+      // enabled /autoengage; otherwise it remains free background context.
       const wantVoice = addressed;
       const message = await buildIncomingMessage(ctx, { image: addressed, voice: wantVoice });
-      if (!addressed) {
+      const autoengageEnabled =
+        !addressed && (await services.storage.chats.getAutoengage(context.chatId));
+      const hasMediaUrl =
+        Boolean(message.messageText) &&
+        extractUrls(message.messageText, config.linkMedia.maxUrlsPerMessage).length > 0;
+      if (!addressed && !autoengageEnabled && !hasMediaUrl) {
         await handleMessage(ctx, person, context, message, {
           services,
           env: config.env,
@@ -70,11 +77,13 @@ export async function createBot(config: AppConfig, services: Services): Promise<
         return;
       }
       const plan = await services.planForChat(context.chatId);
-      await runWithGroupPlan(plan.id, () => handleMessage(ctx, person, context, message, {
-        services,
-        env: config.env,
-        botUsername,
-      }));
+      await runWithGroupPlan(plan.id, () =>
+        handleMessage(ctx, person, context, message, {
+          services,
+          env: config.env,
+          botUsername,
+        }),
+      );
     },
   );
 
@@ -87,10 +96,9 @@ export async function createBot(config: AppConfig, services: Services): Promise<
   const menu = [...commandHandlers]
     .sort((a, b) => a.priority - b.priority || a.command.localeCompare(b.command))
     .map((c) => ({
-      command: c.command,
+      command: menuNameForCommand(c),
       description:
-        services.localizer.t(`${c.command}_description`, {}, config.env.DEFAULT_LANGUAGE) ??
-        'GoonersBot command',
+        services.localizer.t(`${c.command}_description`, {}, 'english') ?? 'GoonersBot command',
     }));
   await bot.api.setMyCommands(menu).catch((err) => log.warn({ err }, 'setMyCommands failed'));
 

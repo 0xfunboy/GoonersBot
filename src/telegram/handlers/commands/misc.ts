@@ -2,6 +2,7 @@ import type { CommandSpec } from '../types.js';
 import type { CommandResponse } from '../../../domain/types.js';
 import { Priority } from '../types.js';
 import { SET_LANGUAGE_CALLBACK, languagesKeyboard, termsKeyboard, termsHeader } from '../shared.js';
+import { commandAliasHelp } from './aliases.js';
 
 /** /usage - show the caller's usage this period and limit. */
 export const usageCommand: CommandSpec = {
@@ -59,7 +60,9 @@ export const helpCommand: CommandSpec = {
   permissions: [],
   needsTermsAccepted: false,
   priority: Priority.LAST,
-  async handle() {
-    return { text: 'help_text' };
+  async handle({ services, context }) {
+    const language = await services.getLanguage(context.chatId);
+    const help = services.localizer.t('help_text', {}, language) ?? 'help_text';
+    return { rawText: `${help}\n\n${commandAliasHelp(language)}` };
   },
 };

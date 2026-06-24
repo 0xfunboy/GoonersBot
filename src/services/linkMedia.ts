@@ -47,6 +47,8 @@ const NSFW_HOSTS = [
 export interface LinkMediaResult {
   handled: boolean;
   injectedText?: string;
+  /** Safe operational reason for logs/debugging; never contains cookies or source internals. */
+  reason?: string;
 }
 
 export class LinkMediaService {
@@ -76,16 +78,20 @@ export class LinkMediaService {
     text: string;
     addressed: boolean;
   }): Promise<LinkMediaResult> {
-    if (!this.enabled) return { handled: false };
+    if (!this.enabled) return { handled: false, reason: 'service_disabled' };
 
     const urls = extractUrls(input.text, this.cfg.maxUrlsPerMessage).filter((u) =>
       this.hostAllowed(u),
     );
-    if (urls.length === 0) return { handled: false };
+    if (urls.length === 0) return { handled: false, reason: 'no_supported_url' };
 
     // Anti-spam: one rehost burst per chat/user window.
-    if (!this.chatCooldown.tryAcquire(String(input.context.chatId))) return { handled: false };
-    if (!this.userCooldown.tryAcquire(input.person.userHandle)) return { handled: false };
+    if (!this.chatCooldown.tryAcquire(String(input.context.chatId))) {
+      return { handled: false, reason: 'chat_cooldown' };
+    }
+    if (!this.userCooldown.tryAcquire(input.person.userHandle)) {
+      return { handled: false, reason: 'user_cooldown' };
+    }
 
     const injected: string[] = [];
     let sentAny = false;
@@ -107,10 +113,12 @@ export class LinkMediaService {
       if (result.contextText) injected.push(result.contextText);
     }
 
-    return {
+    const outcome: LinkMediaResult = {
       handled: sentAny,
       ...(injected.length ? { injectedText: injected.join('\n') } : {}),
     };
+    if (!sentAny) outcome.reason = 'no_media_rehosted';
+    return outcome;
   }
 
   async rehostUrl(input: {

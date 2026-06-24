@@ -2,6 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { modeCommand, addmodeCommand } from '../src/telegram/handlers/commands/modes.js';
 import { clearfactsCommand } from '../src/telegram/handlers/commands/facts.js';
 import { nsfwCommand } from '../src/telegram/handlers/commands/nsfw.js';
+import { autoengageCommand } from '../src/telegram/handlers/commands/toggles.js';
+import { visionCommand } from '../src/telegram/handlers/commands/vision.js';
+import {
+  aliasesForCommand,
+  commandAliasHelp,
+  menuNameForCommand,
+} from '../src/telegram/handlers/commands/aliases.js';
 import { callbackHandlers } from '../src/telegram/handlers/callbacks/index.js';
 import type { HandlerInput } from '../src/telegram/handlers/types.js';
 import type { ChatContext, Person } from '../src/domain/types.js';
@@ -50,6 +57,55 @@ describe('mode commands', () => {
     const services = { modes: { add: vi.fn() } };
     const res = await addmodeCommand.handle(input(services, []));
     expect(res?.text).toBe('invalid_mode_args');
+  });
+});
+
+describe('/vision command and bilingual aliases', () => {
+  it('describes a replied image through the configured vision provider', async () => {
+    const describeImage = vi.fn().mockResolvedValue('A neon sign above a street.');
+    const services = { media: { describeImage, frameFromVideo: vi.fn() } };
+    const res = await visionCommand.handle({
+      ...input(services, []),
+      message: {
+        messageText: '',
+        timestamp: new Date(),
+        repliedImageBuffer: Buffer.from('jpeg'),
+        repliedImageMime: 'image/jpeg',
+      },
+    });
+    expect(describeImage).toHaveBeenCalledWith(Buffer.from('jpeg'), 'image/jpeg');
+    expect(res).toMatchObject({
+      text: 'vision_result',
+      vars: { description: 'A neon sign above a street.' },
+    });
+  });
+
+  it('returns usage when no visual media is attached or replied to', async () => {
+    const services = { media: { describeImage: vi.fn(), frameFromVideo: vi.fn() } };
+    await expect(visionCommand.handle(input(services, []))).resolves.toMatchObject({
+      text: 'vision_usage',
+    });
+  });
+
+  it('registers Italian aliases while the menu keeps the English baseline', () => {
+    expect(aliasesForCommand({ ...visionCommand })).toContain('visione');
+    expect(aliasesForCommand({ ...visionCommand })).not.toContain('vision');
+    expect(menuNameForCommand({ ...visionCommand })).toBe('vision');
+    expect(menuNameForCommand({ command: 'genera' } as typeof visionCommand)).toBe('image');
+    expect(commandAliasHelp('italian')).toContain('/visione');
+    expect(commandAliasHelp('italian')).toContain('<em>/genera</em> /<em>image</em>');
+    expect(commandAliasHelp('italian')).toContain('<em>/disegna</em> /<em>draw</em>');
+    expect(commandAliasHelp('english')).toContain('/vision');
+  });
+});
+
+describe('/autoengage command', () => {
+  it('toggles the chat-level passive reply setting', async () => {
+    const switchAutoengage = vi.fn().mockResolvedValue(true);
+    const services = { storage: { chats: { switchAutoengage } } };
+    const res = await autoengageCommand.handle(input(services, []));
+    expect(switchAutoengage).toHaveBeenCalledWith(-1);
+    expect(res).toMatchObject({ text: 'autoengage_turned_on' });
   });
 });
 
