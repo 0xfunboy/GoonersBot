@@ -19,6 +19,8 @@ export interface LLMConfig {
   visionModel: string | undefined;
   /** Optional separate endpoint for vision (e.g. an Ollama running llama3.2-vision). */
   visionBaseUrl: string | undefined;
+  /** Optional full vision URL for routers that expose a dedicated endpoint. */
+  visionEndpointUrl: string | undefined;
   visionApiKey: string | undefined;
   imageModel: string | undefined;
   transcriptionModel: string | undefined;
@@ -78,6 +80,7 @@ export function resolveLLMConfig(env: Env): LLMConfig {
       model: env.DEEPSEEK_MODEL ?? env.LLM_MODEL,
       visionModel: env.LLM_VISION_MODEL,
       visionBaseUrl: env.LLM_VISION_BASE_URL,
+      visionEndpointUrl: env.LLM_VISION_ENDPOINT_URL,
       visionApiKey: env.LLM_VISION_API_KEY,
       imageModel: env.LLM_IMAGE_MODEL,
       transcriptionModel: env.LLM_TRANSCRIPTION_MODEL,
@@ -98,6 +101,7 @@ export function resolveLLMConfig(env: Env): LLMConfig {
     model: env.LLM_MODEL,
     visionModel: env.LLM_VISION_MODEL,
     visionBaseUrl: env.LLM_VISION_BASE_URL,
+    visionEndpointUrl: env.LLM_VISION_ENDPOINT_URL,
     visionApiKey: env.LLM_VISION_API_KEY,
     imageModel: env.LLM_IMAGE_MODEL,
     transcriptionModel: env.LLM_TRANSCRIPTION_MODEL,

@@ -85,12 +85,14 @@ export async function runCommand(
     }
   }
   if ('input' in prepared && spec.quotaConversation) {
-    const decision = await deps.services.quota.admitConversation({
-      chatId: prepared.input.context.chatId,
-      telegramId: prepared.input.person.telegramId,
-      passive: false,
-      reserveTokens: false,
-    });
+    const decision = deps.services.bypassesGroupPlan(prepared.input.person, prepared.input.context)
+      ? { allowed: true }
+      : await deps.services.quota.admitConversation({
+          chatId: prepared.input.context.chatId,
+          telegramId: prepared.input.person.telegramId,
+          passive: false,
+          reserveTokens: false,
+        });
     if (!decision.allowed) {
       const localized = await localizeResponse(deps.services, ctx.chat?.id ?? 0, {
         text: 'group_quota_exceeded',
@@ -147,7 +149,7 @@ async function finish(
   }
 
   try {
-    const plan = await services.planForChat(prepared.input.context.chatId);
+    const plan = await services.planForTurn(prepared.input.person, prepared.input.context);
     const response = await runWithGroupPlan(plan.id, () => run(prepared.input));
     if (!response) return;
     // for terms accept/decline: remove the (personal) prompt the button was attached to

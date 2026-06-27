@@ -115,6 +115,9 @@ const envSchema = z.object({
   // Vision usually lives on a different backend (solclawn has no vision). Point these at a
   // vision-capable Ollama (e.g. llama3.2-vision). Empty => vision reuses LLM_BASE_URL/LLM_API_KEY.
   LLM_VISION_BASE_URL: z.string().optional(),
+  // Optional full vision endpoint. Use this for routers that expose a dedicated /v1/vision route
+  // instead of OpenAI-style /chat/completions.
+  LLM_VISION_ENDPOINT_URL: optStr,
   LLM_VISION_API_KEY: z.string().optional(),
   LLM_IMAGE_MODEL: z.string().optional(),
   LLM_TRANSCRIPTION_MODEL: z.string().optional(),
@@ -136,6 +139,12 @@ const envSchema = z.object({
   RAG_KNOWLEDGE_TOPK: intFromString(2),
   RAG_NEWS_TOPK: intFromString(3),
   RAG_MIN_SCORE: floatFromString(0.3),
+
+  // Short-lived working memory for live conversation ownership/threads. This is not durable lore:
+  // it prevents "whose car/topic/opinion is this?" mistakes without bloating prompts.
+  THREAD_STATE_ENABLED: boolFromString(true),
+  THREAD_STATE_TTL_DAYS: intFromString(5),
+  THREAD_STATE_MAX_ACTIVE: intFromString(10),
 
   // Per-user "heat": verbal-hostility escalation that rises when a user pushes the bot and
   // cools over time / when the user de-escalates. Scored 0..100.

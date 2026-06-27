@@ -35,9 +35,9 @@ current counters and applies the new limits immediately.
 
 Free groups are direct-request only. Every LLM step, including internal scene analysis, evaluator/Cortex,
 reply generation, translation, image-prompt preparation and manual fact extraction, is forced to
-`FREE_LLM_MODEL`. Embeddings keep using the independently configured embedding endpoint when retrieval
-needs them. Free groups do not invoke the separate vision model and do not run autonomous posting or
-background memory mining.
+`FREE_LLM_MODEL` (production default: `gemma-4-26b-a4b-it`). Embeddings keep using the independently
+configured GemRouter `bge-m3` endpoint when retrieval needs semantic search. Free groups do not invoke the
+separate vision model and do not run autonomous posting or background memory mining.
 
 ## Anti-flood
 

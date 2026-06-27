@@ -122,6 +122,7 @@ export interface TurnEvaluation {
 }
 
 export interface ProviderBundle {
+  threadContext?: string;
   groupContext?: string;
   knowledgeContext?: string;
   webContext?: string;
@@ -205,6 +206,7 @@ export interface BrainDebugTurn {
   cortex?: import('./cortex/schema.js').SourcedCortexDecision;
   providerSources: string[];
   providerBundle?: ProviderBundle;
+  threadContext?: string;
   retrievedMemories: Array<{
     id: string;
     text: string;

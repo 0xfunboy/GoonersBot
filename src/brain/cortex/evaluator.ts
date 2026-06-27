@@ -29,6 +29,7 @@ export interface CortexInput {
   scene: SceneAnalysis;
   history: StoredMessage[];
   currentMessage: string;
+  threadContext?: string;
   botIsAddressed: boolean;
   recentNegativeFeedback: boolean;
   capabilities: CortexCapabilities;
@@ -63,6 +64,7 @@ export class Cortex {
         system: CORTEX_SYSTEM,
         prompt: buildCortexPrompt({
           currentMessage: input.currentMessage,
+          threadContext: input.threadContext,
           availableTools,
           history: input.history,
           scene: input.scene,

@@ -21,6 +21,8 @@ import { KnowledgeRepo } from './repositories/knowledge.js';
 import { AutopostHistoryRepo } from './repositories/autopostHistory.js';
 import { LinkMediaCacheRepo } from './repositories/linkMediaCache.js';
 import { ChatQuotaRepo } from './repositories/chatQuota.js';
+import { ConversationThreadsRepo } from './repositories/conversationThreads.js';
+import { ConversationEntitiesRepo } from './repositories/conversationEntities.js';
 
 const log = childLogger('storage');
 
@@ -48,6 +50,8 @@ export class Storage {
   readonly autopostHistory: AutopostHistoryRepo;
   readonly linkMediaCache: LinkMediaCacheRepo;
   readonly chatQuota: ChatQuotaRepo;
+  readonly conversationThreads: ConversationThreadsRepo;
+  readonly conversationEntities: ConversationEntitiesRepo;
 
   private constructor(
     private readonly connection: MongoConnection,
@@ -77,6 +81,8 @@ export class Storage {
     this.autopostHistory = new AutopostHistoryRepo(db);
     this.linkMediaCache = new LinkMediaCacheRepo(db);
     this.chatQuota = new ChatQuotaRepo(db);
+    this.conversationThreads = new ConversationThreadsRepo(db);
+    this.conversationEntities = new ConversationEntitiesRepo(db);
   }
 
   static async connect(env: Env): Promise<Storage> {
@@ -104,6 +110,8 @@ export class Storage {
     await AutopostHistoryRepo.ensureIndexes(this.db);
     await LinkMediaCacheRepo.ensureIndexes(this.db);
     await ChatQuotaRepo.ensureIndexes(this.db);
+    await ConversationThreadsRepo.ensureIndexes(this.db);
+    await ConversationEntitiesRepo.ensureIndexes(this.db);
     log.info('indexes ensured');
   }
 

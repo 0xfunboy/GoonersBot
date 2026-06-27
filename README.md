@@ -63,7 +63,7 @@
 - Link media rehost: when a media URL is posted, the bot re-uploads it as a native Telegram attachment. Video streams (YouTube, TikTok, adult/cam, ...) are downloaded with yt-dlp; social posts (X, Instagram, Bluesky) are sent as images plus context (post text, likes, reposts). Results are cached by file_id, toggle per chat with `/linkmedia`.
 - Translation: `/translate` (alias `/traduci`) translates the replied message into any language.
 - NSFW routing to a separate uncensored model, decided before generation, with a refusal backstop.
-- Pluggable LLM backends (solclawn, OpenAI, DeepSeek, Ollama, any OpenAI-compatible host) with an
+- Pluggable LLM backends (GemRouter, OpenAI, DeepSeek, Ollama, any OpenAI-compatible host) with an
   optional fallback endpoint.
 - No Docker and no Python. Node plus a local MongoDB. Strict TypeScript, ESM, eslint, prettier, vitest.
 
@@ -130,13 +130,20 @@ business logic. Media capabilities activate only when you set the matching model
 capability is disabled and the bot degrades gracefully instead of crashing.
 
 ```env
-# solclawn (OpenAI-compatible router, default)
-LLM_PROVIDER=solclawn
-LLM_BASE_URL=https://llm.solclawn.com/v1
-LLM_API_KEY=<router client bearer token>
-LLM_MODEL=<a model exposed by the router, e.g. gpt-oss:latest>
+# GemRouter (OpenAI-compatible root surface)
+LLM_PROVIDER=custom_openai_compatible
+LLM_BASE_URL=http://192.168.178.27:4024
+LLM_API_KEY=<GemRouter app bearer token>
+LLM_MODEL=gemini-2.5-flash
+SCENE_MODEL=gemini-2.5-flash-lite
+REALISTIC_EVALUATOR_MODEL=gemini-2.5-flash-lite
+CORTEX_MODEL=gemini-2.5-flash-lite
+EMBEDDING_BASE_URL=http://192.168.178.27:4024/v1
+EMBEDDING_MODEL=bge-m3
+LLM_VISION_ENDPOINT_URL=http://192.168.178.27:4024/v1/vision
+LLM_VISION_MODEL=minicpm-v4.5:8b
 # Every Free-group LLM stage uses this economy model instead of LLM_MODEL.
-FREE_LLM_MODEL=gemma-4-31b-it
+FREE_LLM_MODEL=gemma-4-26b-a4b-it
 
 # DeepSeek
 LLM_PROVIDER=deepseek
@@ -150,11 +157,11 @@ LLM_BASE_URL=http://127.0.0.1:11434/v1
 LLM_MODEL=llama3.1
 ```
 
-An optional fallback endpoint (`LLM_FALLBACK_BASE_URL` + `LLM_FALLBACK_MODEL`) is used for chat and
-reasoning calls when the primary throws (timeout, connection refused, 5xx), e.g. a local Ollama
-gpt-oss on a GPU box. It is transparent to the rest of the code; vision, STT and TTS stay on the
-primary. The provider reports capabilities (`chat`, `vision`, `transcription`, `imageGeneration`,
-`tts`); a missing one is logged once and skipped.
+An optional fallback endpoint (`LLM_FALLBACK_BASE_URL` + `LLM_FALLBACK_MODEL`) can be used for chat
+and reasoning calls when the primary throws, but the production GoonerBot config keeps it empty so
+the local MiniCPM box remains dedicated to vision. Vision, STT and TTS stay on their own providers.
+The provider reports capabilities (`chat`, `vision`, `transcription`, `imageGeneration`, `tts`);
+a missing one is logged once and skipped.
 
 ---
 
@@ -269,6 +276,21 @@ generation, translation, image-prompt preparation and manual fact extraction); e
 separate configured endpoint. Free groups do not invoke the separate vision model and also skip
 autonomous posting and background memory mining.
 All plans store passive messages as context only and never infer or reply until the bot is addressed.
+
+Semantic RAG uses `EMBEDDING_MODEL` (default `bge-m3`, 1024 dimensions) through GemRouter's
+OpenAI-compatible `/v1/embeddings` endpoint. It helps group-memory retrieval, curated knowledge
+matching and news ranking when the wording is not an exact keyword match. If embeddings are
+unavailable or the vector dimension is wrong, the bot logs the failure and falls back to
+keyword/Jaccard retrieval.
+
+Live conversation attribution is tracked separately from durable RAG. The `conversation_threads`
+and `conversation_entities` collections keep short-lived working memory such as "the RAV4 belongs
+to @funboy" or "@miguel is commenting on @funboy's car thread". This state is injected compactly
+before the generator so the bot can reply to the current speaker without stealing ownership of
+topics introduced by someone else. Embeddings can help attach ambiguous follow-ups to the right
+active thread, but ownership is always carried by Telegram metadata and structured entity fields,
+not guessed from vector similarity. Configure it with `THREAD_STATE_ENABLED`,
+`THREAD_STATE_TTL_DAYS`, and `THREAD_STATE_MAX_ACTIVE`.
 
 The bot applies a per-user and per-chat anti-flood bucket before expensive work. Free is deliberately
 strict; Plus allows normal group use; Pro has a much wider burst allowance while retaining hard
@@ -419,18 +441,14 @@ YTDLP_BIN=vendor/bin/yt-dlp        # shared with /play; scripts/setup-voice.sh i
 ## Vision
 
 The bot can look at photos and at a frame extracted from a video, then react. Vision is gated by
-`LLM_VISION_MODEL`. Because some chat backends (such as solclawn) have no vision, it can target a
-separate OpenAI-compatible endpoint, ideally an Ollama on a box with a GPU:
+`LLM_VISION_MODEL`. Production uses GemRouter's dedicated `/v1/vision` endpoint, backed by
+`minicpm-v4.5:8b`; do not point the bot directly at Ollama for this flow:
 
 ```bash
-# on the GPU host:
-ollama pull minicpm-v4.5         # or: gemma4 / qwen3-vl / llava / moondream
-# make sure Ollama listens on the LAN: OLLAMA_HOST=0.0.0.0:11434
-
 # in .env:
 LLM_VISION_MODEL=minicpm-v4.5:8b
-LLM_VISION_BASE_URL=http://<gpu-host>:11434/v1   # empty reuses LLM_BASE_URL/LLM_API_KEY
-LLM_VISION_API_KEY=                              # Ollama needs none
+LLM_VISION_ENDPOINT_URL=http://192.168.178.27:4024/v1/vision
+LLM_VISION_API_KEY=                              # empty reuses LLM_API_KEY
 ```
 
 Images are analysed only when the bot is addressed (mention or reply), for the current message or the
@@ -589,9 +607,10 @@ The tables below list the common vars; see `.env.example` for the full set with 
 | `LLM_BASE_URL`                                                          | per-provider | OpenAI-compatible base URL.                                             |
 | `LLM_API_KEY`                                                           | none         | Bearer token.                                                           |
 | `LLM_MODEL`                                                             | none         | Chat model (required for text replies).                                 |
-| `FREE_LLM_MODEL`                                                        | `gemma-4-31b-it` | Economy model forced for every LLM operation in Free groups.            |
+| `FREE_LLM_MODEL`                                                        | `gemma-4-26b-a4b-it` | Economy model forced for every LLM operation in Free groups.        |
 | `LLM_VISION_MODEL`                                                      | none         | Enables image and video-frame understanding.                            |
-| `LLM_VISION_BASE_URL` / `LLM_VISION_API_KEY`                            | none         | Separate vision endpoint; empty reuses the main one.                    |
+| `LLM_VISION_ENDPOINT_URL`                                               | none         | Full dedicated vision endpoint, e.g. GemRouter `/v1/vision`.            |
+| `LLM_VISION_BASE_URL` / `LLM_VISION_API_KEY`                            | none         | Separate chat-compatible vision base; empty reuses the main one.        |
 | `LLM_TRANSCRIPTION_MODEL`                                               | none         | Remote STT fallback; local whisper covers this otherwise.               |
 | `LLM_TTS_MODEL` / `LLM_IMAGE_MODEL`                                     | none         | Enable remote TTS / image generation if your backend has them.          |
 | `LLM_FALLBACK_BASE_URL` / `LLM_FALLBACK_MODEL` / `LLM_FALLBACK_API_KEY` | none         | Fallback chat endpoint when the primary throws.                         |

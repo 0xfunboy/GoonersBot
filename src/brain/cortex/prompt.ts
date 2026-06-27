@@ -73,6 +73,7 @@ export const CORTEX_FEWSHOT = [
 
 export interface CortexPromptInput {
   currentMessage: string;
+  threadContext?: string | undefined;
   availableTools: CortexTool[];
   history: StoredMessage[];
   scene: SceneAnalysis;
@@ -92,6 +93,7 @@ export function buildCortexPrompt(input: CortexPromptInput): string {
     '',
     'RECENT CHAT:',
     history || '(none)',
+    input.threadContext ? `\nTHREAD STATE:\n${input.threadContext}` : '',
     '',
     `SCENE: topic="${input.scene.currentTopic}" energy=${input.scene.energy} intent=${input.scene.userIntent} addressed=${input.botIsAddressed} criticized=${input.scene.botIsBeingCriticized}`,
     `RECENT NEGATIVE FEEDBACK: ${input.recentNegativeFeedback}`,

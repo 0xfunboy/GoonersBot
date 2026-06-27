@@ -111,6 +111,54 @@ export interface MessageDoc {
   createdAt: Date;
 }
 
+export type ConversationEntityType =
+  | 'person'
+  | 'vehicle'
+  | 'product'
+  | 'place'
+  | 'event'
+  | 'topic'
+  | 'object';
+
+export interface ConversationEntityDoc {
+  chatId: number;
+  entityId: string;
+  type: ConversationEntityType;
+  canonicalName: string;
+  aliases: string[];
+  ownerHandle?: string | null;
+  introducedByHandle: string;
+  attributes: string[];
+  sourceMessageIds: number[];
+  threadIds: string[];
+  embedding?: number[];
+  confidence: number;
+  createdAt: Date;
+  updatedAt: Date;
+  expiresAt: Date;
+}
+
+export interface ConversationThreadDoc {
+  chatId: number;
+  threadId: string;
+  title: string;
+  summary: string;
+  ownerHandle?: string | null;
+  introducedByHandle: string;
+  participantHandles: string[];
+  entityIds: string[];
+  entityAliases: string[];
+  sourceMessageIds: number[];
+  lastMessageId?: number | null;
+  lastSpeakerHandle: string;
+  embedding?: number[];
+  confidence: number;
+  status: 'active' | 'stale' | 'closed';
+  createdAt: Date;
+  updatedAt: Date;
+  expiresAt: Date;
+}
+
 export interface UsageDoc {
   handle: string;
   usage: number;

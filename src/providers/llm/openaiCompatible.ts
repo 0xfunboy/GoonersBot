@@ -24,6 +24,8 @@ export interface OpenAICompatibleOptions {
   visionModel: string | undefined;
   /** Optional separate endpoint for vision; falls back to baseUrl/apiKey when undefined. */
   visionBaseUrl?: string | undefined;
+  /** Optional full vision endpoint URL, for routers exposing /v1/vision instead of chat completions. */
+  visionEndpointUrl?: string | undefined;
   visionApiKey?: string | undefined;
   /** NSFW model name + optional separate endpoint (e.g. amoral-gemma on a router) for NSFW turns. */
   nsfwModel?: string | undefined;
@@ -48,6 +50,11 @@ function estimateTokens(text: string): number {
 function normalizeFinishReason(value: unknown): ChatResult['finishReason'] {
   if (value === 'length' || value === 'content_filter' || value === 'stop') return value;
   return undefined;
+}
+
+function nonEmpty(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 /** Apply OpenAI sampling params onto a request body. */
@@ -255,16 +262,24 @@ export class OpenAICompatibleProvider implements LLMProvider {
     const messages: Array<Record<string, unknown>> = [];
     if (req.system) messages.push({ role: 'system', content: req.system });
     messages.push({ role: 'user', content });
-    const body: Record<string, unknown> = { model, messages, stream: false };
+    const body: Record<string, unknown> = this.opts.visionEndpointUrl
+      ? { messages, stream: false }
+      : { model, messages, stream: false };
     if (req.maxTokens !== undefined) body['max_tokens'] = req.maxTokens;
 
     // Vision may live on a separate backend (e.g. an Ollama with llama3.2-vision) since the
     // main chat host often lacks vision. Fall back to the main base/key when not overridden.
-    const visionUrl = this.opts.visionBaseUrl
+    const visionUrl = this.opts.visionEndpointUrl
+      ? this.opts.visionEndpointUrl
+      : this.opts.visionBaseUrl
       ? `${this.opts.visionBaseUrl.replace(/\/+$/, '')}/chat/completions`
       : this.url('/chat/completions');
     const visionHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-    const visionKey = this.opts.visionBaseUrl ? this.opts.visionApiKey : this.opts.apiKey;
+    const visionKey = this.opts.visionEndpointUrl
+      ? (nonEmpty(this.opts.visionApiKey) ?? this.opts.apiKey)
+      : this.opts.visionBaseUrl
+        ? nonEmpty(this.opts.visionApiKey)
+        : this.opts.apiKey;
     if (visionKey) visionHeaders['Authorization'] = `Bearer ${visionKey}`;
     const groupPlan = currentGroupPlan();
     if (groupPlan) visionHeaders['X-LeakRouter-Group-Plan'] = groupPlan;
@@ -345,7 +360,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
     if (texts.length === 0) return [];
     const baseUrl = (this.opts.embeddingBaseUrl ?? this.opts.baseUrl).replace(/\/+$/, '');
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    const apiKey = this.opts.embeddingBaseUrl ? this.opts.embeddingApiKey : this.opts.apiKey;
+    const apiKey = this.opts.embeddingBaseUrl
+      ? (nonEmpty(this.opts.embeddingApiKey) ?? this.opts.apiKey)
+      : this.opts.apiKey;
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
     const res = await this.fetchWithTimeout(`${baseUrl}/embeddings`, {
       method: 'POST',

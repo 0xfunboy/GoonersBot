@@ -282,11 +282,14 @@ export async function handleMessage(
     return;
   }
 
-  const quota = await services.quota.admitConversation({
-    chatId: context.chatId,
-    telegramId: person.telegramId,
-    passive: !addressed,
-  });
+  const bypassGroupPlan = services.bypassesGroupPlan(person, context);
+  const quota = bypassGroupPlan
+    ? { allowed: true, tokenReservation: 0 }
+    : await services.quota.admitConversation({
+        chatId: context.chatId,
+        telegramId: person.telegramId,
+        passive: !addressed,
+      });
   if (!quota.allowed) {
     if (addressed) {
       const localized = await localizeResponse(services, context.chatId, {
@@ -310,7 +313,7 @@ export async function handleMessage(
     messageText: message.messageText,
     contextText: history.map((h) => h.message.messageText ?? '').join(' '),
   });
-  const plan = await services.planForChat(context.chatId);
+  const plan = await services.planForTurn(person, context);
   const model = services.modelForPlan(plan, route.model);
   const freePlan = services.isFreePlan(plan);
 
@@ -332,6 +335,7 @@ export async function handleMessage(
       allowRefusalFallback: freePlan ? false : route.allowRefusalFallback,
       nsfwModel: freePlan ? undefined : services.modelRouter.nsfwModel,
       recentBotReplies: recentReplies,
+      quotaBypass: bypassGroupPlan,
     });
 
     if (outcome.suppressed) {
@@ -352,6 +356,9 @@ export async function handleMessage(
             ...(outcome.cortex ? { cortex: outcome.cortex } : {}),
             providerSources: outcome.providerBundle.sources,
             providerBundle: outcome.providerBundle,
+            ...(outcome.providerBundle.threadContext
+              ? { threadContext: outcome.providerBundle.threadContext }
+              : {}),
             retrievedMemories: [],
             plan: outcome.plan,
             styleVariant: outcome.styleVariant,
@@ -362,11 +369,13 @@ export async function handleMessage(
           })
           .catch((err) => log.debug({ err }, 'suppressed brain debug record failed'));
       }
-      await services.quota.recordLlmTokens(
-        context.chatId,
-        outcome.usage.inputTokens + outcome.usage.outputTokens,
-        quota.tokenReservation ?? 0,
-      );
+      if (!bypassGroupPlan) {
+        await services.quota.recordLlmTokens(
+          context.chatId,
+          outcome.usage.inputTokens + outcome.usage.outputTokens,
+          quota.tokenReservation ?? 0,
+        );
+      }
       log.debug(
         { chatId: context.chatId, reason: outcome.evaluation.reason },
         'reply suppressed by evaluator',
@@ -378,6 +387,24 @@ export async function handleMessage(
     const replyTo = ctx.message?.message_id;
     const replyOpts = replyTo ? { reply_parameters: { message_id: replyTo } } : {};
     let botMessageId: number | undefined;
+    if (finalText.trim().length > 0) {
+      log.info(
+        {
+          chatId: context.chatId,
+          messageId: context.messageId,
+          model: outcome.model,
+          chars: finalText.length,
+          lines: finalText.split(/\r?\n/).length,
+          inputTokens: outcome.usage.inputTokens,
+          outputTokens: outcome.usage.outputTokens,
+          estimatedUsage: outcome.usage.estimated,
+          styleVariant: outcome.styleVariant,
+          action: outcome.evaluation.action,
+          tail: finalText.replace(/\s+/g, ' ').trim().slice(-180),
+        },
+        'sending final text reply',
+      );
+    }
     if (outcome.music) {
       const replyToMusic = ctx.message?.message_id;
       const musicReplyOpts = replyToMusic ? { reply_parameters: { message_id: replyToMusic } } : {};
@@ -429,6 +456,10 @@ export async function handleMessage(
       if (!voiceSent) {
         const sent = await ctx.reply(finalText, replyOpts);
         botMessageId = sent.message_id;
+        log.info(
+          { chatId: context.chatId, inputMessageId: context.messageId, botMessageId, chars: finalText.length },
+          'text reply sent',
+        );
       }
     }
     if (outcome.imageBuffer || outcome.imageUrl) {
@@ -438,6 +469,9 @@ export async function handleMessage(
         .replyWithPhoto(photo, imageOptions)
         .catch((err) => log.warn({ err }, 'image send failed'));
     }
+    await services.threadTracker
+      .attachMessage(context.chatId, outcome.threadState?.currentThread?.threadId, botMessageId)
+      .catch((err) => log.debug({ err }, 'thread bot-message attach failed'));
 
     // persist user + bot messages (with ids for windows + mining)
     await services.conversation.addUserMessage(
@@ -482,11 +516,13 @@ export async function handleMessage(
       points,
       costEstimate: 0,
     });
-    await services.quota.recordLlmTokens(
-      context.chatId,
-      outcome.usage.inputTokens + outcome.usage.outputTokens,
-      quota.tokenReservation ?? 0,
-    );
+    if (!bypassGroupPlan) {
+      await services.quota.recordLlmTokens(
+        context.chatId,
+        outcome.usage.inputTokens + outcome.usage.outputTokens,
+        quota.tokenReservation ?? 0,
+      );
+    }
 
     // record bot reply (repetition guard + feedback) + brain debug + memory usage
     const reply: import('../../brain/types.js').BotReplyRecord = {
@@ -513,6 +549,9 @@ export async function handleMessage(
           ...(outcome.cortex ? { cortex: outcome.cortex } : {}),
           providerSources: outcome.providerBundle.sources,
           providerBundle: outcome.providerBundle,
+          ...(outcome.providerBundle.threadContext
+            ? { threadContext: outcome.providerBundle.threadContext }
+            : {}),
           retrievedMemories: outcome.retrieved.map((m) => ({
             id: m.item._id ?? '',
             text: m.item.text,

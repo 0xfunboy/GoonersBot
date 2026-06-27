@@ -76,7 +76,7 @@ export async function createBot(config: AppConfig, services: Services): Promise<
         });
         return;
       }
-      const plan = await services.planForChat(context.chatId);
+      const plan = await services.planForTurn(person, context);
       await runWithGroupPlan(plan.id, () =>
         handleMessage(ctx, person, context, message, {
           services,

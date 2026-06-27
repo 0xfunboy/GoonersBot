@@ -138,6 +138,8 @@ export function buildGeneratorUserPrompt(params: {
   addressee?: string;
   /** attached media to react to (photo or a frame from a video), with who posted it */
   media?: { kind: 'photo' | 'video'; description: string; poster: string };
+  /** compact live thread/entity attribution state */
+  threadContext?: string;
   /** per-user hostility directive (heat escalation system) */
   hostility?: string;
   /** on-demand knowledge block (RAG) */
@@ -206,6 +208,8 @@ export function buildGeneratorUserPrompt(params: {
     `RECENT CHAT:\n${renderHistory(params.history, params.botLabel)}`,
     '',
     buildRelevantMemorySection(params.memories),
+    '',
+    params.threadContext ?? '',
     '',
     params.knowledge ?? '',
     params.grounding ?? '',

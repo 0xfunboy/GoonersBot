@@ -38,7 +38,8 @@ import { ReplyService } from './reply.js';
 import { TermsService } from './terms.js';
 import { UsageService } from './usage.js';
 import { GroupQuotaService } from './groupQuota.js';
-import type { QuotaPlan, QuotaPlanId } from '../quota/plans.js';
+import { QUOTA_PLANS, type QuotaPlan, type QuotaPlanId } from '../quota/plans.js';
+import { ConversationThreadTracker } from './threadTracker.js';
 
 export * from './permissions.js';
 export * from './terms.js';
@@ -67,6 +68,7 @@ export class Services {
   readonly facts: FactService;
   readonly usage: UsageService;
   readonly quota: GroupQuotaService;
+  readonly threadTracker: ConversationThreadTracker;
   readonly conversation: ConversationService;
   readonly autoengage: AutoEngageScorer;
   readonly reply: ReplyService;
@@ -141,6 +143,12 @@ export class Services {
     });
     this.commandRateLimit = new Cooldown(env.COMMAND_RATE_LIMIT_SECONDS * 1000);
     this.embedder = createEmbedder(llm, config.embeddings);
+    this.threadTracker = new ConversationThreadTracker(storage, this.embedder, {
+      enabled: env.THREAD_STATE_ENABLED,
+      ttlDays: env.THREAD_STATE_TTL_DAYS,
+      maxActive: env.THREAD_STATE_MAX_ACTIVE,
+      embeddingDim: config.embeddings.dim,
+    });
     const miner = new MemoryMiner(llm, {
       model: config.brain.memoryModel,
       temperature: env.MEMORY_TEMPERATURE,
@@ -246,6 +254,7 @@ export class Services {
       this.imagePrompts,
       this.quota,
       this.localizer,
+      this.threadTracker,
     );
   }
 
@@ -279,6 +288,16 @@ export class Services {
 
   async planForChat(chatId: number): Promise<QuotaPlan> {
     return (await this.quota.getReport(chatId)).plan;
+  }
+
+  /** Bot admins in private chat are operator sessions, not secondary/free groups. */
+  bypassesGroupPlan(person: Person, context: ChatContext): boolean {
+    return !context.isGroup && this.permissions.isBotAdmin(person.userHandle);
+  }
+
+  async planForTurn(person: Person, context: ChatContext): Promise<QuotaPlan> {
+    if (this.bypassesGroupPlan(person, context)) return QUOTA_PLANS.pro;
+    return this.planForChat(context.chatId);
   }
 
   async modelForChat(chatId: number, requestedModel?: string): Promise<string | undefined> {

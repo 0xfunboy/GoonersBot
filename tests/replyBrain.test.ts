@@ -111,6 +111,81 @@ describe('ResponseRanker', () => {
 });
 
 describe('ResponseGenerator', () => {
+  it('retries empty visible replies before giving up on the candidate', async () => {
+    const chatCompletion = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: '',
+        model: 'gemma-4-26b-a4b-it',
+        finishReason: 'length',
+        usage: { inputTokens: 10, outputTokens: 1, estimated: false },
+      })
+      .mockResolvedValueOnce({
+        text: 'Respira: la paura di volare si batte con esposizione graduale e controllo dei dati, non col jet privato immaginario.',
+        model: 'gemma-4-26b-a4b-it',
+        finishReason: 'stop',
+        usage: { inputTokens: 11, outputTokens: 24, estimated: false },
+      });
+    const generator = new ResponseGenerator(
+      { chatCompletion } as never,
+      new StyleEngine(),
+      {
+        model: 'gemma-4-26b-a4b-it',
+        temperature: 0.8,
+        topP: 0.9,
+        frequencyPenalty: 0,
+        presencePenalty: 0,
+        candidateCount: 1,
+        maxReplyChars: 420,
+      },
+    );
+    const callOne = (generator as unknown as {
+      callOne(system: string, prompt: string, model?: string): Promise<{
+        text: string;
+        usage: { inputTokens?: number; outputTokens?: number };
+      }>;
+    }).callOne.bind(generator);
+
+    const result = await callOne('system', 'prompt', 'gemma-4-26b-a4b-it');
+
+    expect(chatCompletion).toHaveBeenCalledTimes(2);
+    expect(chatCompletion.mock.calls[1]?.[0].maxTokens).toBeGreaterThan(
+      chatCompletion.mock.calls[0]?.[0].maxTokens ?? 0,
+    );
+    expect(result.text).toMatch(/paura di volare/i);
+    expect(result.usage).toMatchObject({ inputTokens: 11, outputTokens: 24 });
+  });
+
+  it('throws after repeated empty visible replies', async () => {
+    const chatCompletion = vi.fn().mockResolvedValue({
+      text: '',
+      model: 'gemma-4-26b-a4b-it',
+      finishReason: 'stop',
+      usage: { inputTokens: 10, outputTokens: 1, estimated: false },
+    });
+    const generator = new ResponseGenerator(
+      { chatCompletion } as never,
+      new StyleEngine(),
+      {
+        model: 'gemma-4-26b-a4b-it',
+        temperature: 0.8,
+        topP: 0.9,
+        frequencyPenalty: 0,
+        presencePenalty: 0,
+        candidateCount: 1,
+        maxReplyChars: 420,
+      },
+    );
+    const callOne = (generator as unknown as {
+      callOne(system: string, prompt: string, model?: string): Promise<{ text: string }>;
+    }).callOne.bind(generator);
+
+    await expect(callOne('system', 'prompt', 'gemma-4-26b-a4b-it')).rejects.toThrow(
+      /empty visible reply/i,
+    );
+    expect(chatCompletion).toHaveBeenCalledTimes(3);
+  });
+
   it('rewrites a candidate only when the upstream reports an output-length stop', async () => {
     const chatCompletion = vi
       .fn()

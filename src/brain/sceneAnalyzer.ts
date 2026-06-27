@@ -13,6 +13,7 @@ export interface SceneInput {
   mentionedHandles: string[];
   botIsAddressed: boolean;
   botLabel: string;
+  threadContext?: string;
   /** Per-turn model policy (Free groups use their economy model for internal analysis too). */
   model?: string;
 }
@@ -49,6 +50,7 @@ export class SceneAnalyzer {
       `CURRENT MESSAGE from ${input.currentHandle}: ${input.currentMessage}`,
       `Bot directly addressed (mention/reply): ${input.botIsAddressed ? 'yes' : 'no'}`,
       `Mentioned handles: ${input.mentionedHandles.join(', ') || 'none'}`,
+      input.threadContext ? `THREAD STATE:\n${input.threadContext}` : '',
       '',
       'Fields: currentTopic, energy(dead|low|medium|high|chaotic), humorStyle[], activeUsers[],',
       'mentionedUsers[], openThreads[], botIsBeingAddressed, botIsBeingCriticized,',

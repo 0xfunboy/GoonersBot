@@ -18,6 +18,7 @@ import type { NewsService } from '../news/newsService.js';
 import type { AutonomousPoster } from './autonomousPoster.js';
 import type { ImagePromptService } from './imagePrompt.js';
 import type { GroupQuotaService } from './groupQuota.js';
+import type { ConversationThreadTracker, ConversationThreadState } from './threadTracker.js';
 import { parseMusicRequest } from './musicIntent.js';
 import type { RetrievedMemory } from '../memory/types.js';
 import { StyleEngine } from '../brain/styleEngine.js';
@@ -155,12 +156,6 @@ function formatClaimCheck(evaluation: TurnEvaluation, sources: string[]): string
   ].join('\n');
 }
 
-const FALLBACKS = [
-  'almost repeated myself again. delete that thought, I am getting back on track.',
-  'ok I was about to go full NPC. mental reset, give me a sec and I am back to being properly mean.',
-  'wait no, I already did that joke. I deserve the ban myself.',
-];
-
 const BAD_MUSIC_QUERY_RE =
   /\b(una canzone|qualche canzone|canzone da youtube|comando\s*\/|\/suona|\/play|il tuo comando)\b/i;
 
@@ -209,6 +204,8 @@ export interface ReplyContext {
   allowRefusalFallback?: boolean | undefined;
   nsfwModel?: string | undefined;
   recentBotReplies: BotReplyRecord[];
+  /** Operator/private-admin turn: do not spend or block on secondary group quotas. */
+  quotaBypass?: boolean | undefined;
 }
 
 export interface ReplyOutcome {
@@ -238,6 +235,7 @@ export interface ReplyOutcome {
   evaluation: TurnEvaluation;
   cortex?: SourcedCortexDecision;
   providerBundle: ProviderBundle;
+  threadState?: ConversationThreadState;
 }
 
 /**
@@ -275,6 +273,7 @@ export class ReplyService {
     private readonly imagePrompts: ImagePromptService,
     private readonly quota: GroupQuotaService,
     private readonly localizer: Localizer,
+    private readonly threadTracker: ConversationThreadTracker,
   ) {
     this.evaluator = new TurnEvaluator(llm, {
       enabled: config.brain.evaluatorEnabled,
@@ -394,12 +393,16 @@ export class ReplyService {
             question,
             language: ctx.language,
           },
-          ctx.context.chatId,
+          ctx.quotaBypass ? undefined : ctx.context.chatId,
         );
       }
       if (force === 'web' || this.grounding.wantsWebSearch(question)) {
         const query = queryOverride?.trim() || cleanQuery(question, ctx.botUsername);
-        return await this.grounding.groundWeb(query, ctx.language, ctx.context.chatId);
+        return await this.grounding.groundWeb(
+          query,
+          ctx.language,
+          ctx.quotaBypass ? undefined : ctx.context.chatId,
+        );
       }
     } catch (err) {
       log.warn({ err }, 'grounding failed');
@@ -414,7 +417,9 @@ export class ReplyService {
     scene: SceneAnalysis,
   ): Promise<{ block?: string; sources: string[] }> {
     if (!this.news.enabled) return { sources: [] };
-    if (!(await this.quota.reserve(ctx.context.chatId, 'news')).allowed) return { sources: [] };
+    if (!ctx.quotaBypass && !(await this.quota.reserve(ctx.context.chatId, 'news')).allowed) {
+      return { sources: [] };
+    }
     try {
       const dynamicTerms = [
         scene.currentTopic,
@@ -464,6 +469,12 @@ export class ReplyService {
     );
     const history = await this.conversation.getRecent(ctx.context.chatId);
     const mentioned = ctx.context.mentionedHandles ?? [];
+    const threadState = await this.threadTracker.track({
+      person: ctx.person,
+      context: ctx.context,
+      message: ctx.message,
+      history,
+    });
 
     // 1. scene
     const scene = await this.sceneAnalyzer.analyze({
@@ -473,6 +484,7 @@ export class ReplyService {
       mentionedHandles: mentioned,
       botIsAddressed: ctx.context.isBotMentioned || ctx.context.isReplyToBot,
       botLabel: BOT_LABEL,
+      ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
       model: ctx.internalModel,
     });
     const sceneForcesNsfw = Boolean(
@@ -504,6 +516,7 @@ export class ReplyService {
             botIsAddressed: addressed,
             recentNegativeFeedback,
             capabilities,
+            ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
             model: ctx.internalModel,
           });
           return cortexToTurnEvaluation(cortexDecision, addressed);
@@ -577,7 +590,11 @@ export class ReplyService {
         repetitionChecks: [],
         evaluation,
         ...(cortexDecision ? { cortex: cortexDecision } : {}),
-        providerBundle: params.providerBundle ?? { sources: [] },
+        providerBundle: {
+          ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
+          ...(params.providerBundle ?? { sources: [] }),
+        },
+        threadState,
       };
       if (params.imageBuffer) out.imageBuffer = params.imageBuffer;
       if (params.imageSpoiler) out.imageSpoiler = true;
@@ -618,7 +635,11 @@ export class ReplyService {
         repetitionChecks: [],
         evaluation,
         ...(cortexDecision ? { cortex: cortexDecision } : {}),
-        providerBundle: { sources: [] },
+        providerBundle: {
+          ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
+          sources: [],
+        },
+        threadState,
       };
     }
 
@@ -645,14 +666,19 @@ export class ReplyService {
             cleanQuery(ctx.message.messageText, ctx.botUsername)
       ).trim();
       const url =
-        directUrl || (await this.grounding.findMediaUrl(query, ctx.language, ctx.context.chatId));
+        directUrl ||
+        (await this.grounding.findMediaUrl(
+          query,
+          ctx.language,
+          ctx.quotaBypass ? undefined : ctx.context.chatId,
+        ));
       if (!url) {
         return immediateOutcome({
           text: query ? t('media_not_found', { query }) : t('media_needs_query'),
           styleVariant: 'media_not_found',
         });
       }
-      if (!(await this.quota.reserve(ctx.context.chatId, 'media')).allowed) {
+      if (!ctx.quotaBypass && !(await this.quota.reserve(ctx.context.chatId, 'media')).allowed) {
         return immediateOutcome({
           text: t('media_quota_exhausted'),
           styleVariant: 'media_quota_exhausted',
@@ -798,7 +824,7 @@ export class ReplyService {
           styleVariant: 'image_needs_prompt',
         });
       }
-      if (!(await this.quota.reserve(ctx.context.chatId, 'image')).allowed) {
+      if (!ctx.quotaBypass && !(await this.quota.reserve(ctx.context.chatId, 'image')).allowed) {
         return immediateOutcome({
           text: t('image_quota_exhausted'),
           styleVariant: 'image_quota_exhausted',
@@ -951,7 +977,14 @@ export class ReplyService {
     }
 
     // 2. retrieve memory + (in parallel) grounding, on-demand knowledge, and update per-user heat
-    const activeHandles = [...new Set(history.filter((m) => !m.isBot).map((m) => m.handle))];
+    const activeHandles = [
+      ...new Set(
+        (threadState.memoryHandles.length
+          ? threadState.memoryHandles
+          : history.filter((m) => !m.isBot).map((m) => m.handle)
+        ).filter(Boolean),
+      ),
+    ];
     const wantsGroupRag = wants('group_rag', 'group_rag');
     const wantsKnowledgeRag = wants('knowledge_rag', 'knowledge_rag');
     const wantsGrounding =
@@ -998,6 +1031,7 @@ export class ReplyService {
       : { sources: [] };
     const sources = [...new Set([...(grounding?.sources ?? []), ...news.sources])];
     const providerBundle: ProviderBundle = { sources };
+    if (threadState.promptBlock) providerBundle.threadContext = threadState.promptBlock;
     const groupContext = formatGroupContext(retrieved);
     const knowledgeBlock = formatKnowledge(knowledgeItems);
     const claimCheck = formatClaimCheck(evaluation, sources);
@@ -1077,6 +1111,7 @@ export class ReplyService {
       addressee,
       ...(providerContextBlock ? { grounding: providerContextBlock } : {}),
       ...(media ? { media } : {}),
+      ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
       ...(hostilityLine ? { hostility: hostilityLine } : {}),
       ...(knowledgeBlock ? { knowledge: knowledgeBlock } : {}),
     });
@@ -1149,6 +1184,7 @@ export class ReplyService {
         addressee,
         ...(providerContextBlock ? { grounding: providerContextBlock } : {}),
         ...(media ? { media } : {}),
+        ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
         ...(hostilityLine ? { hostility: hostilityLine } : {}),
         ...(knowledgeBlock ? { knowledge: knowledgeBlock } : {}),
       });
@@ -1171,7 +1207,23 @@ export class ReplyService {
       }
     }
 
-    if (!best.trim()) best = FALLBACKS[Math.floor(Math.random() * FALLBACKS.length)] as string;
+    if (!best.trim()) {
+      log.error(
+        {
+          chatId: ctx.context.chatId,
+          userHandle: ctx.person.userHandle,
+          model: gen.model,
+          usage,
+          candidateCount: allCandidates.length,
+          evaluationAction: evaluation.action,
+          evaluationReason: evaluation.reason,
+          sceneTopic: scene.currentTopic,
+          userText: (transcribed.messageText ?? '').slice(0, 500),
+        },
+        'reply generation produced no usable candidates',
+      );
+      throw new Error('reply generation produced no usable candidates');
+    }
 
     // 6. optional ambient/verified image output. Explicit generation is handled earlier by image_gen.
     let imageUrl: string | undefined;
@@ -1223,6 +1275,7 @@ export class ReplyService {
       evaluation,
       ...(cortexDecision ? { cortex: cortexDecision } : {}),
       providerBundle,
+      threadState,
     };
     if (imageUrl !== undefined) outcome.imageUrl = imageUrl;
     if (imageBuffer !== undefined) outcome.imageBuffer = imageBuffer;
