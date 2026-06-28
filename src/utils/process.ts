@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { redactSecrets } from './secrets.js';
 
 export interface RunProcessOptions {
   timeoutMs: number;
@@ -48,13 +49,6 @@ export function runProcess(bin: string, args: string[], opts: RunProcessOptions)
       child.stdin?.end();
     }
   });
-}
-
-/** Redact cookie/token-like material before a child's stderr is logged or thrown. */
-export function redactSecrets(s: string): string {
-  return s
-    .replace(/Cookie:\s*\S+/gi, 'Cookie:[redacted]')
-    .replace(/(api[_-]?key|token|authorization|bearer)(["':=\s]+)[A-Za-z0-9._-]{8,}/gi, '$1$2[redacted]');
 }
 
 /** Run a process and throw a redacted error on non-zero exit; returns the result on success. */

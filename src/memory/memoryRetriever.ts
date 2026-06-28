@@ -36,7 +36,9 @@ export class MemoryRetriever {
     // If the chat is roasting the bot for being repetitive, do not pile on more callbacks.
     if (input.scene.botIsBeingCriticized) return [];
 
-    const all = await this.storage.memoryItems.listActive(input.chatId, 250);
+    const fetched = await this.storage.memoryItems.listActive(input.chatId, 250);
+    // Deterministic cross-chat isolation guard (drop anything not belonging to this chat).
+    const all = fetched.filter((i) => i.chatId === input.chatId);
     if (all.length === 0) return [];
 
     const now = Date.now();

@@ -4,24 +4,16 @@ import { buildMemoryMiningPrompt, MEMORY_MINING_SYSTEM } from '../prompts/memory
 import { memoryMiningResultSchema } from './schemas.js';
 import type { MemoryCandidate, MemoryItem } from './types.js';
 import { childLogger } from '../utils/logger.js';
+import { containsSensitive } from '../utils/secrets.js';
 
 const log = childLogger('memory-miner');
 
-/** Reject obviously sensitive content regardless of what the model returns. */
-const SENSITIVE_PATTERNS = [
-  /\bpassword\b/i,
-  /\bssn\b/i,
-  /\bsocial security\b/i,
-  /\bcredit card\b/i,
-  /\biban\b/i,
-  /\bhome address\b/i,
-  /\bcodice fiscale\b/i,
-  /\b\d{1,5}\s+(via|viale|piazza|corso|street|st|avenue|ave|road|rd)\b/i,
-  /\b\+?\d[\d\s().-]{7,}\d\b/, // phone-like
-];
-
+/**
+ * Reject content that is sensitive (secrets, credentials, infrastructure or personal data) no matter
+ * what the model returns, so it never enters durable memory, RAG candidates or embeddings.
+ */
 export function isSensitiveMemory(text: string): boolean {
-  return SENSITIVE_PATTERNS.some((re) => re.test(text));
+  return containsSensitive(text);
 }
 
 export interface MemoryMinerConfig {

@@ -1,18 +1,10 @@
 import type { Storage } from '../storage/index.js';
 import { normalizeHandle } from '../utils/handles.js';
+import { containsSensitive } from '../utils/secrets.js';
 
-/** Minimal safety filter for facts: reject obviously sensitive content. */
-const SENSITIVE_PATTERNS = [
-  /\bpassword\b/i,
-  /\bssn\b/i,
-  /\bsocial security\b/i,
-  /\bcredit card\b/i,
-  /\bhome address\b/i,
-  /\b\d{1,5}\s+\w+\s+(street|st|avenue|ave|road|rd|blvd)\b/i,
-];
-
+/** Reject facts that contain secrets, credentials, infrastructure or personal data. */
 export function isSensitiveFact(fact: string): boolean {
-  return SENSITIVE_PATTERNS.some((re) => re.test(fact));
+  return containsSensitive(fact);
 }
 
 export class FactService {

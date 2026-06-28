@@ -5,6 +5,10 @@ import type { Storage } from '../storage/index.js';
 import { jaccard } from './memoryDeduper.js';
 import type { MemoryItem, RetrievedMemory } from './types.js';
 import type { MemoryRetrieverConfig, MemoryRetrievalInput } from './memoryRetriever.js';
+import { redactSecrets } from '../utils/secrets.js';
+import { childLogger } from '../utils/logger.js';
+
+const log = childLogger('vector-retriever');
 
 export interface VectorMemoryRetrieverConfig extends MemoryRetrieverConfig {
   embeddingDim: number;
@@ -21,7 +25,16 @@ export class VectorMemoryRetriever {
   async retrieve(input: MemoryRetrievalInput): Promise<RetrievedMemory[]> {
     if (input.scene.botIsBeingCriticized) return [];
 
-    const all = await this.storage.memoryItems.listActive(input.chatId, 250);
+    const fetched = await this.storage.memoryItems.listActive(input.chatId, 250);
+    // Deterministic cross-chat isolation: never consider an item that does not belong to this chat,
+    // even if a query ever returned one. A mismatch is an upstream bug, so make it loud.
+    const all = fetched.filter((i) => i.chatId === input.chatId);
+    if (all.length !== fetched.length) {
+      log.error(
+        { chatId: input.chatId, dropped: fetched.length - all.length },
+        'cross-chat memory items returned by query; dropped (isolation guard)',
+      );
+    }
     if (all.length === 0) return [];
 
     const queryText = buildQueryText(input);
@@ -101,9 +114,12 @@ export class VectorMemoryRetriever {
 }
 
 function buildQueryText(input: MemoryRetrievalInput): string {
-  return [input.currentMessage, input.scene.currentTopic, ...(input.recentMessages ?? []).slice(-3)]
-    .filter(Boolean)
-    .join(' ');
+  // Redact secrets so they are never sent to the embedding endpoint.
+  return redactSecrets(
+    [input.currentMessage, input.scene.currentTopic, ...(input.recentMessages ?? []).slice(-3)]
+      .filter(Boolean)
+      .join(' '),
+  );
 }
 
 function toxicityAllowed(item: MemoryItem, nsfw: boolean): boolean {

@@ -9,6 +9,7 @@ import type { StoredMessage } from '../storage/repositories/messages.js';
 import type { Storage } from '../storage/index.js';
 import type { Embedder } from '../rag/embedder.js';
 import { cosineSimilarity } from '../rag/types.js';
+import { containsSensitive, redactSecrets } from '../utils/secrets.js';
 import { childLogger } from '../utils/logger.js';
 
 const log = childLogger('thread-tracker');
@@ -90,6 +91,8 @@ export class ConversationThreadTracker {
     if (!this.cfg.enabled) return emptyState(input.person.userHandle, input.context);
     const text = (input.message.messageText ?? '').trim();
     if (!text) return emptyState(input.person.userHandle, input.context);
+    // Never track, store or embed messages that carry secrets / credentials / personal data.
+    if (containsSensitive(text)) return emptyState(input.person.userHandle, input.context);
 
     const aliases = extractAliases(text);
     const active = await this.storage.conversationThreads.listActive(
@@ -107,7 +110,7 @@ export class ConversationThreadTracker {
       aliases,
     );
 
-    const semanticText = semanticThreadText(text, aliases);
+    const semanticText = redactSecrets(semanticThreadText(text, aliases));
     const queryVec =
       this.embedder.enabled && active.some((t) => t.embedding?.length === this.cfg.embeddingDim)
         ? ((await this.embedder.embed([semanticText]))[0] ?? [])
