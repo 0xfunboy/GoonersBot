@@ -92,6 +92,16 @@ export class ChatsRepo {
     return doc?.autoengage ?? false;
   }
 
+  /** Newest message timestamp (epoch ms) seen by the last memory-mining run; 0 if never mined. */
+  async getLastMinedAt(chatId: number): Promise<number> {
+    const doc = await this.col.findOne({ chatId }, { projection: { lastMinedAt: 1 } });
+    return doc?.lastMinedAt ?? 0;
+  }
+
+  async setLastMinedAt(chatId: number, ts: number): Promise<void> {
+    await this.col.updateOne({ chatId }, { $set: { lastMinedAt: ts, updatedAt: new Date() } });
+  }
+
   async getAutopost(chatId: number): Promise<boolean> {
     const doc = await this.col.findOne({ chatId }, { projection: { autopost: 1 } });
     return doc?.autopost ?? false;

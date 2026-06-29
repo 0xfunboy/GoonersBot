@@ -29,6 +29,15 @@ export async function runMemoryMiningJob(
       );
       const humanMessages = messages.filter((m) => !m.isBot);
       if (humanMessages.length < env.MEMORY_MINING_MIN_ACTIVE_MESSAGES) continue;
+
+      // Skip idle chats: only spend an LLM call when there are NEW human messages since the last
+      // mining run. Without this the same unchanged window is re-mined every interval forever.
+      const ts = (m: (typeof messages)[number]): number => new Date(m.message.timestamp).getTime();
+      const lastMinedAt = await storage.chats.getLastMinedAt(chat.chatId);
+      const newestTs = Math.max(...messages.map((m) => ts(m)));
+      const newHuman = humanMessages.filter((m) => ts(m) > lastMinedAt).length;
+      if (newHuman === 0) continue;
+
       const res = await lore.mineAndStore({
         chatId: chat.chatId,
         messages,
@@ -38,6 +47,8 @@ export async function runMemoryMiningJob(
         source: 'auto',
         createdByHandle: null,
       });
+      // Mark this window as processed so it is not re-mined until new activity arrives.
+      await storage.chats.setLastMinedAt(chat.chatId, newestTs);
       if (res.stored > 0 || res.reinforced > 0) {
         await storage.jobs.record('memory_mining', 'done', {
           chatId: chat.chatId,

@@ -18,6 +18,8 @@ export interface ChatDoc {
   autopost?: boolean;
   /** per-chat link-media rehosting toggle; absent means on (default) */
   linkMedia?: boolean;
+  /** epoch ms of the newest message seen by the last memory-mining run (skip idle re-mining) */
+  lastMinedAt?: number;
   nsfwMode: NsfwMode;
   createdAt: Date;
   updatedAt: Date;
