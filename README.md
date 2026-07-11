@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/Telegram-grammY-2aabee?logo=telegram&logoColor=white" alt="grammY">
   <img src="https://img.shields.io/badge/MongoDB-6.x-47a248?logo=mongodb&logoColor=white" alt="MongoDB">
   <img src="https://img.shields.io/badge/tests-vitest-6e9f18?logo=vitest&logoColor=white" alt="vitest">
-  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
+  <img src="https://img.shields.io/badge/license-Non--Commercial-blue" alt="Non-Commercial">
   <img src="https://img.shields.io/badge/docker-not%20required-555?logo=docker&logoColor=white" alt="no docker">
 </p>
 
@@ -723,4 +723,6 @@ pnpm tsx scripts/smoke-search.ts        # SearXNG query and grounding gating
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+See [LICENSE](./LICENSE).
+
+Free for personal, educational, research, and other non-commercial use. Commercial use requires a separate license from 0xfunboy. Open an issue or use the contact information available on this GitHub profile to request permission.
