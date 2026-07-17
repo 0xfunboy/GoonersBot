@@ -64,6 +64,7 @@ export type TurnAction =
   | 'download_media'
   | 'generate_image'
   | 'draw_image'
+  | 'generate_video'
   | 'translate_text'
   | 'make_voice'
   | 'post_news'
@@ -81,6 +82,7 @@ export type ProviderRequest =
   | 'music'
   | 'link_media'
   | 'image_generation'
+  | 'video_generation'
   | 'translation'
   | 'tts';
 
@@ -116,6 +118,7 @@ export interface TurnEvaluation {
   mediaQuery?: string;
   mediaUrl?: string;
   imagePrompt?: string;
+  videoPrompt?: string;
   targetLanguage?: string;
   sourceText?: string;
   voiceText?: string;

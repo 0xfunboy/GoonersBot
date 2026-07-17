@@ -99,11 +99,23 @@ export interface CommandResponse {
   imageSpoiler?: boolean | undefined;
   /** audio (TTS) to send */
   audioBuffer?: Buffer | undefined;
+  /** generated video to send inline (must already be +faststart: see prepareVideoForTelegram) */
+  videoBuffer?: Buffer | undefined;
+  videoSpoiler?: boolean | undefined;
+  videoMeta?: VideoSendMeta | undefined;
   keyboard?: KeyboardResponse | undefined;
   /** for callbacks: delete the message the button was attached to before replying (terms prompt) */
   deleteOrigin?: boolean | undefined;
   /** if set, the sent message self-destructs after this many ms (ephemeral prompts like /tos) */
   ephemeralMs?: number | undefined;
+}
+
+/** Dimensions/duration/poster that make Telegram render a video as an inline, autoplaying player. */
+export interface VideoSendMeta {
+  width?: number | undefined;
+  height?: number | undefined;
+  duration?: number | undefined;
+  thumbnail?: Buffer | undefined;
 }
 
 /** A localized, render-ready response. */
@@ -113,5 +125,8 @@ export interface LocalizedResponse {
   imageBuffer?: Buffer | undefined;
   imageSpoiler?: boolean | undefined;
   audioBuffer?: Buffer | undefined;
+  videoBuffer?: Buffer | undefined;
+  videoSpoiler?: boolean | undefined;
+  videoMeta?: VideoSendMeta | undefined;
   keyboard?: KeyboardResponse | undefined;
 }

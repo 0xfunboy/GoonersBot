@@ -13,6 +13,7 @@ export interface TurnEvaluatorCapabilities {
   knowledge: boolean;
   music: boolean;
   imageGeneration: boolean;
+  videoGeneration: boolean;
   translation: boolean;
   tts: boolean;
 }
@@ -67,6 +68,11 @@ const MUSIC_RE =
 
 const IMAGE_GEN_RE =
   /\b(genera|generami|crea|creami|disegna|disegni|disegnami|draw|image|immagine|foto|meme)\b/i;
+
+// Must be tested BEFORE IMAGE_GEN_RE: "generami un video" also matches the image verbs. Requires a
+// creation verb plus a clip noun, so "mandami il video di X" stays a download, not a generation.
+const VIDEO_GEN_RE =
+  /\b(genera|generami|generate|crea|creami|create|fammi|famme|make|animami)\b[^.!?]{0,40}\b(video|videoclip|clip|animazione|animation|filmato|cortometraggio)\b/i;
 
 const TRANSLATE_RE = /\b(traduci|translate|translation|in inglese|in italiano|in spagnolo)\b/i;
 
@@ -195,6 +201,21 @@ export class TurnEvaluator {
         socialRole: 'friend',
         confidence: 0.72,
         reason: 'music/download request',
+      });
+    }
+
+    if (input.botIsAddressed && input.capabilities.videoGeneration && VIDEO_GEN_RE.test(msg)) {
+      requests.push('video_generation');
+      return this.turn({
+        shouldAct: true,
+        action: 'generate_video',
+        providerRequests: uniq(requests),
+        valueTarget: 'support',
+        roastBudget: recentCriticism ? 'none' : 'light',
+        socialRole: 'friend',
+        confidence: 0.72,
+        reason: 'video generation request',
+        videoPrompt: msg,
       });
     }
 

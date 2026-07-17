@@ -8,6 +8,9 @@ import { LinkMediaService } from './linkMedia.js';
 import { TtsProvider } from '../providers/voice/tts.js';
 import { SttProvider } from '../providers/voice/stt.js';
 import { StableDiffusionGenerator } from '../providers/image/stableDiffusion.js';
+import { AgnesImageGenerator } from '../providers/image/agnes.js';
+import { FallbackImageGenerator } from '../providers/image/fallbackGenerator.js';
+import { AgnesVideoGenerator } from '../providers/video/agnes.js';
 import type { Storage } from '../storage/index.js';
 import { Cooldown } from '../utils/rateLimit.js';
 import { MemoryMiner } from '../memory/memoryMiner.js';
@@ -74,6 +77,8 @@ export class Services {
   readonly reply: ReplyService;
   readonly media: MediaProcessor;
   readonly music: MusicService;
+  /** remote text-to-video (Agnes); rate limited to one clip per minute upstream */
+  readonly video: AgnesVideoGenerator;
   readonly linkMedia: LinkMediaService;
   readonly tts: TtsProvider;
   readonly stt: SttProvider;
@@ -102,7 +107,12 @@ export class Services {
     this.localizer = new Localizer(env.DEFAULT_LANGUAGE);
     this.tts = new TtsProvider(config.voice.tts);
     this.stt = new SttProvider(config.voice.stt);
-    const imageGenerator = new StableDiffusionGenerator(config.stableDiffusion);
+    // Remote Agnes first, local Stable Diffusion as automatic fallback (and for pose/ControlNet jobs).
+    const imageGenerator = new FallbackImageGenerator(
+      new AgnesImageGenerator(config.agnes.image),
+      new StableDiffusionGenerator(config.stableDiffusion),
+    );
+    this.video = new AgnesVideoGenerator(config.agnes.video);
     this.media = new MediaProcessor(
       llm,
       this.stt,
@@ -240,6 +250,7 @@ export class Services {
       llm,
       this.media,
       this.music,
+      this.video,
       this.tts,
       this.conversation,
       this.scene,

@@ -469,6 +469,20 @@ export async function handleMessage(
         .replyWithPhoto(photo, imageOptions)
         .catch((err) => log.warn({ err }, 'image send failed'));
     }
+    if (outcome.videoBuffer) {
+      // supports_streaming + poster => inline autoplaying clip instead of a downloadable file
+      const meta = outcome.videoMeta ?? {};
+      await ctx
+        .replyWithVideo(new InputFile(outcome.videoBuffer), {
+          supports_streaming: true,
+          ...(outcome.videoSpoiler ? { has_spoiler: true } : {}),
+          ...(typeof meta.width === 'number' ? { width: meta.width } : {}),
+          ...(typeof meta.height === 'number' ? { height: meta.height } : {}),
+          ...(typeof meta.duration === 'number' ? { duration: meta.duration } : {}),
+          ...(meta.thumbnail ? { thumbnail: new InputFile(meta.thumbnail) } : {}),
+        })
+        .catch((err) => log.warn({ err }, 'generated video send failed'));
+    }
     await services.threadTracker
       .attachMessage(context.chatId, outcome.threadState?.currentThread?.threadId, botMessageId)
       .catch((err) => log.debug({ err }, 'thread bot-message attach failed'));

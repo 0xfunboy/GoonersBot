@@ -40,6 +40,9 @@ export async function localizeResponse(
   if (response.imageBuffer !== undefined) out.imageBuffer = response.imageBuffer;
   if (response.imageSpoiler !== undefined) out.imageSpoiler = response.imageSpoiler;
   if (response.audioBuffer !== undefined) out.audioBuffer = response.audioBuffer;
+  if (response.videoBuffer !== undefined) out.videoBuffer = response.videoBuffer;
+  if (response.videoSpoiler !== undefined) out.videoSpoiler = response.videoSpoiler;
+  if (response.videoMeta !== undefined) out.videoMeta = response.videoMeta;
   if (response.keyboard !== undefined) out.keyboard = response.keyboard;
   return out;
 }
@@ -61,6 +64,21 @@ export async function sendResponse(
       return await ctx.replyWithVoice(new InputFile(response.audioBuffer), {
         ...baseOpts,
         ...(response.text ? { caption: response.text } : {}),
+        ...(reply_markup ? { reply_markup } : {}),
+      });
+    }
+    if (response.videoBuffer) {
+      // supports_streaming + dimensions + poster => inline autoplaying player instead of a file.
+      const meta = response.videoMeta ?? {};
+      return await ctx.replyWithVideo(new InputFile(response.videoBuffer), {
+        ...baseOpts,
+        supports_streaming: true,
+        ...(response.text ? { caption: response.text } : {}),
+        ...(response.videoSpoiler ? { has_spoiler: true } : {}),
+        ...(typeof meta.width === 'number' ? { width: meta.width } : {}),
+        ...(typeof meta.height === 'number' ? { height: meta.height } : {}),
+        ...(typeof meta.duration === 'number' ? { duration: meta.duration } : {}),
+        ...(meta.thumbnail ? { thumbnail: new InputFile(meta.thumbnail) } : {}),
         ...(reply_markup ? { reply_markup } : {}),
       });
     }
