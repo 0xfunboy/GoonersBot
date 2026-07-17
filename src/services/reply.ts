@@ -1,9 +1,17 @@
 import type { AppConfig } from '../config/index.js';
 import type { Localizer } from '../config/i18n.js';
-import type { ChatContext, IncomingMessage, Person, TranscribedMessage } from '../domain/types.js';
+import type {
+  ChatContext,
+  IncomingMessage,
+  Person,
+  TranscribedMessage,
+  VideoSendMeta,
+} from '../domain/types.js';
 import type { LLMProvider } from '../providers/llm/types.js';
 import type { MediaProcessor } from '../providers/media/index.js';
 import type { MusicResult, MusicService } from '../providers/media/music.js';
+import { AgnesVideoGenerator, VideoRateLimitError } from '../providers/video/agnes.js';
+import { prepareVideoForTelegram } from '../providers/video/prepare.js';
 import type { TtsProvider } from '../providers/voice/tts.js';
 import { selectImageProfile, type ImageProfile } from '../providers/image/stableDiffusion.js';
 import type { ConversationService } from './conversation.js';
@@ -217,6 +225,9 @@ export interface ReplyOutcome {
   imageUrl?: string;
   imageBuffer?: Buffer;
   imageSpoiler?: boolean;
+  videoBuffer?: Buffer;
+  videoSpoiler?: boolean;
+  videoMeta?: VideoSendMeta;
   transcribedUserMessage: TranscribedMessage;
   usage: { inputTokens: number; outputTokens: number; estimated: boolean };
   model: string | null;
@@ -257,6 +268,7 @@ export class ReplyService {
     private readonly llm: LLMProvider,
     private readonly media: MediaProcessor,
     private readonly music: MusicService,
+    private readonly video: AgnesVideoGenerator,
     private readonly tts: TtsProvider,
     private readonly conversation: ConversationService,
     private readonly sceneAnalyzer: SceneAnalyzer,
@@ -503,6 +515,7 @@ export class ReplyService {
       music: this.music.enabled,
       linkMedia: this.config.linkMedia.enabled,
       imageGeneration: this.media.canGenerateImage,
+      videoGeneration: this.video.enabled,
       translation: this.llm.capabilities.chat,
       tts: this.tts.enabled,
     };
@@ -566,6 +579,9 @@ export class ReplyService {
       providerBundle?: ProviderBundle;
       imageBuffer?: Buffer;
       imageSpoiler?: boolean;
+      videoBuffer?: Buffer;
+      videoSpoiler?: boolean;
+      videoMeta?: VideoSendMeta;
       linkMediaUrl?: string;
       audioBuffer?: Buffer;
       imageCalls?: number;
@@ -598,6 +614,9 @@ export class ReplyService {
       };
       if (params.imageBuffer) out.imageBuffer = params.imageBuffer;
       if (params.imageSpoiler) out.imageSpoiler = true;
+      if (params.videoBuffer) out.videoBuffer = params.videoBuffer;
+      if (params.videoSpoiler) out.videoSpoiler = true;
+      if (params.videoMeta) out.videoMeta = params.videoMeta;
       if (params.linkMediaUrl) out.linkMediaUrl = params.linkMediaUrl;
       if (params.audioBuffer) out.audioBuffer = params.audioBuffer;
       return out;
@@ -798,6 +817,52 @@ export class ReplyService {
         ...(cortexDecision ? { cortex: cortexDecision } : {}),
         providerBundle,
       };
+    }
+
+    if (wants('video_gen', 'video_generation') || evaluation.action === 'generate_video') {
+      const prompt = (
+        callFor('video_gen')?.query ||
+        evaluation.videoPrompt ||
+        ctx.message.messageText ||
+        ''
+      ).trim();
+      if (!prompt) {
+        return immediateOutcome({ text: t('video_needs_prompt'), styleVariant: 'video_needs_prompt' });
+      }
+      if (!this.video.enabled) {
+        return immediateOutcome({ text: t('video_unavailable'), styleVariant: 'video_failed' });
+      }
+      if (!ctx.quotaBypass && !(await this.quota.reserve(ctx.context.chatId, 'image')).allowed) {
+        return immediateOutcome({
+          text: t('image_quota_exhausted'),
+          styleVariant: 'image_quota_exhausted',
+        });
+      }
+      try {
+        const clip = await this.video.generate(prompt);
+        const prepared = await prepareVideoForTelegram(clip.buffer, this.config.linkMedia.ffmpegBin);
+        return immediateOutcome({
+          text: t('video_done', { prompt: prompt.slice(0, 180) }),
+          styleVariant: 'video_done',
+          videoBuffer: prepared.buffer,
+          videoSpoiler: selectImageProfile(prompt) === 'nsfw',
+          videoMeta: {
+            ...(prepared.width !== undefined ? { width: prepared.width } : {}),
+            ...(prepared.height !== undefined ? { height: prepared.height } : {}),
+            duration: prepared.duration ?? clip.seconds,
+            ...(prepared.thumbnail ? { thumbnail: prepared.thumbnail } : {}),
+          },
+        });
+      } catch (err) {
+        if (err instanceof VideoRateLimitError) {
+          return immediateOutcome({
+            text: t('video_rate_limited', { seconds: Math.ceil(err.retryAfterMs / 1000) }),
+            styleVariant: 'video_rate_limited',
+          });
+        }
+        log.warn({ err }, 'cortex video generation failed');
+        return immediateOutcome({ text: t('video_failed'), styleVariant: 'video_failed' });
+      }
     }
 
     if (

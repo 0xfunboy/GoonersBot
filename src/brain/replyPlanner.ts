@@ -45,6 +45,7 @@ export class ReplyPlanner {
       case 'download_media':
       case 'generate_image':
       case 'draw_image':
+      case 'generate_video':
       case 'translate_text':
       case 'make_voice':
       case 'post_news':
@@ -76,6 +77,7 @@ export class ReplyPlanner {
       e.action === 'download_media' ||
       e.action === 'generate_image' ||
       e.action === 'draw_image' ||
+      e.action === 'generate_video' ||
       e.action === 'translate_text' ||
       e.action === 'make_voice' ||
       e.action === 'post_news';

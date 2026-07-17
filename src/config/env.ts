@@ -193,6 +193,23 @@ const envSchema = z.object({
   SD_CONTROLNET_WEIGHT: floatFromString(0.85),
   SD_CONTROLNET_PROCESSOR_RESOLUTION: intFromString(512),
 
+  // ---- Agnes AI (remote image + video generation, through the router's OpenAI-compatible API) ----
+  // Image: POST /v1/images/generations, used as the PRIMARY generator with local Stable Diffusion
+  // as automatic fallback. Video: POST /v1/videos, blocking (~1-2 min) and limited to 1 request per
+  // minute upstream. Base URL / key default to the main LLM route (same router, same app key).
+  AGNES_BASE_URL: z.string().optional(),
+  AGNES_API_KEY: z.string().optional(),
+  AGNES_IMAGE_ENABLED: boolFromString(true),
+  AGNES_IMAGE_MODEL: z.string().min(1).default('agnes-image-2.1-flash'),
+  AGNES_IMAGE_TIMEOUT_MS: intFromString(120_000),
+  AGNES_IMAGE_MAX_MB: intFromString(25),
+  AGNES_VIDEO_ENABLED: boolFromString(true),
+  AGNES_VIDEO_MODEL: z.string().min(1).default('agnes-video-v2.0'),
+  AGNES_VIDEO_TIMEOUT_MS: intFromString(300_000),
+  // Upstream allows one video per minute; this gates callers before the slot is spent.
+  AGNES_VIDEO_MIN_INTERVAL_MS: intFromString(60_000),
+  AGNES_VIDEO_MAX_MB: intFromString(45),
+
   // Autonomous posting: every interval, with a probability, drop an unprompted line (a styled take
   // on a current event from RSS, or a commented waifu image). Also triggerable via /news (/nuovo).
   AUTOPOST_ENABLED: boolFromString(true),

@@ -408,6 +408,53 @@ export function resolveStableDiffusionConfig(env: Env): StableDiffusionConfig {
   };
 }
 
+/** Agnes AI remote generation (image primary + video), served by the router's OpenAI-compatible API. */
+export interface AgnesImageConfig {
+  enabled: boolean;
+  baseUrl: string;
+  apiKey: string | undefined;
+  model: string;
+  timeoutMs: number;
+  maxBytes: number;
+}
+
+export interface AgnesVideoConfig extends AgnesImageConfig {
+  /** minimum gap between two video requests (upstream allows 1/min) */
+  minIntervalMs: number;
+}
+
+export interface AgnesConfig {
+  image: AgnesImageConfig;
+  video: AgnesVideoConfig;
+}
+
+export function resolveAgnesConfig(env: Env): AgnesConfig {
+  // Accept a base with or without the /v1 suffix; the providers append the full path themselves.
+  const baseUrl = (env.AGNES_BASE_URL ?? env.LLM_BASE_URL ?? '')
+    .replace(/\/+$/, '')
+    .replace(/\/v1$/, '');
+  const apiKey = env.AGNES_API_KEY ?? env.LLM_API_KEY;
+  return {
+    image: {
+      enabled: env.AGNES_IMAGE_ENABLED && Boolean(baseUrl),
+      baseUrl,
+      apiKey,
+      model: env.AGNES_IMAGE_MODEL,
+      timeoutMs: env.AGNES_IMAGE_TIMEOUT_MS,
+      maxBytes: env.AGNES_IMAGE_MAX_MB * 1024 * 1024,
+    },
+    video: {
+      enabled: env.AGNES_VIDEO_ENABLED && Boolean(baseUrl),
+      baseUrl,
+      apiKey,
+      model: env.AGNES_VIDEO_MODEL,
+      timeoutMs: env.AGNES_VIDEO_TIMEOUT_MS,
+      maxBytes: env.AGNES_VIDEO_MAX_MB * 1024 * 1024,
+      minIntervalMs: env.AGNES_VIDEO_MIN_INTERVAL_MS,
+    },
+  };
+}
+
 /** Music fetcher (/sing /play + natural language) config. */
 export interface MusicConfig {
   enabled: boolean;
@@ -535,6 +582,7 @@ export interface AppConfig {
   search: SearchConfig;
   auto: AutoConfig;
   stableDiffusion: StableDiffusionConfig;
+  agnes: AgnesConfig;
   music: MusicConfig;
   linkMedia: LinkMediaConfig;
 }
@@ -550,6 +598,7 @@ export function loadConfig(): AppConfig {
     search: resolveSearchConfig(env),
     auto: resolveAutoConfig(env),
     stableDiffusion: resolveStableDiffusionConfig(env),
+    agnes: resolveAgnesConfig(env),
     music: resolveMusicConfig(env),
     linkMedia: resolveLinkMediaConfig(env),
   };

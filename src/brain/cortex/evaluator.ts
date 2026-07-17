@@ -21,6 +21,7 @@ export interface CortexCapabilities {
   music: boolean;
   linkMedia: boolean;
   imageGeneration: boolean;
+  videoGeneration: boolean;
   translation: boolean;
   tts: boolean;
 }
@@ -129,6 +130,7 @@ export function availableToolsFor(capabilities: CortexCapabilities): CortexTool[
   if (capabilities.music) tools.push('music');
   if (capabilities.linkMedia) tools.push('link_media');
   if (capabilities.imageGeneration) tools.push('image_gen');
+  if (capabilities.videoGeneration) tools.push('video_gen');
   if (capabilities.translation) tools.push('translate');
   if (capabilities.tts) tools.push('tts');
   return tools;
@@ -156,6 +158,7 @@ export function cortexToTurnEvaluation(
     ...(tool('link_media')?.query ? { mediaQuery: tool('link_media')?.query } : {}),
     ...(tool('link_media')?.args?.url ? { mediaUrl: tool('link_media')?.args?.url } : {}),
     ...(tool('image_gen')?.query ? { imagePrompt: tool('image_gen')?.query } : {}),
+    ...(tool('video_gen')?.query ? { videoPrompt: tool('video_gen')?.query } : {}),
     ...(tool('translate')?.args?.targetLanguage
       ? { targetLanguage: tool('translate')?.args?.targetLanguage }
       : {}),
@@ -170,6 +173,7 @@ export function cortexToTurnEvaluation(
 
 function providerFromTool(tool: CortexTool): TurnEvaluation['providerRequests'][number] {
   if (tool === 'image_gen') return 'image_generation';
+  if (tool === 'video_gen') return 'video_generation';
   if (tool === 'translate') return 'translation';
   return tool;
 }
@@ -181,6 +185,7 @@ function actionFromDecision(
   const has = (intent: CortexDecision['intents'][number]): boolean =>
     decision.intents.includes(intent);
   const tool = (name: CortexTool): boolean => decision.toolCalls.some((call) => call.tool === name);
+  if (has('make_video') || tool('video_gen')) return 'generate_video';
   if (has('download_media') || tool('link_media')) return 'download_media';
   if (has('play_music') || tool('music')) return 'download_music';
   if (has('draw_image')) return 'draw_image';

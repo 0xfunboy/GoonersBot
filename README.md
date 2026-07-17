@@ -210,6 +210,7 @@ illegal, no doxxing. NSFW is opt-in per chat and meant for private, consenting a
 | `/autopost`                  | admin         | toggle timed autonomous posts in this chat                                               |
 | `/genera <prompt>`           | anyone        | generate an original image with Stable Diffusion (aliases `/image`, `/img`)              |
 | `/disegna <prompt>`          | anyone        | force the high-quality PonyXL manga workflow (alias `/draw`)                             |
+| `/genvid <prompt>`           | anyone        | generate a short video clip (aliases `/video`, `/genvideo`, `/vid`, `/clip`, `/animazione`) |
 | `/usage`                     | anyone        | your usage and limits                                                                    |
 | `/profile [free\|plus\|pro]` | admin         | show or set the shared group plan and live quotas (aliases: `/groupplan`, `/groupquota`) |
 | `/language`                  | admin         | set chat language (it, en, ru, es)                                                       |
@@ -524,7 +525,39 @@ the bot drops an unprompted line. It is either a styled take on a current event 
 opt-in per chat (`/autopost`, default off) and can be forced on demand with `/news` (alias `/nuovo`).
 Composer in `src/services/autonomousPoster.ts`, feeds in `src/news/newsService.ts`.
 
-### Stable Diffusion generation
+### Remote generation (Agnes) with local fallback
+
+Image generation goes to the remote **Agnes** model (`agnes-image-2.1-flash`) through the router's
+OpenAI-compatible `POST /v1/images/generations`, and falls back **automatically to the local Stable
+Diffusion** below whenever the remote call fails or is disabled. Pose/ControlNet jobs always go
+local, because only Forge can honour an OpenPose reference. Nothing else changes: `/genera`,
+`/disegna`, the autonomous image poster and the cortex `image_gen` tool all use the same path.
+
+### Video generation
+
+`/genvid <prompt>` renders a short clip with the remote `agnes-video-v2.0` model (aliases `/video`,
+`/genvideo`, `/generavideo`, `/vid`, `/clip`, `/animazione`, `/genclip`). It is also reachable from
+the classifier, so "generami un video dove un cane si morde la coda" works without a command: the
+cortex `video_gen` tool is deliberately distinguished from `link_media` (which downloads media that
+already exists) and from `image_gen` (a still image).
+
+Practical notes:
+
+- The request **blocks until the clip is rendered** (~1-2 minutes), and upstream allows **one video
+  per minute**; a local cooldown gates callers before the slot is spent and a rate-limited request
+  answers "try again in Ns" instead of failing silently.
+- Generated mp4s ship with the moov atom at the end, which Telegram cannot stream, so every clip is
+  remuxed `+faststart` (stream copy) and sent with `supports_streaming`, dimensions, duration and a
+  poster: it arrives as an inline autoplaying video, not a file to download.
+- A clip spends the group's generated-image quota, and NSFW prompts are sent with a spoiler overlay.
+
+```bash
+AGNES_VIDEO_ENABLED=true
+AGNES_VIDEO_MODEL=agnes-video-v2.0
+AGNES_VIDEO_MIN_INTERVAL_MS=60000   # upstream allows 1 video/minute
+```
+
+### Stable Diffusion generation (local, also the image fallback)
 
 `/genera <prompt>` generates an original bitmap through a self-hosted Forge/Automatic1111 API;
 `/image` and `/img` are aliases. The command turns the request into a concise English SD prompt before

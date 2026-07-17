@@ -703,6 +703,42 @@ export const translations: TranslationMap = {
     russian: 'Готово: {prompt}',
     spanish: 'Hecho: {prompt}',
   },
+  genvid_description: {
+    italian: 'Genera un video corto da un prompt (es. /genvid un cane che si morde la coda)',
+    english: 'Generate a short video from a prompt (e.g. /genvid a dog biting its tail)',
+    russian: 'Сгенерировать короткое видео по описанию (напр. /genvid собака кусает свой хвост)',
+    spanish: 'Genera un vídeo corto desde un prompt (p. ej. /genvid un perro mordiéndose la cola)',
+  },
+  video_needs_prompt: {
+    italian: 'E che ti genero, il vuoto cosmico? Dimmi cosa: /genvid <cosa deve succedere>.',
+    english: 'And what do I generate, the void? Tell me what: /genvid <what happens>.',
+    russian: 'И что мне сгенерировать, пустоту? Скажи что: /genvid <что происходит>.',
+    spanish: '¿Y qué te genero, la nada? Dime qué: /genvid <qué pasa>.',
+  },
+  video_done: {
+    italian: 'Ecco il video: {prompt}',
+    english: 'Here is the video: {prompt}',
+    russian: 'Вот видео: {prompt}',
+    spanish: 'Aquí está el vídeo: {prompt}',
+  },
+  video_unavailable: {
+    italian: 'La generazione video non è configurata su questo backend.',
+    english: 'Video generation is not configured on this backend.',
+    russian: 'Генерация видео не настроена на этом бэкенде.',
+    spanish: 'La generación de vídeo no está configurada en este backend.',
+  },
+  video_failed: {
+    italian: 'La generazione video è andata a puttane. Riprova.',
+    english: 'Video generation went to shit. Try again.',
+    russian: 'Генерация видео накрылась. Попробуй снова.',
+    spanish: 'La generación de vídeo se fue a la mierda. Inténtalo de nuevo.',
+  },
+  video_rate_limited: {
+    italian: 'Un video alla volta, ansioso. Riprova tra {seconds}s.',
+    english: 'One video at a time, eager beaver. Try again in {seconds}s.',
+    russian: 'По одному видео за раз. Попробуй через {seconds}с.',
+    spanish: 'Un vídeo a la vez, ansioso. Inténtalo en {seconds}s.',
+  },
   media_rehost_failed: {
     italian: 'Non sono riuscito a rehostarlo, ma ecco il link: {url}',
     english: 'I could not rehost it, but here is the link: {url}',
