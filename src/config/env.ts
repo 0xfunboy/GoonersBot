@@ -118,6 +118,11 @@ const envSchema = z.object({
     (value) => Number.isInteger(value) && value >= 1,
     'MINING_LLM_MAX_REQUESTS_PER_MINUTE must be an integer >= 1',
   ),
+  // Gemma 31B exposes 16K TPM. Keep a safety margin for router accounting/tokenizer variance.
+  MINING_LLM_MAX_TOKENS_PER_MINUTE: intFromString(15_000).refine(
+    (value) => Number.isInteger(value) && value >= 1,
+    'MINING_LLM_MAX_TOKENS_PER_MINUTE must be an integer >= 1',
+  ),
   // A queued 31B background model can legitimately need more than the interactive 60s budget.
   // This route never blocks Telegram replies, so favour completion over abort/retry churn.
   MINING_LLM_REQUEST_TIMEOUT_MS: intFromString(180_000),
@@ -378,6 +383,11 @@ const envSchema = z.object({
   MEMORY_MINING_BATCH_MESSAGES: intFromString(20),
   /** Total bounded chat window, including look-behind context around each new batch. */
   MEMORY_MINING_CONTEXT_MESSAGES: intFromString(30),
+  /** UTF-8 prompt bytes for transcript/context before fixed instructions and known-memory context. */
+  MEMORY_MINING_MAX_WINDOW_BYTES: intFromString(12_000).refine(
+    (value) => Number.isInteger(value) && value >= 1_024,
+    'MEMORY_MINING_MAX_WINDOW_BYTES must be an integer >= 1024',
+  ),
   MEMORY_MINING_INTERVAL_SECONDS: intFromString(60),
   FEEDBACK_LEARNING_ENABLED: boolFromString(true),
   FEEDBACK_LOOKAHEAD_MESSAGES: intFromString(10),

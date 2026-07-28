@@ -105,6 +105,11 @@ export interface JsonRequest<T> {
   schema: import('zod').ZodType<T>;
   /** Human-readable contract added beside the generated JSON Schema. */
   schemaHint?: string;
+  /**
+   * Disable the generated JSON Schema when a compact, complete schemaHint already describes the
+   * contract. This is useful for token-constrained local mining models; validation remains strict.
+   */
+  includeGeneratedSchema?: boolean;
   /** Lossless field normalization applied before validation (never JSON repair). */
   normalizeCandidate?: (candidate: unknown) => unknown;
   temperature?: number;

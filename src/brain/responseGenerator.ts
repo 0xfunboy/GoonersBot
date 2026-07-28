@@ -14,6 +14,17 @@ import { childLogger } from '../utils/logger.js';
 const log = childLogger('response-generator');
 
 const EMPTY_REPLY_RETRIES = 2;
+const GEMMA_MODEL_RE = /(?:^|[/_-])gemma(?:[-_/]|$)/i;
+
+export function isTokenConstrainedGemma(model: string | undefined): boolean {
+  return Boolean(model && GEMMA_MODEL_RE.test(model));
+}
+
+export function candidateCountForModel(configuredCount: number, model: string | undefined): number {
+  // Gemma Free has a 16K input-TPM lane. Parallel copies of the same full prompt burn quota but do
+  // not add information; the local ranker/one bounded regeneration remain available.
+  return isTokenConstrainedGemma(model) ? 1 : Math.max(1, configuredCount);
+}
 
 export interface ResponseGeneratorConfig {
   model: string | undefined;
@@ -110,8 +121,8 @@ export class ResponseGenerator {
       ...(input.documents ? { documents: input.documents } : {}),
     });
 
-    const n = Math.max(1, this.cfg.candidateCount);
     const model = input.model ?? this.cfg.model;
+    const n = candidateCountForModel(this.cfg.candidateCount, model);
     const results = await Promise.allSettled(
       Array.from({ length: n }, () =>
         this.callOne(system, userPrompt, model, input.plan.maxChars ?? this.cfg.maxReplyChars),
@@ -134,8 +145,9 @@ export class ResponseGenerator {
   }): Promise<GeneratedCandidates> {
     const note = buildRegenerationNote(params.bannedPhrases, params.overusedMemory);
     const augmented = `${params.userPrompt}\n\n${note}`;
+    const count = candidateCountForModel(params.count ?? 1, params.model);
     const results = await Promise.allSettled(
-      Array.from({ length: Math.max(1, params.count ?? 1) }, () =>
+      Array.from({ length: count }, () =>
         this.callOne(params.system, augmented, params.model, this.cfg.maxReplyChars),
       ),
     );
@@ -209,7 +221,8 @@ export class ResponseGenerator {
   ): Promise<ChatResult> {
     let last: ChatResult | undefined;
     let request = req;
-    for (let attempt = 0; attempt <= EMPTY_REPLY_RETRIES; attempt += 1) {
+    const maxRetries = isTokenConstrainedGemma(requestedModel) ? 1 : EMPTY_REPLY_RETRIES;
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       const result = await this.llm.chatCompletion(request);
       this.logCompletionDiagnostics(label, result, requestedModel);
       if (result.text.trim().length > 0) return result;
@@ -219,7 +232,7 @@ export class ResponseGenerator {
         {
           label,
           attempt,
-          attemptsLeft: EMPTY_REPLY_RETRIES - attempt,
+          attemptsLeft: maxRetries - attempt,
           requestedModel,
           returnedModel: result.model,
           finishReason: result.finishReason ?? null,
@@ -233,7 +246,7 @@ export class ResponseGenerator {
       if (nextMaxTokens !== undefined) request = { ...request, maxTokens: nextMaxTokens };
     }
     throw new Error(
-      `LLM returned empty visible reply after ${EMPTY_REPLY_RETRIES + 1} attempts` +
+      `LLM returned empty visible reply after ${maxRetries + 1} attempts` +
         (last?.model ? ` (${last.model})` : ''),
     );
   }

@@ -1,8 +1,12 @@
 import type { StoredMessage } from '../storage/repositories/messages.js';
+import { compactMiningLines } from '../utils/miningPrompt.js';
 import { renderSocialContext } from './context.js';
 import type { SocialProfileEngine } from './engine.js';
+import { normalizeSocialHandle } from './evolution.js';
 import type { SocialObservationMiner } from './miner.js';
 import type { SocialObservationResult } from './types.js';
+
+const SOCIAL_MINING_CONTEXT_MAX_BYTES = 2_800;
 
 export interface SocialLearningResult extends SocialObservationResult {
   proposed: number;
@@ -57,20 +61,33 @@ export class SocialLearningPipeline {
     eligibleSourceMessageIds?: number[];
     skipLlm?: boolean;
   }): Promise<SocialLearningResult> {
+    const focusHandles = [
+      ...new Set(
+        params.messages
+          .filter((message) => !message.isBot)
+          .flatMap((message) => [message.handle, message.replyToHandle ?? ''])
+          .map(normalizeSocialHandle)
+          .filter(Boolean),
+      ),
+    ];
     const [context, knownHandles] = await Promise.all([
       this.engine.getContext(params.chatId, {
-        maxMembers: 40,
+        focusHandles,
+        maxMembers: 12,
         maxFacetsPerFocusedMember: 5,
-        maxFacetsPerOtherMember: 3,
-        maxRelationships: 30,
-        maxJokes: 15,
-        maxNorms: 12,
+        maxFacetsPerOtherMember: 1,
+        maxRelationships: 12,
+        maxJokes: 6,
+        maxNorms: 8,
       }),
       this.engine.listKnownHandles(params.chatId),
     ]);
     const extraction = await this.miner.extractDetailed({
       messages: params.messages,
-      existingSocialContext: renderSocialContext(context),
+      existingSocialContext: compactMiningLines(
+        renderSocialContext(context),
+        SOCIAL_MINING_CONTEXT_MAX_BYTES,
+      ),
       language: params.language,
       knownHandles,
       ...(params.eligibleSourceMessageIds

@@ -9,6 +9,13 @@ import {
 import { memoryMiningResultSchema } from '../src/memory/schemas.js';
 import type { LLMProvider } from '../src/providers/llm/types.js';
 import type { MemoryCandidate, MemoryItem } from '../src/memory/types.js';
+import {
+  buildMemoryMiningPrompt,
+  MEMORY_MINING_SCHEMA_HINT,
+  MEMORY_MINING_SYSTEM,
+  selectMemoriesForMiningContext,
+} from '../src/prompts/memoryMining.js';
+import { estimateMiningRequestTokens } from '../src/providers/llm/miningPacer.js';
 import { MemoryItemsRepo } from '../src/storage/repositories/memoryItems.js';
 
 function cand(over: Partial<MemoryCandidate> = {}): MemoryCandidate {
@@ -275,6 +282,98 @@ describe('MemoryMiner.extractCandidates', () => {
         minConfidence: 0.62,
       }),
     ).rejects.toThrow('schema-valid');
+  });
+
+  it('uses the compact human schema contract and a bounded output for Gemma mining', async () => {
+    const jsonCompletion = vi.fn(async () => ({ candidates: [] }));
+    const m = new MemoryMiner({ jsonCompletion } as unknown as LLMProvider, {
+      temperature: 0.1,
+      maxCandidates: 8,
+      minSalience: 0.45,
+    });
+    await m.extractCandidates({
+      messages: [
+        {
+          messageId: 1,
+          handle: '@bob',
+          isBot: false,
+          message: { messageText: 'questa è lore', timestamp: new Date() },
+        },
+      ],
+      existingMemories: [],
+      language: 'italian',
+      nsfwEnabled: false,
+      minConfidence: 0.62,
+    });
+
+    expect(jsonCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({ includeGeneratedSchema: false, maxTokens: 900 }),
+    );
+  });
+});
+
+describe('memory mining prompt budget', () => {
+  it('selects relevant lore beyond the old top-300 cutoff within a deterministic byte cap', () => {
+    const messages = [
+      {
+        messageId: 900,
+        handle: '@alice',
+        isBot: false,
+        message: {
+          messageText: 'la stampante di Alice è tornata a mangiare fogli',
+          timestamp: new Date('2026-07-28T08:00:00Z'),
+        },
+      },
+    ];
+    const memories = Array.from({ length: 557 }, (_, index) =>
+      item({
+        _id: `memory-${index}`,
+        subjectHandle: '@other',
+        involvedHandles: ['@other'],
+        category: 'group_lore',
+        text: `evento completamente scollegato numero ${index}`,
+        normalizedText: `evento completamente scollegato numero ${index}`,
+        salience: 0.95,
+        confidence: 0.95,
+      }),
+    );
+    memories[556] = item({
+      _id: 'relevant-beyond-300',
+      subjectHandle: '@alice',
+      involvedHandles: ['@alice'],
+      category: 'group_lore',
+      text: 'La stampante di Alice mangia sempre i fogli',
+      normalizedText: 'la stampante di alice mangia sempre i fogli',
+      salience: 0.1,
+      confidence: 0.6,
+    });
+
+    const selected = selectMemoriesForMiningContext(messages, memories);
+    const prompt = buildMemoryMiningPrompt({
+      messages,
+      existingMemories: memories,
+      language: 'italian',
+      nsfwEnabled: false,
+      maxCandidates: 8,
+    });
+
+    expect(selected.map((memory) => memory._id)).toContain('relevant-beyond-300');
+    expect(selected.length).toBeLessThanOrEqual(20);
+    expect(prompt).toContain('relevant-beyond-300');
+    expect(Buffer.byteLength(prompt, 'utf8')).toBeLessThan(10_000);
+    expect(prompt).toContain('out of 557');
+    const system = [
+      MEMORY_MINING_SYSTEM,
+      'Output ONLY a single valid JSON object. No prose, no markdown fences, no comments.',
+      `REQUIRED OUTPUT CONTRACT:\n${MEMORY_MINING_SCHEMA_HINT}`,
+    ].join('\n\n');
+    expect(
+      estimateMiningRequestTokens({
+        system,
+        messages: [{ role: 'user', content: prompt }],
+        maxTokens: 900,
+      }),
+    ).toBeLessThan(15_000);
   });
 });
 

@@ -162,6 +162,7 @@ MINING_LLM_BASE_URL=http://192.168.178.27:4024
 MINING_LLM_MODEL=gemma-4-31b-it
 MINING_LLM_REQUEST_TIMEOUT_MS=180000
 MINING_LLM_MAX_REQUESTS_PER_MINUTE=3
+MINING_LLM_MAX_TOKENS_PER_MINUTE=15000
 
 # DeepSeek
 LLM_PROVIDER=deepseek
@@ -185,6 +186,8 @@ model overrides are ignored, the group-plan header is never forwarded and its to
 to the conversational quota. GemRouter calls are FIFO, strictly serial and paced to at most three
 actual upstream starts in any rolling minute, with at least 20 seconds between starts. JSON-mode
 fallbacks and repair attempts use the same budget, so an extraction cannot create a hidden burst.
+The same gate reserves a conservative maximum of 15,000 estimated tokens in any rolling minute and
+rejects an impossible request before HTTP dispatch.
 The 180-second timeout belongs only to this asynchronous provider; interactive chat keeps
 `LLM_REQUEST_TIMEOUT_MS`.
 
@@ -194,6 +197,17 @@ failure retains the same window and resumes later. Transient provider failures a
 60-second cooldown before another slot can be consumed. Backfill and live mining share the same
 serialized lane, so they cannot overlap. Confidence, provenance, privacy and deduplication still
 decide what becomes memory.
+
+Mining never serializes the whole memory database. It considers up to 1,000 retained items locally
+for relevance and deduplication, sends at most 20 relevant items within 2.8 KB, focuses social
+context on people present in the window and byte-packs transcript windows within 12 KB. The two
+mining contracts omit a redundant generated JSON Schema but still apply strict local Zod validation
+and bounded repair. Every eligible message id is processed.
+
+On token-constrained Gemma Free routes, reply generation uses one candidate call instead of three
+identical parallel prompts. Do not populate `LLM_ROUTER_FALLBACK_MODELS` with models served by the
+same intelligent GemRouter: it already performs account/model fallback, so client retries to that
+same endpoint only multiply the payload.
 
 Free quotas are useful resilience layers, not unlimited production capacity. Configure only the
 providers you actually have keys for and keep model ids explicit because catalogs change:
@@ -752,6 +766,7 @@ The tables below list the common vars; see `.env.example` for the full set with 
 | `MINING_LLM_MODEL`                                                        | `gemma-4-31b-it`         | Pinned background lore/social model; request overrides are ignored.     |
 | `MINING_LLM_REQUEST_TIMEOUT_MS`                                           | `180000`                 | Timeout only for one queued background structured call.                 |
 | `MINING_LLM_MAX_REQUESTS_PER_MINUTE`                                      | `3`                      | Mining-provider cap; default pacing starts calls at least 20s apart.    |
+| `MINING_LLM_MAX_TOKENS_PER_MINUTE`                                        | `15000`                  | Conservative rolling mining token envelope, including output reserve.  |
 | `LLM_VISION_MODEL`                                                        | none                     | Enables image and video-frame understanding.                            |
 | `LLM_VISION_ENDPOINT_URL`                                                 | none                     | Full dedicated vision endpoint, e.g. GemRouter `/v1/vision`.            |
 | `LLM_VISION_BASE_URL` / `LLM_VISION_API_KEY`                              | none                     | Separate chat-compatible vision base; empty reuses the main one.        |
@@ -812,7 +827,8 @@ value at `3` for GemRouter.
 | `REPLY_MAX_REGENERATIONS`                                              | `1`             | One bounded retry only when every candidate is blocked. |
 | `MAX_REPLY_LINES` / `MAX_REPLY_CHARS`                                  | `3` / `420`     | Reply length caps.                                      |
 | `MEMORY_MINING_ENABLED` / `FEEDBACK_LEARNING_ENABLED`                  | on / on         | Continuous lore/social mining and feedback learning.    |
-| `MEMORY_MINING_BATCH_MESSAGES` / `MEMORY_MINING_CONTEXT_MESSAGES`      | `20` / `30`     | New evidence per call / bounded look-behind window.     |
+| `MEMORY_MINING_BATCH_MESSAGES` / `MEMORY_MINING_CONTEXT_MESSAGES`      | `20` / `30`     | New evidence per call / bounded look-behind count.      |
+| `MEMORY_MINING_MAX_WINDOW_BYTES`                                       | `12000`         | UTF-8 transcript budget; messages are byte-packed.      |
 | `MEMORY_MINING_INTERVAL_SECONDS`                                       | `60`            | Backlog watchdog; idle cursor checks spend no LLM call. |
 
 Backfill and continuous mining both use one global FIFO lane. The provider remains serial and its

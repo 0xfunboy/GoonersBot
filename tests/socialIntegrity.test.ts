@@ -1,7 +1,7 @@
 import type { Context } from 'grammy';
 import { describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../src/config/index.js';
-import { runMemoryMiningJob } from '../src/jobs/memoryMiningJob.js';
+import { buildMiningWindows, runMemoryMiningJob } from '../src/jobs/memoryMiningJob.js';
 import type { LoreEngine } from '../src/memory/loreEngine.js';
 import type { SocialLearningPipeline } from '../src/social/index.js';
 import type { Storage } from '../src/storage/index.js';
@@ -10,6 +10,46 @@ import { forgetCommand } from '../src/telegram/handlers/commands/facts.js';
 import type { HandlerInput } from '../src/telegram/handlers/types.js';
 
 describe('continuous social mining', () => {
+  it('byte-packs every eligible message exactly once while preserving cursor order', () => {
+    const timestamp = new Date('2026-07-28T06:00:00.000Z');
+    const messages = Array.from({ length: 45 }, (_, index) => ({
+      messageId: index + 1,
+      handle: '@alice',
+      isBot: false,
+      message: { messageText: `#${index + 1} ${'x'.repeat(1_000)}`, timestamp },
+    }));
+
+    const windows = buildMiningWindows(messages, { timestamp: 0, messageId: 0 }, 20, 30, 5_000);
+    const eligibleIds = windows.flatMap((window) => window.eligibleSourceMessageIds);
+
+    expect(eligibleIds).toEqual(Array.from({ length: 45 }, (_, index) => index + 1));
+    expect(new Set(eligibleIds).size).toBe(45);
+    expect(windows.at(-1)?.cursor.messageId).toBe(45);
+    expect(windows.length).toBeGreaterThan(2);
+  });
+
+  it('never drops or advances past a single oversized message', () => {
+    const timestamp = new Date('2026-07-28T06:00:00.000Z');
+    const windows = buildMiningWindows(
+      [
+        {
+          messageId: 77,
+          handle: '@alice',
+          isBot: false,
+          message: { messageText: '🧠'.repeat(20_000), timestamp },
+        },
+      ],
+      { timestamp: 0, messageId: 0 },
+      20,
+      30,
+      5_000,
+    );
+
+    expect(windows).toHaveLength(1);
+    expect(windows[0]?.eligibleSourceMessageIds).toEqual([77]);
+    expect(windows[0]?.cursor.messageId).toBe(77);
+  });
+
   it('drains every unseen message in a >30-message burst and disambiguates equal timestamps by id', async () => {
     const timestamp = new Date('2026-07-28T06:00:00.000Z');
     const messages = Array.from({ length: 45 }, (_, index) => ({

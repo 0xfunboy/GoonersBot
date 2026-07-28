@@ -257,7 +257,7 @@ export class Services {
       this.social,
       new SocialObservationMiner(miningLlm, {
         temperature: Math.min(0.12, env.MEMORY_TEMPERATURE),
-        maxObservations: env.MEMORY_MAX_CANDIDATES_PER_RUN * 2,
+        maxObservations: env.MEMORY_MAX_CANDIDATES_PER_RUN,
       }),
     );
     this.heat = new HeatService(storage.userHeat, {

@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   SocialProfileEngine,
   SocialObservationMiner,
+  SocialLearningPipeline,
   buildSocialContext,
   createChatSocialState,
   createMemberProfile,
@@ -560,6 +561,75 @@ describe('SocialProfileEngine', () => {
   });
 });
 
+describe('SocialLearningPipeline mining budget', () => {
+  it('focuses the social snapshot on window participants and hard-caps prompt context bytes', async () => {
+    const getContext = vi.fn(async () => ({
+      chatId: -100,
+      members: Array.from({ length: 12 }, (_, index) => ({
+        handle: index === 0 ? '@alice' : `@member${index}`,
+        displayName: `Member ${index} ${'x'.repeat(300)}`,
+        aliases: [],
+        familiarity: 0.8,
+        facets: [
+          {
+            kind: 'interest' as const,
+            key: `interest_${index}`,
+            value: 'doom metal '.repeat(40),
+            confidence: 0.9,
+            salience: 0.8,
+          },
+        ],
+      })),
+      relationships: [],
+      runningJokes: [],
+      norms: [],
+    }));
+    const extractDetailed = vi.fn(async () => ({ observations: [], degraded: false }));
+    const pipeline = new SocialLearningPipeline(
+      {
+        getContext,
+        listKnownHandles: vi.fn(async () => ['@alice', '@bob']),
+        observeBatch: vi.fn(async () => ({
+          accepted: 0,
+          rejected: 0,
+          memberProfilesChanged: 0,
+          chatStateChanged: false,
+        })),
+      } as unknown as SocialProfileEngine,
+      { extractDetailed } as unknown as SocialObservationMiner,
+    );
+
+    await pipeline.learn({
+      chatId: -100,
+      language: 'italian',
+      messages: [
+        {
+          messageId: 1,
+          handle: '@alice',
+          replyToHandle: '@bob',
+          isBot: false,
+          message: { messageText: 'ciao', timestamp: new Date('2026-07-28T08:00:00Z') },
+        },
+      ],
+    });
+
+    expect(getContext).toHaveBeenCalledWith(
+      -100,
+      expect.objectContaining({
+        focusHandles: ['@alice', '@bob'],
+        maxMembers: 12,
+        maxRelationships: 12,
+        maxJokes: 6,
+        maxNorms: 8,
+      }),
+    );
+    const extractionInput = extractDetailed.mock.calls[0]?.[0];
+    expect(
+      Buffer.byteLength(extractionInput?.existingSocialContext ?? '', 'utf8'),
+    ).toBeLessThanOrEqual(2_800);
+  });
+});
+
 describe('social lifecycle and prompt context', () => {
   it('decays unconfirmed inference to stale while preserving strong self declarations longer', () => {
     const start = new Date('2024-01-01T00:00:00Z');
@@ -696,7 +766,7 @@ describe('social lifecycle and prompt context', () => {
       ],
     });
 
-    expect(maxTokens).toBe(1600);
+    expect(maxTokens).toBe(900);
   });
 
   it('mines automatic updates through a provenance firewall', async () => {

@@ -48,6 +48,7 @@ export interface MiningLLMConfig {
   apiKey: string | undefined;
   model: string;
   maxRequestsPerMinute: number;
+  maxTokensPerMinute: number;
   requestTimeoutMs: number;
 }
 
@@ -190,6 +191,7 @@ export function resolveMiningLLMConfig(
     apiKey: env.MINING_LLM_API_KEY ?? primary.apiKey,
     model: env.MINING_LLM_MODEL,
     maxRequestsPerMinute: env.MINING_LLM_MAX_REQUESTS_PER_MINUTE,
+    maxTokensPerMinute: env.MINING_LLM_MAX_TOKENS_PER_MINUTE,
     requestTimeoutMs: env.MINING_LLM_REQUEST_TIMEOUT_MS,
   };
 }

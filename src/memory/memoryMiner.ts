@@ -271,6 +271,9 @@ export class MemoryMiner {
       prompt,
       schema: memoryMiningResultSchema,
       schemaHint: MEMORY_MINING_SCHEMA_HINT,
+      // The hand-written contract above is complete. Repeating a generated schema can add several
+      // thousand input tokens to Gemma without improving the deterministic Zod validation below.
+      includeGeneratedSchema: false,
       normalizeCandidate: (candidate) =>
         normalizeMemoryMiningCandidate(
           candidate,
@@ -284,7 +287,7 @@ export class MemoryMiner {
           ),
         ),
       temperature: this.cfg.temperature,
-      maxTokens: 1500,
+      maxTokens: 900,
     });
     // A validated {"candidates":[]} is a successful empty pass. `null` means structured-output
     // failure and must propagate so the caller does not advance the mining cursor.

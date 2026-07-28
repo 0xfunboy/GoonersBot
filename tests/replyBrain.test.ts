@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ResponseRanker } from '../src/brain/responseRanker.js';
 import { rankCandidatesSafely } from '../src/brain/responseRanker.js';
-import { ResponseGenerator } from '../src/brain/responseGenerator.js';
+import { candidateCountForModel, ResponseGenerator } from '../src/brain/responseGenerator.js';
 import { RepetitionGuard } from '../src/brain/repetitionGuard.js';
 import { decideReplyAcceptance } from '../src/brain/replyAcceptance.js';
 import { ReplyPlanner } from '../src/brain/replyPlanner.js';
@@ -233,6 +233,12 @@ describe('reply acceptance', () => {
 });
 
 describe('ResponseGenerator', () => {
+  it('uses one candidate for token-constrained Gemma and preserves fan-out for larger models', () => {
+    expect(candidateCountForModel(3, 'gemma-4-26b-a4b-it')).toBe(1);
+    expect(candidateCountForModel(3, 'google/gemma-4-31b-it')).toBe(1);
+    expect(candidateCountForModel(3, 'gemini-3.6-flash')).toBe(3);
+  });
+
   it('retries empty visible replies before giving up on the candidate', async () => {
     const chatCompletion = vi
       .fn()
@@ -305,7 +311,7 @@ describe('ResponseGenerator', () => {
     await expect(callOne('system', 'prompt', 'gemma-4-26b-a4b-it')).rejects.toThrow(
       /empty visible reply/i,
     );
-    expect(chatCompletion).toHaveBeenCalledTimes(3);
+    expect(chatCompletion).toHaveBeenCalledTimes(2);
   });
 
   it('rewrites a candidate only when the upstream reports an output-length stop', async () => {

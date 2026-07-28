@@ -19,7 +19,7 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 export interface OpenAICompatibleOptions {
   name: string;
   baseUrl: string;
-  /** LeakRouter-specific plan header; disabled for independent public provider endpoints. */
+  /** Router-specific plan headers; disabled for independent public provider endpoints. */
   forwardGroupPlan?: boolean;
   /** Defaults to true. Set false for a route whose configured chat model must stay pinned. */
   allowRequestModelOverride?: boolean;
@@ -190,7 +190,11 @@ export class OpenAICompatibleProvider implements LLMProvider {
     const h: Record<string, string> = { 'Content-Type': 'application/json', ...extra };
     if (this.opts.apiKey) h['Authorization'] = `Bearer ${this.opts.apiKey}`;
     const groupPlan = currentGroupPlan();
-    if (this.opts.forwardGroupPlan && groupPlan) h['X-LeakRouter-Group-Plan'] = groupPlan;
+    if (this.opts.forwardGroupPlan && groupPlan) {
+      h['X-GemRouter-Group-Plan'] = groupPlan;
+      // Compatibility with older deployments that still use the original LeakRouter name.
+      h['X-LeakRouter-Group-Plan'] = groupPlan;
+    }
     return h;
   }
 
@@ -207,7 +211,10 @@ export class OpenAICompatibleProvider implements LLMProvider {
       const h: Record<string, string> = { 'Content-Type': 'application/json' };
       if (this.opts.nsfwApiKey) h['Authorization'] = `Bearer ${this.opts.nsfwApiKey}`;
       const groupPlan = currentGroupPlan();
-      if (this.opts.forwardGroupPlan && groupPlan) h['X-LeakRouter-Group-Plan'] = groupPlan;
+      if (this.opts.forwardGroupPlan && groupPlan) {
+        h['X-GemRouter-Group-Plan'] = groupPlan;
+        h['X-LeakRouter-Group-Plan'] = groupPlan;
+      }
       return { url: `${this.opts.nsfwBaseUrl.replace(/\/+$/, '')}/chat/completions`, headers: h };
     }
     return { url: this.url('/chat/completions'), headers: this.headers() };
@@ -271,9 +278,13 @@ export class OpenAICompatibleProvider implements LLMProvider {
         const json = await readResponseJson<ChatCompletionResponse>(res, signal);
         const text = json.choices?.[0]?.message?.content ?? '';
         const usage = json.usage;
+        const returnedModel =
+          nonEmpty(res.headers.get('x-gemrouter-backend-model') ?? undefined) ??
+          nonEmpty(json.model) ??
+          model;
         const result: ChatResult = {
           text,
-          model,
+          model: returnedModel,
           finishReason: normalizeFinishReason(json.choices?.[0]?.finish_reason),
           usage: usage
             ? {
@@ -316,6 +327,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
         throw new Error(`stream chat failed (${res.status}): ${text.slice(0, 500)}`);
       }
 
+      const returnedModel =
+        nonEmpty(res.headers.get('x-gemrouter-backend-model') ?? undefined) ?? model;
       let full = '';
       let finishReason: ChatResult['finishReason'];
       reader = res.body.getReader();
@@ -352,7 +365,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       throwIfAborted(scope.signal);
       const result: ChatResult = {
         text: full,
-        model,
+        model: returnedModel,
         finishReason,
         usage: {
           inputTokens: estimateTokens(messages.map((m) => m.content).join('\n')),
@@ -408,6 +421,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     if (visionKey) visionHeaders['Authorization'] = `Bearer ${visionKey}`;
     const groupPlan = currentGroupPlan();
     if (this.opts.forwardGroupPlan && groupPlan) {
+      visionHeaders['X-GemRouter-Group-Plan'] = groupPlan;
       visionHeaders['X-LeakRouter-Group-Plan'] = groupPlan;
     }
 
@@ -425,9 +439,13 @@ export class OpenAICompatibleProvider implements LLMProvider {
         }
         const json = await readResponseJson<ChatCompletionResponse>(res, signal);
         const text = json.choices?.[0]?.message?.content ?? '';
+        const returnedModel =
+          nonEmpty(res.headers.get('x-gemrouter-backend-model') ?? undefined) ??
+          nonEmpty(json.model) ??
+          model;
         const result: ChatResult = {
           text,
-          model,
+          model: returnedModel,
           usage: json.usage
             ? {
                 inputTokens: json.usage.prompt_tokens,
@@ -530,7 +548,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
   }
 
   async jsonCompletion<T>(req: import('./types.js').JsonRequest<T>): Promise<T | null> {
-    const generatedSchema = compactJsonSchema(req.schema);
+    const generatedSchema =
+      req.includeGeneratedSchema === false ? '' : compactJsonSchema(req.schema);
     const schemaContract = [req.schemaHint?.trim(), generatedSchema].filter(Boolean).join('\n\n');
     const sys =
       (req.system ? `${req.system}\n\n` : '') +
@@ -727,6 +746,7 @@ function isUnsupportedJsonModeError(error: unknown): boolean {
 
 // ---- response shapes ----
 interface ChatCompletionResponse {
+  model?: string;
   choices?: Array<{ message?: { content?: string }; finish_reason?: string | null }>;
   usage?: { prompt_tokens?: number; completion_tokens?: number };
 }

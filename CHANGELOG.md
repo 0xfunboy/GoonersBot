@@ -2,6 +2,19 @@
 
 All notable changes to GoonersBot are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- Added a conservative rolling token budget to the dedicated Gemma miner, alongside its existing
+  serial 3-RPM gate. Oversized calls are rejected before reaching GemRouter.
+- Replaced the 300-item episodic memory dump with deterministic relevance selection over the full
+  retained set, bounded social context, byte-packed transcript windows and compact mining schemas.
+- Token-constrained Gemma replies now generate one candidate instead of three identical parallel
+  calls. GemRouter receives the correct group-plan header and the client records the actual backend
+  model returned in response metadata.
+- Removed redundant same-GemRouter fallback amplification from the production configuration.
+
 ## [2.0.0] - 2026-07-28
 
 ### Breaking changes

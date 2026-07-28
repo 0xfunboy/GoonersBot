@@ -33,6 +33,7 @@ async function runInitialCommunityBackfill(
           { timestamp: 0, messageId: 0 },
           config.env.MEMORY_MINING_BATCH_MESSAGES,
           config.env.MEMORY_MINING_CONTEXT_MESSAGES,
+          config.env.MEMORY_MINING_MAX_WINDOW_BYTES,
         );
         const language = await storage.chats.getLanguage(chatId, config.env.DEFAULT_LANGUAGE);
         const nsfwEnabled =
