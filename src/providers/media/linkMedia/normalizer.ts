@@ -1,21 +1,34 @@
 import { runProcess, runProcessChecked } from '../../../utils/process.js';
 
+const LOCAL_INPUT_PROTOCOLS = ['-protocol_whitelist', 'file,pipe'] as const;
+
 export interface NormalizeOptions {
   ffmpegBin: string;
   timeoutMs: number;
   maxUploadBytes: number;
+  signal?: AbortSignal;
 }
 
-async function run(bin: string, args: string[], timeoutMs: number): Promise<void> {
-  await runProcessChecked(bin, args, { timeoutMs }, 'ffmpeg');
+async function run(
+  bin: string,
+  args: string[],
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  await runProcessChecked(bin, args, { timeoutMs, signal }, 'ffmpeg');
 }
 
-/** Transcode any video (file or HLS/DASH manifest URL) to a Telegram-friendly H.264/AAC mp4. */
-export async function normalizeVideo(input: string, output: string, opts: NormalizeOptions): Promise<void> {
+/** Transcode a downloaded local video to a Telegram-friendly H.264/AAC mp4. */
+export async function normalizeVideo(
+  input: string,
+  output: string,
+  opts: NormalizeOptions,
+): Promise<void> {
   await run(
     opts.ffmpegBin,
     [
       '-y',
+      ...LOCAL_INPUT_PROTOCOLS,
       '-i',
       input,
       '-map',
@@ -39,15 +52,21 @@ export async function normalizeVideo(input: string, output: string, opts: Normal
       output,
     ],
     opts.timeoutMs,
+    opts.signal,
   );
 }
 
 /** Convert a GIF to a muted, looping-friendly mp4 (Telegram animation). */
-export async function normalizeGifAsMp4(input: string, output: string, opts: NormalizeOptions): Promise<void> {
+export async function normalizeGifAsMp4(
+  input: string,
+  output: string,
+  opts: NormalizeOptions,
+): Promise<void> {
   await run(
     opts.ffmpegBin,
     [
       '-y',
+      ...LOCAL_INPUT_PROTOCOLS,
       '-i',
       input,
       '-an',
@@ -60,11 +79,32 @@ export async function normalizeGifAsMp4(input: string, output: string, opts: Nor
       output,
     ],
     opts.timeoutMs,
+    opts.signal,
   );
 }
 
-export async function normalizeAudio(input: string, output: string, opts: NormalizeOptions): Promise<void> {
-  await run(opts.ffmpegBin, ['-y', '-i', input, '-vn', '-c:a', 'libmp3lame', '-b:a', '128k', output], opts.timeoutMs);
+export async function normalizeAudio(
+  input: string,
+  output: string,
+  opts: NormalizeOptions,
+): Promise<void> {
+  await run(
+    opts.ffmpegBin,
+    [
+      '-y',
+      ...LOCAL_INPUT_PROTOCOLS,
+      '-i',
+      input,
+      '-vn',
+      '-c:a',
+      'libmp3lame',
+      '-b:a',
+      '128k',
+      output,
+    ],
+    opts.timeoutMs,
+    opts.signal,
+  );
 }
 
 /** Derive the ffprobe path from the ffmpeg path (same directory/suffix). */
@@ -76,10 +116,30 @@ function ffprobeOf(ffmpegBin: string): string {
  * Remux an mp4 in place to put the moov atom at the front (+faststart) WITHOUT re-encoding, so
  * Telegram can stream it inline (preview + autoplay). Falls back to a re-encode if stream-copy fails.
  */
-export async function remuxFaststart(input: string, output: string, opts: NormalizeOptions): Promise<void> {
+export async function remuxFaststart(
+  input: string,
+  output: string,
+  opts: NormalizeOptions,
+): Promise<void> {
   try {
-    await run(opts.ffmpegBin, ['-y', '-i', input, '-c', 'copy', '-movflags', '+faststart', output], opts.timeoutMs);
+    await run(
+      opts.ffmpegBin,
+      [
+        '-y',
+        ...LOCAL_INPUT_PROTOCOLS,
+        '-i',
+        input,
+        '-c',
+        'copy',
+        '-movflags',
+        '+faststart',
+        output,
+      ],
+      opts.timeoutMs,
+      opts.signal,
+    );
   } catch {
+    if (opts.signal?.aborted) throw opts.signal.reason;
     await normalizeVideo(input, output, opts);
   }
 }
@@ -91,12 +151,30 @@ export interface VideoProbe {
 }
 
 /** Best-effort width/height/duration via ffprobe (resolves {} on any failure). */
-export async function probeVideo(ffmpegBin: string, input: string, timeoutMs = 15000): Promise<VideoProbe> {
+export async function probeVideo(
+  ffmpegBin: string,
+  input: string,
+  timeoutMs = 15000,
+  signal?: AbortSignal,
+): Promise<VideoProbe> {
   try {
     const r = await runProcess(
       ffprobeOf(ffmpegBin),
-      ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-show_entries', 'format=duration', '-of', 'json', input],
-      { timeoutMs, collectStdout: true },
+      [
+        '-v',
+        'error',
+        ...LOCAL_INPUT_PROTOCOLS,
+        '-select_streams',
+        'v:0',
+        '-show_entries',
+        'stream=width,height',
+        '-show_entries',
+        'format=duration',
+        '-of',
+        'json',
+        input,
+      ],
+      { timeoutMs, collectStdout: true, signal },
     );
     const j = JSON.parse(r.stdout.toString()) as {
       streams?: Array<{ width?: number; height?: number }>;
@@ -120,13 +198,27 @@ export async function videoThumbnail(
   input: string,
   output: string,
   timeoutMs = 20000,
+  signal?: AbortSignal,
 ): Promise<boolean> {
   try {
     // the `thumbnail` filter picks a representative (non-black) frame instead of the first one
     const r = await runProcess(
       ffmpegBin,
-      ['-hide_banner', '-loglevel', 'error', '-y', '-i', input, '-vf', "thumbnail,scale='min(320,iw)':-2", '-frames:v', '1', output],
-      { timeoutMs },
+      [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-y',
+        ...LOCAL_INPUT_PROTOCOLS,
+        '-i',
+        input,
+        '-vf',
+        "thumbnail,scale='min(320,iw)':-2",
+        '-frames:v',
+        '1',
+        output,
+      ],
+      { timeoutMs, signal },
     );
     return r.code === 0;
   } catch {

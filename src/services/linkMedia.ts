@@ -44,9 +44,25 @@ const NSFW_HOSTS = [
   'spankbang.com',
 ];
 
+const MEDIA_CONTENT_TYPES: Record<LinkMediaKind, readonly string[]> = {
+  image: ['image/*', 'application/octet-stream'],
+  gif: ['image/gif', 'image/*', 'application/octet-stream'],
+  audio: ['audio/*', 'application/ogg', 'application/octet-stream'],
+  video: [
+    'video/*',
+    'application/vnd.apple.mpegurl',
+    'application/x-mpegurl',
+    'application/dash+xml',
+    'application/octet-stream',
+  ],
+  document: ['application/pdf', 'application/zip', 'application/octet-stream', 'text/plain'],
+};
+
 export interface LinkMediaResult {
   handled: boolean;
   injectedText?: string;
+  /** Telegram delivery receipts, used to attach reactions to the complete turn. */
+  messageIds?: number[];
   /** Safe operational reason for logs/debugging; never contains cookies or source internals. */
   reason?: string;
 }
@@ -77,6 +93,7 @@ export class LinkMediaService {
     context: ChatContext;
     text: string;
     addressed: boolean;
+    signal?: AbortSignal;
   }): Promise<LinkMediaResult> {
     if (!this.enabled) return { handled: false, reason: 'service_disabled' };
 
@@ -94,6 +111,7 @@ export class LinkMediaService {
     }
 
     const injected: string[] = [];
+    const messageIds: number[] = [];
     let sentAny = false;
 
     for (const url of urls) {
@@ -104,6 +122,7 @@ export class LinkMediaService {
         input.context.chatId,
         input.context.messageId,
         input.addressed,
+        input.signal,
       ).catch((err) => {
         log.warn({ err, url: url.toString() }, 'link media processing failed');
         return null;
@@ -111,11 +130,13 @@ export class LinkMediaService {
       if (!result) continue;
       sentAny = true;
       if (result.contextText) injected.push(result.contextText);
+      messageIds.push(...result.messageIds);
     }
 
     const outcome: LinkMediaResult = {
       handled: sentAny,
       ...(injected.length ? { injectedText: injected.join('\n') } : {}),
+      ...(messageIds.length ? { messageIds: [...new Set(messageIds)] } : {}),
     };
     if (!sentAny) outcome.reason = 'no_media_rehosted';
     return outcome;
@@ -126,6 +147,7 @@ export class LinkMediaService {
     context: ChatContext;
     url: string | URL;
     addressed: boolean;
+    signal?: AbortSignal;
   }): Promise<LinkMediaResult> {
     if (!this.enabled) return { handled: false };
     const url = input.url instanceof URL ? input.url : safeUrl(input.url);
@@ -138,6 +160,7 @@ export class LinkMediaService {
       input.context.chatId,
       input.context.messageId,
       input.addressed,
+      input.signal,
     ).catch((err) => {
       log.warn({ err, url: url.toString() }, 'explicit link media processing failed');
       return null;
@@ -146,28 +169,30 @@ export class LinkMediaService {
     return {
       handled: true,
       ...(result.contextText ? { injectedText: result.contextText } : {}),
+      ...(result.messageIds.length ? { messageIds: result.messageIds } : {}),
     };
   }
 
   private hostAllowed(url: URL): boolean {
     const host = hostOf(url);
-    if (this.cfg.blockedHosts.some((h) => host === h || host.endsWith(`.${h}`))) return false;
+    if (this.cfg.blockedHosts.some((candidate) => hostMatches(host, candidate))) return false;
     if (
       this.cfg.allowedHosts.length > 0 &&
-      !this.cfg.allowedHosts.some((h) => host === h || host.endsWith(`.${h}`))
+      !this.cfg.allowedHosts.some((candidate) => hostMatches(host, candidate))
     ) {
       return false;
     }
-    if (!this.cfg.nsfwAllow && NSFW_HOSTS.some((h) => host === h || host.endsWith(`.${h}`)))
+    if (!this.cfg.nsfwAllow && NSFW_HOSTS.some((candidate) => hostMatches(host, candidate)))
       return false;
     return true;
   }
 
   private cookieFor(host: string): string | undefined {
-    if (/instagram\.com$/.test(host)) return this.cfg.cookies.instagram;
-    if (/tiktok\.com$/.test(host)) return this.cfg.cookies.tiktok;
-    if (/facebook\.com$/.test(host) || host === 'fb.watch') return this.cfg.cookies.facebook;
-    if (/(^|\.)x\.com$/.test(host) || /twitter\.com$/.test(host)) return this.cfg.cookies.x;
+    if (hostMatches(host, 'instagram.com')) return this.cfg.cookies.instagram;
+    if (hostMatches(host, 'tiktok.com')) return this.cfg.cookies.tiktok;
+    if (hostMatches(host, 'facebook.com') || hostMatches(host, 'fb.watch'))
+      return this.cfg.cookies.facebook;
+    if (hostMatches(host, 'x.com') || hostMatches(host, 'twitter.com')) return this.cfg.cookies.x;
     return undefined;
   }
 
@@ -177,7 +202,8 @@ export class LinkMediaService {
     chatId: number,
     replyToMessageId: number | undefined,
     addressed: boolean,
-  ): Promise<{ contextText?: string } | null> {
+    signal?: AbortSignal,
+  ): Promise<{ contextText?: string; messageIds: number[] } | null> {
     const key = this.cacheKey(url.toString());
     const cached = await this.storage.linkMediaCache.get(key);
     if (cached) {
@@ -188,15 +214,23 @@ export class LinkMediaService {
         return null;
       }
       await this.storage.linkMediaCache.touch(key);
-      await sendCachedMedia(
-        ctx,
-        cached.kind,
-        cached.telegramFileId,
-        cached.caption,
-        replyToMessageId,
-      ).catch((err) => log.warn({ err }, 'cached media send failed'));
+      let messageId: number;
+      try {
+        messageId = await sendCachedMedia(
+          ctx,
+          cached.kind,
+          cached.telegramFileId,
+          cached.caption,
+          replyToMessageId,
+        );
+      } catch (err) {
+        log.warn({ err }, 'cached media send failed');
+        return null;
+      }
       const ctxText = cached.transcript || cached.visionSummary;
-      return ctxText ? { contextText: ctxText } : {};
+      return ctxText
+        ? { contextText: ctxText, messageIds: [messageId] }
+        : { messageIds: [messageId] };
     }
 
     const host = hostOf(url);
@@ -208,6 +242,7 @@ export class LinkMediaService {
       maxMediaPerUrl: this.cfg.maxMediaPerUrl,
       proxy: this.cfg.proxy,
       cookies,
+      signal,
     });
     if (!post || post.items.length === 0) return null;
 
@@ -223,6 +258,7 @@ export class LinkMediaService {
         ffmpegBin: this.cfg.ffmpegBin,
         timeoutMs: this.cfg.timeoutMs,
         maxUploadBytes: this.cfg.maxUploadBytes,
+        signal,
       };
       let prepared: string;
       let sendKind: LinkMediaKind = item.kind;
@@ -238,7 +274,8 @@ export class LinkMediaService {
           maxDurationSeconds: this.cfg.maxDurationSeconds,
           timeoutMs: this.cfg.timeoutMs,
           proxy: this.cfg.proxy,
-          cookies,
+          cookies: cookieForUrl(item.url, (targetHost) => this.cookieFor(targetHost)),
+          signal,
         };
         const dl = await downloadWithYtdlp(item.url, workdir, ytcfg);
         if (dl) {
@@ -265,14 +302,17 @@ export class LinkMediaService {
       } else {
         const raw = join(workdir, `raw.${item.ext ?? 'bin'}`);
         const referer = post.webpageUrl || post.canonicalUrl || url.toString();
+        const mediaCookie = cookieForUrl(item.url, (targetHost) => this.cookieFor(targetHost));
         await downloadToFile(item.url, raw, {
           timeoutMs: this.cfg.timeoutMs,
           maxBytes: this.cfg.maxDownloadBytes,
           userAgent: this.cfg.userAgent,
+          signal,
+          allowedContentTypes: MEDIA_CONTENT_TYPES[item.kind],
           headers: {
             referer,
-            ...(cookies ? { cookie: cookies } : {}),
-            ...(item.headers ?? {}),
+            ...safeForwardHeaders(item.headers),
+            ...(mediaCookie ? { cookie: mediaCookie } : {}),
           },
         });
         prepared = join(
@@ -308,16 +348,22 @@ export class LinkMediaService {
       // autoplaying player instead of a downloadable file.
       let videoMeta: VideoMeta | undefined;
       if (sendKind === 'video') {
-        const probe = await probeVideo(this.cfg.ffmpegBin, prepared).catch(() => ({}));
-        const thumbPath = join(workdir, 'thumb.jpg');
-        const okThumb = await videoThumbnail(this.cfg.ffmpegBin, prepared, thumbPath).catch(
-          () => false,
+        const probe = await probeVideo(this.cfg.ffmpegBin, prepared, 15_000, signal).catch(
+          () => ({}),
         );
+        const thumbPath = join(workdir, 'thumb.jpg');
+        const okThumb = await videoThumbnail(
+          this.cfg.ffmpegBin,
+          prepared,
+          thumbPath,
+          20_000,
+          signal,
+        ).catch(() => false);
         videoMeta = { ...probe, ...(okThumb ? { thumbnailPath: thumbPath } : {}) };
       }
 
       const caption = this.buildCaption(post);
-      const telegramFileId = await sendPreparedMedia({
+      const sentMedia = await sendPreparedMedia({
         ctx,
         kind: sendKind,
         path: prepared,
@@ -325,9 +371,14 @@ export class LinkMediaService {
         replyToMessageId,
         ...(videoMeta ? { video: videoMeta } : {}),
       });
+      const telegramFileId = sentMedia.fileId;
       // Context the brain receives: the post's own text/stats plus any AI transcript/vision summary.
       const brainContext = [post.caption, contextText].filter(Boolean).join(' | ') || undefined;
-      if (!telegramFileId) return brainContext ? { contextText: brainContext } : {};
+      if (!telegramFileId) {
+        return brainContext
+          ? { contextText: brainContext, messageIds: [sentMedia.messageId] }
+          : { messageIds: [sentMedia.messageId] };
+      }
 
       const now = new Date();
       const isAv = sendKind === 'audio' || sendKind === 'video';
@@ -350,7 +401,9 @@ export class LinkMediaService {
         expiresAt: new Date(now.getTime() + this.cfg.cacheTtlDays * 86400_000),
       });
 
-      return brainContext ? { contextText: brainContext } : {};
+      return brainContext
+        ? { contextText: brainContext, messageIds: [sentMedia.messageId] }
+        : { messageIds: [sentMedia.messageId] };
     } finally {
       await rm(workdir, { recursive: true, force: true }).catch(() => undefined);
     }
@@ -398,4 +451,38 @@ function safeUrl(value: string): URL | null {
   } catch {
     return null;
   }
+}
+
+function normalizedHost(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^\.+/, '')
+    .replace(/\.$/, '')
+    .replace(/^www\./, '');
+}
+
+function hostMatches(host: string, candidate: string): boolean {
+  const normalized = normalizedHost(host);
+  const suffix = normalizedHost(candidate);
+  return Boolean(suffix) && (normalized === suffix || normalized.endsWith(`.${suffix}`));
+}
+
+function cookieForUrl(
+  value: string,
+  resolve: (host: string) => string | undefined,
+): string | undefined {
+  const url = safeUrl(value);
+  if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) return undefined;
+  return resolve(hostOf(url));
+}
+
+function safeForwardHeaders(headers?: Record<string, string>): Record<string, string> {
+  if (!headers) return {};
+  const safe: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (/^(?:authorization|cookie|host|proxy-authorization)$/i.test(name)) continue;
+    safe[name] = value;
+  }
+  return safe;
 }

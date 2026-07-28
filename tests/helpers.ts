@@ -59,9 +59,6 @@ export function fakeLLM(opts: {
       yield 'hi';
       return { text: 'hi', usage: { estimated: true }, model: 'fake' };
     },
-    async extractFacts() {
-      return [];
-    },
     async scoreAutoEngage() {
       return score;
     },

@@ -25,16 +25,28 @@ import type { ImageFinder } from '../media/imageFinder.js';
 import type { NewsService } from '../news/newsService.js';
 import type { AutonomousPoster } from './autonomousPoster.js';
 import type { ImagePromptService } from './imagePrompt.js';
+import type { VideoPromptService } from './videoPrompt.js';
 import type { GroupQuotaService } from './groupQuota.js';
 import type { ConversationThreadTracker, ConversationThreadState } from './threadTracker.js';
+import type { DocumentProcessor } from '../documents/documentProcessor.js';
+import type { CapabilityForge } from '../capabilities/forge.js';
+import type { AgentRuntime } from './agentRuntime.js';
+import {
+  renderSocialContext,
+  type SocialContext,
+  type SocialProfileEngine,
+} from '../social/index.js';
 import { parseMusicRequest } from './musicIntent.js';
 import type { RetrievedMemory } from '../memory/types.js';
+import { jaccard } from '../memory/memoryDeduper.js';
 import { StyleEngine } from '../brain/styleEngine.js';
 import { ReplyPlanner } from '../brain/replyPlanner.js';
 import { ResponseGenerator } from '../brain/responseGenerator.js';
-import { ResponseRanker } from '../brain/responseRanker.js';
+import { rankCandidatesSafely, ResponseRanker } from '../brain/responseRanker.js';
 import { RepetitionGuard } from '../brain/repetitionGuard.js';
+import { decideReplyAcceptance, type AssessedReplyCandidate } from '../brain/replyAcceptance.js';
 import { TurnEvaluator } from '../brain/turnEvaluator.js';
+import { violatesSocialFloor } from '../brain/socialAwareness.js';
 import { Cortex, cortexToTurnEvaluation } from '../brain/cortex/evaluator.js';
 import type { CortexTool, SourcedCortexDecision } from '../brain/cortex/schema.js';
 import { isRefusal } from './modelRouter.js';
@@ -139,6 +151,31 @@ function formatGroupContext(items: RetrievedMemory[]): string | undefined {
   ].join('\n');
 }
 
+/**
+ * Only cool down memories that visibly influenced the final answer. The old implementation marked
+ * every retrieved item as "used", even when the model ignored it, which both corrupted analytics
+ * and kept the same handful of high-salience stereotypes circulating forever.
+ */
+function actuallyUsedMemoryIds(
+  text: string,
+  retrieved: RetrievedMemory[],
+  plan: ReplyPlan,
+): string[] {
+  if (plan.memoryUseMode === 'none' || !text.trim()) return [];
+  const normalized = text.toLowerCase();
+  return retrieved
+    .filter((memory) => {
+      const handle = memory.item.subjectHandle?.toLowerCase().replace(/^@/, '');
+      const namesSubject =
+        Boolean(handle && handle.length >= 3) &&
+        (normalized.includes(`@${handle}`) || normalized.includes(handle as string));
+      const overlap = jaccard(text, memory.item.text);
+      return namesSubject || overlap >= (memory.allowedToUseExplicitly ? 0.16 : 0.24);
+    })
+    .map((memory) => memory.item._id)
+    .filter((id): id is string => Boolean(id));
+}
+
 function formatNewsContext(
   items: Array<{ title: string; source: string; summary: string; matchedTopics: string[] }>,
 ): string | undefined {
@@ -184,6 +221,49 @@ function imageProfileFromTool(value: string | undefined): ImageProfile | undefin
   return undefined;
 }
 
+function hardFloorFallback(plan: ReplyPlan, language: string, topic: string): string {
+  const italian = /^it(?:alian)?$/i.test(language);
+  if (plan.socialSignal?.situation === 'gratitude') {
+    return italian
+      ? 'Ricevuto. Quando serve davvero, ci sono.'
+      : "Got it. When you actually need me, I'm here.";
+  }
+  if (plan.socialSignal?.supportNeed === 'high' || plan.socialSignal?.supportNeed === 'urgent') {
+    return italian
+      ? 'Ci sono. Dimmi la cosa più urgente e la affrontiamo un passo alla volta.'
+      : "I'm here. Tell me the most urgent thing and we'll take it one step at a time.";
+  }
+  const subject = topic.trim().slice(0, 90);
+  if (plan.mustBringValue) {
+    return italian
+      ? `Su ${subject || 'questo'} non ho ancora elementi abbastanza solidi per risponderti senza inventare. Dammi il riferimento che manca e lo chiudo sul merito.`
+      : `I do not yet have solid enough evidence about ${subject || 'this'} to answer without making things up. Give me the missing reference and I will resolve it directly.`;
+  }
+  return italian
+    ? 'Qui mi manca il contesto per dire qualcosa di sensato. Dammi il bersaglio preciso e ci vado dritto.'
+    : 'I am missing the context needed to say something useful here. Give me the exact target and I will address it directly.';
+}
+
+function usedRunningJoke(
+  text: string,
+  jokes: SocialContext['runningJokes'],
+): { id: string; variant: string | null } | null {
+  let best: { id: string; variant: string | null; score: number } | null = null;
+  for (const joke of jokes) {
+    const candidates = [
+      { text: joke.label, variant: null },
+      ...joke.variants.map((variant) => ({ text: variant, variant })),
+    ];
+    for (const candidate of candidates) {
+      const score = jaccard(text, candidate.text);
+      if (score >= 0.16 && (!best || score > best.score)) {
+        best = { id: joke.id, variant: candidate.variant, score };
+      }
+    }
+  }
+  return best ? { id: best.id, variant: best.variant } : null;
+}
+
 /** A resolved still image to react to: a photo or a frame from a video, current or replied-to. */
 interface Visual {
   buffer: Buffer;
@@ -214,6 +294,8 @@ export interface ReplyContext {
   recentBotReplies: BotReplyRecord[];
   /** Operator/private-admin turn: do not spend or block on secondary group quotas. */
   quotaBypass?: boolean | undefined;
+  /** Only a bot operator may persist a new global capability. */
+  allowCapabilityInstall?: boolean | undefined;
 }
 
 export interface ReplyOutcome {
@@ -286,6 +368,11 @@ export class ReplyService {
     private readonly quota: GroupQuotaService,
     private readonly localizer: Localizer,
     private readonly threadTracker: ConversationThreadTracker,
+    private readonly documents: DocumentProcessor,
+    private readonly capabilities: CapabilityForge,
+    private readonly videoPrompts: VideoPromptService,
+    private readonly agentRuntime: AgentRuntime,
+    private readonly social: SocialProfileEngine,
   ) {
     this.evaluator = new TurnEvaluator(llm, {
       enabled: config.brain.evaluatorEnabled,
@@ -471,6 +558,20 @@ export class ReplyService {
       visual,
       ctx.allowVision,
     );
+    const extractedDocuments = await this.documents.extractAll(ctx.message.attachments ?? []);
+    const documentContext =
+      this.documents.formatForPrompt(extractedDocuments) ??
+      ((ctx.message.attachments?.length ?? 0) > 0
+        ? [
+            'ATTACHED DOCUMENTS DETECTED, but no configured extractor supports their format:',
+            ...(ctx.message.attachments ?? []).map(
+              (file) =>
+                `- name=${JSON.stringify(file.fileName)} source=${file.source} type=${file.mime} bytes=${file.size}`,
+            ),
+            'Do not say there is no attachment. State that this specific format could not be read.',
+          ].join('\n')
+        : null);
+    if (documentContext) transcribed.attachmentDescription = documentContext;
     log.info(
       {
         chatId: ctx.context.chatId,
@@ -487,11 +588,37 @@ export class ReplyService {
       message: ctx.message,
       history,
     });
+    const socialSnapshot = await this.social.getContext(ctx.context.chatId, {
+      focusHandles: [
+        ctx.person.userHandle,
+        ...mentioned,
+        ...(ctx.context.repliedToUserHandle ? [ctx.context.repliedToUserHandle] : []),
+      ],
+      maxMembers: 14,
+      maxFacetsPerFocusedMember: 8,
+      maxFacetsPerOtherMember: 3,
+      maxRelationships: 12,
+      maxJokes: 3,
+      maxNorms: 6,
+    });
+    const socialContext = renderSocialContext(socialSnapshot);
+    const cognitiveContext = [threadState.promptBlock, socialContext].filter(Boolean).join('\n\n');
 
     // 1. scene
+    const attachmentSummary = extractedDocuments.length
+      ? extractedDocuments
+          .map(
+            (doc) =>
+              `${doc.source === 'reply' ? 'replied' : 'attached'} file ${JSON.stringify(doc.fileName)} (${doc.mime}, ${doc.originalChars} extracted chars)`,
+          )
+          .join('; ')
+      : '';
+    const semanticMessage = [ctx.message.messageText, attachmentSummary && `[${attachmentSummary}]`]
+      .filter(Boolean)
+      .join('\n');
     const scene = await this.sceneAnalyzer.analyze({
       history,
-      currentMessage: ctx.message.messageText,
+      currentMessage: semanticMessage,
       currentHandle: ctx.person.userHandle,
       mentionedHandles: mentioned,
       botIsAddressed: ctx.context.isBotMentioned || ctx.context.isReplyToBot,
@@ -518,6 +645,7 @@ export class ReplyService {
       videoGeneration: this.video.enabled,
       translation: this.llm.capabilities.chat,
       tts: this.tts.enabled,
+      capabilityForge: this.capabilities.enabled,
     };
     let cortexDecision: SourcedCortexDecision | undefined;
     const evaluation = this.config.brain.cortex.enabled
@@ -525,11 +653,11 @@ export class ReplyService {
           cortexDecision = await this.cortex.evaluate({
             scene,
             history,
-            currentMessage: ctx.message.messageText,
+            currentMessage: semanticMessage,
             botIsAddressed: addressed,
             recentNegativeFeedback,
             capabilities,
-            ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
+            ...(cognitiveContext ? { threadContext: cognitiveContext } : {}),
             model: ctx.internalModel,
           });
           return cortexToTurnEvaluation(cortexDecision, addressed);
@@ -584,9 +712,11 @@ export class ReplyService {
       videoMeta?: VideoSendMeta;
       linkMediaUrl?: string;
       audioBuffer?: Buffer;
+      music?: MusicResult;
       imageCalls?: number;
       usage?: { inputTokens: number; outputTokens: number; estimated: boolean };
       model?: string | null;
+      plan?: ReplyPlan;
     }): ReplyOutcome => {
       const out: ReplyOutcome = {
         text: params.text ?? '',
@@ -597,7 +727,7 @@ export class ReplyService {
         transcriptionCalls,
         imageCalls: params.imageCalls ?? 0,
         scene,
-        plan: makeImmediatePlan(),
+        plan: params.plan ?? makeImmediatePlan(),
         styleVariant: params.styleVariant,
         retrieved: [],
         usedMemoryIds: [],
@@ -619,6 +749,7 @@ export class ReplyService {
       if (params.videoMeta) out.videoMeta = params.videoMeta;
       if (params.linkMediaUrl) out.linkMediaUrl = params.linkMediaUrl;
       if (params.audioBuffer) out.audioBuffer = params.audioBuffer;
+      if (params.music) out.music = params.music;
       return out;
     };
     if (!evaluation.shouldAct) {
@@ -660,6 +791,119 @@ export class ReplyService {
         },
         threadState,
       };
+    }
+
+    const terminalAgentTools = new Set<CortexTool>([
+      'web_search',
+      'image_lookup',
+      'music',
+      'link_media',
+      'image_gen',
+      'video_gen',
+      'translate',
+      'tts',
+      'capability_forge',
+    ]);
+    const shouldUseAgentRuntime =
+      Boolean(documentContext) ||
+      Boolean(cortexDecision?.toolCalls.some((call) => terminalAgentTools.has(call.tool)));
+    if (shouldUseAgentRuntime && semanticMessage.trim()) {
+      try {
+        const agentPlan = makeImmediatePlan();
+        const requestedActions = [
+          ...(documentContext
+            ? [
+                {
+                  tool: 'document_read' as const,
+                  query: semanticMessage,
+                  reason: 'read and answer from the attached or replied document',
+                },
+              ]
+            : []),
+          ...(cortexDecision?.toolCalls ?? []).map((call) => ({
+            tool: call.tool,
+            ...(call.query ? { query: call.query } : {}),
+            ...(call.args ? { args: call.args } : {}),
+            reason: call.reason,
+          })),
+        ];
+        const coordinated = await this.agentRuntime.run({
+          request: semanticMessage,
+          language: ctx.language,
+          person: ctx.person,
+          context: ctx.context,
+          ...(generationModel ? { model: generationModel } : {}),
+          recentMessages: history
+            .filter((message) => Boolean(message.message.messageText?.trim()))
+            .slice(-12)
+            .map((message) => ({
+              handle: message.isBot ? BOT_LABEL : message.handle,
+              text: message.message.messageText ?? '',
+            })),
+          ...(socialContext ? { socialContext } : {}),
+          ...(documentContext ? { documentContext } : {}),
+          requestedActions,
+          socialSignal: evaluation.socialSignal ?? scene.socialSignal,
+          replyPlan: agentPlan,
+          recentBotReplies: ctx.recentBotReplies,
+          visual,
+          quotaBypass: ctx.quotaBypass,
+          allowCapabilityInstall: ctx.allowCapabilityInstall,
+        });
+        if (coordinated) {
+          const jokeUse = usedRunningJoke(coordinated.text, socialSnapshot.runningJokes);
+          if (jokeUse) {
+            await this.social.recordJokeUse(ctx.context.chatId, jokeUse.id, jokeUse.variant);
+          }
+          return immediateOutcome({
+            text: coordinated.text,
+            styleVariant: coordinated.styleVariant,
+            plan: agentPlan,
+            providerBundle: {
+              sources: coordinated.sources,
+              ...(socialContext ? { socialContext } : {}),
+            },
+            imageCalls: coordinated.imageCalls,
+            ...(coordinated.imageBuffer ? { imageBuffer: coordinated.imageBuffer } : {}),
+            ...(coordinated.imageSpoiler ? { imageSpoiler: true } : {}),
+            ...(coordinated.videoBuffer ? { videoBuffer: coordinated.videoBuffer } : {}),
+            ...(coordinated.videoSpoiler ? { videoSpoiler: true } : {}),
+            ...(coordinated.videoMeta ? { videoMeta: coordinated.videoMeta } : {}),
+            ...(coordinated.audioBuffer ? { audioBuffer: coordinated.audioBuffer } : {}),
+            ...(coordinated.music ? { music: coordinated.music } : {}),
+            ...(coordinated.linkMediaUrl ? { linkMediaUrl: coordinated.linkMediaUrl } : {}),
+          });
+        }
+      } catch (err) {
+        log.warn({ err }, 'multi-action runtime failed; continuing with legacy tool path');
+      }
+    }
+
+    if (
+      wants('capability_forge', 'capability_forge') ||
+      evaluation.action === 'acquire_capability'
+    ) {
+      const request = callFor('capability_forge')?.query?.trim() || ctx.message.messageText.trim();
+      const acquired = await this.capabilities.acquire({
+        request,
+        language: ctx.language,
+        allowInstall: Boolean(ctx.allowCapabilityInstall),
+        ...(ctx.quotaBypass ? {} : { chatId: ctx.context.chatId }),
+        ...(generationModel ? { model: generationModel } : {}),
+      });
+      const learned =
+        acquired.installed && acquired.command
+          ? ctx.language === 'italian'
+            ? `\n\nNuova capacità permanente: /${acquired.command}`
+            : `\n\nNew permanent capability: /${acquired.command}`
+          : '';
+      return immediateOutcome({
+        text: `${acquired.text}${learned}`.trim(),
+        styleVariant: acquired.installed ? 'capability_installed' : 'capability_proposal',
+        providerBundle: { sources: acquired.sources },
+        usage: acquired.usage,
+        model: acquired.model,
+      });
     }
 
     const wantsLinkMedia =
@@ -827,7 +1071,10 @@ export class ReplyService {
         ''
       ).trim();
       if (!prompt) {
-        return immediateOutcome({ text: t('video_needs_prompt'), styleVariant: 'video_needs_prompt' });
+        return immediateOutcome({
+          text: t('video_needs_prompt'),
+          styleVariant: 'video_needs_prompt',
+        });
       }
       if (!this.video.enabled) {
         return immediateOutcome({ text: t('video_unavailable'), styleVariant: 'video_failed' });
@@ -839,13 +1086,28 @@ export class ReplyService {
         });
       }
       try {
-        const clip = await this.video.generate(prompt);
-        const prepared = await prepareVideoForTelegram(clip.buffer, this.config.linkMedia.ffmpegBin);
+        const preparedPrompt = await this.videoPrompts.prepare(prompt, {
+          ...(ctx.model ? { model: ctx.model } : {}),
+          context: {
+            creatorHandle: ctx.person.userHandle,
+            intent: prompt,
+            relevantLore: socialContext ? [socialContext.slice(0, 1_200)] : [],
+            recentMessages: history.slice(-6).map((message) => ({
+              handle: message.isBot ? BOT_LABEL : message.handle,
+              text: message.message.messageText ?? '',
+            })),
+          },
+        });
+        const clip = await this.video.generate(preparedPrompt.prompt);
+        const prepared = await prepareVideoForTelegram(
+          clip.buffer,
+          this.config.linkMedia.ffmpegBin,
+        );
         return immediateOutcome({
           text: t('video_done', { prompt: prompt.slice(0, 180) }),
           styleVariant: 'video_done',
           videoBuffer: prepared.buffer,
-          videoSpoiler: selectImageProfile(prompt) === 'nsfw',
+          videoSpoiler: preparedPrompt.profile === 'nsfw',
           videoMeta: {
             ...(prepared.width !== undefined ? { width: prepared.width } : {}),
             ...(prepared.height !== undefined ? { height: prepared.height } : {}),
@@ -907,12 +1169,22 @@ export class ReplyService {
       const prepared = await this.imagePrompts.prepare(prompt, {
         ...(profile ? { profile } : {}),
         ...(ctx.model ? { model: ctx.model } : {}),
+        context: {
+          creatorHandle: ctx.person.userHandle,
+          intent: prompt,
+          relevantLore: socialContext ? [socialContext.slice(0, 1_200)] : [],
+          recentMessages: history.slice(-6).map((message) => ({
+            handle: message.isBot ? BOT_LABEL : message.handle,
+            text: message.message.messageText ?? '',
+          })),
+        },
       });
       const poseReference = prepared.poseReferenceQuery
         ? await this.imageFinder.findPoseReference(prepared.poseReferenceQuery)
         : null;
       const image = await this.media.generateImage(prepared.prompt, {
         ...(profile ? { profile } : {}),
+        negativePrompt: prepared.negativePrompt,
         ...(poseReference ? { poseReference: poseReference.buffer } : {}),
       });
       if (!image?.buffer) {
@@ -1050,7 +1322,9 @@ export class ReplyService {
         ).filter(Boolean),
       ),
     ];
-    const wantsGroupRag = wants('group_rag', 'group_rag');
+    // Direct interactions always get a relevance-filtered personal-memory lookup. Retrieval is not
+    // the same as forcing a callback: the planner can still choose memoryUseMode=none.
+    const wantsGroupRag = addressed || wants('group_rag', 'group_rag');
     const wantsKnowledgeRag = wants('knowledge_rag', 'knowledge_rag');
     const wantsGrounding =
       wants('web_search', 'web_search') || wants('image_lookup', 'image_lookup');
@@ -1064,6 +1338,7 @@ export class ReplyService {
         ? this.memoryRetriever.retrieve({
             chatId: ctx.context.chatId,
             currentMessage: ctx.message.messageText,
+            currentHandle: ctx.person.userHandle,
             scene,
             activeHandles,
             mentionedHandles: mentioned,
@@ -1097,6 +1372,7 @@ export class ReplyService {
     const sources = [...new Set([...(grounding?.sources ?? []), ...news.sources])];
     const providerBundle: ProviderBundle = { sources };
     if (threadState.promptBlock) providerBundle.threadContext = threadState.promptBlock;
+    if (socialContext) providerBundle.socialContext = socialContext;
     const groupContext = formatGroupContext(retrieved);
     const knowledgeBlock = formatKnowledge(knowledgeItems);
     const claimCheck = formatClaimCheck(evaluation, sources);
@@ -1112,7 +1388,9 @@ export class ReplyService {
     ]
       .filter(Boolean)
       .join('\n\n');
-    const hostility = this.heat.enabled ? this.heat.directive(heatValue) : null;
+    // Baseline is friendship, not permanent hostility. Inject an escalation directive only after
+    // this specific person has actually built up heat; gratitude/de-escalation must feel accepted.
+    const hostility = this.heat.enabled && heatValue >= 20 ? this.heat.directive(heatValue) : null;
 
     // 3. style + plan
     const style = this.styleEngine.sample({
@@ -1121,9 +1399,17 @@ export class ReplyService {
       scene,
       recentBotReplies: ctx.recentBotReplies,
       nsfwEnabled: generationNsfwEnabled,
+      valueTarget: evaluation.valueTarget,
+      socialRole: evaluation.socialRole,
     });
     // per-user heat raises the aggression floor for THIS user
-    if (hostility) style.aggression = Math.max(style.aggression, hostility.aggression);
+    if (
+      hostility &&
+      scene.socialSignal?.humorAllowed !== false &&
+      evaluation.socialSignal?.humorAllowed !== false
+    ) {
+      style.aggression = Math.max(style.aggression, hostility.aggression);
+    }
     // banned phrases include overused openings AND recurring tics/sign-offs (kills catchphrases)
     const bannedOpenings = [
       ...this.styleEngine.bannedOpenings(ctx.recentBotReplies),
@@ -1137,6 +1423,7 @@ export class ReplyService {
       currentHandle: ctx.person.userHandle,
       maxLines: this.config.env.MAX_REPLY_LINES,
       maxChars: this.config.env.MAX_REPLY_CHARS,
+      comedyStrategy: style.comedyStrategies?.[0],
     });
 
     // Address the current speaker; media is attributed to its poster (replied-to user, or the
@@ -1152,9 +1439,12 @@ export class ReplyService {
               : ctx.person.userHandle,
           }
         : undefined;
-    const hostilityLine = hostility
-      ? `HOSTILITY toward ${addressee}: ${hostility.level} (${hostility.heat}/100) - ${hostility.instruction}`
-      : undefined;
+    const humorAllowed =
+      scene.socialSignal?.humorAllowed !== false && evaluation.socialSignal?.humorAllowed !== false;
+    const hostilityLine =
+      hostility && humorAllowed
+        ? `HOSTILITY toward ${addressee}: ${hostility.level} (${hostility.heat}/100) - ${hostility.instruction}`
+        : undefined;
 
     // 4. generate candidates
     const gen = await this.generator.generate({
@@ -1177,8 +1467,10 @@ export class ReplyService {
       ...(providerContextBlock ? { grounding: providerContextBlock } : {}),
       ...(media ? { media } : {}),
       ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
+      ...(socialContext ? { socialContext } : {}),
       ...(hostilityLine ? { hostility: hostilityLine } : {}),
       ...(knowledgeBlock ? { knowledge: knowledgeBlock } : {}),
+      ...(documentContext ? { documents: documentContext } : {}),
     });
 
     let candidates = gen.candidates;
@@ -1189,31 +1481,85 @@ export class ReplyService {
     // 5. rank + repetition guard (+ regenerate)
     let best = '';
     let ranked: RankedReply[] = [];
+    let recoveryCandidate: AssessedReplyCandidate | null = null;
     const maxRegen = this.config.brain.replyMaxRegenerations;
     for (let attempt = 0; attempt <= maxRegen; attempt += 1) {
       if (candidates.length === 0) break;
-      ranked = this.ranker.rank(candidates, {
-        recent: ctx.recentBotReplies,
-        plan,
-        memories: retrieved,
-        maxChars: this.config.env.MAX_REPLY_CHARS,
-        userMessage: transcribed.messageText ?? '',
-      });
-      const topIdx = ranked[0]?.index ?? 0;
-      best = candidates[topIdx] ?? '';
-      const check = this.guard.check(best, ctx.recentBotReplies, plan, retrieved);
-      repetitionChecks.push(check);
-      if (check.allowed || attempt === maxRegen) break;
+      ranked = rankCandidatesSafely(
+        this.ranker,
+        candidates,
+        {
+          recent: ctx.recentBotReplies,
+          plan,
+          memories: retrieved,
+          maxChars: this.config.env.MAX_REPLY_CHARS,
+          userMessage: transcribed.messageText ?? '',
+        },
+        (err) =>
+          log.warn(
+            { err, chatId: ctx.context.chatId },
+            'reply ranker failed; preserving generation order',
+          ),
+      );
+      let blockedCandidate = candidates[ranked[0]?.index ?? 0] ?? '';
+      let blockingCheck: RepetitionCheck | undefined;
+      const assessed: AssessedReplyCandidate[] = [];
+      for (const candidateRank of ranked) {
+        const candidate = candidates[candidateRank.index] ?? '';
+        const check = this.guard.check(candidate, ctx.recentBotReplies, plan, retrieved);
+        repetitionChecks.push(check);
+        const socialFloorViolation = violatesSocialFloor(candidate, plan.socialSignal);
+        assessed.push({
+          text: candidate,
+          rank: candidateRank,
+          repetition: check,
+          violatesSocialFloor: socialFloorViolation,
+        });
+        if (!blockingCheck) {
+          blockedCandidate = candidate;
+          blockingCheck = check;
+        }
+      }
+      const decision = decideReplyAcceptance(assessed);
+      if (
+        decision.recovery &&
+        (!recoveryCandidate || decision.recovery.rank.score > recoveryCandidate.rank.score)
+      ) {
+        recoveryCandidate = decision.recovery;
+      }
+      if (decision.accepted) {
+        best = decision.accepted.text;
+        break;
+      }
+      if (attempt === maxRegen) {
+        best = recoveryCandidate?.text ?? hardFloorFallback(plan, ctx.language, scene.currentTopic);
+        log.warn(
+          {
+            chatId: ctx.context.chatId,
+            reason: blockingCheck?.reason,
+            recoveredGeneratedCandidate: Boolean(recoveryCandidate),
+          },
+          recoveryCandidate
+            ? 'hard filters exhausted; using best substantive generated candidate'
+            : 'all generated candidates violated hard floors; using deterministic fallback',
+        );
+        break;
+      }
 
+      // This is intentionally the only path that spends another generation call: all candidates
+      // hit a hard repetition/canned/social floor. Advisory novelty warnings never arrive here.
       const overusedTexts = retrieved
-        .filter((m) => m.item._id && check.overusedMemoryIds.includes(m.item._id))
+        .filter((m) => m.item._id && (blockingCheck?.overusedMemoryIds ?? []).includes(m.item._id))
         .map((m) => m.item.text);
-      log.debug({ reason: check.reason, attempt }, 'repetition block - regenerating');
+      log.debug(
+        { reason: blockingCheck?.reason, attempt },
+        'all ranked candidates failed repetition guard - regenerating',
+      );
       const regen = await this.generator.regenerate({
         system: gen.system,
         userPrompt: gen.userPrompt,
         model: generationModel,
-        bannedPhrases: [...plan.bannedPhrases, best.split(/\s+/).slice(0, 4).join(' ')],
+        bannedPhrases: [...plan.bannedPhrases, blockedCandidate.split(/\s+/).slice(0, 4).join(' ')],
         overusedMemory: overusedTexts,
       });
       candidates = regen.candidates;
@@ -1223,6 +1569,15 @@ export class ReplyService {
         outputTokens: usage.outputTokens + regen.usage.outputTokens,
         estimated: usage.estimated || regen.usage.estimated,
       };
+    }
+
+    // A failed/empty regeneration must not erase a usable answer from the first batch.
+    if (!best.trim() && recoveryCandidate) {
+      best = recoveryCandidate.text;
+      log.warn(
+        { chatId: ctx.context.chatId },
+        'regeneration yielded no candidate; recovering best substantive generated reply',
+      );
     }
 
     // 5b. NSFW refusal backstop: if the default model refused and the chat allows NSFW, retry on
@@ -1250,18 +1605,42 @@ export class ReplyService {
         ...(providerContextBlock ? { grounding: providerContextBlock } : {}),
         ...(media ? { media } : {}),
         ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
+        ...(socialContext ? { socialContext } : {}),
         ...(hostilityLine ? { hostility: hostilityLine } : {}),
         ...(knowledgeBlock ? { knowledge: knowledgeBlock } : {}),
+        ...(documentContext ? { documents: documentContext } : {}),
       });
       if (ns.candidates.length > 0) {
-        const r = this.ranker.rank(ns.candidates, {
-          recent: ctx.recentBotReplies,
-          plan,
-          memories: retrieved,
-          maxChars: this.config.env.MAX_REPLY_CHARS,
-          userMessage: transcribed.messageText ?? '',
-        });
-        best = ns.candidates[r[0]?.index ?? 0] ?? best;
+        const r = rankCandidatesSafely(
+          this.ranker,
+          ns.candidates,
+          {
+            recent: ctx.recentBotReplies,
+            plan,
+            memories: retrieved,
+            maxChars: this.config.env.MAX_REPLY_CHARS,
+            userMessage: transcribed.messageText ?? '',
+          },
+          (err) =>
+            log.warn(
+              { err, chatId: ctx.context.chatId },
+              'NSFW reply ranker failed; preserving generation order',
+            ),
+        );
+        const assessed: AssessedReplyCandidate[] = [];
+        for (const candidateRank of r) {
+          const candidate = ns.candidates[candidateRank.index] ?? '';
+          const check = this.guard.check(candidate, ctx.recentBotReplies, plan, retrieved);
+          repetitionChecks.push(check);
+          assessed.push({
+            text: candidate,
+            rank: candidateRank,
+            repetition: check,
+            violatesSocialFloor: violatesSocialFloor(candidate, plan.socialSignal),
+          });
+        }
+        const decision = decideReplyAcceptance(assessed);
+        best = decision.accepted?.text ?? decision.recovery?.text ?? best;
         allCandidates.push(...ns.candidates);
         model = ns.model;
         usage = {
@@ -1316,10 +1695,11 @@ export class ReplyService {
       if (found) imageBuffer = found.buffer;
     }
 
-    const usedMemoryIds =
-      plan.memoryUseMode === 'none'
-        ? []
-        : retrieved.map((m) => m.item._id).filter((id): id is string => Boolean(id));
+    const usedMemoryIds = actuallyUsedMemoryIds(best, retrieved, plan);
+    const jokeUse = usedRunningJoke(best, socialSnapshot.runningJokes);
+    if (jokeUse) {
+      await this.social.recordJokeUse(ctx.context.chatId, jokeUse.id, jokeUse.variant);
+    }
 
     const outcome: ReplyOutcome = {
       text: best,

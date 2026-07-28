@@ -6,10 +6,10 @@ import { selectImageProfile } from '../../../providers/image/stableDiffusion.js'
 import { VideoRateLimitError } from '../../../providers/video/agnes.js';
 import { prepareVideoForTelegram } from '../../../providers/video/prepare.js';
 import { childLogger } from '../../../utils/logger.js';
+import { renderSocialContext } from '../../../social/index.js';
+import { containsMinorMediaReference, MediaSafetyError } from '../../../safety/mediaSafety.js';
 
 const log = childLogger('cmd-video');
-
-const MINOR_RE = /\b(child|children|minor|underage|under-aged|loli|shota|toddler|infant|preteen)\b/i;
 
 /**
  * /genvid <prompt> - generate a short clip with the remote text-to-video model.
@@ -19,11 +19,11 @@ export const videoCommand: CommandSpec = {
   command: 'genvid',
   aliases: ['video', 'genvideo', 'generavideo', 'vid', 'clip', 'animazione', 'genclip'],
   permissions: ['allowed_user', 'not_banned'],
-  needsTermsAccepted: false,
+  needsTermsAccepted: true,
   priority: Priority.DEFAULT,
   quotaConversation: true,
-  async handle({ services, context, args }: HandlerInput): Promise<CommandResponse | null> {
-    return generateVideo(services, context.chatId, args.join(' ').trim());
+  async handle({ services, context, person, args }: HandlerInput): Promise<CommandResponse | null> {
+    return generateVideo(services, context.chatId, args.join(' ').trim(), person.userHandle);
   },
 };
 
@@ -32,19 +32,45 @@ export async function generateVideo(
   services: Services,
   chatId: number,
   prompt: string,
+  creatorHandle?: string,
 ): Promise<CommandResponse> {
   if (!prompt) return { text: 'video_needs_prompt' };
-  if (MINOR_RE.test(prompt)) return { text: 'image_minor_refused' };
+  if (containsMinorMediaReference(prompt)) return { text: 'image_minor_refused' };
   if (!services.video.enabled) return { text: 'video_unavailable' };
 
   // A clip is expensive: it spends the group's generated-image budget.
   const quota = await services.quota.reserve(chatId, 'image');
   if (!quota.allowed) {
-    return { text: 'group_quota_exceeded', vars: { reason: quota.reason ?? 'video', retry_after: 0 } };
+    return {
+      text: 'group_quota_exceeded',
+      vars: { reason: quota.reason ?? 'video', retry_after: 0 },
+    };
   }
 
   try {
-    const clip = await services.video.generate(prompt);
+    const [social, history, model] = await Promise.all([
+      services.social.getContext(chatId, {
+        focusHandles: creatorHandle ? [creatorHandle] : [],
+        maxMembers: 10,
+        maxJokes: 2,
+      }),
+      services.conversation.getRecent(chatId),
+      services.modelForChat(chatId),
+    ]);
+    const socialContext = renderSocialContext(social);
+    const videoPrompt = await services.videoPrompts.prepare(prompt, {
+      ...(model ? { model } : {}),
+      context: {
+        ...(creatorHandle ? { creatorHandle } : {}),
+        intent: prompt,
+        relevantLore: socialContext ? [socialContext.slice(0, 1_200)] : [],
+        recentMessages: history.slice(-6).map((message) => ({
+          handle: message.handle,
+          text: message.message.messageText ?? '',
+        })),
+      },
+    });
+    const clip = await services.video.generate(videoPrompt.prompt);
     const prepared = await prepareVideoForTelegram(
       clip.buffer,
       services.config.linkMedia.ffmpegBin,
@@ -60,9 +86,11 @@ export async function generateVideo(
       vars: { prompt: prompt.slice(0, 180) },
       videoBuffer: prepared.buffer,
       videoMeta: meta,
-      videoSpoiler: selectImageProfile(prompt) === 'nsfw',
+      videoSpoiler: videoPrompt.profile === 'nsfw' || selectImageProfile(prompt) === 'nsfw',
+      usage: { imageCalls: 1 },
     };
   } catch (err) {
+    if (err instanceof MediaSafetyError) return { text: 'image_minor_refused' };
     if (err instanceof VideoRateLimitError) {
       return {
         text: 'video_rate_limited',

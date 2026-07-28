@@ -43,6 +43,7 @@ describe('HeatService', () => {
     expect(h.directive(70).level).toBe('incazzato');
     expect(h.directive(95).level).toBe('furia');
     expect(h.directive(95).aggression).toBeGreaterThan(h.directive(5).aggression);
+    expect(h.directive(5).aggression).toBeLessThan(0.2);
   });
 
   it('persists and clamps heat across bumps', async () => {

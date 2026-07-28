@@ -1,6 +1,9 @@
 import { jaccard } from '../memory/memoryDeduper.js';
 import type { RetrievedMemory } from '../memory/types.js';
 import type { BotReplyRecord, RankedReply, ReplyPlan } from './types.js';
+import { extractJokePremises } from './repetitionGuard.js';
+import { isSeriousSupport, violatesSocialFloor } from './socialAwareness.js';
+import { inferComedyStrategy } from './styleEngine.js';
 
 const ASSISTANT_TELLS = [
   /^\s*(certo|sure|of course|ecco|here'?s|come posso|how can i|spero (questo )?aiuti|hope this helps)/i,
@@ -45,6 +48,15 @@ const ROAST_ONLY_RE =
 const CORRECTION_RE =
   /\b(non è così|non e' cosi|in realtà|in realta|sbagli|sbagliato|falso|no,|actually|wrong|false|not quite)\b/i;
 
+const SUPPORT_ACK_RE =
+  /\b(mi dispiace|ti credo|capisco|dev'essere|deve essere|fa male|resto qui|ci sono|non sei sol[oa]|sono con te|i'?m sorry|i believe you|i'?m here|that hurts)\b/i;
+const SUPPORT_ACTION_RE =
+  /\b(respira|chiama|scrivi|parla|allontanati|siediti|bevi|contatta|andiamo|facciamo|dimmi|call|text|tell|contact|breathe|step away)\b/i;
+const DISMISSIVE_SUPPORT_RE =
+  /\b(fai meno drama|piantala|smettila di frign|chissenefrega|problemi veri|sei patetic|attention seeker|get over it|stop whining|nobody cares)\b/i;
+const GRATITUDE_ACK_RE =
+  /\b(figurati|prego|di niente|ci sono|quando vuoi|volentieri|grazie a te|anytime|you'?re welcome|no problem|de nada)\b/i;
+
 function normalize(s: string): string {
   return s.toLowerCase().replace(/\s+/g, ' ').trim();
 }
@@ -66,8 +78,21 @@ export class ResponseRanker {
     },
   ): RankedReply[] {
     const recentNorms = opts.recent.slice(0, 8).map((r) => r.normalizedText || normalize(r.text));
+    const recentPremises = new Set(
+      opts.recent.slice(0, 5).flatMap((r) => r.jokePremises ?? extractJokePremises(r.text)),
+    );
+    const recentStrategies = opts.recent
+      .slice(0, 4)
+      .map((r) => r.comedyStrategy ?? inferComedyStrategy(r.text))
+      .filter(Boolean);
     const questionTerms = extractTerms(opts.userMessage ?? '');
     const mustAnswer = opts.plan.replyIntent === 'answer_question';
+    const seriousSupport = isSeriousSupport(opts.plan.socialSignal);
+    const gratitudeTurn = opts.plan.socialSignal?.situation === 'gratitude';
+    const comedyTurn =
+      opts.plan.valueTarget === 'joke' ||
+      opts.plan.roastBudget === 'medium' ||
+      opts.plan.roastBudget === 'heavy';
     const ranked = candidates.map((text, index) => {
       const problems: string[] = [];
       let score = 1;
@@ -90,6 +115,24 @@ export class ResponseRanker {
       for (const r of recentNorms) maxSim = Math.max(maxSim, jaccard(norm, r));
       score += (1 - maxSim) * 0.6;
       if (maxSim > 0.6) problems.push('repetitive');
+
+      const repeatedPremises = extractJokePremises(text).filter((premise) =>
+        recentPremises.has(premise),
+      );
+      if (comedyTurn && repeatedPremises.length > 0) {
+        score -= 0.75;
+        problems.push(`stale joke premise: ${repeatedPremises.join('+')}`);
+      }
+      const strategy = opts.plan.comedyStrategy ?? inferComedyStrategy(text);
+      if (
+        comedyTurn &&
+        strategy &&
+        strategy !== 'none' &&
+        recentStrategies.filter((recent) => recent === strategy).length >= 2
+      ) {
+        score -= 0.55;
+        problems.push(`stale comedy strategy: ${strategy}`);
+      }
 
       // assistant tells
       if (ASSISTANT_TELLS.some((re) => re.test(text))) {
@@ -143,10 +186,82 @@ export class ResponseRanker {
         }
       }
 
+      // When someone is vulnerable, reliability outranks the character performance. A useful,
+      // human answer may still swear at the situation, but never at the person asking for help.
+      if (seriousSupport) {
+        if (DISMISSIVE_SUPPORT_RE.test(text) || ROAST_ONLY_RE.test(text)) {
+          score -= 2;
+          problems.push('hostile during support');
+        }
+        if (SUPPORT_ACK_RE.test(text)) score += 0.45;
+        else {
+          score -= 0.25;
+          problems.push('does not acknowledge distress');
+        }
+        if (SUPPORT_ACTION_RE.test(text)) score += 0.5;
+        else {
+          score -= 0.2;
+          problems.push('no practical next step');
+        }
+      }
+
+      // `humorAllowed=false` is a hard floor, not a soft style preference. It also covers gratitude,
+      // where a backhanded "you're welcome" was the concrete repetition bug that prompted v2.
+      if (violatesSocialFloor(text, opts.plan.socialSignal)) {
+        score -= 5;
+        problems.push('violates social floor');
+      }
+      if (gratitudeTurn) {
+        if (GRATITUDE_ACK_RE.test(text)) score += 0.6;
+        else {
+          score -= 0.35;
+          problems.push('does not acknowledge gratitude');
+        }
+      }
+
       return { index, score, reason: problems.length ? problems.join(', ') : 'clean', problems };
     });
     ranked.sort((a, b) => b.score - a.score);
     return ranked;
+  }
+}
+
+export type ResponseRankOptions = Parameters<ResponseRanker['rank']>[1];
+
+/**
+ * Ranking is deliberately an optimization, never a single point of failure. If a future ranker
+ * implementation or malformed telemetry throws, preserve generation order and let the hard
+ * acceptance floors make the final decision.
+ */
+export function rankCandidatesSafely(
+  ranker: Pick<ResponseRanker, 'rank'>,
+  candidates: string[],
+  options: ResponseRankOptions,
+  onError?: (error: unknown) => void,
+): RankedReply[] {
+  try {
+    const ranked = ranker.rank(candidates, options);
+    const valid = ranked.filter(
+      (candidate) =>
+        Number.isInteger(candidate.index) &&
+        candidate.index >= 0 &&
+        candidate.index < candidates.length,
+    );
+    if (
+      valid.length === candidates.length &&
+      new Set(valid.map((candidate) => candidate.index)).size === candidates.length
+    ) {
+      return valid;
+    }
+    throw new Error('ranker returned an incomplete or invalid candidate set');
+  } catch (error) {
+    onError?.(error);
+    return candidates.map((_, index) => ({
+      index,
+      score: 0,
+      reason: 'generation-order fallback',
+      problems: ['ranker unavailable'],
+    }));
   }
 }
 

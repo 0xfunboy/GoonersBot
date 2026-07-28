@@ -35,8 +35,11 @@ export function findDuplicate(
   const candNorm = candidate.normalizedText.trim().toLowerCase();
   for (const item of existing) {
     if (item.status !== 'active') continue;
-    if (item.normalizedText.trim().toLowerCase() === candNorm) return item;
-    const sameSubject = (item.subjectHandle ?? null) === (candidate.subjectHandle ?? null);
+    const sameSubject =
+      item.subjectType === candidate.subjectType &&
+      (item.subjectHandle ?? '').trim().toLowerCase() ===
+        (candidate.subjectHandle ?? '').trim().toLowerCase();
+    if (sameSubject && item.normalizedText.trim().toLowerCase() === candNorm) return item;
     const sameCategory = item.category === candidate.category;
     if (
       sameSubject &&

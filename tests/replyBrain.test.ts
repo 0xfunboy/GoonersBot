@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ResponseRanker } from '../src/brain/responseRanker.js';
+import { rankCandidatesSafely } from '../src/brain/responseRanker.js';
 import { ResponseGenerator } from '../src/brain/responseGenerator.js';
 import { RepetitionGuard } from '../src/brain/repetitionGuard.js';
+import { decideReplyAcceptance } from '../src/brain/replyAcceptance.js';
 import { ReplyPlanner } from '../src/brain/replyPlanner.js';
 import { StyleEngine } from '../src/brain/styleEngine.js';
 import type {
@@ -108,6 +110,126 @@ describe('ResponseRanker', () => {
     );
     expect(ranked[0]?.index).toBe(1);
   });
+
+  it('falls back to generation order when ranking fails instead of losing valid replies', () => {
+    const candidates = ['prima risposta utile', 'seconda risposta utile'];
+    const onError = vi.fn();
+    const ranked = rankCandidatesSafely(
+      {
+        rank() {
+          throw new Error('ranker offline');
+        },
+      },
+      candidates,
+      { recent: [], plan: emptyPlan(), memories: [], maxChars: 420 },
+      onError,
+    );
+
+    expect(ranked.map((candidate) => candidate.index)).toEqual([0, 1]);
+    expect(ranked.every((candidate) => candidate.reason === 'generation-order fallback')).toBe(
+      true,
+    );
+    expect(onError).toHaveBeenCalledOnce();
+  });
+});
+
+describe('reply acceptance', () => {
+  const guard = new RepetitionGuard(0.72);
+
+  it('ships a useful group-lore answer immediately when only its comic premise is familiar', () => {
+    const answer =
+      'Le cinque norme sono: niente referral truffa, fonti quando fai affermazioni, niente spam, il dissocio non è una licenza e chi chiede aiuto riceve aiuto. Poi torniamo pure a insultare i tuoi neuroni e il wallet.';
+    const check = guard.check(
+      answer,
+      [
+        reply('Il tuo wallet ha chiesto la protezione testimoni dopo l’ultima shitcoin.'),
+        reply('Hai perso gli ultimi neuroni cercando un PDF fantasma.'),
+      ],
+      emptyPlan({
+        replyIntent: 'answer_question',
+        action: 'use_group_lore',
+        valueTarget: 'joke',
+        roastBudget: 'medium',
+        mustBringValue: true,
+      }),
+      [],
+    );
+    const decision = decideReplyAcceptance([
+      {
+        text: answer,
+        rank: { index: 0, score: 2.4, reason: 'clean', problems: [] },
+        repetition: check,
+        violatesSocialFloor: false,
+      },
+    ]);
+
+    expect(check.repeatedPremises).toContain('money_trading');
+    expect(check.hardBlocked).toBe(false);
+    expect(decision.accepted?.text).toBe(answer);
+    expect(decision.shouldRegenerate).toBe(false);
+  });
+
+  it('regenerates a true duplicate but retains it as a substantive last resort', () => {
+    const answer = 'Le regole sono: niente spam e cita le fonti.';
+    const check = guard.check(answer, [reply(answer)], emptyPlan(), []);
+    const decision = decideReplyAcceptance([
+      {
+        text: answer,
+        rank: { index: 0, score: 1.8, reason: 'repetitive', problems: ['repetitive'] },
+        repetition: check,
+        violatesSocialFloor: false,
+      },
+    ]);
+
+    expect(check.hardBlocked).toBe(true);
+    expect(decision.accepted).toBeNull();
+    expect(decision.shouldRegenerate).toBe(true);
+    expect(decision.recovery?.text).toBe(answer);
+  });
+
+  it('never recovers the old internal-failure deflections as if they were answers', () => {
+    const text = 'La risposta generata stava riciclando troppo: riformulamene il punto importante.';
+    const check = guard.check(
+      text,
+      [],
+      emptyPlan({ replyIntent: 'answer_question', mustBringValue: true }),
+      [],
+    );
+    const decision = decideReplyAcceptance([
+      {
+        text,
+        rank: { index: 0, score: 1, reason: 'clean', problems: [] },
+        repetition: check,
+        violatesSocialFloor: false,
+      },
+    ]);
+
+    expect(check.hardBlocked).toBe(true);
+    expect(decision.accepted).toBeNull();
+    expect(decision.recovery).toBeNull();
+  });
+
+  it('never recovers a rejected candidate that exposes non-authorized memory', () => {
+    const text = 'Bob ha confidato una cosa privata';
+    const check = guard.check(text, [], emptyPlan(), []);
+    const decision = decideReplyAcceptance([
+      {
+        text,
+        rank: { index: 0, score: 3, reason: 'clean', problems: [] },
+        repetition: {
+          ...check,
+          allowed: false,
+          hardBlocked: true,
+          overusedMemoryIds: ['private-memory'],
+        },
+        violatesSocialFloor: false,
+      },
+    ]);
+
+    expect(decision.accepted).toBeNull();
+    expect(decision.recovery).toBeNull();
+    expect(decision.shouldRegenerate).toBe(true);
+  });
 });
 
 describe('ResponseGenerator', () => {
@@ -126,25 +248,27 @@ describe('ResponseGenerator', () => {
         finishReason: 'stop',
         usage: { inputTokens: 11, outputTokens: 24, estimated: false },
       });
-    const generator = new ResponseGenerator(
-      { chatCompletion } as never,
-      new StyleEngine(),
-      {
-        model: 'gemma-4-26b-a4b-it',
-        temperature: 0.8,
-        topP: 0.9,
-        frequencyPenalty: 0,
-        presencePenalty: 0,
-        candidateCount: 1,
-        maxReplyChars: 420,
-      },
-    );
-    const callOne = (generator as unknown as {
-      callOne(system: string, prompt: string, model?: string): Promise<{
-        text: string;
-        usage: { inputTokens?: number; outputTokens?: number };
-      }>;
-    }).callOne.bind(generator);
+    const generator = new ResponseGenerator({ chatCompletion } as never, new StyleEngine(), {
+      model: 'gemma-4-26b-a4b-it',
+      temperature: 0.8,
+      topP: 0.9,
+      frequencyPenalty: 0,
+      presencePenalty: 0,
+      candidateCount: 1,
+      maxReplyChars: 420,
+    });
+    const callOne = (
+      generator as unknown as {
+        callOne(
+          system: string,
+          prompt: string,
+          model?: string,
+        ): Promise<{
+          text: string;
+          usage: { inputTokens?: number; outputTokens?: number };
+        }>;
+      }
+    ).callOne.bind(generator);
 
     const result = await callOne('system', 'prompt', 'gemma-4-26b-a4b-it');
 
@@ -163,22 +287,20 @@ describe('ResponseGenerator', () => {
       finishReason: 'stop',
       usage: { inputTokens: 10, outputTokens: 1, estimated: false },
     });
-    const generator = new ResponseGenerator(
-      { chatCompletion } as never,
-      new StyleEngine(),
-      {
-        model: 'gemma-4-26b-a4b-it',
-        temperature: 0.8,
-        topP: 0.9,
-        frequencyPenalty: 0,
-        presencePenalty: 0,
-        candidateCount: 1,
-        maxReplyChars: 420,
-      },
-    );
-    const callOne = (generator as unknown as {
-      callOne(system: string, prompt: string, model?: string): Promise<{ text: string }>;
-    }).callOne.bind(generator);
+    const generator = new ResponseGenerator({ chatCompletion } as never, new StyleEngine(), {
+      model: 'gemma-4-26b-a4b-it',
+      temperature: 0.8,
+      topP: 0.9,
+      frequencyPenalty: 0,
+      presencePenalty: 0,
+      candidateCount: 1,
+      maxReplyChars: 420,
+    });
+    const callOne = (
+      generator as unknown as {
+        callOne(system: string, prompt: string, model?: string): Promise<{ text: string }>;
+      }
+    ).callOne.bind(generator);
 
     await expect(callOne('system', 'prompt', 'gemma-4-26b-a4b-it')).rejects.toThrow(
       /empty visible reply/i,
@@ -201,32 +323,36 @@ describe('ResponseGenerator', () => {
         finishReason: 'stop',
         usage: { inputTokens: 12, outputTokens: 14, estimated: false },
       });
-    const generator = new ResponseGenerator(
-      { chatCompletion } as never,
-      new StyleEngine(),
-      {
-        model: 'gemini-3.5-flash',
-        temperature: 0.8,
-        topP: 0.9,
-        frequencyPenalty: 0,
-        presencePenalty: 0,
-        candidateCount: 1,
-        maxReplyChars: 420,
-      },
-    );
-    const callOne = (generator as unknown as {
-      callOne(system: string, prompt: string, model?: string): Promise<{
-        text: string;
-        usage: { inputTokens?: number; outputTokens?: number };
-      }>;
-    }).callOne.bind(generator);
+    const generator = new ResponseGenerator({ chatCompletion } as never, new StyleEngine(), {
+      model: 'gemini-3.5-flash',
+      temperature: 0.8,
+      topP: 0.9,
+      frequencyPenalty: 0,
+      presencePenalty: 0,
+      candidateCount: 1,
+      maxReplyChars: 420,
+    });
+    const callOne = (
+      generator as unknown as {
+        callOne(
+          system: string,
+          prompt: string,
+          model?: string,
+        ): Promise<{
+          text: string;
+          usage: { inputTokens?: number; outputTokens?: number };
+        }>;
+      }
+    ).callOne.bind(generator);
 
     const result = await callOne('system', 'prompt', 'gemini-3.5-flash');
 
     expect(chatCompletion).toHaveBeenCalledTimes(2);
-    expect(chatCompletion.mock.calls[1]?.[0].messages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ role: 'assistant', content: 'Siete talmente disper' }),
-    ]));
+    expect(chatCompletion.mock.calls[1]?.[0].messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: 'assistant', content: 'Siete talmente disper' }),
+      ]),
+    );
     expect(result).toMatchObject({
       text: 'Siete talmente disperati che pure i ciottoli vi fanno concorrenza.',
       usage: { inputTokens: 22, outputTokens: 34 },
@@ -294,6 +420,8 @@ describe('ReplyPlanner', () => {
     });
     expect(p.replyIntent).toBe('answer_question');
     expect(p.mustAnswer).toBe(true);
+    expect(p.maxChars).toBeGreaterThanOrEqual(2_000);
+    expect(p.maxLines).toBeGreaterThanOrEqual(10);
   });
 
   it('challenge claim plans must bring value and avoid explicit lore callbacks', () => {

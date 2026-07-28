@@ -43,9 +43,13 @@ export class VectorMemoryRetriever {
       : [];
     const now = Date.now();
     const itemCdMs = this.cfg.itemCooldownMinutes * 60 * 1000;
+    const subjectCdMs = this.cfg.subjectCooldownMinutes * 60 * 1000;
     const mentioned = new Set(input.mentionedHandles.map((h) => h.toLowerCase()));
     const active = new Set(input.activeHandles.map((h) => h.toLowerCase()));
+    const currentHandle = input.currentHandle?.toLowerCase();
+    if (currentHandle) mentioned.add(currentHandle);
     if (input.repliedToHandle) mentioned.add(input.repliedToHandle.toLowerCase());
+    const subjectLastUsed = latestUseBySubject(all);
 
     const scored: RetrievedMemory[] = [];
     for (const item of all) {
@@ -53,13 +57,20 @@ export class VectorMemoryRetriever {
       if (item.lastUsedAt && now - new Date(item.lastUsedAt).getTime() < itemCdMs) continue;
 
       const handle = (item.subjectHandle ?? '').toLowerCase();
-      let score = item.salience * 0.3;
+      const lastSubjectUse = handle ? subjectLastUsed.get(handle) : undefined;
+      if (lastSubjectUse && now - lastSubjectUse < subjectCdMs) continue;
+      const ageDays = Math.max(0, (now - new Date(item.lastSeenAt).getTime()) / 86_400_000);
+      const freshness = Math.max(0.35, Math.exp(-ageDays / 120));
+      let score = item.salience * 0.28 * freshness;
       const reasons: string[] = [];
-      if (handle && mentioned.has(handle)) {
+      if (handle && currentHandle && handle === currentHandle) {
+        score += 0.55;
+        reasons.push('current speaker');
+      } else if (handle && mentioned.has(handle)) {
         score += 0.5;
         reasons.push('subject mentioned');
       } else if (handle && active.has(handle)) {
-        score += 0.3;
+        score += 0.08;
         reasons.push('subject active');
       }
 
@@ -68,7 +79,7 @@ export class VectorMemoryRetriever {
         item.embedding?.length === this.cfg.embeddingDim
           ? cosineSimilarity(queryVec, item.embedding)
           : 0;
-      if (cosine > 0) {
+      if (cosine >= this.cfg.minScore) {
         score += cosine * 0.4;
         reasons.push(`cos ${cosine.toFixed(2)}`);
       } else {
@@ -85,11 +96,12 @@ export class VectorMemoryRetriever {
           }
         }
       }
-      if (item.subjectType !== 'user') score += 0.1;
+      if (item.subjectType !== 'user') score += 0.06;
+      score -= Math.min(0.32, Math.log1p(item.useCount) * 0.065);
 
       scored.push({
         item,
-        relevance: Math.min(1, score),
+        relevance: Math.max(0, Math.min(1, score)),
         cosineScore: cosine,
         reason: reasons.join(', ') || 'baseline salience',
         allowedToUseExplicitly: false,
@@ -100,7 +112,11 @@ export class VectorMemoryRetriever {
 
     let cap = this.cfg.maxItems;
     if (!input.scene.shouldUseMemory) cap = Math.min(cap, 1);
-    const top = scored.slice(0, cap).filter((r) => r.relevance > 0.2);
+    const top = diversify(
+      scored.filter((r) => r.relevance > 0.24),
+      cap,
+      currentHandle,
+    );
 
     let explicit = 0;
     for (const r of top) {
@@ -111,6 +127,39 @@ export class VectorMemoryRetriever {
     }
     return top;
   }
+}
+
+function latestUseBySubject(items: MemoryItem[]): Map<string, number> {
+  const result = new Map<string, number>();
+  for (const item of items) {
+    const handle = item.subjectHandle?.toLowerCase();
+    if (!handle || !item.lastUsedAt) continue;
+    const time = new Date(item.lastUsedAt).getTime();
+    result.set(handle, Math.max(result.get(handle) ?? 0, time));
+  }
+  return result;
+}
+
+function diversify(
+  scored: RetrievedMemory[],
+  cap: number,
+  currentHandle: string | undefined,
+): RetrievedMemory[] {
+  const picked: RetrievedMemory[] = [];
+  const subjects = new Map<string, number>();
+  const subjectCategories = new Set<string>();
+  for (const candidate of scored) {
+    const subject = candidate.item.subjectHandle?.toLowerCase() ?? candidate.item.subjectType;
+    const count = subjects.get(subject) ?? 0;
+    const subjectCap = currentHandle && subject === currentHandle ? 2 : 1;
+    const categoryKey = `${subject}:${candidate.item.category}`;
+    if (count >= subjectCap || subjectCategories.has(categoryKey)) continue;
+    picked.push(candidate);
+    subjects.set(subject, count + 1);
+    subjectCategories.add(categoryKey);
+    if (picked.length >= cap) break;
+  }
+  return picked;
 }
 
 function buildQueryText(input: MemoryRetrievalInput): string {

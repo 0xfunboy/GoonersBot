@@ -26,7 +26,7 @@ export interface ChatContext {
   isGroupAdmin: boolean;
   /** handle of the user whose message was replied to, if any */
   repliedToUserHandle?: string | undefined;
-  /** id of the replied-to message, if any (used for reply-centered /fact and /forget) */
+  /** id of the replied-to message, if any (used for reply-aware context and /forget) */
   repliedToMessageId?: number | undefined;
   /** text/caption of the replied-to message, if any (used for /traduci) */
   repliedToText?: string | undefined;
@@ -34,6 +34,21 @@ export interface ChatContext {
   mentionedHandles?: string[] | undefined;
   /** true when the replied-to message was authored by the bot */
   isReplyToBot: boolean;
+}
+
+/**
+ * A file attached to the current message or to the message being replied to.
+ *
+ * Attachments stay platform-agnostic after the Telegram adapter downloads them. Keeping the
+ * filename and MIME type is important: document extraction cannot reliably infer formats from
+ * bytes alone and a reply such as "summarize this" must retain where the file came from.
+ */
+export interface MessageAttachment {
+  fileName: string;
+  mime: string;
+  size: number;
+  buffer: Buffer;
+  source: 'current' | 'reply';
 }
 
 /** A raw incoming message with optional media buffers (downloaded only when relevant). */
@@ -52,6 +67,8 @@ export interface IncomingMessage {
   repliedVideoBuffer?: Buffer | undefined;
   repliedAudioBuffer?: Buffer | undefined;
   repliedAudioMime?: string | undefined;
+  /** Generic documents (PDF, DOCX, text, code, JSON, CSV, HTML...) from this turn or its reply. */
+  attachments?: MessageAttachment[] | undefined;
 }
 
 /** A message after media has been transcribed/described to text. */
@@ -60,6 +77,8 @@ export interface TranscribedMessage {
   timestamp: Date;
   imageDescription?: string | null;
   voiceDescription?: string | null;
+  /** Extracted document context, kept separate from the user's actual words. */
+  attachmentDescription?: string | null;
 }
 
 /** The full input passed to a handler. */
@@ -78,6 +97,8 @@ export interface KeyboardResponse {
   callback: string;
   /** action prefix encoded into each button's callback_data */
   buttonAction: string;
+  /** zero-based page selected by a pagination callback */
+  page?: number;
 }
 
 /**
@@ -108,6 +129,12 @@ export interface CommandResponse {
   deleteOrigin?: boolean | undefined;
   /** if set, the sent message self-destructs after this many ms (ephemeral prompts like /tos) */
   ephemeralMs?: number | undefined;
+  /** Non-text provider usage produced by a command, consumed by dispatch accounting only. */
+  usage?: {
+    imageCalls?: number;
+    transcriptionCalls?: number;
+    visionCalls?: number;
+  };
 }
 
 /** Dimensions/duration/poster that make Telegram render a video as an inline, autoplaying player. */

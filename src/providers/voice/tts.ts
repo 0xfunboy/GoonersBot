@@ -1,6 +1,7 @@
 import type { VoiceConfig } from '../../config/index.js';
 import { toTelegramVoice } from './ffmpeg.js';
 import { childLogger } from '../../utils/logger.js';
+import { createAbortScope } from '../../utils/abort.js';
 
 const log = childLogger('tts');
 
@@ -30,7 +31,7 @@ export class TtsProvider {
   }
 
   /** Synthesize text → OGG/Opus voice-note Buffer, or null if disabled/failed/empty. */
-  async synth(text: string, language?: string): Promise<Buffer | null> {
+  async synth(text: string, language?: string, signal?: AbortSignal): Promise<Buffer | null> {
     if (!this.cfg.enabled || !this.cfg.baseUrl) return null;
     const clean = sanitize(text).slice(0, this.cfg.maxChars);
     if (clean.length === 0) return null;
@@ -39,15 +40,14 @@ export class TtsProvider {
     const responseFormat =
       this.cfg.format === 'opus' && this.cfg.ffmpegAvailable ? 'wav' : this.cfg.format;
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.cfg.timeoutMs);
+    const scope = createAbortScope(this.cfg.timeoutMs, signal, 'TTS synthesis');
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (this.cfg.apiKey) headers['Authorization'] = `Bearer ${this.cfg.apiKey}`;
       const res = await fetch(`${this.cfg.baseUrl}/v1/audio/speech`, {
         method: 'POST',
         headers,
-        signal: controller.signal,
+        signal: scope.signal,
         body: JSON.stringify({
           model: this.cfg.model,
           input,
@@ -76,6 +76,7 @@ export class TtsProvider {
           return await toTelegramVoice(this.cfg.ffmpegBin, audio, {
             timeoutMs: this.cfg.timeoutMs,
             tailPaddingMs: this.cfg.tailPaddingMs,
+            signal: scope.signal,
           });
         }
         return audio;
@@ -84,12 +85,13 @@ export class TtsProvider {
       return await toTelegramVoice(this.cfg.ffmpegBin, audio, {
         timeoutMs: this.cfg.timeoutMs,
         tailPaddingMs: this.cfg.tailPaddingMs,
+        signal: scope.signal,
       });
     } catch (err) {
       log.warn({ err }, 'tts synth failed');
       return null;
     } finally {
-      clearTimeout(timer);
+      scope.dispose();
     }
   }
 }

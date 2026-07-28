@@ -12,7 +12,17 @@ const cfg = {
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
-  return { ok: status >= 200 && status < 300, status, json: async () => body } as Response;
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+function videoResponse(body: string): Response {
+  return new Response(new TextEncoder().encode(body), {
+    status: 200,
+    headers: { 'content-type': 'video/mp4' },
+  });
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -23,14 +33,10 @@ describe('AgnesVideoGenerator', () => {
       .fn()
       // 1st call: the generation request
       .mockResolvedValueOnce(
-        jsonResponse({ data: [{ url: 'http://cdn.test/clip.mp4', seconds: '5.0' }] }),
+        jsonResponse({ data: [{ url: 'https://1.1.1.1/clip.mp4', seconds: '5.0' }] }),
       )
       // 2nd call: downloading the produced file
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        arrayBuffer: async () => new TextEncoder().encode('MP4DATA').buffer,
-      } as Response);
+      .mockResolvedValueOnce(videoResponse('MP4DATA'));
     vi.stubGlobal('fetch', fetchMock);
 
     const clip = await new AgnesVideoGenerator(cfg).generate('a dog biting its tail');
@@ -39,12 +45,45 @@ describe('AgnesVideoGenerator', () => {
     expect(clip.mime).toBe('video/mp4');
   });
 
+  it('passes requested duration and aspect ratio to a supporting backend', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ data: [{ url: 'https://1.1.1.1/clip.mp4', seconds: '8' }] }),
+      )
+      .mockResolvedValueOnce(videoResponse('MP4DATA'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await new AgnesVideoGenerator(cfg).generate('adult dancer', {
+      durationSeconds: 8,
+      aspectRatio: '9:16',
+    });
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+    expect(body).toMatchObject({ duration_seconds: 8, aspect_ratio: '9:16' });
+  });
+
+  it('rejects a provider media URL targeting loopback before downloading it', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ data: [{ url: 'http://127.0.0.1/private.mp4', seconds: '5' }] }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(new AgnesVideoGenerator(cfg).generate('a dog playing in a park')).rejects.toThrow(
+      /publicly routable/,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('maps a plain 429 to VideoRateLimitError', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        jsonResponse({ error: { message: 'video submit failed (HTTP 429)' } }, 429),
-      ),
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({ error: { message: 'video submit failed (HTTP 429)' } }, 429),
+        ),
     );
     await expect(new AgnesVideoGenerator(cfg).generate('x')).rejects.toBeInstanceOf(
       VideoRateLimitError,
@@ -56,7 +95,11 @@ describe('AgnesVideoGenerator', () => {
       'fetch',
       vi.fn().mockResolvedValue(
         jsonResponse(
-          { error: { message: 'video generation rate limit exceeded: allows 1 requests per 1 minute(s)' } },
+          {
+            error: {
+              message: 'video generation rate limit exceeded: allows 1 requests per 1 minute(s)',
+            },
+          },
           502,
         ),
       ),
@@ -69,12 +112,10 @@ describe('AgnesVideoGenerator', () => {
   it('gates a second request inside the cooldown without calling the API', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(jsonResponse({ data: [{ url: 'http://cdn.test/a.mp4', seconds: '5.0' }] }))
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        arrayBuffer: async () => new TextEncoder().encode('A').buffer,
-      } as Response);
+      .mockResolvedValueOnce(
+        jsonResponse({ data: [{ url: 'https://1.1.1.1/a.mp4', seconds: '5.0' }] }),
+      )
+      .mockResolvedValueOnce(videoResponse('A'));
     vi.stubGlobal('fetch', fetchMock);
 
     const gen = new AgnesVideoGenerator(cfg);

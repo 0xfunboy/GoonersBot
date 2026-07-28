@@ -7,7 +7,7 @@ import { termsKeyboard, termsHeader } from './handlers/shared.js';
 import { parseArgs } from '../utils/args.js';
 import { parseCallbackData } from './keyboards.js';
 import { childLogger } from '../utils/logger.js';
-import { runWithGroupPlan } from '../providers/llm/requestContext.js';
+import { currentLlmUsage, runWithGroupPlan } from '../providers/llm/requestContext.js';
 
 const log = childLogger('dispatch');
 
@@ -18,6 +18,11 @@ const BASIC_COMMANDS = new Set(['start', 'tos', 'help']);
 export interface DispatchDeps {
   services: Services;
   botUsername: string;
+}
+
+interface CommandAccounting {
+  bypassGroupPlan: boolean;
+  tokenReservation: number;
 }
 
 /** Shared pre-handler bootstrap: build input, init context, permission + terms gate. */
@@ -33,7 +38,7 @@ async function prepare(
   const context = await buildChatContext(ctx, botUsername);
   if (!person || !context) return { skip: true };
   // Explicit interactions (commands/callbacks) are always "addressed".
-  const message = await buildIncomingMessage(ctx, { image: true, voice: true });
+  const message = await buildIncomingMessage(ctx, { image: true, voice: true, documents: true });
 
   await services.initializeContext(person, context);
 
@@ -74,23 +79,46 @@ export async function runCommand(
   // Approval gate: non-basic commands require an admin / approved user / approved chat. Everyone
   // else (incl. private DMs) is limited to the basic commands and gets the "request approval" notice.
   if ('input' in prepared && !BASIC_COMMANDS.has(spec.command)) {
-    const { person, context } = prepared.input;
-    if (!deps.services.isApproved(person, context)) {
-      const localized = await localizeResponse(deps.services, ctx.chat?.id ?? 0, {
-        text: 'approval_required',
-        vars: { admin_handle: deps.services.adminContact() },
+    if (!(await requireApproval(ctx, deps, prepared.input))) return;
+  }
+  let accounting: CommandAccounting | undefined;
+  if ('input' in prepared && spec.quotaConversation) {
+    const { person, context, message } = prepared.input;
+    if (
+      !(await deps.services.usage.isUnderLimit(
+        person.userHandle,
+        message.messageText,
+        Boolean(
+          message.imageBuffer ||
+          message.repliedImageBuffer ||
+          message.videoBuffer ||
+          message.repliedVideoBuffer ||
+          message.attachments?.some((attachment) => /^image\//i.test(attachment.mime)),
+        ),
+        Boolean(message.audioBuffer || message.repliedAudioBuffer),
+      ))
+    ) {
+      const localized = await localizeResponse(deps.services, context.chatId, {
+        text: 'usage_limit_exceeded',
+        vars: {
+          user_handle: person.userHandle,
+          usage_limit: await deps.services.usage.getLimit(person.userHandle),
+        },
       });
       await sendResponse(ctx, localized);
       return;
     }
-  }
-  if ('input' in prepared && spec.quotaConversation) {
-    const decision = deps.services.bypassesGroupPlan(prepared.input.person, prepared.input.context)
-      ? { allowed: true }
+
+    const bypassGroupPlan = deps.services.bypassesGroupPlan(person, context);
+    const decision = bypassGroupPlan
+      ? { allowed: true as const, tokenReservation: 0 }
       : await deps.services.quota.admitConversation({
-          chatId: prepared.input.context.chatId,
-          telegramId: prepared.input.person.telegramId,
+          chatId: context.chatId,
+          telegramId: person.telegramId,
           passive: false,
+          // Some command handlers use no LLM at all (voice/music), so do not reject them merely
+          // because a generic token reservation does not fit. Provider-level metering below still
+          // records every token actually spent by commands that do call an LLM.
           reserveTokens: false,
         });
     if (!decision.allowed) {
@@ -104,8 +132,12 @@ export async function runCommand(
       await sendResponse(ctx, localized);
       return;
     }
+    accounting = {
+      bypassGroupPlan,
+      tokenReservation: decision.tokenReservation ?? 0,
+    };
   }
-  await finish(ctx, deps, prepared, (input) => spec.handle(input));
+  await finish(ctx, deps, prepared, (input) => spec.handle(input), accounting);
 }
 
 export async function runCallback(
@@ -114,9 +146,13 @@ export async function runCallback(
   deps: DispatchDeps,
 ): Promise<void> {
   await ctx.answerCallbackQuery().catch(() => undefined);
+  if (spec.ownerOnly && !callbackBelongsToActor(ctx)) return;
   const data = ctx.callbackQuery?.data ?? '';
   const { args } = parseCallbackData(data);
   const prepared = await prepare(ctx, deps, spec.permissions, spec.needsTermsAccepted, args);
+  if ('input' in prepared && !spec.approvalExempt) {
+    if (!(await requireApproval(ctx, deps, prepared.input))) return;
+  }
   await finish(ctx, deps, prepared, (input) => spec.handle(input));
 }
 
@@ -125,6 +161,7 @@ async function finish(
   deps: DispatchDeps,
   prepared: Awaited<ReturnType<typeof prepare>>,
   run: (input: HandlerInput) => Promise<import('../domain/types.js').CommandResponse | null>,
+  accounting?: CommandAccounting,
 ): Promise<void> {
   const { services } = deps;
   const chatId = ctx.chat?.id ?? 0;
@@ -148,9 +185,20 @@ async function finish(
     return;
   }
 
+  let meteredUsage: ReturnType<typeof currentLlmUsage>;
+  let providerUsage: import('../domain/types.js').CommandResponse['usage'];
+  let plan: Awaited<ReturnType<Services['planForTurn']>> | undefined;
   try {
-    const plan = await services.planForTurn(prepared.input.person, prepared.input.context);
-    const response = await runWithGroupPlan(plan.id, () => run(prepared.input));
+    plan = await services.planForTurn(prepared.input.person, prepared.input.context);
+    const response = await runWithGroupPlan(plan.id, async () => {
+      try {
+        const value = await run(prepared.input);
+        providerUsage = value?.usage;
+        return value;
+      } finally {
+        meteredUsage = currentLlmUsage();
+      }
+    });
     if (!response) return;
     // for terms accept/decline: remove the (personal) prompt the button was attached to
     if (response.deleteOrigin && ctx.callbackQuery) {
@@ -163,5 +211,82 @@ async function finish(
     log.error({ err }, 'handler failed');
     const localized = await localizeResponse(services, chatId, { text: 'generation_failed' });
     await sendResponse(ctx, localized).catch(() => undefined);
+  } finally {
+    if (accounting) {
+      await settleCommandAccounting(
+        services,
+        prepared.input,
+        accounting,
+        plan,
+        meteredUsage,
+        providerUsage,
+      );
+    }
   }
+}
+
+async function requireApproval(
+  ctx: GrammyContext,
+  deps: DispatchDeps,
+  input: HandlerInput,
+): Promise<boolean> {
+  if (deps.services.isApproved(input.person, input.context)) return true;
+  const localized = await localizeResponse(deps.services, input.context.chatId, {
+    text: 'approval_required',
+    vars: { admin_handle: deps.services.adminContact() },
+  });
+  await sendResponse(ctx, localized);
+  return false;
+}
+
+function callbackBelongsToActor(ctx: GrammyContext): boolean {
+  const message = ctx.callbackQuery?.message;
+  if (!message || !('reply_to_message' in message)) return true;
+  const ownerId = message.reply_to_message?.from?.id;
+  return ownerId === undefined || ownerId === ctx.from?.id;
+}
+
+async function settleCommandAccounting(
+  services: Services,
+  input: HandlerInput,
+  accounting: CommandAccounting,
+  plan: Awaited<ReturnType<Services['planForTurn']>> | undefined,
+  usage: ReturnType<typeof currentLlmUsage>,
+  providerUsage: import('../domain/types.js').CommandResponse['usage'],
+): Promise<void> {
+  const inputTokens = usage?.inputTokens ?? 0;
+  const outputTokens = usage?.outputTokens ?? 0;
+  const totalTokens = inputTokens + outputTokens;
+  const imageCalls = providerUsage?.imageCalls ?? 0;
+  const transcriptionCalls = providerUsage?.transcriptionCalls ?? 0;
+  const visionCalls = providerUsage?.visionCalls ?? 0;
+
+  if (!accounting.bypassGroupPlan) {
+    await services.quota
+      .recordLlmTokens(input.context.chatId, totalTokens, accounting.tokenReservation)
+      .catch((err) => log.error({ err }, 'command group token accounting failed'));
+  }
+  if (
+    (!usage?.calls && imageCalls === 0 && transcriptionCalls === 0 && visionCalls === 0) ||
+    !plan
+  ) {
+    return;
+  }
+
+  await services.usage
+    .record({
+      handle: input.person.userHandle,
+      chatId: input.context.chatId,
+      provider: services.llm.name,
+      model: services.modelForPlan(plan, services.config.llm.model) ?? null,
+      inputTokens,
+      outputTokens,
+      estimatedTokens: usage?.estimated ? totalTokens : 0,
+      imageCalls,
+      transcriptionCalls,
+      visionCalls,
+      points: totalTokens + imageCalls * 100,
+      costEstimate: 0,
+    })
+    .catch((err) => log.error({ err }, 'command user usage accounting failed'));
 }

@@ -26,6 +26,11 @@ export interface WebSearchProvider {
   readonly enabled: boolean;
   search(
     query: string,
-    opts?: { language?: string; max?: number; categories?: 'general' | 'videos' | 'images' },
+    opts?: {
+      language?: string;
+      max?: number;
+      categories?: 'general' | 'videos' | 'images';
+      signal?: AbortSignal;
+    },
   ): Promise<WebSearchResponse | null>;
 }

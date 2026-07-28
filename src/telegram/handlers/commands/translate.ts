@@ -78,7 +78,7 @@ export const translateCommand: CommandSpec = {
   command: 'translate',
   aliases: ['traduci'],
   permissions: ['allowed_user', 'not_banned'],
-  needsTermsAccepted: false,
+  needsTermsAccepted: true,
   priority: Priority.DEFAULT,
   quotaConversation: true,
   async handle({ services, context, args }: HandlerInput): Promise<CommandResponse | null> {

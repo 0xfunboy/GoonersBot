@@ -32,6 +32,7 @@ export async function prepareVideoForTelegram(
   buffer: Buffer,
   ffmpegBin: string,
   timeoutMs = 60_000,
+  signal?: AbortSignal,
 ): Promise<PreparedVideo> {
   let dir: string | undefined;
   try {
@@ -40,12 +41,14 @@ export async function prepareVideoForTelegram(
     const out = join(dir, 'out.mp4');
     await writeFile(raw, buffer);
 
-    const opts = { ffmpegBin, timeoutMs, maxUploadBytes: Number.MAX_SAFE_INTEGER };
+    const opts = { ffmpegBin, timeoutMs, maxUploadBytes: Number.MAX_SAFE_INTEGER, signal };
     await remuxFaststart(raw, out, opts);
 
-    const probe: VideoProbe = await probeVideo(ffmpegBin, out).catch(() => ({}));
+    const probe: VideoProbe = await probeVideo(ffmpegBin, out, 15_000, signal).catch(() => ({}));
     const thumbPath = join(dir, 'thumb.jpg');
-    const hasThumb = await videoThumbnail(ffmpegBin, out, thumbPath).catch(() => false);
+    const hasThumb = await videoThumbnail(ffmpegBin, out, thumbPath, 20_000, signal).catch(
+      () => false,
+    );
 
     const prepared: PreparedVideo = { buffer: await readFile(out) };
     if (typeof probe.width === 'number') prepared.width = probe.width;

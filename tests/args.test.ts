@@ -4,7 +4,7 @@ import { normalizeHandle, fallbackHandle, isFallbackHandle } from '../src/utils/
 
 describe('parseArgs', () => {
   it('strips the command and splits the rest', () => {
-    expect(parseArgs('/fact @bob loves memes')).toEqual(['@bob', 'loves', 'memes']);
+    expect(parseArgs('/setfact @bob loves memes')).toEqual(['@bob', 'loves', 'memes']);
   });
   it('handles @botname suffix', () => {
     expect(parseArgs('/ban@GoonersBot @bob 60')).toEqual(['@bob', '60']);

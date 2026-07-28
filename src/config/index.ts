@@ -33,6 +33,22 @@ export interface LLMConfig {
   requestTimeoutMs: number;
   /** optional fallback chat endpoint used when the primary throws; undefined => no fallback */
   fallback: { baseUrl: string; apiKey: string | undefined; model: string } | undefined;
+  /** Additional free-tier providers tried after the operator-configured fallback. */
+  freeFallbacks: Array<{
+    name: string;
+    baseUrl: string;
+    apiKey: string | undefined;
+    model: string;
+  }>;
+}
+
+/** Independent route used only for asynchronous lore/social extraction. */
+export interface MiningLLMConfig {
+  baseUrl: string;
+  apiKey: string | undefined;
+  model: string;
+  maxRequestsPerMinute: number;
+  requestTimeoutMs: number;
 }
 
 export interface EmbeddingsConfig {
@@ -55,6 +71,55 @@ function resolveFallback(env: Env): LLMConfig['fallback'] {
     apiKey: env.LLM_FALLBACK_API_KEY,
     model: env.LLM_FALLBACK_MODEL,
   };
+}
+
+function resolveFreeFallbacks(env: Env): LLMConfig['freeFallbacks'] {
+  const endpoints: LLMConfig['freeFallbacks'] = [];
+  let routerIndex = 0;
+  for (const model of csv(env.LLM_ROUTER_FALLBACK_MODELS, [])) {
+    const baseUrl = env.LLM_BASE_URL?.replace(/\/+$/, '');
+    if (!baseUrl || model === env.LLM_MODEL) continue;
+    routerIndex += 1;
+    endpoints.push({
+      name: `router-fallback-${routerIndex}`,
+      baseUrl,
+      apiKey: env.LLM_API_KEY,
+      model,
+    });
+  }
+  if (env.GROQ_API_KEY) {
+    endpoints.push({
+      name: 'groq-free',
+      baseUrl: 'https://api.groq.com/openai/v1',
+      apiKey: env.GROQ_API_KEY,
+      model: env.GROQ_MODEL,
+    });
+  }
+  if (env.GEMINI_API_KEY && env.GEMINI_MODEL) {
+    endpoints.push({
+      name: 'gemini-free',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      apiKey: env.GEMINI_API_KEY,
+      model: env.GEMINI_MODEL,
+    });
+  }
+  if (env.OPENROUTER_API_KEY) {
+    endpoints.push({
+      name: 'openrouter-free',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      apiKey: env.OPENROUTER_API_KEY,
+      model: env.OPENROUTER_MODEL,
+    });
+  }
+  if (env.CLOUDFLARE_AI_API_KEY && env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_MODEL) {
+    endpoints.push({
+      name: 'cloudflare-free',
+      baseUrl: `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/ai/v1`,
+      apiKey: env.CLOUDFLARE_AI_API_KEY,
+      model: env.CLOUDFLARE_AI_MODEL,
+    });
+  }
+  return endpoints;
 }
 
 /** Default base URLs per provider. These are examples/defaults, overridable via env. */
@@ -90,6 +155,7 @@ export function resolveLLMConfig(env: Env): LLMConfig {
       nsfwApiKey: env.LLM_NSFW_API_KEY,
       requestTimeoutMs: env.LLM_REQUEST_TIMEOUT_MS,
       fallback: resolveFallback(env),
+      freeFallbacks: resolveFreeFallbacks(env),
     };
   }
 
@@ -111,6 +177,20 @@ export function resolveLLMConfig(env: Env): LLMConfig {
     nsfwApiKey: env.LLM_NSFW_API_KEY,
     requestTimeoutMs: env.LLM_REQUEST_TIMEOUT_MS,
     fallback: resolveFallback(env),
+    freeFallbacks: resolveFreeFallbacks(env),
+  };
+}
+
+export function resolveMiningLLMConfig(
+  env: Env,
+  primary: LLMConfig = resolveLLMConfig(env),
+): MiningLLMConfig {
+  return {
+    baseUrl: (env.MINING_LLM_BASE_URL ?? primary.baseUrl).replace(/\/+$/, ''),
+    apiKey: env.MINING_LLM_API_KEY ?? primary.apiKey,
+    model: env.MINING_LLM_MODEL,
+    maxRequestsPerMinute: env.MINING_LLM_MAX_REQUESTS_PER_MINUTE,
+    requestTimeoutMs: env.MINING_LLM_REQUEST_TIMEOUT_MS,
   };
 }
 
@@ -149,7 +229,6 @@ export interface BrainConfig {
   plannerModel: string | undefined;
   replyModel: string | undefined;
   rankerModel: string | undefined;
-  memoryModel: string | undefined;
   sceneTemperature: number;
   plannerTemperature: number;
   replyTemperature: number;
@@ -180,7 +259,6 @@ export function resolveBrainConfig(env: Env): BrainConfig {
     plannerModel: env.PLANNER_MODEL ?? fallback,
     replyModel: env.REPLY_MODEL ?? fallback,
     rankerModel: env.RANKER_MODEL ?? fallback,
-    memoryModel: env.MEMORY_MODEL ?? fallback,
     sceneTemperature: env.SCENE_TEMPERATURE,
     plannerTemperature: env.PLANNER_TEMPERATURE,
     replyTemperature: env.REPLY_TEMPERATURE,
@@ -576,6 +654,7 @@ export function resolveLinkMediaConfig(env: Env): LinkMediaConfig {
 export interface AppConfig {
   env: Env;
   llm: LLMConfig;
+  miningLlm: MiningLLMConfig;
   embeddings: EmbeddingsConfig;
   brain: BrainConfig;
   voice: VoiceConfig;
@@ -589,9 +668,11 @@ export interface AppConfig {
 
 export function loadConfig(): AppConfig {
   const env = getEnv();
+  const llm = resolveLLMConfig(env);
   return {
     env,
-    llm: resolveLLMConfig(env),
+    llm,
+    miningLlm: resolveMiningLLMConfig(env, llm),
     embeddings: resolveEmbeddingsConfig(env),
     brain: resolveBrainConfig(env),
     voice: resolveVoiceConfig(env),

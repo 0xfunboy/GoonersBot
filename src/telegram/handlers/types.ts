@@ -34,6 +34,10 @@ export interface CallbackSpec {
   action: string;
   permissions: readonly Permission[];
   needsTermsAccepted: boolean;
+  /** Terms/onboarding callbacks are the only interactions allowed before chat/user approval. */
+  approvalExempt?: boolean;
+  /** Only the user whose message the keyboard replied to may press its buttons. */
+  ownerOnly?: boolean;
   handle(input: HandlerInput): Promise<CommandResponse | null>;
 }
 

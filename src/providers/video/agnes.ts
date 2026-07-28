@@ -1,14 +1,24 @@
 import type { AgnesVideoConfig } from '../../config/index.js';
 import { Cooldown } from '../../utils/rateLimit.js';
 import { childLogger } from '../../utils/logger.js';
+import { assertMediaGenerationSafe } from '../../safety/mediaSafety.js';
+import { createAbortScope } from '../../utils/abort.js';
+import { fetchSafeRemoteBuffer, readBoundedResponseBuffer } from '../../utils/safeRemoteFetch.js';
 
 const log = childLogger('agnes-video');
+const MAX_JSON_BYTES = 1024 * 1024;
 
 export interface VideoResult {
   buffer: Buffer;
   mime: string;
   /** clip length reported by the provider, in seconds */
   seconds?: number;
+}
+
+export interface VideoGenerationOptions {
+  signal?: AbortSignal;
+  durationSeconds?: number;
+  aspectRatio?: '16:9' | '9:16' | '1:1';
 }
 
 /** Thrown when the upstream 1-request-per-minute video limit (or our local guard) is hit. */
@@ -53,25 +63,40 @@ export class AgnesVideoGenerator {
     return this.cooldown.remainingMs(AgnesVideoGenerator.KEY);
   }
 
-  async generate(prompt: string): Promise<VideoResult> {
+  async generate(
+    prompt: string,
+    options: VideoGenerationOptions | AbortSignal = {},
+  ): Promise<VideoResult> {
+    const resolvedOptions = isAbortSignal(options) ? { signal: options } : options;
     if (!this.enabled) throw new Error('Agnes video generation is disabled');
+    assertMediaGenerationSafe(prompt);
     if (!this.cooldown.tryAcquire(AgnesVideoGenerator.KEY)) {
       throw new VideoRateLimitError(this.cooldownMs());
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.cfg.timeoutMs);
+    const scope = createAbortScope(
+      this.cfg.timeoutMs,
+      resolvedOptions.signal,
+      'Agnes video generation',
+    );
     try {
       const res = await fetch(`${this.cfg.baseUrl}/v1/videos`, {
         method: 'POST',
-        signal: controller.signal,
+        signal: scope.signal,
         headers: {
           'content-type': 'application/json',
           ...(this.cfg.apiKey ? { authorization: `Bearer ${this.cfg.apiKey}` } : {}),
         },
-        body: JSON.stringify({ model: this.cfg.model, prompt }),
+        body: JSON.stringify({
+          model: this.cfg.model,
+          prompt,
+          ...(resolvedOptions.durationSeconds
+            ? { duration_seconds: resolvedOptions.durationSeconds }
+            : {}),
+          ...(resolvedOptions.aspectRatio ? { aspect_ratio: resolvedOptions.aspectRatio } : {}),
+        }),
       });
-      const json = (await res.json().catch(() => ({}))) as AgnesVideoResponse;
+      const json = await readAgnesJson(res, scope.signal);
       if (!res.ok) {
         const message = json.error?.message ?? `HTTP ${res.status}`;
         if (res.status === 429 || RATE_LIMIT_RE.test(message)) {
@@ -82,7 +107,7 @@ export class AgnesVideoGenerator {
       const first = json.data?.[0];
       if (!first?.url) throw new Error('agnes video response had no url');
 
-      const buffer = await this.download(first.url, controller.signal);
+      const buffer = await this.download(first.url, scope.signal);
       const seconds = Number(first.seconds);
       log.info({ model: this.cfg.model, bytes: buffer.length, seconds }, 'agnes video generated');
       return {
@@ -91,16 +116,39 @@ export class AgnesVideoGenerator {
         ...(Number.isFinite(seconds) && seconds > 0 ? { seconds } : {}),
       };
     } finally {
-      clearTimeout(timer);
+      scope.dispose();
     }
   }
 
   private async download(url: string, signal: AbortSignal): Promise<Buffer> {
-    const res = await fetch(url, { signal });
-    if (!res.ok) throw new Error(`agnes video download HTTP ${res.status}`);
-    const buf = Buffer.from(await res.arrayBuffer());
+    const result = await fetchSafeRemoteBuffer(url, {
+      timeoutMs: this.cfg.timeoutMs,
+      maxBytes: this.cfg.maxBytes,
+      signal,
+      allowedContentTypes: ['video/*', 'application/octet-stream'],
+      headers: { Accept: 'video/mp4,video/webm,video/*;q=0.9,application/octet-stream;q=0.5' },
+    });
+    const buf = result.buffer;
     if (buf.length === 0) throw new Error('agnes video download was empty');
-    if (buf.length > this.cfg.maxBytes) throw new Error('agnes video too large');
     return buf;
   }
+}
+
+async function readAgnesJson(res: Response, signal: AbortSignal): Promise<AgnesVideoResponse> {
+  const raw = await readBoundedResponseBuffer(res, MAX_JSON_BYTES, signal);
+  if (!raw.length) return {};
+  try {
+    return JSON.parse(raw.toString('utf8')) as AgnesVideoResponse;
+  } catch {
+    return {};
+  }
+}
+
+function isAbortSignal(value: VideoGenerationOptions | AbortSignal): value is AbortSignal {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'aborted' in value &&
+    typeof value.addEventListener === 'function'
+  );
 }

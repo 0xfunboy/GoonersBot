@@ -108,9 +108,22 @@ const envSchema = z.object({
   LLM_BASE_URL: z.string().optional(),
   LLM_API_KEY: z.string().optional(),
   LLM_MODEL: z.string().optional(),
+  // Dedicated, quota-independent continuous-memory route. It defaults to the main endpoint/key
+  // but never forwards the chat-plan header, so an explicit mining model cannot be remapped by the
+  // conversational Free/Plus/Pro policy.
+  MINING_LLM_BASE_URL: optStr,
+  MINING_LLM_API_KEY: optStr,
+  MINING_LLM_MODEL: z.string().min(1).default('gemma-4-31b-it'),
+  MINING_LLM_MAX_REQUESTS_PER_MINUTE: intFromString(3).refine(
+    (value) => Number.isInteger(value) && value >= 1,
+    'MINING_LLM_MAX_REQUESTS_PER_MINUTE must be an integer >= 1',
+  ),
+  // A queued 31B background model can legitimately need more than the interactive 60s budget.
+  // This route never blocks Telegram replies, so favour completion over abort/retry churn.
+  MINING_LLM_REQUEST_TIMEOUT_MS: intFromString(180_000),
   // Economy model used for every LLM turn in Free groups. It must be exposed by LLM_BASE_URL.
   // This is deliberately separate from LLM_MODEL so Free traffic never consumes the premium route.
-  FREE_LLM_MODEL: z.string().min(1).default('gemma-4-31b-it'),
+  FREE_LLM_MODEL: z.string().min(1).default('gemma-4-26b-a4b-it'),
   LLM_VISION_MODEL: z.string().optional(),
   // Vision usually lives on a different backend (solclawn has no vision). Point these at a
   // vision-capable Ollama (e.g. llama3.2-vision). Empty => vision reuses LLM_BASE_URL/LLM_API_KEY.
@@ -128,6 +141,21 @@ const envSchema = z.object({
   LLM_FALLBACK_BASE_URL: z.string().optional(),
   LLM_FALLBACK_API_KEY: z.string().optional(),
   LLM_FALLBACK_MODEL: z.string().optional(),
+  // Alternative models exposed by the same OpenAI-compatible gateway. They reuse the primary
+  // URL/key and are tried in order when preceding routes are unavailable or quota-exhausted.
+  LLM_ROUTER_FALLBACK_MODELS: z.string().default(''),
+  // Optional no-cost OpenAI-compatible fallback pool. Endpoints are only activated when their
+  // key (and Cloudflare account id) is present. Model ids stay configurable because free catalogs
+  // and quotas change frequently.
+  GROQ_API_KEY: optStr,
+  GROQ_MODEL: z.string().default('openai/gpt-oss-120b'),
+  GEMINI_API_KEY: optStr,
+  GEMINI_MODEL: optStr,
+  OPENROUTER_API_KEY: optStr,
+  OPENROUTER_MODEL: z.string().default('openrouter/free'),
+  CLOUDFLARE_AI_API_KEY: optStr,
+  CLOUDFLARE_ACCOUNT_ID: optStr,
+  CLOUDFLARE_AI_MODEL: optStr,
 
   // Embeddings (semantic RAG): default bge-m3 on local/Ollama OpenAI-compatible endpoint.
   EMBEDDINGS_ENABLED: boolFromString(true),
@@ -259,7 +287,6 @@ const envSchema = z.object({
   DEFAULT_LANGUAGE: z.string().default('italian'),
   AUTOENGAGE_DEFAULT_ENABLED: boolFromString(false),
   CONVERSATION_TRACKER_DEFAULT_ENABLED: boolFromString(true),
-  AUTOFACT_DEFAULT_ENABLED: boolFromString(false),
 
   // Autoengage limits / cooldowns
   // Emergency ceiling. The persistent group plan applies the effective lower cap.
@@ -279,6 +306,18 @@ const envSchema = z.object({
   MESSAGE_HISTORY_RETENTION_DAYS: intFromString(30),
   MAX_CONTEXT_MESSAGES: intFromString(25),
   MAX_STORED_MESSAGES_PER_CHAT: intFromString(500),
+
+  // Generic document understanding. Telegram's hosted Bot API allows downloads up to 20 MB;
+  // content is extracted as inert text and clipped before it enters an LLM prompt.
+  DOCUMENTS_ENABLED: boolFromString(true),
+  DOCUMENT_MAX_CHARS_PER_FILE: intFromString(50_000),
+  DOCUMENT_MAX_FILES_PER_TURN: intFromString(3),
+
+  // Capability Forge: persists safe, declarative research recipes learned from capability gaps.
+  // It never loads or executes generated source code inside the bot process.
+  CAPABILITY_FORGE_ENABLED: boolFromString(true),
+  CAPABILITY_STORE_PATH: z.string().default('data/capabilities'),
+  CAPABILITY_AUTO_INSTALL_RESEARCH: boolFromString(true),
 
   // Usage limits (points). Large default => effectively unlimited unless configured.
   DEFAULT_USAGE_LIMIT: intFromString(1_000_000_000),
@@ -306,7 +345,6 @@ const envSchema = z.object({
   PLANNER_MODEL: optStr,
   REPLY_MODEL: optStr,
   RANKER_MODEL: optStr,
-  MEMORY_MODEL: optStr,
 
   // Brain temperatures
   SCENE_TEMPERATURE: floatFromString(0.2),
@@ -316,8 +354,8 @@ const envSchema = z.object({
   MEMORY_TEMPERATURE: floatFromString(0.1),
 
   // Reply generation
-  REPLY_CANDIDATE_COUNT: intFromString(1),
-  REPLY_MAX_REGENERATIONS: intFromString(2),
+  REPLY_CANDIDATE_COUNT: intFromString(3),
+  REPLY_MAX_REGENERATIONS: intFromString(1),
   REPLY_TOP_P: floatFromString(0.95),
   REPLY_FREQUENCY_PENALTY: floatFromString(0.6),
   REPLY_PRESENCE_PENALTY: floatFromString(0.4),
@@ -327,22 +365,20 @@ const envSchema = z.object({
   // Memory engine
   MEMORY_MIN_CONFIDENCE: floatFromString(0.68),
   MEMORY_AUTO_MIN_CONFIDENCE: floatFromString(0.75),
-  MEMORY_MANUAL_MIN_CONFIDENCE: floatFromString(0.62),
   MEMORY_MIN_SALIENCE: floatFromString(0.45),
-  MEMORY_MAX_CANDIDATES_PER_RUN: intFromString(5),
+  MEMORY_MAX_CANDIDATES_PER_RUN: intFromString(8),
   MEMORY_MAX_ITEMS_PER_REPLY: intFromString(3),
   MEMORY_MAX_EXPLICIT_CALLBACKS_PER_REPLY: intFromString(1),
-  MEMORY_ITEM_COOLDOWN_MINUTES: intFromString(45),
-  MEMORY_SUBJECT_COOLDOWN_MINUTES: intFromString(20),
-  FACT_EXTRACTION_CONTEXT_MESSAGES: intFromString(30),
-  FACT_REPLY_CONTEXT_BEFORE: intFromString(10),
-  FACT_REPLY_CONTEXT_AFTER: intFromString(10),
+  MEMORY_ITEM_COOLDOWN_MINUTES: intFromString(360),
+  MEMORY_SUBJECT_COOLDOWN_MINUTES: intFromString(120),
 
   // Jobs
   MEMORY_MINING_ENABLED: boolFromString(true),
-  MEMORY_MINING_EVERY_MESSAGES: intFromString(25),
-  MEMORY_MINING_MIN_ACTIVE_MESSAGES: intFromString(8),
-  MEMORY_MINING_INTERVAL_SECONDS: intFromString(300),
+  /** Maximum new human messages processed by one extraction call. */
+  MEMORY_MINING_BATCH_MESSAGES: intFromString(20),
+  /** Total bounded chat window, including look-behind context around each new batch. */
+  MEMORY_MINING_CONTEXT_MESSAGES: intFromString(30),
+  MEMORY_MINING_INTERVAL_SECONDS: intFromString(60),
   FEEDBACK_LEARNING_ENABLED: boolFromString(true),
   FEEDBACK_LOOKAHEAD_MESSAGES: intFromString(10),
   BRAIN_DEBUG_TTL_DAYS: intFromString(7),
