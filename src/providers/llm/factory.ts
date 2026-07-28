@@ -4,7 +4,7 @@ import { DeepSeekProvider } from './deepseek.js';
 import { OpenAICompatibleProvider } from './openaiCompatible.js';
 import { FallbackLLMProvider } from './fallback.js';
 import type { ChatRequest, ChatResult, LLMProvider } from './types.js';
-import { MiningRequestPacer } from './miningPacer.js';
+import { estimateMiningRequestTokens, MiningRequestPacer } from './miningPacer.js';
 
 const log = childLogger('llm-factory');
 const MINING_TRANSIENT_FAILURE_COOLDOWN_MS = 60_000;
@@ -42,9 +42,10 @@ class ContinuousMiningProvider extends OpenAICompatibleProvider {
   constructor(
     options: ConstructorParameters<typeof OpenAICompatibleProvider>[0],
     maxRequestsPerMinute: number,
+    maxTokensPerMinute: number,
   ) {
     super(options);
-    this.pacer = new MiningRequestPacer({ maxRequestsPerMinute });
+    this.pacer = new MiningRequestPacer({ maxRequestsPerMinute, maxTokensPerMinute });
   }
 
   private assertAvailable(): void {
@@ -54,7 +55,7 @@ class ContinuousMiningProvider extends OpenAICompatibleProvider {
     }
   }
 
-  private async paced<T>(signal: AbortSignal | undefined, request: () => Promise<T>): Promise<T> {
+  private async paced<T>(req: ChatRequest, request: () => Promise<T>): Promise<T> {
     return this.pacer.run(
       async () => {
         try {
@@ -70,18 +71,22 @@ class ContinuousMiningProvider extends OpenAICompatibleProvider {
           throw err;
         }
       },
-      { beforeStart: () => this.assertAvailable(), signal },
+      {
+        beforeStart: () => this.assertAvailable(),
+        estimatedTokens: estimateMiningRequestTokens(req),
+        signal: req.signal,
+      },
     );
   }
 
   override chatCompletion(req: ChatRequest): Promise<ChatResult> {
-    return this.paced(req.signal, () => super.chatCompletion(req));
+    return this.paced(req, () => super.chatCompletion(req));
   }
 
   override async *streamChatCompletion(req: ChatRequest): AsyncGenerator<string, ChatResult, void> {
     // The miner does not currently stream, but keeping this surface behind the same gate prevents a
     // future caller from accidentally bypassing the provider-wide invariant.
-    const buffered = await this.paced(req.signal, async () => {
+    const buffered = await this.paced(req, async () => {
       const chunks: string[] = [];
       const stream = super.streamChatCompletion(req);
       for (;;) {
@@ -226,6 +231,7 @@ export function createMiningLLMProvider(cfg: MiningLLMConfig): LLMProvider {
       requestTimeoutMs: cfg.requestTimeoutMs,
     },
     cfg.maxRequestsPerMinute,
+    cfg.maxTokensPerMinute,
   );
   log.info(
     {
@@ -233,6 +239,7 @@ export function createMiningLLMProvider(cfg: MiningLLMConfig): LLMProvider {
       model: cfg.model,
       baseUrl: cfg.baseUrl,
       maxRequestsPerMinute: cfg.maxRequestsPerMinute,
+      maxTokensPerMinute: cfg.maxTokensPerMinute,
     },
     'dedicated continuous-mining LLM initialized',
   );

@@ -50,7 +50,9 @@ export class LoreEngine {
     eligibleSourceMessageIds?: readonly number[];
   }): Promise<MineAndStoreResult> {
     const [existing, knownHandles] = await Promise.all([
-      this.storage.memoryItems.listActive(params.chatId, 300),
+      // Keep the complete retained set available for local relevance selection and dedupe. The
+      // prompt builder sends only a compact top slice, so this no longer inflates Gemma input.
+      this.storage.memoryItems.listActive(params.chatId, 1_000),
       this.storage.chatMembers.listHandles(params.chatId),
     ]);
     const candidates = await this.miner.extractCandidates({

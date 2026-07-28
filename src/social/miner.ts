@@ -1,6 +1,11 @@
 import type { LLMProvider } from '../providers/llm/types.js';
 import type { StoredMessage } from '../storage/repositories/messages.js';
 import { childLogger } from '../utils/logger.js';
+import {
+  compactMiningText,
+  MINING_MEDIA_DESCRIPTION_CHARS,
+  MINING_MESSAGE_TEXT_CHARS,
+} from '../utils/miningPrompt.js';
 import { normalizeSocialHandle } from './evolution.js';
 import { isValidSocialObservation } from './privacy.js';
 import { socialObservationBatchSchema } from './schemas.js';
@@ -40,9 +45,13 @@ function renderTranscript(messages: StoredMessage[]): string {
       const id = message.messageId != null ? `#${message.messageId}` : '#unknown';
       const reply = message.replyToHandle ? ` reply-to=${message.replyToHandle}` : '';
       const textParts = [
-        message.message.messageText,
-        message.message.imageDescription ? `[image: ${message.message.imageDescription}]` : null,
-        message.message.voiceDescription ? `[voice: ${message.message.voiceDescription}]` : null,
+        compactMiningText(message.message.messageText, MINING_MESSAGE_TEXT_CHARS),
+        message.message.imageDescription
+          ? `[image: ${compactMiningText(message.message.imageDescription, MINING_MEDIA_DESCRIPTION_CHARS)}]`
+          : null,
+        message.message.voiceDescription
+          ? `[voice: ${compactMiningText(message.message.voiceDescription, MINING_MEDIA_DESCRIPTION_CHARS)}]`
+          : null,
       ].filter(Boolean);
       return `${id} ${message.isBot ? 'BOT' : normalizeSocialHandle(message.handle)}${reply}: ${textParts.join(' ')}`;
     })
@@ -354,13 +363,15 @@ export class SocialObservationMiner {
           }),
           schema: socialObservationBatchSchema,
           schemaHint: SOCIAL_MINING_SCHEMA_HINT,
+          // Keep the Gemma prompt compact; the detailed hint is authoritative and the returned
+          // value is still normalized and validated against the full Zod schema.
+          includeGeneratedSchema: false,
           normalizeCandidate: (candidate) =>
             normalizeSocialMiningCandidate(candidate, new Set(messageEvidence.keys())),
           temperature: this.temperature,
-          // Sixteen compact observations fit comfortably in this budget. Keeping the response
-          // bounded matters for non-streaming 31B gateways, which return headers only after the
-          // whole generation and otherwise turn harmless verbosity into a wall-clock timeout.
-          maxTokens: 1600,
+          // The window and observation count are bounded upstream. Keeping this at 900 prevents
+          // sparse background learning from reserving an oversized share of Gemma's token budget.
+          maxTokens: 900,
         });
         if (result) proposed = result.observations ?? [];
         else degraded = true;

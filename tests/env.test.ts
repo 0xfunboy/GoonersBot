@@ -19,7 +19,9 @@ describe('loadEnv', () => {
     expect(env.CONVERSATION_TRACKER_DEFAULT_ENABLED).toBe(true);
     expect(env.MINING_LLM_MODEL).toBe('gemma-4-31b-it');
     expect(env.MINING_LLM_MAX_REQUESTS_PER_MINUTE).toBe(3);
+    expect(env.MINING_LLM_MAX_TOKENS_PER_MINUTE).toBe(15_000);
     expect(env.MINING_LLM_REQUEST_TIMEOUT_MS).toBe(180_000);
+    expect(env.MEMORY_MINING_MAX_WINDOW_BYTES).toBe(12_000);
     expect(env.LLM_NSFW_DEFAULT_MODE).toBe('smart');
     expect(env.REPLY_CANDIDATE_COUNT).toBe(3);
     expect(env.REPLY_MAX_REGENERATIONS).toBe(1);
@@ -62,6 +64,7 @@ describe('resolveMiningLLMConfig', () => {
       apiKey: 'primary-key',
       model: 'gemma-4-31b-it',
       maxRequestsPerMinute: 3,
+      maxTokensPerMinute: 15_000,
       requestTimeoutMs: 180_000,
     });
   });
@@ -73,6 +76,7 @@ describe('resolveMiningLLMConfig', () => {
       MINING_LLM_API_KEY: 'mining-key',
       MINING_LLM_MODEL: 'gemma-4-31b-it',
       MINING_LLM_MAX_REQUESTS_PER_MINUTE: '2',
+      MINING_LLM_MAX_TOKENS_PER_MINUTE: '12000',
       MINING_LLM_REQUEST_TIMEOUT_MS: '90000',
     });
     const cfg = resolveMiningLLMConfig(env);
@@ -82,6 +86,7 @@ describe('resolveMiningLLMConfig', () => {
       apiKey: 'mining-key',
       model: 'gemma-4-31b-it',
       maxRequestsPerMinute: 2,
+      maxTokensPerMinute: 12_000,
       requestTimeoutMs: 90_000,
     });
   });
@@ -89,6 +94,18 @@ describe('resolveMiningLLMConfig', () => {
   it('rejects a non-positive mining request rate', () => {
     expect(() => loadEnv({ ...base, MINING_LLM_MAX_REQUESTS_PER_MINUTE: '0' })).toThrow(
       /MINING_LLM_MAX_REQUESTS_PER_MINUTE/,
+    );
+  });
+
+  it('rejects a non-positive mining token rate', () => {
+    expect(() => loadEnv({ ...base, MINING_LLM_MAX_TOKENS_PER_MINUTE: '0' })).toThrow(
+      /MINING_LLM_MAX_TOKENS_PER_MINUTE/,
+    );
+  });
+
+  it('rejects a mining transcript byte budget below the safe minimum', () => {
+    expect(() => loadEnv({ ...base, MEMORY_MINING_MAX_WINDOW_BYTES: '1000' })).toThrow(
+      /MEMORY_MINING_MAX_WINDOW_BYTES/,
     );
   });
 });

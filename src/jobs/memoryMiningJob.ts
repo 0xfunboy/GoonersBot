@@ -5,6 +5,7 @@ import type { Storage } from '../storage/index.js';
 import type { MiningCursor } from '../storage/repositories/chats.js';
 import type { StoredMessage } from '../storage/repositories/messages.js';
 import { childLogger } from '../utils/logger.js';
+import { DEFAULT_MINING_WINDOW_BYTES, miningMessagePromptBytes } from '../utils/miningPrompt.js';
 
 const log = childLogger('job-mining');
 
@@ -85,43 +86,67 @@ export function buildMiningWindows(
   cursor: MiningCursor,
   batchSize: number,
   contextSize: number,
+  maxWindowBytes = DEFAULT_MINING_WINDOW_BYTES,
 ): MiningWindow[] {
-  const eligible = messages.filter((message) => isAfterCursor(message, cursor));
+  const eligible = messages
+    .map((message, index) => ({ message, index }))
+    .filter(({ message }) => isAfterCursor(message, cursor));
   const safeBatchSize = Math.max(1, batchSize);
   const safeContextSize = Math.max(safeBatchSize, contextSize);
+  const safeMaxWindowBytes = Math.max(1_024, maxWindowBytes);
+  const messageBytes = messages.map(miningMessagePromptBytes);
+  const prefixBytes = [0];
+  for (const bytes of messageBytes) {
+    prefixBytes.push((prefixBytes.at(-1) ?? 0) + bytes);
+  }
+  const rangeBytes = (start: number, end: number): number =>
+    (prefixBytes[end + 1] ?? 0) - (prefixBytes[start] ?? 0);
   const windows: MiningWindow[] = [];
   let runningCursor = cursor;
-  const batches: StoredMessage[][] = [];
-  let currentBatch: StoredMessage[] = [];
+  const batches: Array<Array<{ message: StoredMessage; index: number }>> = [];
+  let currentBatch: Array<{ message: StoredMessage; index: number }> = [];
   let firstIndex = -1;
-  for (const message of eligible) {
-    const index = messages.indexOf(message);
+  for (const entry of eligible) {
+    const { index } = entry;
     const wouldOverflowContext =
       currentBatch.length > 0 && index - firstIndex + 1 > safeContextSize;
-    if (currentBatch.length >= safeBatchSize || wouldOverflowContext) {
+    const wouldOverflowBytes =
+      currentBatch.length > 0 && rangeBytes(firstIndex, index) > safeMaxWindowBytes;
+    if (currentBatch.length >= safeBatchSize || wouldOverflowContext || wouldOverflowBytes) {
       batches.push(currentBatch);
       currentBatch = [];
       firstIndex = -1;
     }
     if (firstIndex < 0) firstIndex = index;
-    currentBatch.push(message);
+    currentBatch.push(entry);
   }
   if (currentBatch.length > 0) batches.push(currentBatch);
 
   for (const batch of batches) {
-    const firstIndex = messages.indexOf(batch[0] as StoredMessage);
-    const lastIndex = messages.indexOf(batch.at(-1) as StoredMessage);
+    const firstIndex = batch[0]?.index ?? -1;
+    const lastIndex = batch.at(-1)?.index ?? -1;
     if (firstIndex < 0 || lastIndex < 0) continue;
-    const start = Math.max(0, lastIndex - safeContextSize + 1);
+    let start = firstIndex;
+    // Fill only the remaining byte/count budget with look-behind. New evidence is never discarded;
+    // if one bounded message itself exceeds the byte target it travels alone and the provider's
+    // final token preflight remains the safety barrier.
+    while (
+      start > 0 &&
+      lastIndex - start + 1 < safeContextSize &&
+      rangeBytes(start - 1, lastIndex) <= safeMaxWindowBytes
+    ) {
+      start -= 1;
+    }
     const windowMessages = messages.slice(start, lastIndex + 1);
-    runningCursor = advanceCursor(runningCursor, batch);
+    const batchMessages = batch.map(({ message }) => message);
+    runningCursor = advanceCursor(runningCursor, batchMessages);
     windows.push({
       messages: windowMessages,
-      eligibleSourceMessageIds: batch
+      eligibleSourceMessageIds: batchMessages
         .map((message) => message.messageId)
         .filter((id): id is number => id != null),
       cursor: runningCursor,
-      newHumanMessages: batch.length,
+      newHumanMessages: batchMessages.length,
     });
   }
   return windows;
@@ -254,6 +279,7 @@ export async function runMemoryMiningJob(
           loreCursor,
           env.MEMORY_MINING_BATCH_MESSAGES,
           env.MEMORY_MINING_CONTEXT_MESSAGES,
+          env.MEMORY_MINING_MAX_WINDOW_BYTES,
         );
         const socialWindows = socialLearning
           ? buildMiningWindows(
@@ -261,6 +287,7 @@ export async function runMemoryMiningJob(
               socialCursor,
               env.MEMORY_MINING_BATCH_MESSAGES,
               env.MEMORY_MINING_CONTEXT_MESSAGES,
+              env.MEMORY_MINING_MAX_WINDOW_BYTES,
             )
           : [];
         if (loreWindows.length === 0 && socialWindows.length === 0) continue;

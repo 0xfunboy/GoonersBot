@@ -58,10 +58,21 @@ provider has one in-flight request, FIFO admission, a configured maximum of thre
 starts in any rolling 60 seconds and a minimum 20-second start gap. Native JSON calls, prompt-only
 JSON fallbacks and repair attempts all pass through that same pacer.
 
+The pacer also reserves a conservative rolling token envelope before dispatch. Lore considers the
+complete retained set locally but sends only the twenty most relevant items within 2.8 KB; social
+context is focused on current participants and capped at 2.8 KB; transcript windows are packed
+chronologically within 12 KB without dropping eligible message ids. The compact mining schema hints
+replace redundant generated schemas while strict Zod validation and repair remain active.
+
 Only this background provider has a 180-second request timeout. A transient provider failure opens a
 60-second cooldown; the failed cursor/checkpoint remains unchanged and is resumed on a later
 watchdog or backfill attempt. Live mining and historical backfill cannot overlap or bypass the
 pacer. None of these waits block Telegram polling or extend the interactive chat timeout.
+
+On Gemma Free routes the reply generator makes one candidate call rather than three parallel copies
+of the same prompt. GemRouter receives `X-GemRouter-Group-Plan` plus the legacy compatibility header,
+and response metadata identifies the backend model that actually served the request. Client
+fallback models must not point back to the same intelligent router.
 
 Processing every message removes economic relevance gates, not the deterministic filters for
 provenance, consent, sensitive data, confidence, salience and deduplication.

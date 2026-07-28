@@ -198,6 +198,46 @@ describe('OpenAI-compatible structured output', () => {
     expect(repairMessages.at(-1)?.content).toContain('ok: Expected boolean');
   });
 
+  it('can use a compact human contract without duplicating a generated JSON Schema', async () => {
+    let body: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: '{"ok":true}' }, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 5, completion_tokens: 2 },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }),
+    );
+    const provider = new OpenAICompatibleProvider({
+      name: 'compact-structured-test',
+      baseUrl: 'https://llm.test/v1',
+      apiKey: undefined,
+      chatModel: 'test-model',
+      visionModel: undefined,
+      imageModel: undefined,
+      transcriptionModel: undefined,
+      ttsModel: undefined,
+      requestTimeoutMs: 2_000,
+    });
+
+    await expect(
+      provider.jsonCompletion({
+        prompt: 'Return the result.',
+        schema: z.object({ ok: z.boolean() }),
+        schemaHint: 'Compact contract: ok is boolean.',
+        includeGeneratedSchema: false,
+      }),
+    ).resolves.toEqual({ ok: true });
+    const messages = body?.['messages'] as Array<{ role: string; content: string }>;
+    expect(messages[0]?.content).toContain('Compact contract');
+    expect(messages[0]?.content).not.toContain('JSON Schema');
+  });
+
   it('validates every complete candidate and applies lossless normalization before Zod', async () => {
     vi.stubGlobal(
       'fetch',
@@ -397,6 +437,7 @@ describe('per-turn LLM metering', () => {
       apiKey: undefined,
       model: 'gemma-4-31b-it',
       maxRequestsPerMinute: 3,
+      maxTokensPerMinute: 15_000,
       requestTimeoutMs: 2_000,
     });
 
@@ -416,7 +457,29 @@ describe('per-turn LLM metering', () => {
     });
 
     expect(capturedBody?.['model']).toBe('gemma-4-31b-it');
+    expect(capturedHeaders?.get('X-GemRouter-Group-Plan')).toBeNull();
     expect(capturedHeaders?.get('X-LeakRouter-Group-Plan')).toBeNull();
+  });
+
+  it('does not dispatch a mining request that cannot fit in the one-minute token budget', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = createMiningLLMProvider({
+      baseUrl: 'http://miner.test/v1',
+      apiKey: undefined,
+      model: 'gemma-4-31b-it',
+      maxRequestsPerMinute: 3,
+      maxTokensPerMinute: 15_000,
+      requestTimeoutMs: 180_000,
+    });
+
+    await expect(
+      provider.chatCompletion({
+        messages: [{ role: 'user', content: 'oversized '.repeat(5_000) }],
+        maxTokens: 1_500,
+      }),
+    ).rejects.toThrow(/exceeds the 15000 token\/minute budget; request was not sent/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('distributes mining starts across the minute and never exceeds the rolling cap', async () => {
@@ -441,6 +504,7 @@ describe('per-turn LLM metering', () => {
       apiKey: undefined,
       model: 'gemma-4-31b-it',
       maxRequestsPerMinute: 3,
+      maxTokensPerMinute: 15_000,
       requestTimeoutMs: 180_000,
     });
     const request = { messages: [{ role: 'user' as const, content: 'mine this' }] };
@@ -489,6 +553,7 @@ describe('per-turn LLM metering', () => {
       apiKey: undefined,
       model: 'gemma-4-31b-it',
       maxRequestsPerMinute: 3,
+      maxTokensPerMinute: 15_000,
       requestTimeoutMs: 180_000,
     });
     const request = { messages: [{ role: 'user' as const, content: 'mine this' }] };
@@ -532,6 +597,7 @@ describe('per-turn LLM metering', () => {
       apiKey: undefined,
       model: 'gemma-4-31b-it',
       maxRequestsPerMinute: 3,
+      maxTokensPerMinute: 15_000,
       requestTimeoutMs: 180_000,
     });
     const result = provider.jsonCompletion({
@@ -558,6 +624,7 @@ describe('per-turn LLM metering', () => {
       apiKey: undefined,
       model: 'gemma-4-31b-it',
       maxRequestsPerMinute: 3,
+      maxTokensPerMinute: 15_000,
       requestTimeoutMs: 180_000,
     });
     const request = { messages: [{ role: 'user' as const, content: 'mine this' }] };
@@ -611,7 +678,45 @@ describe('per-turn LLM metering', () => {
     });
 
     expect(capturedBody?.['model']).toBe('per-turn-model');
+    expect(capturedHeaders?.get('X-GemRouter-Group-Plan')).toBe('pro');
     expect(capturedHeaders?.get('X-LeakRouter-Group-Plan')).toBe('pro');
+  });
+
+  it('reports the backend model selected by GemRouter response metadata', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              model: 'requested-model',
+              choices: [{ message: { content: 'routed' }, finish_reason: 'stop' }],
+              usage: { prompt_tokens: 4, completion_tokens: 2 },
+            }),
+            {
+              status: 200,
+              headers: {
+                'content-type': 'application/json',
+                'x-gemrouter-backend-model': 'actual-backend-model',
+              },
+            },
+          ),
+      ),
+    );
+    const provider = createLLMProvider(
+      resolveLLMConfig(
+        loadEnv({
+          ...base,
+          LLM_PROVIDER: 'custom_openai_compatible',
+          LLM_BASE_URL: 'http://router.test/v1',
+          LLM_MODEL: 'requested-model',
+        }),
+      ),
+    );
+
+    await expect(
+      provider.chatCompletion({ messages: [{ role: 'user', content: 'route me' }] }),
+    ).resolves.toMatchObject({ model: 'actual-backend-model', text: 'routed' });
   });
 
   it('aggregates every internal provider call inside the group-plan context', async () => {
