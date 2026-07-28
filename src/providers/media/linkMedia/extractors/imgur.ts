@@ -24,6 +24,7 @@ export const imgurExtractor: LinkExtractor = {
       timeoutMs: ctx.timeoutMs,
       maxBytes: 4 * 1024 * 1024,
       userAgent: ctx.userAgent,
+      signal: ctx.signal,
     });
     const $ = cheerio.load(html);
     const ogVideo = $('meta[property="og:video"]').attr('content');

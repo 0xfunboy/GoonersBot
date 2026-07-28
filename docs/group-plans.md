@@ -33,11 +33,19 @@ current counters and applies the new limits immediately.
 
 ## Free execution policy
 
-Free groups are direct-request only. Every LLM step, including internal scene analysis, evaluator/Cortex,
-reply generation, translation, image-prompt preparation and manual fact extraction, is forced to
-`FREE_LLM_MODEL` (production default: `gemma-4-26b-a4b-it`). Embeddings keep using the independently
-configured GemRouter `bge-m3` endpoint when retrieval needs semantic search. Free groups do not invoke the
-separate vision model and do not run autonomous posting or background memory mining.
+Free groups are direct-request only for conversational work. Every interactive LLM step, including
+internal scene analysis, evaluator/Cortex, reply generation, translation and image-prompt
+preparation, is forced to `FREE_LLM_MODEL` (production default: `gemma-4-26b-a4b-it`). Embeddings
+keep using the independently configured GemRouter `bge-m3` endpoint when retrieval needs semantic
+search. Free groups do not invoke the separate vision model or autonomous posting.
+
+Continuous social/lore learning is deliberately outside these plans: every started chat uses the
+pinned `MINING_LLM_MODEL` through `MINING_LLM_BASE_URL`, without a group-plan header or
+conversational token accounting. “Outside the plan” does not mean unpaced: one global FIFO lane
+serves historical backfill and live mining, with one request in flight, at most three upstream starts
+per rolling minute and at least 20 seconds between starts under the production/default setting. The
+180-second mining timeout and post-failure cooldown apply only to that lane; they neither debit nor
+delay interactive group requests.
 
 ## Anti-flood
 

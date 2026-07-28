@@ -64,6 +64,7 @@ export interface ExtractedMediaPost {
 export interface LinkExtractorContext {
   timeoutMs: number;
   userAgent: string;
+  signal?: AbortSignal;
   proxy?: string | undefined;
   cookies?: string | undefined;
   maxMediaPerUrl: number;

@@ -51,7 +51,7 @@ export class MusicService {
   }
 
   /** Resolve a query (free text or a YouTube URL) to a playable voice note, or null. */
-  async fetch(query: string): Promise<MusicResult | null> {
+  async fetch(query: string, signal?: AbortSignal): Promise<MusicResult | null> {
     if (!this.enabled) return null;
     const q = query.trim();
     if (!q) return null;
@@ -87,7 +87,7 @@ export class MusicService {
       if (this.cfg.proxy) args.push('--proxy', this.cfg.proxy);
       args.push(target);
 
-      await this.runYtdlp(args);
+      await this.runYtdlp(args, signal);
 
       const files = await readdir(dir);
       const audioFile = files.find((f) => /\.(opus|ogg|m4a|webm|mp3)$/i.test(f));
@@ -99,6 +99,7 @@ export class MusicService {
       const ogg = await fileToTelegramVoice(this.cfg.ffmpegBin, join(dir, audioFile), {
         maxDurationSec: this.cfg.maxDurationSeconds,
         timeoutMs: this.cfg.timeoutMs,
+        signal,
       });
       if (!ogg.length) return null;
 
@@ -137,7 +138,12 @@ export class MusicService {
     }
   }
 
-  private async runYtdlp(args: string[]): Promise<void> {
-    await runProcessChecked(this.cfg.ytdlpBin, args, { timeoutMs: this.cfg.timeoutMs }, 'yt-dlp');
+  private async runYtdlp(args: string[], signal?: AbortSignal): Promise<void> {
+    await runProcessChecked(
+      this.cfg.ytdlpBin,
+      args,
+      { timeoutMs: this.cfg.timeoutMs, signal },
+      'yt-dlp',
+    );
   }
 }

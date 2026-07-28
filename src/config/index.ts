@@ -33,6 +33,22 @@ export interface LLMConfig {
   requestTimeoutMs: number;
   /** optional fallback chat endpoint used when the primary throws; undefined => no fallback */
   fallback: { baseUrl: string; apiKey: string | undefined; model: string } | undefined;
+  /** Additional free-tier providers tried after the operator-configured fallback. */
+  freeFallbacks: Array<{
+    name: string;
+    baseUrl: string;
+    apiKey: string | undefined;
+    model: string;
+  }>;
+}
+
+/** Independent route used only for asynchronous lore/social extraction. */
+export interface MiningLLMConfig {
+  baseUrl: string;
+  apiKey: string | undefined;
+  model: string;
+  maxRequestsPerMinute: number;
+  requestTimeoutMs: number;
 }
 
 export interface EmbeddingsConfig {
@@ -55,6 +71,55 @@ function resolveFallback(env: Env): LLMConfig['fallback'] {
     apiKey: env.LLM_FALLBACK_API_KEY,
     model: env.LLM_FALLBACK_MODEL,
   };
+}
+
+function resolveFreeFallbacks(env: Env): LLMConfig['freeFallbacks'] {
+  const endpoints: LLMConfig['freeFallbacks'] = [];
+  let routerIndex = 0;
+  for (const model of csv(env.LLM_ROUTER_FALLBACK_MODELS, [])) {
+    const baseUrl = env.LLM_BASE_URL?.replace(/\/+$/, '');
+    if (!baseUrl || model === env.LLM_MODEL) continue;
+    routerIndex += 1;
+    endpoints.push({
+      name: `router-fallback-${routerIndex}`,
+      baseUrl,
+      apiKey: env.LLM_API_KEY,
+      model,
+    });
+  }
+  if (env.GROQ_API_KEY) {
+    endpoints.push({
+      name: 'groq-free',
+      baseUrl: 'https://api.groq.com/openai/v1',
+      apiKey: env.GROQ_API_KEY,
+      model: env.GROQ_MODEL,
+    });
+  }
+  if (env.GEMINI_API_KEY && env.GEMINI_MODEL) {
+    endpoints.push({
+      name: 'gemini-free',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      apiKey: env.GEMINI_API_KEY,
+      model: env.GEMINI_MODEL,
+    });
+  }
+  if (env.OPENROUTER_API_KEY) {
+    endpoints.push({
+      name: 'openrouter-free',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      apiKey: env.OPENROUTER_API_KEY,
+      model: env.OPENROUTER_MODEL,
+    });
+  }
+  if (env.CLOUDFLARE_AI_API_KEY && env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_MODEL) {
+    endpoints.push({
+      name: 'cloudflare-free',
+      baseUrl: `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/ai/v1`,
+      apiKey: env.CLOUDFLARE_AI_API_KEY,
+      model: env.CLOUDFLARE_AI_MODEL,
+    });
+  }
+  return endpoints;
 }
 
 /** Default base URLs per provider. These are examples/defaults, overridable via env. */
@@ -90,6 +155,7 @@ export function resolveLLMConfig(env: Env): LLMConfig {
       nsfwApiKey: env.LLM_NSFW_API_KEY,
       requestTimeoutMs: env.LLM_REQUEST_TIMEOUT_MS,
       fallback: resolveFallback(env),
+      freeFallbacks: resolveFreeFallbacks(env),
     };
   }
 
@@ -111,6 +177,20 @@ export function resolveLLMConfig(env: Env): LLMConfig {
     nsfwApiKey: env.LLM_NSFW_API_KEY,
     requestTimeoutMs: env.LLM_REQUEST_TIMEOUT_MS,
     fallback: resolveFallback(env),
+    freeFallbacks: resolveFreeFallbacks(env),
+  };
+}
+
+export function resolveMiningLLMConfig(
+  env: Env,
+  primary: LLMConfig = resolveLLMConfig(env),
+): MiningLLMConfig {
+  return {
+    baseUrl: (env.MINING_LLM_BASE_URL ?? primary.baseUrl).replace(/\/+$/, ''),
+    apiKey: env.MINING_LLM_API_KEY ?? primary.apiKey,
+    model: env.MINING_LLM_MODEL,
+    maxRequestsPerMinute: env.MINING_LLM_MAX_REQUESTS_PER_MINUTE,
+    requestTimeoutMs: env.MINING_LLM_REQUEST_TIMEOUT_MS,
   };
 }
 
@@ -149,7 +229,6 @@ export interface BrainConfig {
   plannerModel: string | undefined;
   replyModel: string | undefined;
   rankerModel: string | undefined;
-  memoryModel: string | undefined;
   sceneTemperature: number;
   plannerTemperature: number;
   replyTemperature: number;
@@ -180,7 +259,6 @@ export function resolveBrainConfig(env: Env): BrainConfig {
     plannerModel: env.PLANNER_MODEL ?? fallback,
     replyModel: env.REPLY_MODEL ?? fallback,
     rankerModel: env.RANKER_MODEL ?? fallback,
-    memoryModel: env.MEMORY_MODEL ?? fallback,
     sceneTemperature: env.SCENE_TEMPERATURE,
     plannerTemperature: env.PLANNER_TEMPERATURE,
     replyTemperature: env.REPLY_TEMPERATURE,
@@ -408,6 +486,53 @@ export function resolveStableDiffusionConfig(env: Env): StableDiffusionConfig {
   };
 }
 
+/** Agnes AI remote generation (image primary + video), served by the router's OpenAI-compatible API. */
+export interface AgnesImageConfig {
+  enabled: boolean;
+  baseUrl: string;
+  apiKey: string | undefined;
+  model: string;
+  timeoutMs: number;
+  maxBytes: number;
+}
+
+export interface AgnesVideoConfig extends AgnesImageConfig {
+  /** minimum gap between two video requests (upstream allows 1/min) */
+  minIntervalMs: number;
+}
+
+export interface AgnesConfig {
+  image: AgnesImageConfig;
+  video: AgnesVideoConfig;
+}
+
+export function resolveAgnesConfig(env: Env): AgnesConfig {
+  // Accept a base with or without the /v1 suffix; the providers append the full path themselves.
+  const baseUrl = (env.AGNES_BASE_URL ?? env.LLM_BASE_URL ?? '')
+    .replace(/\/+$/, '')
+    .replace(/\/v1$/, '');
+  const apiKey = env.AGNES_API_KEY ?? env.LLM_API_KEY;
+  return {
+    image: {
+      enabled: env.AGNES_IMAGE_ENABLED && Boolean(baseUrl),
+      baseUrl,
+      apiKey,
+      model: env.AGNES_IMAGE_MODEL,
+      timeoutMs: env.AGNES_IMAGE_TIMEOUT_MS,
+      maxBytes: env.AGNES_IMAGE_MAX_MB * 1024 * 1024,
+    },
+    video: {
+      enabled: env.AGNES_VIDEO_ENABLED && Boolean(baseUrl),
+      baseUrl,
+      apiKey,
+      model: env.AGNES_VIDEO_MODEL,
+      timeoutMs: env.AGNES_VIDEO_TIMEOUT_MS,
+      maxBytes: env.AGNES_VIDEO_MAX_MB * 1024 * 1024,
+      minIntervalMs: env.AGNES_VIDEO_MIN_INTERVAL_MS,
+    },
+  };
+}
+
 /** Music fetcher (/sing /play + natural language) config. */
 export interface MusicConfig {
   enabled: boolean;
@@ -529,27 +654,32 @@ export function resolveLinkMediaConfig(env: Env): LinkMediaConfig {
 export interface AppConfig {
   env: Env;
   llm: LLMConfig;
+  miningLlm: MiningLLMConfig;
   embeddings: EmbeddingsConfig;
   brain: BrainConfig;
   voice: VoiceConfig;
   search: SearchConfig;
   auto: AutoConfig;
   stableDiffusion: StableDiffusionConfig;
+  agnes: AgnesConfig;
   music: MusicConfig;
   linkMedia: LinkMediaConfig;
 }
 
 export function loadConfig(): AppConfig {
   const env = getEnv();
+  const llm = resolveLLMConfig(env);
   return {
     env,
-    llm: resolveLLMConfig(env),
+    llm,
+    miningLlm: resolveMiningLLMConfig(env, llm),
     embeddings: resolveEmbeddingsConfig(env),
     brain: resolveBrainConfig(env),
     voice: resolveVoiceConfig(env),
     search: resolveSearchConfig(env),
     auto: resolveAutoConfig(env),
     stableDiffusion: resolveStableDiffusionConfig(env),
+    agnes: resolveAgnesConfig(env),
     music: resolveMusicConfig(env),
     linkMedia: resolveLinkMediaConfig(env),
   };

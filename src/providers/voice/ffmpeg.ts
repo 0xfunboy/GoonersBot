@@ -9,14 +9,21 @@ export async function runFfmpeg(
   args: string[],
   input: Buffer,
   timeoutMs = 30000,
+  signal?: AbortSignal,
 ): Promise<Buffer> {
-  const r = await runProcessChecked(bin, args, { timeoutMs, input, collectStdout: true }, 'ffmpeg');
+  const r = await runProcessChecked(
+    bin,
+    args,
+    { timeoutMs, input, collectStdout: true, signal },
+    'ffmpeg',
+  );
   return r.stdout;
 }
 
 export interface TelegramVoiceOptions {
   timeoutMs?: number;
   tailPaddingMs?: number;
+  signal?: AbortSignal;
 }
 
 /** Transcode arbitrary audio bytes → Telegram-ready OGG/Opus (48 kHz mono). */
@@ -53,6 +60,7 @@ export function toTelegramVoice(
     ],
     input,
     timeoutMs,
+    typeof opts === 'number' ? undefined : opts.signal,
   );
 }
 
@@ -62,6 +70,7 @@ export interface FileVoiceOptions {
   timeoutMs?: number;
   /** opus bitrate (music wants more than the 32k used for speech) */
   bitrate?: string;
+  signal?: AbortSignal;
 }
 
 /**
@@ -88,7 +97,7 @@ export function fileToTelegramVoice(
     'ogg',
     'pipe:1',
   );
-  return runFfmpeg(bin, args, Buffer.alloc(0), opts.timeoutMs ?? 60000);
+  return runFfmpeg(bin, args, Buffer.alloc(0), opts.timeoutMs ?? 60000, opts.signal);
 }
 
 const WHISPER_WAV_ARGS = ['-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', '-f', 'wav', 'pipe:1'];

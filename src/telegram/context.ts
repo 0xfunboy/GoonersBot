@@ -1,5 +1,5 @@
 import type { Context } from 'grammy';
-import type { ChatContext, IncomingMessage, Person } from '../domain/types.js';
+import type { ChatContext, IncomingMessage, MessageAttachment, Person } from '../domain/types.js';
 import { fallbackHandle, normalizeHandle } from '../utils/handles.js';
 import { childLogger } from '../utils/logger.js';
 
@@ -59,7 +59,7 @@ export async function buildChatContext(
   if (!chat) return null;
   const { mentioned, replyToBot } = isBotAddressed(ctx, botUsername);
   const isGroup = chat.type === 'group' || chat.type === 'supergroup';
-  const repliedUsername = ctx.message?.reply_to_message?.from?.username;
+  const repliedFrom = ctx.message?.reply_to_message?.from;
 
   const text = ctx.message?.text ?? ctx.message?.caption ?? '';
   const out: ChatContext = {
@@ -73,7 +73,11 @@ export async function buildChatContext(
   if ('title' in chat && chat.title) out.chatName = chat.title;
   if (ctx.message?.message_thread_id !== undefined) out.threadId = ctx.message.message_thread_id;
   if (ctx.message?.message_id !== undefined) out.messageId = ctx.message.message_id;
-  if (repliedUsername) out.repliedToUserHandle = normalizeHandle(repliedUsername);
+  if (repliedFrom) {
+    out.repliedToUserHandle = repliedFrom.username
+      ? normalizeHandle(repliedFrom.username)
+      : fallbackHandle(repliedFrom.id);
+  }
   if (ctx.message?.reply_to_message?.message_id !== undefined) {
     out.repliedToMessageId = ctx.message.reply_to_message.message_id;
   }
@@ -114,7 +118,7 @@ async function downloadFile(ctx: Context, fileId: string): Promise<Buffer | null
  */
 export async function buildIncomingMessage(
   ctx: Context,
-  opts: { image: boolean; voice: boolean },
+  opts: { image: boolean; voice: boolean; documents?: boolean },
 ): Promise<IncomingMessage> {
   const msg = ctx.message;
   const text = msg?.text ?? msg?.caption ?? '';
@@ -143,6 +147,20 @@ export async function buildIncomingMessage(
         // A video also carries visual content → keep it so a frame can be extracted for vision.
         if (msg?.video || msg?.video_note) out.videoBuffer = buf;
       }
+    }
+  }
+  if (opts.documents && msg?.document && !isAudioOrVideoDocument(msg.document.mime_type)) {
+    const buf = await downloadFile(ctx, msg.document.file_id);
+    if (buf) {
+      out.attachments = [
+        toAttachment(
+          buf,
+          msg.document.file_name,
+          msg.document.mime_type,
+          msg.document.file_size,
+          'current',
+        ),
+      ];
     }
   }
 
@@ -179,6 +197,41 @@ export async function buildIncomingMessage(
           ('mime_type' in repliedAudio && repliedAudio.mime_type) || 'application/octet-stream';
       }
     }
+    if (opts.documents && repliedDoc && !repliedDocAudio && !repliedDocVideo) {
+      const buf = await downloadFile(ctx, repliedDoc.file_id);
+      if (buf) {
+        out.attachments = [
+          ...(out.attachments ?? []),
+          toAttachment(
+            buf,
+            repliedDoc.file_name,
+            repliedDoc.mime_type,
+            repliedDoc.file_size,
+            'reply',
+          ),
+        ];
+      }
+    }
   }
   return out;
+}
+
+function isAudioOrVideoDocument(mime: string | undefined): boolean {
+  return /^(audio|video)\//.test(mime ?? '');
+}
+
+function toAttachment(
+  buffer: Buffer,
+  fileName: string | undefined,
+  mime: string | undefined,
+  declaredSize: number | undefined,
+  source: MessageAttachment['source'],
+): MessageAttachment {
+  return {
+    buffer,
+    fileName: fileName?.trim() || 'attachment',
+    mime: mime?.trim() || 'application/octet-stream',
+    size: declaredSize ?? buffer.byteLength,
+    source,
+  };
 }

@@ -19,7 +19,11 @@ describe('containsSecret', () => {
   });
 
   it('does not flag ordinary chat', () => {
-    for (const c of ['ama i Tool e il doom metal', 'ieri ha vinto la partita 3 a 1', 'che ne pensi del nuovo album?']) {
+    for (const c of [
+      'ama i Tool e il doom metal',
+      'ieri ha vinto la partita 3 a 1',
+      'che ne pensi del nuovo album?',
+    ]) {
       expect(containsSecret(c), c).toBe(false);
     }
   });

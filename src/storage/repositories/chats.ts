@@ -4,10 +4,14 @@ import type { ChatDoc, NsfwMode } from '../../domain/entities.js';
 export interface ChatDefaults {
   language: string;
   conversationTracker: boolean;
-  autoFact: boolean;
   autoengage: boolean;
   autopost: boolean;
   nsfwMode: NsfwMode;
+}
+
+export interface MiningCursor {
+  timestamp: number;
+  messageId: number;
 }
 
 export class ChatsRepo {
@@ -39,7 +43,6 @@ export class ChatsRepo {
           language: defaults.language,
           isStarted: false,
           conversationTracker: defaults.conversationTracker,
-          autoFact: defaults.autoFact,
           autoengage: defaults.autoengage,
           autopost: defaults.autopost,
           nsfwMode: defaults.nsfwMode,
@@ -82,11 +85,6 @@ export class ChatsRepo {
     return doc?.conversationTracker ?? false;
   }
 
-  async getAutoFact(chatId: number): Promise<boolean> {
-    const doc = await this.col.findOne({ chatId }, { projection: { autoFact: 1 } });
-    return doc?.autoFact ?? false;
-  }
-
   async getAutoengage(chatId: number): Promise<boolean> {
     const doc = await this.col.findOne({ chatId }, { projection: { autoengage: 1 } });
     return doc?.autoengage ?? false;
@@ -99,7 +97,75 @@ export class ChatsRepo {
   }
 
   async setLastMinedAt(chatId: number, ts: number): Promise<void> {
-    await this.col.updateOne({ chatId }, { $set: { lastMinedAt: ts, updatedAt: new Date() } });
+    if (!Number.isFinite(ts)) return;
+    await this.col.updateOne(
+      { chatId },
+      { $max: { lastMinedAt: ts }, $set: { updatedAt: new Date() } },
+    );
+  }
+
+  async getLoreMiningCursor(chatId: number): Promise<MiningCursor> {
+    const doc = await this.col.findOne(
+      { chatId },
+      { projection: { lastMinedAt: 1, lastMinedMessageId: 1 } },
+    );
+    return {
+      timestamp: doc?.lastMinedAt ?? 0,
+      messageId: doc?.lastMinedMessageId ?? 0,
+    };
+  }
+
+  async setLoreMiningCursor(chatId: number, cursor: MiningCursor): Promise<void> {
+    if (!Number.isFinite(cursor.timestamp) || !Number.isSafeInteger(cursor.messageId)) return;
+    await this.col.updateOne(
+      { chatId },
+      {
+        $max: {
+          lastMinedAt: cursor.timestamp,
+          lastMinedMessageId: Math.max(0, cursor.messageId),
+        },
+        $set: { updatedAt: new Date() },
+      },
+    );
+  }
+
+  /** Newest human-message timestamp processed by the social-profile miner. */
+  async getLastSocialMinedAt(chatId: number): Promise<number> {
+    const doc = await this.col.findOne({ chatId }, { projection: { lastSocialMinedAt: 1 } });
+    return doc?.lastSocialMinedAt ?? 0;
+  }
+
+  async setLastSocialMinedAt(chatId: number, ts: number): Promise<void> {
+    if (!Number.isFinite(ts)) return;
+    await this.col.updateOne(
+      { chatId },
+      { $max: { lastSocialMinedAt: ts }, $set: { updatedAt: new Date() } },
+    );
+  }
+
+  async getSocialMiningCursor(chatId: number): Promise<MiningCursor> {
+    const doc = await this.col.findOne(
+      { chatId },
+      { projection: { lastSocialMinedAt: 1, lastSocialMinedMessageId: 1 } },
+    );
+    return {
+      timestamp: doc?.lastSocialMinedAt ?? 0,
+      messageId: doc?.lastSocialMinedMessageId ?? 0,
+    };
+  }
+
+  async setSocialMiningCursor(chatId: number, cursor: MiningCursor): Promise<void> {
+    if (!Number.isFinite(cursor.timestamp) || !Number.isSafeInteger(cursor.messageId)) return;
+    await this.col.updateOne(
+      { chatId },
+      {
+        $max: {
+          lastSocialMinedAt: cursor.timestamp,
+          lastSocialMinedMessageId: Math.max(0, cursor.messageId),
+        },
+        $set: { updatedAt: new Date() },
+      },
+    );
   }
 
   async getAutopost(chatId: number): Promise<boolean> {
@@ -131,7 +197,7 @@ export class ChatsRepo {
   /** Toggle a boolean flag and return the new value. */
   private async toggle(
     chatId: number,
-    field: 'conversationTracker' | 'autoFact' | 'autoengage' | 'autopost',
+    field: 'conversationTracker' | 'autoengage' | 'autopost',
   ): Promise<boolean> {
     const current = await this.col.findOne({ chatId }, { projection: { [field]: 1 } });
     const next = !(current?.[field] ?? false);
@@ -141,10 +207,6 @@ export class ChatsRepo {
 
   switchConversationTracker(chatId: number): Promise<boolean> {
     return this.toggle(chatId, 'conversationTracker');
-  }
-
-  switchAutoFact(chatId: number): Promise<boolean> {
-    return this.toggle(chatId, 'autoFact');
   }
 
   switchAutoengage(chatId: number): Promise<boolean> {
@@ -164,13 +226,10 @@ export class ChatsRepo {
     return next;
   }
 
-  /** Started chats with auto-fact enabled (targets for the background mining job). */
+  /** Every started chat is drained by the quota-independent continuous-learning worker. */
   async listForMining(): Promise<Array<{ chatId: number; language: string; nsfwMode: NsfwMode }>> {
     const docs = await this.col
-      .find(
-        { isStarted: true, autoFact: true },
-        { projection: { chatId: 1, language: 1, nsfwMode: 1 } },
-      )
+      .find({ isStarted: true }, { projection: { chatId: 1, language: 1, nsfwMode: 1 } })
       .toArray();
     return docs.map((d) => ({
       chatId: d.chatId,

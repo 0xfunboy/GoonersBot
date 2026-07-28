@@ -13,10 +13,12 @@ export const cortexIntentEnum = z.enum([
   'support',
   'make_image',
   'draw_image',
+  'make_video',
   'translate',
   'voice_note',
   'play_music',
   'download_media',
+  'extend_capability',
   'stay_quiet',
 ]);
 
@@ -29,8 +31,10 @@ export const cortexToolEnum = z.enum([
   'music',
   'link_media',
   'image_gen',
+  'video_gen',
   'translate',
   'tts',
+  'capability_forge',
 ]);
 
 export const cortexToolCallSchema = z.object({

@@ -1,9 +1,9 @@
 import { existsSync } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { childLogger } from '../../../utils/logger.js';
 import { runProcessChecked } from '../../../utils/process.js';
-import { assertSafeUrl } from './http.js';
+import { assertSafeUrl, downloadToFile } from './http.js';
 
 const log = childLogger('link-media-ytdlp');
 
@@ -13,16 +13,45 @@ export interface YtdlpDownloadConfig {
   maxDownloadBytes: number;
   maxDurationSeconds: number;
   timeoutMs: number;
+  signal?: AbortSignal;
   proxy?: string | undefined;
   /** either a raw Cookie header string for the host, or a path to a Netscape cookies.txt file */
   cookies?: string | undefined;
 }
 
-/** Translate the cookies config into the right yt-dlp args (file -> --cookies, else header). */
-function cookieArgs(cookies?: string): string[] {
+/**
+ * Translate a raw Cookie header into a domain-scoped Netscape jar. Passing `--add-header Cookie:`
+ * would send the credential to every CDN/redirect host yt-dlp touches.
+ */
+async function cookieArgs(
+  cookies: string | undefined,
+  pageUrl: string,
+  workdir: string,
+): Promise<string[]> {
   if (!cookies) return [];
   if (existsSync(cookies)) return ['--cookies', cookies];
-  return ['--add-header', `Cookie:${cookies}`];
+  const url = new URL(pageUrl);
+  const domain = cookieDomain(url.hostname);
+  const rows = cookies
+    .split(';')
+    .map((pair) => pair.trim())
+    .filter(Boolean)
+    .flatMap((pair) => {
+      const separator = pair.indexOf('=');
+      if (separator <= 0) return [];
+      const name = pair.slice(0, separator).trim();
+      const value = pair.slice(separator + 1).trim();
+      if (!name || /[\t\r\n]/.test(name) || /[\t\r\n]/.test(value)) return [];
+      return [
+        `.${domain}\tTRUE\t/\t${url.protocol === 'https:' ? 'TRUE' : 'FALSE'}\t0\t${name}\t${value}`,
+      ];
+    });
+  if (rows.length === 0) return [];
+  const jar = join(workdir, '.cookies.txt');
+  await writeFile(jar, `# Netscape HTTP Cookie File\n${rows.join('\n')}\n`, {
+    mode: 0o600,
+  });
+  return ['--cookies', jar];
 }
 
 export interface YtdlpResult {
@@ -31,8 +60,13 @@ export interface YtdlpResult {
   durationSec?: number;
 }
 
-async function runYtdlp(bin: string, args: string[], timeoutMs: number): Promise<void> {
-  await runProcessChecked(bin, args, { timeoutMs }, 'yt-dlp');
+async function runYtdlp(
+  bin: string,
+  args: string[],
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  await runProcessChecked(bin, args, { timeoutMs, signal }, 'yt-dlp');
 }
 
 /**
@@ -45,8 +79,14 @@ export async function downloadWithYtdlp(
   workdir: string,
   cfg: YtdlpDownloadConfig,
 ): Promise<YtdlpResult | null> {
+  try {
+    await assertSafeUrl(pageUrl, cfg.signal);
+  } catch {
+    return null;
+  }
   const out = join(workdir, 'video.%(ext)s');
   const args = [
+    '--ignore-config',
     '--no-playlist',
     '--no-warnings',
     '--quiet',
@@ -68,11 +108,11 @@ export async function downloadWithYtdlp(
     out,
   ];
   if (cfg.proxy) args.push('--proxy', cfg.proxy);
-  args.push(...cookieArgs(cfg.cookies));
+  args.push(...(await cookieArgs(cfg.cookies, pageUrl, workdir)));
   args.push(pageUrl);
 
   try {
-    await runYtdlp(cfg.ytdlpBin, args, cfg.timeoutMs);
+    await runYtdlp(cfg.ytdlpBin, args, cfg.timeoutMs, cfg.signal);
   } catch (err) {
     log.debug({ err, url: pageUrl }, 'yt-dlp download failed');
     return null;
@@ -82,11 +122,19 @@ export async function downloadWithYtdlp(
   const videoFile = files.find((f) => /^video\.(mp4|mkv|webm|mov)$/i.test(f));
   if (!videoFile) return null;
 
-  const result: YtdlpResult = { file: join(workdir, videoFile) };
+  const file = join(workdir, videoFile);
+  const fileSize = await stat(file)
+    .then((entry) => entry.size)
+    .catch(() => 0);
+  if (fileSize <= 0 || fileSize > cfg.maxDownloadBytes) return null;
+  const result: YtdlpResult = { file };
   const infoFile = files.find((f) => f.endsWith('.info.json'));
   if (infoFile) {
     try {
-      const json = JSON.parse(await readFile(join(workdir, infoFile), 'utf8')) as Record<string, unknown>;
+      const json = JSON.parse(await readFile(join(workdir, infoFile), 'utf8')) as Record<
+        string,
+        unknown
+      >;
       if (typeof json.title === 'string') result.title = json.title;
       if (typeof json.duration === 'number') result.durationSec = json.duration;
     } catch {
@@ -97,16 +145,48 @@ export async function downloadWithYtdlp(
 }
 
 /** Run yt-dlp and capture stdout (used for -g URL resolution). */
-async function runYtdlpCapture(bin: string, args: string[], timeoutMs: number): Promise<string> {
-  const r = await runProcessChecked(bin, args, { timeoutMs, collectStdout: true }, 'yt-dlp');
+async function runYtdlpCapture(
+  bin: string,
+  args: string[],
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<string> {
+  const r = await runProcessChecked(
+    bin,
+    args,
+    { timeoutMs, collectStdout: true, signal },
+    'yt-dlp',
+  );
   return r.stdout.toString();
 }
 
-async function ffmpegGrabFrame(bin: string, streamUrl: string, out: string, timeoutMs: number): Promise<void> {
+async function ffmpegGrabFrame(
+  bin: string,
+  localInput: string,
+  out: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<void> {
   await runProcessChecked(
     bin,
-    ['-hide_banner', '-loglevel', 'error', '-y', '-user_agent', 'Mozilla/5.0', '-i', streamUrl, '-frames:v', '1', '-q:v', '2', '-vf', "scale='min(1024,iw)':-2", out],
-    { timeoutMs },
+    [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-y',
+      '-protocol_whitelist',
+      'file,pipe',
+      '-i',
+      localInput,
+      '-frames:v',
+      '1',
+      '-q:v',
+      '2',
+      '-vf',
+      "scale='min(1024,iw)':-2",
+      out,
+    ],
+    { timeoutMs, signal },
     'ffmpeg snapshot',
   );
 }
@@ -121,14 +201,31 @@ export async function snapshotStream(
   workdir: string,
   cfg: YtdlpDownloadConfig,
 ): Promise<string | null> {
-  const args = ['--no-warnings', '--no-playlist', '-f', 'best[height<=720]/best', '-g'];
+  try {
+    await assertSafeUrl(pageUrl, cfg.signal);
+  } catch {
+    return null;
+  }
+  const args = [
+    '--ignore-config',
+    '--no-warnings',
+    '--no-playlist',
+    '-f',
+    'best[height<=720]/best',
+    '-g',
+  ];
   if (cfg.proxy) args.push('--proxy', cfg.proxy);
-  args.push(...cookieArgs(cfg.cookies));
+  args.push(...(await cookieArgs(cfg.cookies, pageUrl, workdir)));
   args.push(pageUrl);
 
   let streamUrl: string;
   try {
-    const stdout = await runYtdlpCapture(cfg.ytdlpBin, args, Math.min(cfg.timeoutMs, 60000));
+    const stdout = await runYtdlpCapture(
+      cfg.ytdlpBin,
+      args,
+      Math.min(cfg.timeoutMs, 60_000),
+      cfg.signal,
+    );
     const first = stdout
       .split('\n')
       .map((s) => s.trim())
@@ -141,17 +238,56 @@ export async function snapshotStream(
   }
 
   try {
-    await assertSafeUrl(streamUrl);
+    await assertSafeUrl(streamUrl, cfg.signal);
   } catch {
     return null; // refuse private/loopback resolved targets
   }
 
+  // Never let ffmpeg resolve/follow a remote URL itself: fetch through the guarded HTTP client
+  // first. HLS/DASH manifests that require nested network requests consequently fail closed.
+  const localInput = join(workdir, 'snapshot-source.bin');
+  try {
+    await downloadToFile(streamUrl, localInput, {
+      timeoutMs: Math.min(cfg.timeoutMs, 45_000),
+      maxBytes: Math.min(cfg.maxDownloadBytes, 32 * 1024 * 1024),
+      userAgent: 'Mozilla/5.0',
+      signal: cfg.signal,
+      allowedContentTypes: ['video/*', 'image/*', 'application/octet-stream'],
+    });
+  } catch {
+    return null;
+  }
+
   const out = join(workdir, 'snap.jpg');
   try {
-    await ffmpegGrabFrame(cfg.ffmpegBin, streamUrl, out, Math.min(cfg.timeoutMs, 45000));
+    await ffmpegGrabFrame(
+      cfg.ffmpegBin,
+      localInput,
+      out,
+      Math.min(cfg.timeoutMs, 45_000),
+      cfg.signal,
+    );
   } catch (err) {
     log.debug({ err, url: pageUrl }, 'snapshot ffmpeg grab failed');
     return null;
   }
   return existsSync(out) ? out : null;
+}
+
+function cookieDomain(hostname: string): string {
+  const host = hostname
+    .replace(/\.$/, '')
+    .replace(/^www\./, '')
+    .toLowerCase();
+  for (const domain of [
+    'instagram.com',
+    'tiktok.com',
+    'facebook.com',
+    'fb.watch',
+    'x.com',
+    'twitter.com',
+  ]) {
+    if (host === domain || host.endsWith(`.${domain}`)) return domain;
+  }
+  return host;
 }

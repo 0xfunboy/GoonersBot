@@ -8,6 +8,9 @@ import { LinkMediaService } from './linkMedia.js';
 import { TtsProvider } from '../providers/voice/tts.js';
 import { SttProvider } from '../providers/voice/stt.js';
 import { StableDiffusionGenerator } from '../providers/image/stableDiffusion.js';
+import { AgnesImageGenerator } from '../providers/image/agnes.js';
+import { FallbackImageGenerator } from '../providers/image/fallbackGenerator.js';
+import { AgnesVideoGenerator } from '../providers/video/agnes.js';
 import type { Storage } from '../storage/index.js';
 import { Cooldown } from '../utils/rateLimit.js';
 import { MemoryMiner } from '../memory/memoryMiner.js';
@@ -26,11 +29,12 @@ import { NewsService } from '../news/newsService.js';
 import { AutonomousPoster } from './autonomousPoster.js';
 import { GeneratedImagePoster } from './generatedImagePoster.js';
 import { ImagePromptService } from './imagePrompt.js';
+import { VideoPromptService } from './videoPrompt.js';
+import { AgentRuntime } from './agentRuntime.js';
 import { AutoEngageScorer } from './autoengage.js';
 import { BanService } from './bans.js';
 import { ModelRouter } from './modelRouter.js';
 import { ConversationService } from './conversation.js';
-import { FactService } from './facts.js';
 import { ModeService } from './modes.js';
 import { PermissionService } from './permissions.js';
 import { AccessService } from './access.js';
@@ -40,12 +44,18 @@ import { UsageService } from './usage.js';
 import { GroupQuotaService } from './groupQuota.js';
 import { QUOTA_PLANS, type QuotaPlan, type QuotaPlanId } from '../quota/plans.js';
 import { ConversationThreadTracker } from './threadTracker.js';
+import { DocumentProcessor } from '../documents/documentProcessor.js';
+import { CapabilityForge } from '../capabilities/forge.js';
+import {
+  SocialLearningPipeline,
+  SocialObservationMiner,
+  SocialProfileEngine,
+} from '../social/index.js';
 
 export * from './permissions.js';
 export * from './terms.js';
 export * from './bans.js';
 export * from './modes.js';
-export * from './facts.js';
 export * from './usage.js';
 export * from './conversation.js';
 export * from './autoengage.js';
@@ -65,7 +75,6 @@ export class Services {
   readonly terms: TermsService;
   readonly bans: BanService;
   readonly modes: ModeService;
-  readonly facts: FactService;
   readonly usage: UsageService;
   readonly quota: GroupQuotaService;
   readonly threadTracker: ConversationThreadTracker;
@@ -74,6 +83,8 @@ export class Services {
   readonly reply: ReplyService;
   readonly media: MediaProcessor;
   readonly music: MusicService;
+  /** remote text-to-video (Agnes); rate limited to one clip per minute upstream */
+  readonly video: AgnesVideoGenerator;
   readonly linkMedia: LinkMediaService;
   readonly tts: TtsProvider;
   readonly stt: SttProvider;
@@ -90,6 +101,12 @@ export class Services {
   readonly autonomousPoster: AutonomousPoster;
   readonly generatedImagePoster: GeneratedImagePoster;
   readonly imagePrompts: ImagePromptService;
+  readonly videoPrompts: VideoPromptService;
+  readonly agentRuntime: AgentRuntime;
+  readonly social: SocialProfileEngine;
+  readonly socialLearning: SocialLearningPipeline;
+  readonly documents: DocumentProcessor;
+  readonly capabilities: CapabilityForge;
   /** per-user, per-chat anti-spam cooldown for command invocations */
   readonly commandRateLimit: Cooldown;
 
@@ -97,12 +114,23 @@ export class Services {
     readonly config: AppConfig,
     readonly storage: Storage,
     readonly llm: LLMProvider,
+    readonly miningLlm: LLMProvider,
   ) {
     const env = config.env;
     this.localizer = new Localizer(env.DEFAULT_LANGUAGE);
+    this.documents = new DocumentProcessor({
+      enabled: env.DOCUMENTS_ENABLED,
+      maxCharsPerFile: env.DOCUMENT_MAX_CHARS_PER_FILE,
+      maxFilesPerTurn: env.DOCUMENT_MAX_FILES_PER_TURN,
+    });
     this.tts = new TtsProvider(config.voice.tts);
     this.stt = new SttProvider(config.voice.stt);
-    const imageGenerator = new StableDiffusionGenerator(config.stableDiffusion);
+    // Remote Agnes first, local Stable Diffusion as automatic fallback (and for pose/ControlNet jobs).
+    const imageGenerator = new FallbackImageGenerator(
+      new AgnesImageGenerator(config.agnes.image),
+      new StableDiffusionGenerator(config.stableDiffusion),
+    );
+    this.video = new AgnesVideoGenerator(config.agnes.video);
     this.media = new MediaProcessor(
       llm,
       this.stt,
@@ -125,7 +153,6 @@ export class Services {
     this.terms = new TermsService(storage);
     this.bans = new BanService(storage, env.DEFAULT_BAN_SECONDS);
     this.modes = new ModeService(storage);
-    this.facts = new FactService(storage);
     this.usage = new UsageService(storage);
     this.conversation = new ConversationService(storage, env.MAX_CONTEXT_MESSAGES);
     this.autoengage = new AutoEngageScorer(llm, {
@@ -149,8 +176,7 @@ export class Services {
       maxActive: env.THREAD_STATE_MAX_ACTIVE,
       embeddingDim: config.embeddings.dim,
     });
-    const miner = new MemoryMiner(llm, {
-      model: config.brain.memoryModel,
+    const miner = new MemoryMiner(miningLlm, {
       temperature: env.MEMORY_TEMPERATURE,
       maxCandidates: env.MEMORY_MAX_CANDIDATES_PER_RUN,
       minSalience: env.MEMORY_MIN_SALIENCE,
@@ -195,6 +221,11 @@ export class Services {
       pageScanner,
       this.quota,
     );
+    this.capabilities = new CapabilityForge(llm, this.grounding, {
+      enabled: env.CAPABILITY_FORGE_ENABLED,
+      storePath: env.CAPABILITY_STORE_PATH,
+      autoInstallResearch: env.CAPABILITY_AUTO_INSTALL_RESEARCH,
+    });
     this.imageFinder = new ImageFinder(searxng, this.media, config.auto.imageQueryPool);
     this.news = new NewsService(
       config.auto.rssFeeds,
@@ -220,6 +251,15 @@ export class Services {
       this.localizer,
     );
     this.imagePrompts = new ImagePromptService(llm, config);
+    this.videoPrompts = new VideoPromptService(llm, config);
+    this.social = new SocialProfileEngine(storage.socialProfiles);
+    this.socialLearning = new SocialLearningPipeline(
+      this.social,
+      new SocialObservationMiner(miningLlm, {
+        temperature: Math.min(0.12, env.MEMORY_TEMPERATURE),
+        maxObservations: env.MEMORY_MAX_CANDIDATES_PER_RUN * 2,
+      }),
+    );
     this.heat = new HeatService(storage.userHeat, {
       enabled: env.HEAT_ENABLED,
       baseline: env.HEAT_BASELINE,
@@ -236,10 +276,26 @@ export class Services {
       },
       this.embedder,
     );
+    this.agentRuntime = new AgentRuntime({
+      config,
+      llm,
+      media: this.media,
+      music: this.music,
+      video: this.video,
+      tts: this.tts,
+      grounding: this.grounding,
+      knowledge: this.knowledge,
+      imageFinder: this.imageFinder,
+      imagePrompts: this.imagePrompts,
+      videoPrompts: this.videoPrompts,
+      quota: this.quota,
+      capabilities: this.capabilities,
+    });
     this.reply = new ReplyService(
       llm,
       this.media,
       this.music,
+      this.video,
       this.tts,
       this.conversation,
       this.scene,
@@ -255,6 +311,11 @@ export class Services {
       this.quota,
       this.localizer,
       this.threadTracker,
+      this.documents,
+      this.capabilities,
+      this.videoPrompts,
+      this.agentRuntime,
+      this.social,
     );
   }
 
@@ -264,16 +325,27 @@ export class Services {
     await this.storage.chats.createIfNotExists(context.chatId, context.chatName, {
       language: env.DEFAULT_LANGUAGE,
       conversationTracker: env.CONVERSATION_TRACKER_DEFAULT_ENABLED,
-      autoFact: env.AUTOFACT_DEFAULT_ENABLED,
       autoengage: env.AUTOENGAGE_DEFAULT_ENABLED,
       autopost: env.AUTOPOST_DEFAULT_ENABLED,
       nsfwMode: env.LLM_NSFW_DEFAULT_MODE,
     });
+    await this.modes.seedDefaults(context.chatId);
+    // The adapter calls this method before the terms gate so it can render /tos in a fresh chat.
+    // Do not create personal rows or recreate a declined user's erased social profile until the
+    // person has explicitly accepted.
+    if (!(await this.terms.hasAccepted(person.userHandle))) return;
     await Promise.all([
-      this.modes.seedDefaults(context.chatId),
       this.storage.users.upsertFromPerson(person),
       this.storage.chatMembers.touch(context.chatId, person),
       this.usage.ensure(person.userHandle),
+      this.social.recordPresence({
+        chatId: context.chatId,
+        handle: person.userHandle,
+        telegramId: person.telegramId,
+        displayName:
+          [person.firstName, person.lastName].filter(Boolean).join(' ').trim() || undefined,
+        alias: person.firstName,
+      }),
     ]);
   }
 

@@ -19,9 +19,8 @@ function storage() {
         },
         async findByMessageId(chatId: number, messageId: number) {
           return (
-            threads.find(
-              (t) => t.chatId === chatId && t.sourceMessageIds.includes(messageId),
-            ) ?? null
+            threads.find((t) => t.chatId === chatId && t.sourceMessageIds.includes(messageId)) ??
+            null
           );
         },
         async upsert(doc: ConversationThreadDoc) {
@@ -30,7 +29,9 @@ function storage() {
           else threads.push(doc);
         },
         async attachMessage(chatId: number, threadId: string, messageId: number) {
-          const t = threads.find((thread) => thread.chatId === chatId && thread.threadId === threadId);
+          const t = threads.find(
+            (thread) => thread.chatId === chatId && thread.threadId === threadId,
+          );
           if (t && !t.sourceMessageIds.includes(messageId)) t.sourceMessageIds.push(messageId);
         },
       },
@@ -113,7 +114,10 @@ describe('ConversationThreadTracker', () => {
     const first = await s.tracker.track({
       person: { telegramId: 1, userHandle: '@funboy' },
       context: { ...chat, messageId: 10 },
-      message: { messageText: 'la mia Toyota RAV4 plug-in hybrid ha 6 anni', timestamp: new Date() },
+      message: {
+        messageText: 'la mia Toyota RAV4 plug-in hybrid ha 6 anni',
+        timestamp: new Date(),
+      },
       history: [],
     });
     const comment = await s.tracker.track({

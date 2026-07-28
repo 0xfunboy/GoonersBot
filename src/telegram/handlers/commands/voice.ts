@@ -10,17 +10,24 @@ import { Priority } from '../types.js';
 export const voiceCommand: CommandSpec = {
   command: 'voice',
   permissions: ['allowed_user', 'not_banned'],
-  needsTermsAccepted: false,
+  needsTermsAccepted: true,
   priority: Priority.DEFAULT,
   quotaConversation: true,
   async handle({ services, context }) {
     if (!services.tts.enabled) return { text: 'voice_unavailable' };
 
-    const source = context.repliedToMessageId
-      ? await services.storage.messages.findByMessageId(context.chatId, context.repliedToMessageId)
-      : await services.storage.messages.getLatest(context.chatId);
-
-    const text = source?.message.messageText?.trim();
+    // Telegram already includes replied text/captions in the update. Prefer it so /voice works
+    // even when conversation tracking was disabled and the replied message is absent from Mongo.
+    let text = context.repliedToText?.trim();
+    if (!text) {
+      const source = context.repliedToMessageId
+        ? await services.storage.messages.findByMessageId(
+            context.chatId,
+            context.repliedToMessageId,
+          )
+        : await services.storage.messages.getLatest(context.chatId);
+      text = source?.message.messageText?.trim();
+    }
     if (!text) return { text: 'voice_none' };
 
     const language = await services.getLanguage(context.chatId);

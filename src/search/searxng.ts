@@ -1,5 +1,6 @@
 import { childLogger } from '../utils/logger.js';
 import type { WebSearchProvider, WebSearchResponse, WebSearchResult } from './types.js';
+import { createAbortScope } from '../utils/abort.js';
 
 const log = childLogger('searxng');
 
@@ -39,7 +40,12 @@ export class SearxngProvider implements WebSearchProvider {
 
   async search(
     query: string,
-    opts: { language?: string; max?: number; categories?: 'general' | 'videos' | 'images' } = {},
+    opts: {
+      language?: string;
+      max?: number;
+      categories?: 'general' | 'videos' | 'images';
+      signal?: AbortSignal;
+    } = {},
   ): Promise<WebSearchResponse | null> {
     if (!this.enabled || !this.cfg.baseUrl || !query.trim()) return null;
     const max = opts.max ?? this.cfg.maxResults;
@@ -53,11 +59,10 @@ export class SearxngProvider implements WebSearchProvider {
     const lang = langToSearx(opts.language);
     if (lang !== 'all') url.searchParams.set('language', lang);
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.cfg.timeoutMs);
+    const scope = createAbortScope(this.cfg.timeoutMs, opts.signal, 'SearXNG search');
     try {
       const res = await fetch(url, {
-        signal: controller.signal,
+        signal: scope.signal,
         headers: { Accept: 'application/json' },
       });
       if (!res.ok) {
@@ -84,14 +89,14 @@ export class SearxngProvider implements WebSearchProvider {
       log.warn({ err }, 'searxng search failed');
       return null;
     } finally {
-      clearTimeout(timer);
+      scope.dispose();
     }
   }
 
   /** Image search → candidate image URLs (largest/original src first). */
   async searchImages(
     query: string,
-    opts: { language?: string; max?: number } = {},
+    opts: { language?: string; max?: number; signal?: AbortSignal } = {},
   ): Promise<string[]> {
     if (!this.enabled || !this.cfg.baseUrl || !query.trim()) return [];
     const url = new URL('/search', this.cfg.baseUrl);
@@ -102,11 +107,10 @@ export class SearxngProvider implements WebSearchProvider {
     const lang = langToSearx(opts.language);
     if (lang !== 'all') url.searchParams.set('language', lang);
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.cfg.timeoutMs);
+    const scope = createAbortScope(this.cfg.timeoutMs, opts.signal, 'SearXNG image search');
     try {
       const res = await fetch(url, {
-        signal: controller.signal,
+        signal: scope.signal,
         headers: { Accept: 'application/json' },
       });
       if (!res.ok) return [];
@@ -121,7 +125,7 @@ export class SearxngProvider implements WebSearchProvider {
       log.warn({ err }, 'searxng image search failed');
       return [];
     } finally {
-      clearTimeout(timer);
+      scope.dispose();
     }
   }
 }

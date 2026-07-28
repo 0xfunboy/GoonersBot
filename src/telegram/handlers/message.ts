@@ -10,11 +10,37 @@ import { Cooldown } from '../../utils/rateLimit.js';
 import { childLogger } from '../../utils/logger.js';
 import type { LinkMediaResult } from '../../services/linkMedia.js';
 import { extractUrls } from '../../providers/media/linkMedia/url.js';
+import { extractJokePremises } from '../../brain/repetitionGuard.js';
+import { currentLlmUsage } from '../../providers/llm/requestContext.js';
 
 const log = childLogger('message');
 
 // Rate-limit the "request approval" DM notice so a non-approved user cannot spam it out of the bot.
 const dmInfoCooldown = new Cooldown(30 * 60 * 1000);
+
+/** Preserve complete agent answers while staying below Telegram's 4096-character text limit. */
+export function splitTelegramText(text: string, maxChars = 3_900): string[] {
+  const remaining = text.trim();
+  if (!remaining) return [];
+  const chunks: string[] = [];
+  let rest = remaining;
+  while (rest.length > maxChars) {
+    const window = rest.slice(0, maxChars + 1);
+    const candidates = [
+      window.lastIndexOf('\n\n'),
+      window.lastIndexOf('\n'),
+      window.lastIndexOf('. '),
+      window.lastIndexOf(' '),
+    ];
+    const splitAt = candidates.find((index) => index >= Math.floor(maxChars * 0.55)) ?? maxChars;
+    const includePunctuation = window.slice(splitAt, splitAt + 2) === '. ' ? 1 : 0;
+    const chunk = rest.slice(0, splitAt + includePunctuation).trim();
+    chunks.push(chunk || rest.slice(0, maxChars));
+    rest = rest.slice(splitAt + includePunctuation).trimStart();
+  }
+  if (rest.trim()) chunks.push(rest.trim());
+  return chunks;
+}
 
 export interface MessageDeps {
   services: Services;
@@ -123,11 +149,24 @@ export async function handleMessage(
     return;
   }
 
-  const [history, mode, recentReplies] = await Promise.all([
+  const [history, mode, recentGlobalReplies, recentPersonalReplies] = await Promise.all([
     services.conversation.getRecent(context.chatId),
     services.modes.getActive(context.chatId),
-    services.storage.botReplies.getRecent(context.chatId, 8),
+    services.storage.botReplies.getRecent(context.chatId, 10),
+    services.storage.botReplies.getRecentFor(context.chatId, person.userHandle, 8),
   ]);
+  const recentReplies = [...recentPersonalReplies, ...recentGlobalReplies]
+    .filter(
+      (reply, index, all) =>
+        all.findIndex(
+          (candidate) =>
+            (reply._id && candidate._id === reply._id) ||
+            (candidate.messageId === reply.messageId &&
+              candidate.createdAt.getTime() === reply.createdAt.getTime()),
+        ) === index,
+    )
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .slice(0, 14);
   const modeName = mode?.name ?? 'Default';
   const modeDescription = mode?.description ?? 'Natural group participant.';
   const recentNegativeFeedback = recentReplies.some((r) => (r.feedbackScore ?? 0) < 0);
@@ -336,7 +375,16 @@ export async function handleMessage(
       nsfwModel: freePlan ? undefined : services.modelRouter.nsfwModel,
       recentBotReplies: recentReplies,
       quotaBypass: bypassGroupPlan,
+      allowCapabilityInstall: services.permissions.isBotAdmin(person.userHandle),
     });
+    const meteredUsage = currentLlmUsage();
+    if (meteredUsage?.calls) {
+      outcome.usage = {
+        inputTokens: meteredUsage.inputTokens,
+        outputTokens: meteredUsage.outputTokens,
+        estimated: meteredUsage.estimated,
+      };
+    }
 
     if (outcome.suppressed) {
       await services.conversation.addUserMessage(
@@ -387,6 +435,11 @@ export async function handleMessage(
     const replyTo = ctx.message?.message_id;
     const replyOpts = replyTo ? { reply_parameters: { message_id: replyTo } } : {};
     let botMessageId: number | undefined;
+    const botMessageIds: number[] = [];
+    const rememberBotMessage = (messageId: number): void => {
+      if (!botMessageIds.includes(messageId)) botMessageIds.push(messageId);
+      botMessageId ??= messageId;
+    };
     if (finalText.trim().length > 0) {
       log.info(
         {
@@ -405,6 +458,48 @@ export async function handleMessage(
         'sending final text reply',
       );
     }
+    const hasExplicitArtifact = Boolean(
+      outcome.music ||
+      outcome.linkMediaUrl ||
+      outcome.audioBuffer ||
+      outcome.imageBuffer ||
+      outcome.imageUrl ||
+      outcome.videoBuffer,
+    );
+    if (finalText.trim().length > 0) {
+      const ttsCfg = services.config.voice.tts;
+      const wantVoiceReply =
+        !hasExplicitArtifact &&
+        services.tts.enabled &&
+        finalText.length <= ttsCfg.maxChars &&
+        ((wasVoice && ttsCfg.replyToVoice) || Math.random() < ttsCfg.autoVoiceProbability);
+      let voiceSent = false;
+      if (wantVoiceReply) {
+        const ogg = await services.tts.synth(finalText, language);
+        if (ogg) {
+          const sent = await ctx.replyWithVoice(new InputFile(ogg), replyOpts);
+          rememberBotMessage(sent.message_id);
+          voiceSent = true;
+        }
+      }
+      if (!voiceSent) {
+        const chunks = splitTelegramText(finalText);
+        for (const [index, chunk] of chunks.entries()) {
+          const sent = await ctx.reply(chunk, index === 0 ? replyOpts : {});
+          rememberBotMessage(sent.message_id);
+        }
+        log.info(
+          {
+            chatId: context.chatId,
+            inputMessageId: context.messageId,
+            botMessageId,
+            chars: finalText.length,
+            chunks: chunks.length,
+          },
+          'text reply sent',
+        );
+      }
+    }
     if (outcome.music) {
       const replyToMusic = ctx.message?.message_id;
       const musicReplyOpts = replyToMusic ? { reply_parameters: { message_id: replyToMusic } } : {};
@@ -414,64 +509,78 @@ export async function handleMessage(
       const captionTail = outcome.music.truncated
         ? `\n(taglio ai primi ${Math.round(services.config.music.maxDurationSeconds / 60)} min)`
         : '';
-      const sent = await ctx.replyWithVoice(new InputFile(outcome.music.ogg), {
-        ...musicReplyOpts,
-        caption: captionHead + captionTail,
-        parse_mode: 'HTML',
-      });
-      botMessageId = sent.message_id;
-    } else if (outcome.linkMediaUrl) {
+      const sent = await ctx
+        .replyWithVoice(new InputFile(outcome.music.ogg), {
+          ...musicReplyOpts,
+          caption: captionHead + captionTail,
+          parse_mode: 'HTML',
+        })
+        .catch((err) => {
+          log.warn({ err }, 'music voice send failed');
+          return null;
+        });
+      if (sent) rememberBotMessage(sent.message_id);
+    }
+    if (outcome.linkMediaUrl) {
       const sent = await services.linkMedia.rehostUrl({
         ctx,
         context,
         url: outcome.linkMediaUrl,
         addressed: true,
       });
+      for (const messageId of sent.messageIds ?? []) rememberBotMessage(messageId);
       if (!sent.handled) {
         const fallback = await ctx.reply(
           services.localizer.t('media_rehost_failed', { url: outcome.linkMediaUrl }, language) ??
             outcome.linkMediaUrl,
           replyOpts,
         );
-        botMessageId = fallback.message_id;
+        rememberBotMessage(fallback.message_id);
       }
-    } else if (outcome.audioBuffer) {
-      const sent = await ctx.replyWithVoice(new InputFile(outcome.audioBuffer), replyOpts);
-      botMessageId = sent.message_id;
-    } else if (finalText.trim().length > 0) {
-      const ttsCfg = services.config.voice.tts;
-      const wantVoiceReply =
-        services.tts.enabled &&
-        finalText.length <= ttsCfg.maxChars &&
-        ((wasVoice && ttsCfg.replyToVoice) || Math.random() < ttsCfg.autoVoiceProbability);
-      let voiceSent = false;
-      if (wantVoiceReply) {
-        const ogg = await services.tts.synth(finalText, language);
-        if (ogg) {
-          const sent = await ctx.replyWithVoice(new InputFile(ogg), replyOpts);
-          botMessageId = sent.message_id;
-          voiceSent = true;
-        }
-      }
-      if (!voiceSent) {
-        const sent = await ctx.reply(finalText, replyOpts);
-        botMessageId = sent.message_id;
-        log.info(
-          { chatId: context.chatId, inputMessageId: context.messageId, botMessageId, chars: finalText.length },
-          'text reply sent',
-        );
-      }
+    }
+    if (outcome.audioBuffer) {
+      const sent = await ctx
+        .replyWithVoice(new InputFile(outcome.audioBuffer), replyOpts)
+        .catch((err) => {
+          log.warn({ err }, 'generated voice send failed');
+          return null;
+        });
+      if (sent) rememberBotMessage(sent.message_id);
     }
     if (outcome.imageBuffer || outcome.imageUrl) {
       const photo = outcome.imageBuffer ? new InputFile(outcome.imageBuffer) : outcome.imageUrl!;
       const imageOptions = outcome.imageSpoiler ? { has_spoiler: true } : {};
-      await ctx
-        .replyWithPhoto(photo, imageOptions)
-        .catch((err) => log.warn({ err }, 'image send failed'));
+      const sent = await ctx.replyWithPhoto(photo, imageOptions).catch((err) => {
+        log.warn({ err }, 'image send failed');
+        return null;
+      });
+      if (sent) rememberBotMessage(sent.message_id);
     }
-    await services.threadTracker
-      .attachMessage(context.chatId, outcome.threadState?.currentThread?.threadId, botMessageId)
-      .catch((err) => log.debug({ err }, 'thread bot-message attach failed'));
+    if (outcome.videoBuffer) {
+      // supports_streaming + poster => inline autoplaying clip instead of a downloadable file
+      const meta = outcome.videoMeta ?? {};
+      const sent = await ctx
+        .replyWithVideo(new InputFile(outcome.videoBuffer), {
+          supports_streaming: true,
+          ...(outcome.videoSpoiler ? { has_spoiler: true } : {}),
+          ...(typeof meta.width === 'number' ? { width: meta.width } : {}),
+          ...(typeof meta.height === 'number' ? { height: meta.height } : {}),
+          ...(typeof meta.duration === 'number' ? { duration: meta.duration } : {}),
+          ...(meta.thumbnail ? { thumbnail: new InputFile(meta.thumbnail) } : {}),
+        })
+        .catch((err) => {
+          log.warn({ err }, 'generated video send failed');
+          return null;
+        });
+      if (sent) rememberBotMessage(sent.message_id);
+    }
+    await Promise.all(
+      botMessageIds.map((messageId) =>
+        services.threadTracker
+          .attachMessage(context.chatId, outcome.threadState?.currentThread?.threadId, messageId)
+          .catch((err) => log.debug({ err }, 'thread bot-message attach failed')),
+      ),
+    );
 
     // persist user + bot messages (with ids for windows + mining)
     await services.conversation.addUserMessage(
@@ -527,15 +636,22 @@ export async function handleMessage(
     // record bot reply (repetition guard + feedback) + brain debug + memory usage
     const reply: import('../../brain/types.js').BotReplyRecord = {
       chatId: context.chatId,
+      recipientHandle: person.userHandle,
       text: finalText,
       normalizedText: finalText.toLowerCase().replace(/\s+/g, ' ').trim(),
       fingerprint: fingerprint(finalText),
       createdAt: new Date(),
       styleVariant: outcome.styleVariant,
+      ...(outcome.plan.comedyStrategy ? { comedyStrategy: outcome.plan.comedyStrategy } : {}),
+      jokePremises: extractJokePremises(finalText),
+      ...(outcome.plan.socialSignal?.situation
+        ? { socialSituation: outcome.plan.socialSignal.situation }
+        : {}),
       usedMemoryIds: outcome.usedMemoryIds,
       model: outcome.model,
     };
     if (botMessageId !== undefined) reply.messageId = botMessageId;
+    if (botMessageIds.length > 0) reply.messageIds = botMessageIds;
     await services.storage.botReplies.record(reply);
 
     if (env.BRAIN_DEBUG_ENABLED) {

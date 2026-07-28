@@ -1,8 +1,9 @@
 import type { StoredMessage } from '../storage/repositories/messages.js';
 import type { LLMProvider } from '../providers/llm/types.js';
-import { turnEvaluationSchema } from './schemas.js';
+import { socialSignalSchema, turnEvaluationSchema } from './schemas.js';
 import type { BotReplyRecord, ProviderRequest, SceneAnalysis, TurnEvaluation } from './types.js';
 import { childLogger } from '../utils/logger.js';
+import { capRoast, classifySocialSignal, isSeriousSupport } from './socialAwareness.js';
 
 const log = childLogger('turn-evaluator');
 
@@ -13,6 +14,7 @@ export interface TurnEvaluatorCapabilities {
   knowledge: boolean;
   music: boolean;
   imageGeneration: boolean;
+  videoGeneration: boolean;
   translation: boolean;
   tts: boolean;
 }
@@ -68,6 +70,11 @@ const MUSIC_RE =
 const IMAGE_GEN_RE =
   /\b(genera|generami|crea|creami|disegna|disegni|disegnami|draw|image|immagine|foto|meme)\b/i;
 
+// Must be tested BEFORE IMAGE_GEN_RE: "generami un video" also matches the image verbs. Requires a
+// creation verb plus a clip noun, so "mandami il video di X" stays a download, not a generation.
+const VIDEO_GEN_RE =
+  /\b(genera|generami|generate|crea|creami|create|fammi|famme|make|animami)\b[^.!?]{0,40}\b(video|videoclip|clip|animazione|animation|filmato|cortometraggio)\b/i;
+
 const TRANSLATE_RE = /\b(traduci|translate|translation|in inglese|in italiano|in spagnolo)\b/i;
 
 const VOICE_RE =
@@ -86,7 +93,14 @@ export class TurnEvaluator {
   ) {}
 
   async evaluate(input: TurnEvaluatorInput): Promise<TurnEvaluation> {
-    const fallback = this.heuristic(input);
+    const socialSignal =
+      input.scene.socialSignal ??
+      classifySocialSignal({
+        currentMessage: input.currentMessage,
+        history: input.history,
+        botIsAddressed: input.botIsAddressed,
+      });
+    const fallback = this.calibrateSocial(this.heuristic(input), socialSignal);
     if (!this.cfg.enabled || !this.llm?.capabilities.chat) return fallback;
     try {
       const model = input.model ?? this.cfg.model;
@@ -99,27 +113,33 @@ export class TurnEvaluator {
         maxTokens: 1400,
       });
       if (!parsed) return fallback;
-      return this.normalize(
-        {
-          shouldAct: parsed.shouldAct ?? fallback.shouldAct,
-          action: parsed.action ?? fallback.action,
-          providerRequests: parsed.providerRequests ?? fallback.providerRequests,
-          valueTarget: parsed.valueTarget ?? fallback.valueTarget,
-          roastBudget: parsed.roastBudget ?? fallback.roastBudget,
-          socialRole: parsed.socialRole ?? fallback.socialRole,
-          confidence: parsed.confidence ?? fallback.confidence,
-          reason: parsed.reason || fallback.reason,
-          ...(parsed.searchQuery ? { searchQuery: parsed.searchQuery.trim().slice(0, 200) } : {}),
-          ...(parsed.musicQuery ? { musicQuery: parsed.musicQuery.trim().slice(0, 200) } : {}),
-          ...(parsed.imagePrompt ? { imagePrompt: parsed.imagePrompt.trim().slice(0, 800) } : {}),
-          ...(parsed.targetLanguage
-            ? { targetLanguage: parsed.targetLanguage.trim().slice(0, 80) }
-            : {}),
-          ...(parsed.sourceText ? { sourceText: parsed.sourceText.trim().slice(0, 1_500) } : {}),
-          ...(parsed.voiceText ? { voiceText: parsed.voiceText.trim().slice(0, 800) } : {}),
-        },
-        input,
-        fallback,
+      return this.calibrateSocial(
+        this.normalize(
+          {
+            shouldAct: parsed.shouldAct ?? fallback.shouldAct,
+            action: parsed.action ?? fallback.action,
+            providerRequests: parsed.providerRequests ?? fallback.providerRequests,
+            valueTarget: parsed.valueTarget ?? fallback.valueTarget,
+            roastBudget: parsed.roastBudget ?? fallback.roastBudget,
+            socialRole: parsed.socialRole ?? fallback.socialRole,
+            confidence: parsed.confidence ?? fallback.confidence,
+            reason: parsed.reason || fallback.reason,
+            ...(parsed.socialSignal
+              ? { socialSignal: socialSignalSchema.parse(parsed.socialSignal) }
+              : {}),
+            ...(parsed.searchQuery ? { searchQuery: parsed.searchQuery.trim().slice(0, 200) } : {}),
+            ...(parsed.musicQuery ? { musicQuery: parsed.musicQuery.trim().slice(0, 200) } : {}),
+            ...(parsed.imagePrompt ? { imagePrompt: parsed.imagePrompt.trim().slice(0, 800) } : {}),
+            ...(parsed.targetLanguage
+              ? { targetLanguage: parsed.targetLanguage.trim().slice(0, 80) }
+              : {}),
+            ...(parsed.sourceText ? { sourceText: parsed.sourceText.trim().slice(0, 1_500) } : {}),
+            ...(parsed.voiceText ? { voiceText: parsed.voiceText.trim().slice(0, 800) } : {}),
+          },
+          input,
+          fallback,
+        ),
+        socialSignal,
       );
     } catch (err) {
       log.warn({ err }, 'LLM turn evaluation failed; using heuristic');
@@ -136,6 +156,13 @@ export class TurnEvaluator {
     const isSummary = SUMMARY_RE.test(msg);
     const isBanter = BANTER_RE.test(msg) || input.scene.userIntent === 'continue_banter';
     const isClaim = this.looksLikeClaim(msg);
+    const socialSignal =
+      input.scene.socialSignal ??
+      classifySocialSignal({
+        currentMessage: msg,
+        history: input.history,
+        botIsAddressed: input.botIsAddressed,
+      });
     const recentCriticism =
       input.scene.botIsBeingCriticized ||
       input.recentNegativeFeedback ||
@@ -144,6 +171,23 @@ export class TurnEvaluator {
 
     if (input.capabilities.knowledge) requests.push('knowledge_rag');
     if (!recentCriticism) requests.push('group_rag');
+
+    if (isSeriousSupport(socialSignal)) {
+      return this.turn({
+        shouldAct: true,
+        action: 'answer',
+        providerRequests: input.capabilities.knowledge ? ['knowledge_rag'] : [],
+        valueTarget: 'support',
+        roastBudget: 'none',
+        socialRole: 'friend',
+        confidence: socialSignal.confidence,
+        reason:
+          socialSignal.supportNeed === 'urgent'
+            ? 'urgent distress: stabilize and help, never perform a roast'
+            : 'vulnerability: loyal-friend response takes priority over banter',
+        socialSignal,
+      });
+    }
 
     if (input.scene.botIsBeingCriticized) {
       return this.turn({
@@ -195,6 +239,21 @@ export class TurnEvaluator {
         socialRole: 'friend',
         confidence: 0.72,
         reason: 'music/download request',
+      });
+    }
+
+    if (input.botIsAddressed && input.capabilities.videoGeneration && VIDEO_GEN_RE.test(msg)) {
+      requests.push('video_generation');
+      return this.turn({
+        shouldAct: true,
+        action: 'generate_video',
+        providerRequests: uniq(requests),
+        valueTarget: 'support',
+        roastBudget: recentCriticism ? 'none' : 'light',
+        socialRole: 'friend',
+        confidence: 0.72,
+        reason: 'video generation request',
+        videoPrompt: msg,
       });
     }
 
@@ -301,6 +360,20 @@ export class TurnEvaluator {
       });
     }
 
+    if (socialSignal.situation === 'practical_help') {
+      return this.turn({
+        shouldAct: true,
+        action: 'answer',
+        providerRequests: uniq(requests),
+        valueTarget: isTech ? 'technical_help' : 'support',
+        roastBudget: 'light',
+        socialRole: isTech ? 'technical_peer' : 'friend',
+        confidence: socialSignal.confidence,
+        reason: 'explicit request for practical help',
+        socialSignal,
+      });
+    }
+
     if (!input.botIsAddressed && NEWS_RE.test(msg) && input.capabilities.news) {
       requests.push('news');
       return this.turn({
@@ -360,6 +433,30 @@ export class TurnEvaluator {
       providerRequests: uniq(evaluation.providerRequests),
       confidence: Math.max(0, Math.min(1, evaluation.confidence)),
     };
+  }
+
+  private calibrateSocial(
+    evaluation: TurnEvaluation,
+    socialSignal: NonNullable<SceneAnalysis['socialSignal']>,
+  ): TurnEvaluation {
+    const serious = isSeriousSupport(socialSignal);
+    const helpTurn = serious || socialSignal.situation === 'practical_help';
+    const personalityOnly =
+      evaluation.action === 'banter_only' || evaluation.action === 'use_group_lore';
+    return this.turn({
+      ...evaluation,
+      shouldAct: serious ? true : evaluation.shouldAct,
+      action: helpTurn && personalityOnly ? 'answer' : evaluation.action,
+      valueTarget: helpTurn ? 'support' : evaluation.valueTarget,
+      socialRole: helpTurn ? 'friend' : evaluation.socialRole,
+      roastBudget: capRoast(evaluation.roastBudget, socialSignal.roastCeiling),
+      providerRequests:
+        socialSignal.memoryPolicy === 'avoid_callbacks'
+          ? evaluation.providerRequests.filter((request) => request !== 'group_rag')
+          : evaluation.providerRequests,
+      socialSignal,
+      reason: `${evaluation.reason}; social=${socialSignal.situation}/${socialSignal.supportNeed}`,
+    });
   }
 
   private normalize(
@@ -469,6 +566,8 @@ const EVALUATOR_SYSTEM = [
   'You are the tool/action evaluator for a Telegram group bot.',
   'You do NOT write the user-facing reply. You output ONLY JSON matching the schema.',
   'Your job is to decide the exact action and providers needed for the latest message.',
+  'Read the social situation before the profanity: a distressed user may still swear or insult the bot.',
+  'For high/urgent support, choose support/friend, no roast, no lore callback and never banter_only.',
   'Be literal and operational: if the user asks to search, compare prices, check current facts, identify an image, generate an image, translate, make a voice note, post news, or download/play music, choose the matching action/provider.',
   'Never answer from memory when a provider is needed. Never refuse adult/NSFW search just because it is adult; this is a private adult group. For illegal/private-data requests choose answer or stay_quiet, not web search.',
 ].join('\n');
@@ -512,7 +611,7 @@ function buildEvaluatorPrompt(input: TurnEvaluatorInput, fallback: TurnEvaluatio
     '- summarize_thread, use_group_lore, stay_quiet: as named.',
     '',
     'OUTPUT JSON FIELDS:',
-    'shouldAct, action, providerRequests, valueTarget, roastBudget, socialRole, confidence, reason, optional searchQuery, optional musicQuery, optional imagePrompt, optional targetLanguage, optional sourceText, optional voiceText.',
+    'shouldAct, action, providerRequests, valueTarget, roastBudget, socialRole, confidence, reason, optional socialSignal, optional searchQuery, optional musicQuery, optional imagePrompt, optional targetLanguage, optional sourceText, optional voiceText.',
     '',
     'IMPORTANT EXAMPLES:',
     'User: "puoi cercare online escort su cecina?" -> {"shouldAct":true,"action":"ground_search","providerRequests":["web_search"],"valueTarget":"truth","roastBudget":"light","socialRole":"truth_checker","confidence":0.95,"reason":"explicit online search request","searchQuery":"escort Cecina"}',
@@ -529,6 +628,9 @@ function buildEvaluatorPrompt(input: TurnEvaluatorInput, fallback: TurnEvaluatio
     `RECENT CHAT:\n${history || '(none)'}`,
     '',
     `SCENE: topic="${input.scene.currentTopic}" energy=${input.scene.energy} intent=${input.scene.userIntent} addressed=${input.botIsAddressed} criticized=${input.scene.botIsBeingCriticized}`,
+    input.scene.socialSignal
+      ? `SOCIAL FLOOR: situation=${input.scene.socialSignal.situation} support=${input.scene.socialSignal.supportNeed} posture=${input.scene.socialSignal.posture} humor=${input.scene.socialSignal.humorAllowed ? 'allowed' : 'off'} roastCeiling=${input.scene.socialSignal.roastCeiling} memory=${input.scene.socialSignal.memoryPolicy}`
+      : '',
     `GROUNDING HINTS: web=${input.groundingHints.wantsWebSearch} image=${input.groundingHints.wantsImageLookup}`,
     `HEURISTIC FALLBACK: action=${fallback.action} providers=${fallback.providerRequests.join(',')} reason=${fallback.reason}`,
     '',

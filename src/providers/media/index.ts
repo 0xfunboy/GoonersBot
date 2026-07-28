@@ -7,6 +7,8 @@ import type { ImageResult, LLMProvider } from '../llm/types.js';
 import type { ImageGenerationOptions, ImageGenerator } from '../image/stableDiffusion.js';
 import type { SttProvider } from '../voice/stt.js';
 import { extractVideoFrame } from '../voice/ffmpeg.js';
+import { assertMediaGenerationSafe } from '../../safety/mediaSafety.js';
+import { throwIfAborted } from '../../utils/abort.js';
 
 const log = childLogger('media');
 
@@ -73,7 +75,7 @@ export class MediaProcessor {
   }
 
   /** Describe an image; returns null when vision is unavailable. Retries once if the model is flaky. */
-  async describeImage(buffer: Buffer, mime: string): Promise<string | null> {
+  async describeImage(buffer: Buffer, mime: string, signal?: AbortSignal): Promise<string | null> {
     if (!this.canDescribeImage || !this.llm.visionCompletion) {
       log.info('vision capability unavailable - skipping image description');
       return null;
@@ -88,6 +90,7 @@ export class MediaProcessor {
           imageBase64,
           imageMime: mime,
           maxTokens: 220,
+          signal,
         });
         const desc = result.text.trim();
         if (desc) return desc;
@@ -104,7 +107,7 @@ export class MediaProcessor {
    * person/character/product/brand if recognizable, plus a few search keywords. Returns a short
    * line suitable as a web-search query, or null when vision is unavailable/fails.
    */
-  async identifyImage(buffer: Buffer, mime: string): Promise<string | null> {
+  async identifyImage(buffer: Buffer, mime: string, signal?: AbortSignal): Promise<string | null> {
     if (!this.canDescribeImage || !this.llm.visionCompletion) return null;
     try {
       const result = await this.llm.visionCompletion({
@@ -115,6 +118,7 @@ export class MediaProcessor {
         imageBase64: buffer.toString('base64'),
         imageMime: mime,
         maxTokens: 60,
+        signal,
       });
       const line = result.text.replace(/\s+/g, ' ').trim();
       return line.length > 1 ? line.slice(0, 120) : null;
@@ -154,6 +158,8 @@ export class MediaProcessor {
     prompt: string,
     options: ImageGenerationOptions = {},
   ): Promise<ImageResult | null> {
+    assertMediaGenerationSafe(prompt);
+    throwIfAborted(options.signal);
     if (!this.canGenerateImage) {
       log.info('image generation capability unavailable - skipping');
       return null;
@@ -163,22 +169,33 @@ export class MediaProcessor {
         if (this.imageGenerator?.enabled)
           return await this.imageGenerator.generate(prompt, options);
         if (!this.llm.generateImage) return null;
-        return await this.llm.generateImage({ prompt });
+        return await this.llm.generateImage({ prompt, signal: options.signal });
       } catch (err) {
         log.warn({ err }, 'image generation failed');
         return null;
       }
-    });
+    }, options.signal);
   }
 
   /** Stable Diffusion is intentionally shared and strictly serial across every group. */
-  private async runImageExclusive<T>(task: () => Promise<T>): Promise<T> {
+  private async runImageExclusive<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     const previous = this.imageTail;
     let release: (() => void) | undefined;
     this.imageTail = new Promise<void>((resolve) => {
       release = resolve;
     });
-    await previous.catch(() => undefined);
+    await Promise.race([
+      previous.catch(() => undefined),
+      new Promise<never>((_resolve, reject) => {
+        const onAbort = (): void => {
+          signal?.removeEventListener('abort', onAbort);
+          reject(signal?.reason instanceof Error ? signal.reason : new Error('image job aborted'));
+        };
+        if (signal?.aborted) onAbort();
+        else signal?.addEventListener('abort', onAbort, { once: true });
+      }),
+    ]);
+    throwIfAborted(signal);
     try {
       return await task();
     } finally {

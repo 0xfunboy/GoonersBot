@@ -52,10 +52,16 @@ export function containsSensitive(text: string): boolean {
 // Replacement rules for redaction (mask, not detect). Order matters (connection strings first).
 const REDACTIONS: Array<[RegExp, string]> = [
   [/Cookie:\s*\S+/gi, 'Cookie:[redacted]'],
-  [/(-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----)[\s\S]*?(-----END [A-Z0-9 ]*PRIVATE KEY-----)/g, '[redacted-private-key]'],
+  [
+    /(-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----)[\s\S]*?(-----END [A-Z0-9 ]*PRIVATE KEY-----)/g,
+    '[redacted-private-key]',
+  ],
   [/\b([a-z][a-z0-9+.-]*:\/\/[^\s:@/]+):[^\s:@/]+@/gi, '$1:[redacted]@'],
   [/\b(authorization|bearer)(\s*[:=]?\s*)[A-Za-z0-9._-]{16,}/gi, '$1$2[redacted]'],
-  [/\b([A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASS(?:WORD)?|PWD|CREDENTIAL|PRIVATE)[A-Z0-9_]*)(\s*[:=]\s*)\S{6,}/gi, '$1$2[redacted]'],
+  [
+    /\b([A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASS(?:WORD)?|PWD|CREDENTIAL|PRIVATE)[A-Z0-9_]*)(\s*[:=]\s*)\S{6,}/gi,
+    '$1$2[redacted]',
+  ],
   [/\bsk-[A-Za-z0-9]{20,}\b/g, '[redacted]'],
   [/\bAKIA[0-9A-Z]{16}\b/g, '[redacted]'],
   [/\bAIza[0-9A-Za-z_-]{30,}\b/g, '[redacted]'],

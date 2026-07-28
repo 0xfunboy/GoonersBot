@@ -8,10 +8,12 @@ function resolveTarget(
   args: string[],
   context: HandlerInput['context'],
 ): { kind: 'chat' | 'user'; id: number } | null {
+  if (args.length > 1) return null;
   const raw = args[0];
   if (raw) {
-    const id = Number.parseInt(raw, 10);
-    if (!Number.isFinite(id)) return null;
+    if (!/^-?[1-9]\d*$/.test(raw)) return null;
+    const id = Number(raw);
+    if (!Number.isSafeInteger(id)) return null;
     return id < 0 ? { kind: 'chat', id } : { kind: 'user', id };
   }
   if (context.isGroup) return { kind: 'chat', id: context.chatId };
