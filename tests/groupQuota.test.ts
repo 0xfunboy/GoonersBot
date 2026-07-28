@@ -60,6 +60,7 @@ describe('GroupQuotaService', () => {
     const { service } = quotaService();
     const report = await service.setPlan(-100, 'pro');
     expect(report.plan.conversationHourly).toBe(18);
+    expect(report.plan.llmTokensDaily).toBe(1_000_000);
     expect(report.plan.webSearchDaily).toBe(75);
     expect(report.plan.imagesDaily).toBe(48);
   });

@@ -324,7 +324,7 @@ shows current counters and limits. Limits reset on calendar boundaries in the `E
 | Resource                |           Free |           Plus |             Pro |
 | ----------------------- | -------------: | -------------: | --------------: |
 | Conversational requests | 12/day, 3/hour | 32/day, 9/hour | 72/day, 18/hour |
-| LLM tokens              |        30k/day |       150k/day |        250k/day |
+| LLM tokens              |        30k/day |       150k/day |          1M/day |
 | Web searches            |          8/day |         33/day |          75/day |
 | Opened/scanned pages    |         15/day |         75/day |         200/day |
 | News retrievals         |          2/day |          9/day |          24/day |
