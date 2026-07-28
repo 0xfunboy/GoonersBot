@@ -19,12 +19,16 @@ export class ConversationEntitiesRepo {
 
   async listForThreads(chatId: number, threadIds: string[]): Promise<ConversationEntityDoc[]> {
     if (threadIds.length === 0) return [];
-    return this.col.find({ chatId, threadIds: { $in: threadIds }, expiresAt: { $gt: new Date() } }).toArray();
+    return this.col
+      .find({ chatId, threadIds: { $in: threadIds }, expiresAt: { $gt: new Date() } })
+      .toArray();
   }
 
   async findByAlias(chatId: number, aliases: string[]): Promise<ConversationEntityDoc[]> {
     if (aliases.length === 0) return [];
-    return this.col.find({ chatId, aliases: { $in: aliases }, expiresAt: { $gt: new Date() } }).toArray();
+    return this.col
+      .find({ chatId, aliases: { $in: aliases }, expiresAt: { $gt: new Date() } })
+      .toArray();
   }
 
   async upsert(doc: ConversationEntityDoc): Promise<void> {

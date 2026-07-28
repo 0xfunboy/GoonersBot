@@ -9,7 +9,7 @@ import { normalizeHandle } from '../../../utils/handles.js';
  */
 export const banCommand: CommandSpec = {
   command: 'ban',
-  permissions: ['bot_admin', 'allowed_user'],
+  permissions: ['bot_admin', 'allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.ADMIN,
   adminOnly: true,
@@ -18,11 +18,19 @@ export const banCommand: CommandSpec = {
     let seconds: number | undefined;
 
     if (context.repliedToUserHandle) {
+      if (args.length > 1) return { text: 'invalid_ban_args' };
       targetHandle = context.repliedToUserHandle;
-      if (args[0] !== undefined) seconds = parseSeconds(args[0]);
+      if (args[0] !== undefined) {
+        seconds = parseSeconds(args[0]);
+        if (seconds === undefined) return { text: 'invalid_ban_args' };
+      }
     } else if (args[0]) {
-      targetHandle = normalizeHandle(args[0]);
-      if (args[1] !== undefined) seconds = parseSeconds(args[1]);
+      if (args.length > 2) return { text: 'invalid_ban_args' };
+      targetHandle = validHandle(args[0]);
+      if (args[1] !== undefined) {
+        seconds = parseSeconds(args[1]);
+        if (seconds === undefined) return { text: 'invalid_ban_args' };
+      }
     }
 
     if (!targetHandle) return { text: 'invalid_ban_args' };
@@ -36,12 +44,18 @@ export const banCommand: CommandSpec = {
 /** /unban @handle - lift a ban. */
 export const unbanCommand: CommandSpec = {
   command: 'unban',
-  permissions: ['bot_admin', 'allowed_user'],
+  permissions: ['bot_admin', 'allowed_user', 'not_banned'],
   needsTermsAccepted: false,
   priority: Priority.ADMIN,
   adminOnly: true,
   async handle({ services, context, args }) {
-    const target = context.repliedToUserHandle ?? (args[0] ? normalizeHandle(args[0]) : undefined);
+    if (
+      (context.repliedToUserHandle && args.length > 0) ||
+      (!context.repliedToUserHandle && args.length !== 1)
+    ) {
+      return { text: 'invalid_unban_args' };
+    }
+    const target = context.repliedToUserHandle ?? (args[0] ? validHandle(args[0]) : undefined);
     if (!target) return { text: 'invalid_unban_args' };
     await services.bans.unban(target);
     return { text: 'user_unbanned', vars: { user_handle: target } };
@@ -49,6 +63,12 @@ export const unbanCommand: CommandSpec = {
 };
 
 function parseSeconds(raw: string): number | undefined {
-  const n = Number.parseInt(raw, 10);
-  return Number.isNaN(n) || n < 0 ? undefined : n;
+  if (!/^\d+$/.test(raw)) return undefined;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) ? n : undefined;
+}
+
+function validHandle(raw: string): string | undefined {
+  const handle = normalizeHandle(raw);
+  return /^@[A-Za-z0-9_]{1,32}$/.test(handle) ? handle : undefined;
 }

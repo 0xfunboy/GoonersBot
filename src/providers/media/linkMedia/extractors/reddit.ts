@@ -6,7 +6,9 @@ export const redditExtractor: LinkExtractor = {
   platform: 'reddit',
   match(url) {
     const h = url.hostname.replace(/^www\./, '').toLowerCase();
-    return h === 'reddit.com' || h === 'old.reddit.com' || h === 'redd.it' || h.endsWith('.reddit.com');
+    return (
+      h === 'reddit.com' || h === 'old.reddit.com' || h === 'redd.it' || h.endsWith('.reddit.com')
+    );
   },
   async extract(url, ctx) {
     const jsonUrl = `${url.toString().replace(/\/$/, '')}.json`;
@@ -14,6 +16,7 @@ export const redditExtractor: LinkExtractor = {
       timeoutMs: ctx.timeoutMs,
       maxBytes: 3 * 1024 * 1024,
       userAgent: ctx.userAgent,
+      signal: ctx.signal,
     });
     const data = JSON.parse(raw) as any;
     const post = data?.[0]?.data?.children?.[0]?.data;
@@ -31,7 +34,11 @@ export const redditExtractor: LinkExtractor = {
 
     const dest = post.url_overridden_by_dest;
     if (typeof dest === 'string' && /\.(jpg|jpeg|png|webp|gif|mp4)(\?|$)/i.test(dest)) {
-      const kind: LinkMediaKind = /\.gif/i.test(dest) ? 'gif' : /\.mp4/i.test(dest) ? 'video' : 'image';
+      const kind: LinkMediaKind = /\.gif/i.test(dest)
+        ? 'gif'
+        : /\.mp4/i.test(dest)
+          ? 'video'
+          : 'image';
       items.push({ kind, url: dest });
     }
 

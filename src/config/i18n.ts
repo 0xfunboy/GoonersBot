@@ -59,17 +59,11 @@ export const translations: TranslationMap = {
     russian: 'Расскажи GoonersBot, кто ты',
     spanish: 'Dile a GoonersBot quién eres',
   },
-  fact_description: {
-    italian: 'Estrai lore dalla chat recente (o dal messaggio in reply)',
-    english: 'Mine lore from recent chat (or the replied message)',
-    russian: 'Извлечь лор из недавнего чата (или из сообщения в ответе)',
-    spanish: 'Extrae lore del chat reciente (o del mensaje citado)',
-  },
   facts_description: {
-    italian: 'Mostra i fatti salvati su un Gooner',
-    english: 'Show stored facts about a Gooner',
-    russian: 'Показать сохранённые факты о пользователе',
-    spanish: 'Muestra los datos guardados sobre un Gooner',
+    italian: 'Mostra la tua memoria personale salvata',
+    english: 'Show your stored personal memory',
+    russian: 'Показать сохранённую личную память',
+    spanish: 'Muestra tu memoria personal guardada',
   },
   clearfacts_description: {
     italian: 'Cancella i fatti di un Gooner',
@@ -124,12 +118,6 @@ export const translations: TranslationMap = {
     english: 'Toggle conversation tracking',
     russian: 'Включить/выключить отслеживание разговора',
     spanish: 'Activa/desactiva el seguimiento de la conversación',
-  },
-  autofact_description: {
-    italian: "Attiva/disattiva l'estrazione automatica dei fatti",
-    english: 'Toggle automatic fact extraction',
-    russian: 'Включить/выключить автоизвлечение фактов',
-    spanish: 'Activa/desactiva la extracción automática de datos',
   },
   autoengage_description: {
     italian: 'Stato delle risposte passive',
@@ -226,6 +214,30 @@ export const translations: TranslationMap = {
     english: 'Show what GoonersBot can do',
     russian: 'Показать возможности GoonersBot',
     spanish: 'Muestra lo que GoonersBot puede hacer',
+  },
+  capabilities_description: {
+    italian: 'Elenca le capacità dinamiche installate',
+    english: 'List installed dynamic capabilities',
+    russian: 'Показать установленные динамические возможности',
+    spanish: 'Lista las capacidades dinámicas instaladas',
+  },
+  learn_description: {
+    italian: 'Progetta una nuova capacità permanente (bot admin)',
+    english: 'Design a new persistent capability (bot admin)',
+    russian: 'Создать новую постоянную возможность (админ бота)',
+    spanish: 'Diseña una nueva capacidad permanente (admin del bot)',
+  },
+  community_description: {
+    italian: 'Mostra quanto conosco la community, senza dati privati',
+    english: 'Show community-awareness coverage without private data',
+    russian: 'Показать знание сообщества без приватных данных',
+    spanish: 'Muestra el conocimiento de la comunidad sin datos privados',
+  },
+  socialstatus_description: {
+    italian: 'Diagnostica la memoria sociale del gruppo (admin)',
+    english: 'Inspect group social-memory health (admin)',
+    russian: 'Проверить социальную память группы (админ)',
+    spanish: 'Diagnostica la memoria social del grupo (admin)',
   },
   default_command_description: {
     italian: 'Un comando di GoonersBot',
@@ -493,18 +505,6 @@ export const translations: TranslationMap = {
     russian: 'Не могу сохранить такое представление.',
     spanish: 'No puedo guardar esa presentación.',
   },
-  invalid_fact_args: {
-    italian: 'Uso: /fact @handle <il fatto>',
-    english: 'Usage: /fact @handle <the fact>',
-    russian: 'Использование: /fact @handle <факт>',
-    spanish: 'Uso: /fact @handle <el dato>',
-  },
-  fact_added: {
-    italian: 'Fatto su {user_handle} salvato.',
-    english: 'Fact about {user_handle} saved.',
-    russian: 'Факт о {user_handle} сохранён.',
-    spanish: 'Dato sobre {user_handle} guardado.',
-  },
   inappropriate_fact: {
     italian: 'Questo non lo salvo. Fatti sicuri e non inquietanti.',
     english: 'Not saving that one. Keep facts safe and non-creepy.',
@@ -528,19 +528,6 @@ export const translations: TranslationMap = {
     english: 'Lore about {user_handle} wiped.',
     russian: 'Лор о {user_handle} очищен.',
     spanish: 'Lore sobre {user_handle} borrada.',
-  },
-  fact_mined: {
-    italian:
-      'Salvati {stored} pezzi di lore ({reinforced} rinforzati). Il resto era rumore da cortile.',
-    english: 'Saved {stored} lore bits ({reinforced} reinforced). The rest was background noise.',
-    russian: 'Сохранил {stored} кусков лора ({reinforced} усилено). Остальное - шум.',
-    spanish: 'Guardé {stored} trozos de lore ({reinforced} reforzados). El resto era ruido.',
-  },
-  fact_mined_none: {
-    italian: 'Niente di degno da ricordare qui. Riprova quando dite qualcosa di memorabile.',
-    english: 'Nothing worth remembering here. Try again when you say something memorable.',
-    russian: 'Тут нечего запоминать. Попробуй, когда скажете что-то стоящее.',
-    spanish: 'Nada digno de recordar. Vuelve cuando digáis algo memorable.',
   },
   setfact_added: {
     italian: 'Lore su {user_handle} incisa nella pietra.',
@@ -583,6 +570,18 @@ export const translations: TranslationMap = {
     english: 'Reply to a message with /forget, or (admin) /forget <id>.',
     russian: 'Ответь на сообщение командой /forget, или (админ) /forget <id>.',
     spanish: 'Responde a un mensaje con /forget, o (admin) /forget <id>.',
+  },
+  forget_forbidden: {
+    italian: 'Puoi dimenticare solo i tuoi messaggi; per quelli altrui serve un admin.',
+    english: 'You can only forget your own messages; an admin is required for someone else’s.',
+    russian: 'Можно забыть только свои сообщения; для чужих нужен администратор.',
+    spanish: 'Solo puedes olvidar tus mensajes; para los ajenos hace falta un admin.',
+  },
+  facts_forbidden: {
+    italian: 'La memoria personale altrui la possono consultare solo gli admin.',
+    english: 'Only admins can inspect someone else’s personal memory.',
+    russian: 'Чужую личную память могут просматривать только администраторы.',
+    spanish: 'Solo los admins pueden consultar la memoria personal de otra persona.',
   },
   clearfacts_forbidden: {
     italian: 'Solo gli admin possono cancellare i fatti di altri Gooner.',
@@ -801,18 +800,6 @@ export const translations: TranslationMap = {
       'Пассивные ответы отключены: отвечаю только на команды, прямые упоминания или ответы мне.',
     spanish:
       'Las respuestas pasivas están desactivadas: solo respondo a comandos, menciones directas o respuestas.',
-  },
-  autofact_turned_on: {
-    italian: 'Auto-fatti ATTIVI. Mi ricordo le cose buone.',
-    english: "Auto-facts ON. I'll remember the good stuff.",
-    russian: 'Авто-факты ВКЛ. Запомню важное.',
-    spanish: 'Auto-datos ACTIVADOS. Recordaré lo bueno.',
-  },
-  autofact_turned_off: {
-    italian: 'Auto-fatti OFF. Solo memoria manuale.',
-    english: 'Auto-facts OFF. Manual memory only.',
-    russian: 'Авто-факты ВЫКЛ. Только ручная память.',
-    spanish: 'Auto-datos DESACTIVADOS. Solo memoria manual.',
   },
   nsfw_unavailable: {
     italian: 'Il routing NSFW non è configurato su questo backend (nessun modello NSFW).',
@@ -1045,6 +1032,57 @@ export const translations: TranslationMap = {
     russian: '<strong>Vision:</strong> {description}',
     spanish: '<strong>Vision:</strong> {description}',
   },
+  help_intro_text: {
+    italian:
+      "<strong>GoonersBot 🤖</strong>\nL'amico bastardo del gruppo: capisco testo, voce, immagini, video e documenti; cerco fonti, creo media, ricordo persone e contesto e provo prima a essere utile. Questo elenco è generato dai comandi davvero attivi.",
+    english:
+      '<strong>GoonersBot 🤖</strong>\nYour group’s useful bastard friend: I understand text, voice, images, video and documents; research sources, create media, and remember people and context. This list is generated from the commands that are actually live.',
+    russian:
+      '<strong>GoonersBot 🤖</strong>\nПолезный мерзавец вашей группы: понимаю текст, голос, изображения, видео и документы, ищу источники, создаю медиа и помню людей и контекст. Список собран из реально активных команд.',
+    spanish:
+      '<strong>GoonersBot 🤖</strong>\nEl amigo cabrón pero útil del grupo: entiendo texto, voz, imágenes, vídeo y documentos; busco fuentes, creo medios y recuerdo personas y contexto. La lista sale de los comandos realmente activos.',
+  },
+  capabilities_empty: {
+    italian:
+      'Nessuna capacità dinamica installata. Un bot admin può usare /learn &lt;richiesta&gt;.',
+    english: 'No dynamic capability is installed. A bot admin can use /learn &lt;request&gt;.',
+    russian:
+      'Динамических возможностей пока нет. Админ бота может использовать /learn &lt;запрос&gt;.',
+    spanish:
+      'No hay capacidades dinámicas instaladas. Un admin del bot puede usar /learn &lt;petición&gt;.',
+  },
+  capabilities_list: {
+    italian: '<strong>Capacità dinamiche</strong>\n{capabilities}',
+    english: '<strong>Dynamic capabilities</strong>\n{capabilities}',
+    russian: '<strong>Динамические возможности</strong>\n{capabilities}',
+    spanish: '<strong>Capacidades dinámicas</strong>\n{capabilities}',
+  },
+  learn_usage: {
+    italian: 'Uso: /learn &lt;cosa vuoi che impari a fare&gt;',
+    english: 'Usage: /learn &lt;what you want me to learn&gt;',
+    russian: 'Использование: /learn &lt;чему научиться&gt;',
+    spanish: 'Uso: /learn &lt;qué quieres que aprenda&gt;',
+  },
+  community_summary: {
+    italian:
+      '<strong>Awareness della community</strong>\nMembri conosciuti: {members} · attivi negli ultimi 30 giorni: {active_members}\nInteressi/ruoli/stili vivi: {facets} · running joke attivi: {jokes} · norme di chat: {norms}\nTemi del momento: {themes}\n\nMostro solo copertura aggregata e temi pubblici: rapporti e punteggi personali restano contesto privato.',
+    english:
+      '<strong>Community awareness</strong>\nKnown members: {members} · active in the last 30 days: {active_members}\nLive interests/roles/styles: {facets} · active running jokes: {jokes} · chat norms: {norms}\nCurrent themes: {themes}\n\nOnly aggregate coverage and public themes are shown; personal relationship signals stay private.',
+    russian:
+      '<strong>Знание сообщества</strong>\nИзвестно участников: {members} · активны за 30 дней: {active_members}\nАктуальные интересы/роли/стили: {facets} · шутки: {jokes} · нормы чата: {norms}\nТемы: {themes}',
+    spanish:
+      '<strong>Conocimiento de la comunidad</strong>\nMiembros conocidos: {members} · activos en 30 días: {active_members}\nIntereses/roles/estilos vivos: {facets} · bromas activas: {jokes} · normas: {norms}\nTemas: {themes}',
+  },
+  socialstatus_summary: {
+    italian:
+      '<strong>Stato memoria sociale</strong>\nProfili: {members}\nFacet attive: {active_facets} · revisionate/ritirate/stale: {lifecycle_facets}\nRelazioni direzionali: {relationships} · running joke: {jokes} · norme: {norms}\nVersione stato chat: {version}',
+    english:
+      '<strong>Social-memory health</strong>\nProfiles: {members}\nActive facets: {active_facets} · revised/retracted/stale: {lifecycle_facets}\nDirectional relationships: {relationships} · running jokes: {jokes} · norms: {norms}\nChat-state version: {version}',
+    russian:
+      '<strong>Состояние социальной памяти</strong>\nПрофили: {members}\nАктивные признаки: {active_facets} · изменённые/устаревшие: {lifecycle_facets}\nСвязи: {relationships} · шутки: {jokes} · нормы: {norms}\nВерсия: {version}',
+    spanish:
+      '<strong>Estado de memoria social</strong>\nPerfiles: {members}\nFacetas activas: {active_facets} · revisadas/retiradas: {lifecycle_facets}\nRelaciones: {relationships} · bromas: {jokes} · normas: {norms}\nVersión: {version}',
+  },
   help_text: {
     italian: [
       '<strong>GoonersBot 🤖 - il gremlin del gruppo</strong>',
@@ -1063,7 +1101,6 @@ export const translations: TranslationMap = {
       '• <em>/addmode &lt;descrizione&gt;</em> - aggiungi una modalità custom',
       '• <em>/deletemode</em> - elimina una modalità',
       '• <em>/introduce &lt;testo&gt;</em> - dimmi chi sei',
-      '• <em>/fact</em> - estrai lore dalla chat (o dal messaggio in reply)',
       '• <em>/setfact @handle &lt;testo&gt;</em> (admin) - inserisci lore a mano',
       '• <em>/facts [@handle]</em> - mostra la lore salvata',
       '• <em>/clearfacts [@handle]</em> - cancella la lore',
@@ -1074,7 +1111,6 @@ export const translations: TranslationMap = {
       '• <em>/language</em> - imposta la lingua della chat',
       "• <em>/terms</em> - termini d'uso",
       '• <em>/conversationtracker</em> - ascolto passivo on/off',
-      '• <em>/autofact</em> - estrazione fatti automatica on/off',
       '• <em>/autoengage</em> - stato risposte passive',
       '• <em>/nsfw off|base|smart</em> (admin) - routing modello NSFW',
       '• <em>/genera &lt;prompt&gt;</em> - genera un’immagine originale (alias /image, /img)',
@@ -1104,7 +1140,6 @@ export const translations: TranslationMap = {
       '• <em>/addmode &lt;description&gt;</em> - add a custom mode',
       '• <em>/deletemode</em> - delete a mode',
       '• <em>/introduce &lt;text&gt;</em> - tell me who you are',
-      '• <em>/fact</em> - mine lore from chat (or the replied message)',
       '• <em>/setfact @handle &lt;text&gt;</em> (admin) - insert lore manually',
       '• <em>/facts [@handle]</em> - show stored lore',
       '• <em>/clearfacts [@handle]</em> - clear lore',
@@ -1115,7 +1150,6 @@ export const translations: TranslationMap = {
       '• <em>/language</em> - set chat language',
       '• <em>/terms</em> - terms of use',
       '• <em>/conversationtracker</em> - toggle passive listening',
-      '• <em>/autofact</em> - toggle auto fact extraction',
       '• <em>/autoengage</em> - passive reply status',
       '• <em>/nsfw off|base|smart</em> (admin) - NSFW model routing',
       '• <em>/genera &lt;prompt&gt;</em> - generate an original image (aliases /image, /img)',
@@ -1140,7 +1174,6 @@ export const translations: TranslationMap = {
       '• <em>/addmode &lt;описание&gt;</em> - добавить режим',
       '• <em>/deletemode</em> - удалить режим',
       '• <em>/introduce &lt;текст&gt;</em> - рассказать о себе',
-      '• <em>/fact @handle &lt;факт&gt;</em> - сохранить факт',
       '• <em>/facts [@handle]</em> - показать факты',
       '• <em>/clearfacts [@handle]</em> - очистить факты',
       '• <em>/usage</em> - использование и лимиты',
@@ -1148,7 +1181,6 @@ export const translations: TranslationMap = {
       '• <em>/language</em> - язык чата',
       '• <em>/terms</em> - условия',
       '• <em>/conversationtracker</em> - пассивное слушание',
-      '• <em>/autofact</em> - авто-факты',
       '• <em>/autoengage</em> - статус пассивных ответов',
       '• <em>/genera &lt;запрос&gt;</em> - создать оригинальное изображение (алиасы /image, /img)',
       '• <em>/disegna &lt;запрос&gt;</em> - качественная манга-иллюстрация (алиас /draw)',
@@ -1170,7 +1202,6 @@ export const translations: TranslationMap = {
       '• <em>/addmode &lt;descripción&gt;</em> - agregar modo',
       '• <em>/deletemode</em> - eliminar modo',
       '• <em>/introduce &lt;texto&gt;</em> - preséntate',
-      '• <em>/fact @handle &lt;dato&gt;</em> - guardar dato',
       '• <em>/facts [@handle]</em> - mostrar datos',
       '• <em>/clearfacts [@handle]</em> - borrar datos',
       '• <em>/usage</em> - uso y límites',
@@ -1178,7 +1209,6 @@ export const translations: TranslationMap = {
       '• <em>/language</em> - idioma del chat',
       '• <em>/terms</em> - términos',
       '• <em>/conversationtracker</em> - escucha pasiva',
-      '• <em>/autofact</em> - auto-datos',
       '• <em>/autoengage</em> - estado de respuestas pasivas',
       '• <em>/genera &lt;prompt&gt;</em> - genera una imagen original (alias /image, /img)',
       '• <em>/disegna &lt;prompt&gt;</em> - ilustración manga de alta calidad (alias /draw)',

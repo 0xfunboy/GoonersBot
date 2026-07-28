@@ -24,6 +24,7 @@ export interface CortexCapabilities {
   videoGeneration: boolean;
   translation: boolean;
   tts: boolean;
+  capabilityForge?: boolean;
 }
 
 export interface CortexInput {
@@ -133,6 +134,7 @@ export function availableToolsFor(capabilities: CortexCapabilities): CortexTool[
   if (capabilities.videoGeneration) tools.push('video_gen');
   if (capabilities.translation) tools.push('translate');
   if (capabilities.tts) tools.push('tts');
+  if (capabilities.capabilityForge) tools.push('capability_forge');
   return tools;
 }
 
@@ -175,6 +177,7 @@ function providerFromTool(tool: CortexTool): TurnEvaluation['providerRequests'][
   if (tool === 'image_gen') return 'image_generation';
   if (tool === 'video_gen') return 'video_generation';
   if (tool === 'translate') return 'translation';
+  if (tool === 'capability_forge') return 'capability_forge';
   return tool;
 }
 
@@ -192,6 +195,7 @@ function actionFromDecision(
   if (has('make_image') || tool('image_gen')) return 'generate_image';
   if (has('translate') || tool('translate')) return 'translate_text';
   if (has('voice_note') || tool('tts')) return 'make_voice';
+  if (has('extend_capability') || tool('capability_forge')) return 'acquire_capability';
   if (has('news_context') && tool('news') && !has('answer')) return 'post_news';
   if (has('correct_claim')) return 'challenge_claim';
   if (has('web_lookup') || tool('web_search'))

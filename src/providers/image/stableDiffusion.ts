@@ -1,6 +1,8 @@
 import type { StableDiffusionConfig } from '../../config/index.js';
 import type { ImageResult } from '../llm/types.js';
 import { childLogger } from '../../utils/logger.js';
+import { assertMediaGenerationSafe } from '../../safety/mediaSafety.js';
+import { abortableDelay, createAbortScope, throwIfAborted } from '../../utils/abort.js';
 
 const log = childLogger('stable-diffusion');
 
@@ -13,8 +15,13 @@ export type ImageProfile = 'manga' | 'anime' | 'realistic' | 'nsfw';
 
 export interface ImageGenerationOptions {
   profile?: ImageProfile;
+  /** Per-scene defects supplied by the visual planner, appended to the checkpoint baseline. */
+  negativePrompt?: string;
   /** An in-memory pose reference passed to Forge's OpenPose preprocessor. */
   poseReference?: Buffer;
+  /** Cooperative cancellation from the host action. */
+  signal?: AbortSignal;
+  aspectRatio?: '16:9' | '9:16' | '1:1';
 }
 
 interface SdModel {
@@ -34,8 +41,6 @@ interface SdOptions {
 
 const NSFW_RE =
   /\b(nsfw|nude|nudity|naked|explicit|sex|sexual|porn|pussy|tits|boobs|cum|orgasm|lingerie|sesso|sessuale|porno|pornograf|nudo|nuda|cazzo|pompino|bocchino|figa|fica|vagina|pene|sborra|sperma|orgasmo|masturb|seghe|scopare|scopata|incul|culo|tette|tettona)\b/i;
-const MINOR_RE =
-  /\b(child|children|minor|underage|under-aged|loli|shota|toddler|infant|preteen)\b/i;
 const ANIME_RE = /\b(anime|manga|waifu|otaku|gacha|vtuber|illustration|illustrated|cartoon)\b/i;
 
 /**
@@ -54,7 +59,11 @@ export class StableDiffusionGenerator implements ImageGenerator {
   }
 
   generate(prompt: string, options: ImageGenerationOptions = {}): Promise<ImageResult> {
-    const task = this.queue.then(() => this.generateSerial(prompt, options));
+    assertMediaGenerationSafe(prompt);
+    const task = this.queue.then(() => {
+      throwIfAborted(options.signal);
+      return this.generateSerial(prompt, options);
+    });
     this.queue = task.then(
       () => undefined,
       () => undefined,
@@ -67,16 +76,21 @@ export class StableDiffusionGenerator implements ImageGenerator {
     options: ImageGenerationOptions,
   ): Promise<ImageResult> {
     if (!this.enabled) throw new Error('Stable Diffusion is disabled');
-    if (MINOR_RE.test(userPrompt)) throw new Error('image prompt contains a minor-related term');
+    assertMediaGenerationSafe(userPrompt);
+    throwIfAborted(options.signal);
 
     const profile = options.profile ?? selectImageProfile(userPrompt);
-    const model = await this.resolveModel(profile);
+    const model = await this.resolveModel(profile, options.signal);
     const workflow = workflowFor(profile, this.config, userPrompt);
     const poseImage = options.poseReference?.toString('base64');
     const usesOpenPose = Boolean(poseImage && this.config.controlNet.enabled);
-    const effectiveWorkflow = usesOpenPose ? controlNetWorkflow(userPrompt) : workflow;
-    await this.waitForForgeIdle('before checkpoint selection');
-    await this.applyModel(model);
+    const effectiveWorkflow = applyAspectRatio(
+      usesOpenPose ? controlNetWorkflow(userPrompt) : workflow,
+      options.aspectRatio,
+      usesOpenPose,
+    );
+    await this.waitForForgeIdle('before checkpoint selection', options.signal);
+    await this.applyModel(model, options.signal);
     log.info(
       {
         profile,
@@ -87,48 +101,58 @@ export class StableDiffusionGenerator implements ImageGenerator {
       },
       'generating image with selected checkpoint',
     );
-    const res = await this.post(usesOpenPose ? '/sdapi/v1/img2img' : '/sdapi/v1/txt2img', {
-      prompt: buildPrompt(userPrompt, profile),
-      negative_prompt: negativePrompt(this.config.negativePrompt, profile, userPrompt),
-      sampler_name: effectiveWorkflow.sampler,
-      steps: effectiveWorkflow.steps,
-      width: effectiveWorkflow.width,
-      height: effectiveWorkflow.height,
-      cfg_scale: effectiveWorkflow.cfgScale,
-      override_settings: { CLIP_stop_at_last_layers: 2 },
-      batch_size: 1,
-      n_iter: 1,
-      do_not_save_samples: true,
-      do_not_save_grid: true,
-      // Forge Neo's ControlNet txt2img path currently accesses a missing resize_mode property.
-      // An in-memory blank img2img base initializes that property while denoise=1 keeps this text-to-image.
-      ...(usesOpenPose
-        ? {
-            init_images: [blankCanvasPpm().toString('base64')],
-            denoising_strength: 1,
-            resize_mode: 1,
-            alwayson_scripts: {
-              controlnet: {
-                args: [
-                  {
-                    enabled: true,
-                    input_image: poseImage,
-                    module: 'openpose_full',
-                    model: this.config.controlNet.openPoseModel,
-                    weight: this.config.controlNet.weight,
-                    resize_mode: 'Crop and Resize',
-                    processor_res: this.config.controlNet.processorResolution,
-                    guidance_start: 0,
-                    guidance_end: 1,
-                    pixel_perfect: true,
-                    control_mode: 'Balanced',
-                  },
-                ],
+    const res = await this.post(
+      usesOpenPose ? '/sdapi/v1/img2img' : '/sdapi/v1/txt2img',
+      {
+        prompt: buildPrompt(userPrompt, profile),
+        negative_prompt: [
+          negativePrompt(this.config.negativePrompt, profile, userPrompt),
+          options.negativePrompt,
+        ]
+          .filter(Boolean)
+          .join(', ')
+          .slice(0, 2_000),
+        sampler_name: effectiveWorkflow.sampler,
+        steps: effectiveWorkflow.steps,
+        width: effectiveWorkflow.width,
+        height: effectiveWorkflow.height,
+        cfg_scale: effectiveWorkflow.cfgScale,
+        override_settings: { CLIP_stop_at_last_layers: 2 },
+        batch_size: 1,
+        n_iter: 1,
+        do_not_save_samples: true,
+        do_not_save_grid: true,
+        // Forge Neo's ControlNet txt2img path currently accesses a missing resize_mode property.
+        // An in-memory blank img2img base initializes that property while denoise=1 keeps this text-to-image.
+        ...(usesOpenPose
+          ? {
+              init_images: [blankCanvasPpm().toString('base64')],
+              denoising_strength: 1,
+              resize_mode: 1,
+              alwayson_scripts: {
+                controlnet: {
+                  args: [
+                    {
+                      enabled: true,
+                      input_image: poseImage,
+                      module: 'openpose_full',
+                      model: this.config.controlNet.openPoseModel,
+                      weight: this.config.controlNet.weight,
+                      resize_mode: 'Crop and Resize',
+                      processor_res: this.config.controlNet.processorResolution,
+                      guidance_start: 0,
+                      guidance_end: 1,
+                      pixel_perfect: true,
+                      control_mode: 'Balanced',
+                    },
+                  ],
+                },
               },
-            },
-          }
-        : {}),
-    });
+            }
+          : {}),
+      },
+      options.signal,
+    );
     const json = (await res.json()) as { images?: string[] };
     const base64 = json.images?.[0];
     if (!base64) throw new Error('Stable Diffusion returned no images');
@@ -138,32 +162,32 @@ export class StableDiffusionGenerator implements ImageGenerator {
     };
   }
 
-  private async resolveModel(profile: ImageProfile): Promise<string> {
+  private async resolveModel(profile: ImageProfile, signal?: AbortSignal): Promise<string> {
     const configured =
       profile === 'anime' || profile === 'manga'
         ? this.config.animeModel
         : profile === 'nsfw'
           ? this.config.nsfwModel
           : this.config.realisticModel;
-    const models = await this.listModels();
+    const models = await this.listModels(signal);
     const match = models.find((model) => modelMatches(model, configured));
     if (!match)
       throw new Error(`Stable Diffusion ${profile} model is not installed: ${configured}`);
     return match.title;
   }
 
-  private async listModels(): Promise<SdModel[]> {
+  private async listModels(signal?: AbortSignal): Promise<SdModel[]> {
     if (this.models) return this.models;
-    const res = await this.request('/sdapi/v1/sd-models');
+    const res = await this.request('/sdapi/v1/sd-models', {}, this.config.timeoutMs, signal);
     const json = (await res.json()) as SdModel[];
     this.models = Array.isArray(json) ? json : [];
     return this.models;
   }
 
-  private async applyModel(model: string): Promise<void> {
+  private async applyModel(model: string, signal?: AbortSignal): Promise<void> {
     if (this.activeModel === model) return;
     if (this.activeModel === undefined) {
-      const res = await this.request('/sdapi/v1/options');
+      const res = await this.request('/sdapi/v1/options', {}, this.config.timeoutMs, signal);
       const options = (await res.json()) as SdOptions;
       if (
         options.sd_model_checkpoint &&
@@ -174,19 +198,20 @@ export class StableDiffusionGenerator implements ImageGenerator {
         return;
       }
     }
-    await this.post('/sdapi/v1/options', { sd_model_checkpoint: model });
+    await this.post('/sdapi/v1/options', { sd_model_checkpoint: model }, signal);
     this.activeModel = model;
   }
 
   /** Wait for work started outside the bot too: Forge only has one global generation queue. */
-  private async waitForForgeIdle(reason: string): Promise<void> {
+  private async waitForForgeIdle(reason: string, signal?: AbortSignal): Promise<void> {
     const deadline = Date.now() + this.config.queueTimeoutMs;
     let loggedBusy = false;
-    while (true) {
+    for (;;) {
       const res = await this.request(
         '/sdapi/v1/progress',
         {},
         Math.min(10_000, this.config.timeoutMs),
+        signal,
       );
       const progress = (await res.json()) as SdProgress;
       const busy =
@@ -201,26 +226,35 @@ export class StableDiffusionGenerator implements ImageGenerator {
       if (Date.now() >= deadline) {
         throw new Error(`Stable Diffusion remained busy for ${this.config.queueTimeoutMs}ms`);
       }
-      await sleep(this.config.queuePollMs);
+      await abortableDelay(this.config.queuePollMs, signal);
     }
   }
 
-  private post(path: string, body: Record<string, unknown>): Promise<Response> {
-    return this.request(path, { method: 'POST', body: JSON.stringify(body) });
+  private post(
+    path: string,
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<Response> {
+    return this.request(
+      path,
+      { method: 'POST', body: JSON.stringify(body) },
+      this.config.timeoutMs,
+      signal,
+    );
   }
 
   private async request(
     path: string,
     init: RequestInit = {},
     timeoutMs = this.config.timeoutMs,
+    signal?: AbortSignal,
   ): Promise<Response> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const scope = createAbortScope(timeoutMs, signal, `Stable Diffusion ${path}`);
     try {
       const res = await fetch(`${this.config.apiUrl}${path}`, {
         ...init,
         headers: { 'content-type': 'application/json', ...init.headers },
-        signal: controller.signal,
+        signal: scope.signal,
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
@@ -228,7 +262,7 @@ export class StableDiffusionGenerator implements ImageGenerator {
       }
       return res;
     } finally {
-      clearTimeout(timer);
+      scope.dispose();
     }
   }
 }
@@ -289,7 +323,15 @@ function compositionControls(prompt: string): string {
     /\b(1girl\s*,\s*1boy|1boy\s*,\s*1girl|2girls|2boys|2people|two (?:people|subjects|characters|adults)|due (?:persone|soggetti)|soggetto\s*1.*soggetto\s*2|couple)\b/.test(
       normalized,
     );
-  if (!twoSubjects) return 'solo, detailed face, sharp eyes, portrait composition';
+  if (!twoSubjects) {
+    const livingSubject =
+      /\b(person|people|woman|women|man|men|adult|character|portrait|animal|dog|cat|horse|bird|persona|persone|donna|donne|uomo|uomini|personaggio|ritratt|animale|cane|gatto|cavallo|uccello)\b/.test(
+        normalized,
+      );
+    return livingSubject
+      ? 'single requested subject, subject fully visible, coherent anatomy'
+      : 'balanced composition, preserve the complete requested scene';
+  }
   const shoulders = /\b(piggyback|riding on shoulders|on shoulders|sulle spalle|in spalla)\b/.test(
     normalized,
   );
@@ -394,13 +436,27 @@ function controlNetWorkflow(prompt: string): {
 }
 
 function hasMultipleSubjects(prompt: string): boolean {
-  return /\b(1girl\s*,\s*1boy|1boy\s*,\s*1girl|2girls|2boys|2people|two (?:people|subjects|characters|adults)|due (?:persone|soggetti)|soggetto\s*1.*soggetto\s*2|couple)\b/i.test(
+  return /\b(1girl\s*,\s*1boy|1boy\s*,\s*1girl|1woman\s*,\s*1man|1man\s*,\s*1woman|2girls|2boys|2women|2men|2animals|2dogs|2cats|2people|2subjects|two (?:people|subjects|characters|adults|women|men|animals|dogs|cats)|due (?:persone|soggetti|donne|uomini|animali|cani|gatti)|soggetto\s*1.*soggetto\s*2|couple)\b/i.test(
     prompt,
   );
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function applyAspectRatio<T extends { width: number; height: number }>(
+  workflow: T,
+  aspectRatio: ImageGenerationOptions['aspectRatio'],
+  controlNet: boolean,
+): T {
+  if (!aspectRatio) return workflow;
+  const long = controlNet ? 832 : 1152;
+  const short = controlNet ? 512 : 640;
+  const square = controlNet ? 768 : 1024;
+  const dimensions =
+    aspectRatio === '16:9'
+      ? { width: long, height: short }
+      : aspectRatio === '9:16'
+        ? { width: short, height: long }
+        : { width: square, height: square };
+  return { ...workflow, ...dimensions };
 }
 
 /** A valid 1x1 white PPM; Forge/Pillow expands it to the requested img2img dimensions. */

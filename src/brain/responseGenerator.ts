@@ -50,10 +50,14 @@ export interface GenerateReplyInput {
   media?: { kind: 'photo' | 'video'; description: string; poster: string } | undefined;
   /** live thread/entity attribution block */
   threadContext?: string | undefined;
+  /** evolving member profiles, relationships, norms and non-fatigued running jokes */
+  socialContext?: string | undefined;
   /** per-user hostility directive (escalation system) */
   hostility?: string | undefined;
   /** on-demand knowledge block (RAG) */
   knowledge?: string | undefined;
+  /** extracted content from attached/replied documents */
+  documents?: string | undefined;
 }
 
 export interface GeneratedCandidates {
@@ -71,10 +75,10 @@ export class ResponseGenerator {
     private readonly cfg: ResponseGeneratorConfig,
   ) {}
 
-  private maxTokens(): number {
+  private maxTokens(maxReplyChars: number): number {
     // Generous cap: reasoning models (e.g. gpt-oss) spend tokens on a hidden reasoning channel
     // before the visible reply, so a tight cap yields empty content. The prompt enforces brevity.
-    return Math.max(900, this.cfg.maxReplyChars * 2);
+    return Math.min(8_000, Math.max(900, maxReplyChars * 2));
   }
 
   async generate(input: GenerateReplyInput): Promise<GeneratedCandidates> {
@@ -100,14 +104,18 @@ export class ResponseGenerator {
       ...(input.addressee ? { addressee: input.addressee } : {}),
       ...(input.media ? { media: input.media } : {}),
       ...(input.threadContext ? { threadContext: input.threadContext } : {}),
+      ...(input.socialContext ? { socialContext: input.socialContext } : {}),
       ...(input.hostility ? { hostility: input.hostility } : {}),
       ...(input.knowledge ? { knowledge: input.knowledge } : {}),
+      ...(input.documents ? { documents: input.documents } : {}),
     });
 
     const n = Math.max(1, this.cfg.candidateCount);
     const model = input.model ?? this.cfg.model;
     const results = await Promise.allSettled(
-      Array.from({ length: n }, () => this.callOne(system, userPrompt, model)),
+      Array.from({ length: n }, () =>
+        this.callOne(system, userPrompt, model, input.plan.maxChars ?? this.cfg.maxReplyChars),
+      ),
     );
     const ok = results
       .filter((r): r is PromiseFulfilledResult<ChatResult> => r.status === 'fulfilled')
@@ -128,7 +136,7 @@ export class ResponseGenerator {
     const augmented = `${params.userPrompt}\n\n${note}`;
     const results = await Promise.allSettled(
       Array.from({ length: Math.max(1, params.count ?? 1) }, () =>
-        this.callOne(params.system, augmented, params.model),
+        this.callOne(params.system, augmented, params.model, this.cfg.maxReplyChars),
       ),
     );
     const ok = results
@@ -141,40 +149,49 @@ export class ResponseGenerator {
     system: string,
     userPrompt: string,
     model: string | undefined,
+    maxReplyChars: number = this.cfg.maxReplyChars,
   ): Promise<ChatResult> {
-    const first = await this.chatCompletionWithEmptyRetry({
-      system,
-      messages: [{ role: 'user', content: userPrompt }],
-      temperature: this.cfg.temperature,
-      topP: this.cfg.topP,
-      frequencyPenalty: this.cfg.frequencyPenalty,
-      presencePenalty: this.cfg.presencePenalty,
-      maxTokens: this.maxTokens(),
-      ...(model ? { model } : {}),
-    }, 'reply candidate', model);
+    const first = await this.chatCompletionWithEmptyRetry(
+      {
+        system,
+        messages: [{ role: 'user', content: userPrompt }],
+        temperature: this.cfg.temperature,
+        topP: this.cfg.topP,
+        frequencyPenalty: this.cfg.frequencyPenalty,
+        presencePenalty: this.cfg.presencePenalty,
+        maxTokens: this.maxTokens(maxReplyChars),
+        ...(model ? { model } : {}),
+      },
+      'reply candidate',
+      model,
+    );
     if (first.finishReason !== 'length') return first;
 
     // A partial message is worse than a fresh one in a group chat. Re-write it once
     // only when the upstream explicitly says it stopped for its output limit.
-    const repair = await this.chatCompletionWithEmptyRetry({
-      system,
-      messages: [
-        { role: 'user', content: userPrompt },
-        { role: 'assistant', content: first.text },
-        {
-          role: 'user',
-          content:
-            'Your previous candidate was cut off by the output limit. Rewrite it as one complete, natural Telegram reply. ' +
-            'Keep the same point and tone, finish the thought, and never mention the interruption or this instruction.',
-        },
-      ],
-      temperature: this.cfg.temperature,
-      topP: this.cfg.topP,
-      frequencyPenalty: this.cfg.frequencyPenalty,
-      presencePenalty: this.cfg.presencePenalty,
-      maxTokens: this.maxTokens(),
-      ...(model ? { model } : {}),
-    }, 'reply repair', model);
+    const repair = await this.chatCompletionWithEmptyRetry(
+      {
+        system,
+        messages: [
+          { role: 'user', content: userPrompt },
+          { role: 'assistant', content: first.text },
+          {
+            role: 'user',
+            content:
+              'Your previous candidate was cut off by the output limit. Rewrite it as one complete, natural Telegram reply. ' +
+              'Keep the same point and tone, finish the thought, and never mention the interruption or this instruction.',
+          },
+        ],
+        temperature: this.cfg.temperature,
+        topP: this.cfg.topP,
+        frequencyPenalty: this.cfg.frequencyPenalty,
+        presencePenalty: this.cfg.presencePenalty,
+        maxTokens: this.maxTokens(maxReplyChars),
+        ...(model ? { model } : {}),
+      },
+      'reply repair',
+      model,
+    );
     return {
       ...repair,
       usage: {
@@ -221,7 +238,11 @@ export class ResponseGenerator {
     );
   }
 
-  private logCompletionDiagnostics(label: string, result: ChatResult, requestedModel: string | undefined): void {
+  private logCompletionDiagnostics(
+    label: string,
+    result: ChatResult,
+    requestedModel: string | undefined,
+  ): void {
     const suspicious = looksPossiblyCutOff(result.text);
     if (result.finishReason !== 'length' && !suspicious) return;
     log.warn(

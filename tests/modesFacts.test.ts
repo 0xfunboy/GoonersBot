@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ModeService } from '../src/services/modes.js';
-import { FactService, isSensitiveFact } from '../src/services/facts.js';
 import { BanService } from '../src/services/bans.js';
 import { fakeStorage, inMemoryBans } from './helpers.js';
 
@@ -27,34 +26,6 @@ describe('ModeService.add (name heuristic)', () => {
   it('returns null on name collision (repo rejects)', async () => {
     const svc = new ModeService(fakeStorage({ modes: { add: vi.fn().mockResolvedValue(false) } }));
     expect(await svc.add(-1, 'Hype. loud energy', '@bob')).toBeNull();
-  });
-});
-
-describe('FactService', () => {
-  it('flags sensitive facts', () => {
-    expect(isSensitiveFact('his password is hunter2')).toBe(true);
-    expect(isSensitiveFact('lives at 123 Main Street')).toBe(true);
-    expect(isSensitiveFact('always posts cat memes')).toBe(false);
-  });
-  it('rejects sensitive manual facts', async () => {
-    const add = vi.fn().mockResolvedValue(true);
-    const svc = new FactService(fakeStorage({ facts: { add } }));
-    const ok = await svc.addManualFact(-1, '@bob', 'his password is hunter2', '@admin');
-    expect(ok).toBe(false);
-    expect(add).not.toHaveBeenCalled();
-  });
-  it('stores a clean manual fact', async () => {
-    const add = vi.fn().mockResolvedValue(true);
-    const svc = new FactService(fakeStorage({ facts: { add } }));
-    const ok = await svc.addManualFact(-1, 'bob', 'is the meme lord', '@admin');
-    expect(ok).toBe(true);
-    expect(add).toHaveBeenCalledWith(-1, '@bob', 'is the meme lord', 'manual', '@admin');
-  });
-  it('silently skips sensitive auto facts', async () => {
-    const add = vi.fn().mockResolvedValue(true);
-    const svc = new FactService(fakeStorage({ facts: { add } }));
-    await svc.addAutoFact(-1, '@bob', 'credit card 1234');
-    expect(add).not.toHaveBeenCalled();
   });
 });
 

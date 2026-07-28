@@ -53,7 +53,9 @@ export async function sendResponse(
   response: LocalizedResponse,
 ): Promise<Message | undefined> {
   const replyTo = ctx.message?.message_id;
-  const reply_markup = response.keyboard ? buildInlineKeyboard(response.keyboard) : undefined;
+  const reply_markup = response.keyboard
+    ? buildInlineKeyboard(response.keyboard, response.keyboard.page ?? 0)
+    : undefined;
   const baseOpts = {
     parse_mode: 'HTML' as const,
     ...(replyTo ? { reply_parameters: { message_id: replyTo } } : {}),

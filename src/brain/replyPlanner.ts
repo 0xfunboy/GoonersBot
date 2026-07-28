@@ -1,11 +1,13 @@
 import type { RetrievedMemory } from '../memory/types.js';
 import type {
+  ComedyStrategy,
   ReplyPlan,
   SceneAnalysis,
   ReplyIntent,
   MemoryUseMode,
   TurnEvaluation,
 } from './types.js';
+import { capRoast, isSeriousSupport } from './socialAwareness.js';
 
 const HARD_BANNED = [
   'Ah fra',
@@ -24,6 +26,8 @@ export interface PlannerInput {
   currentHandle: string;
   maxLines: number;
   maxChars: number;
+  /** StyleEngine may preselect this and pass it through for persistence/guarding. */
+  comedyStrategy?: ComedyStrategy;
 }
 
 /**
@@ -35,6 +39,16 @@ export class ReplyPlanner {
   plan(input: PlannerInput): ReplyPlan {
     const s = input.scene;
     const e = input.evaluation;
+    const socialSignal = e.socialSignal ?? s.socialSignal;
+    const seriousSupport = isSeriousSupport(socialSignal);
+    const gratitudeTurn = socialSignal?.situation === 'gratitude';
+    const helpTurn =
+      seriousSupport || socialSignal?.situation === 'practical_help' || gratitudeTurn;
+    const plannedAction =
+      helpTurn &&
+      (e.action === 'banter_only' || e.action === 'use_group_lore' || e.action === 'stay_quiet')
+        ? 'answer'
+        : e.action;
     let replyIntent: ReplyIntent;
     switch (e.action) {
       case 'answer':
@@ -49,6 +63,7 @@ export class ReplyPlanner {
       case 'translate_text':
       case 'make_voice':
       case 'post_news':
+      case 'acquire_capability':
         replyIntent = 'answer_question';
         break;
       case 'summarize_thread':
@@ -65,6 +80,11 @@ export class ReplyPlanner {
         break;
     }
     if (s.botIsBeingCriticized) replyIntent = 'roast_self';
+    if (gratitudeTurn) {
+      replyIntent = 'acknowledge_gratitude';
+    } else if (helpTurn) {
+      replyIntent = 'answer_question';
+    }
 
     const usable = input.retrievedMemories.filter((m) => m.relevance > 0.2);
     let memoryUseMode: MemoryUseMode = 'none';
@@ -80,24 +100,43 @@ export class ReplyPlanner {
       e.action === 'generate_video' ||
       e.action === 'translate_text' ||
       e.action === 'make_voice' ||
-      e.action === 'post_news';
-    if (!s.botIsBeingCriticized && usable.length > 0 && e.providerRequests.includes('group_rag')) {
+      e.action === 'post_news' ||
+      e.action === 'acquire_capability' ||
+      e.action === 'summarize_thread';
+    if (
+      !s.botIsBeingCriticized &&
+      socialSignal?.memoryPolicy !== 'avoid_callbacks' &&
+      usable.length > 0
+    ) {
       const hasExplicit = usable.some((m) => m.allowedToUseExplicitly);
       memoryUseMode =
         !valueFirst &&
         hasExplicit &&
+        socialSignal?.memoryPolicy === 'eligible' &&
         (replyIntent === 'lore_callback' || s.humorStyle.includes('lore_callback'))
           ? 'explicit_callback'
           : 'implicit_style';
+      if (socialSignal?.memoryPolicy === 'implicit_only') memoryUseMode = 'implicit_style';
     }
     const memoryIdsToUse = usable.map((m) => m.item._id).filter((id): id is string => Boolean(id));
 
     const addressed = s.botIsBeingAddressed;
-    const maxLines = s.botIsBeingCriticized
-      ? Math.min(2, input.maxLines)
-      : addressed
-        ? input.maxLines
-        : Math.min(2, input.maxLines);
+    const substantiveHelp =
+      e.valueTarget === 'truth' ||
+      e.valueTarget === 'technical_help' ||
+      socialSignal?.situation === 'factual_help' ||
+      socialSignal?.situation === 'practical_help';
+    const longForm = e.action === 'summarize_thread' || substantiveHelp || seriousSupport;
+    const maxLines = longForm
+      ? Math.max(input.maxLines, e.action === 'summarize_thread' ? 18 : seriousSupport ? 5 : 10)
+      : s.botIsBeingCriticized
+        ? Math.min(2, input.maxLines)
+        : addressed
+          ? input.maxLines
+          : Math.min(2, input.maxLines);
+    const maxChars = longForm
+      ? Math.max(input.maxChars, e.action === 'summarize_thread' ? 3_500 : 2_000)
+      : input.maxChars;
 
     const bannedPhrases = [...new Set([...HARD_BANNED, ...input.bannedOpenings])];
     const forbiddenReferences: string[] = [];
@@ -106,26 +145,67 @@ export class ReplyPlanner {
     if (valueFirst) {
       forbiddenReferences.push('roast-only answer', 'stale personal callback as the main point');
     }
+    if (seriousSupport) {
+      forbiddenReferences.push(
+        "the person's vulnerability as a punchline",
+        'sexual jokes',
+        'lore callbacks',
+        'performative motivational speech',
+      );
+    }
+    if (gratitudeTurn) {
+      forbiddenReferences.push(
+        'a new insult',
+        'a backhanded compliment',
+        'personal lore',
+        'a fresh roast after the thanks',
+      );
+    }
+
+    const roastBudget = socialSignal
+      ? capRoast(e.roastBudget, socialSignal.roastCeiling)
+      : e.roastBudget;
+    const noveltyInstruction = seriousSupport
+      ? 'Acknowledge the specific feeling without therapy-speak, then give one concrete immediate step. Be steady, loyal and direct; no roast.'
+      : gratitudeTurn
+        ? 'Accept the thanks in one natural, warm line. No joke mechanism, no callback, no insult and no topic change.'
+        : s.botIsBeingCriticized
+          ? 'Completely change the structure and opening compared to recent replies. Admit the loop with self-irony, then answer differently.'
+          : memoryUseMode === 'explicit_callback'
+            ? 'If the callback earns its place, transform it into a new angle. Never recite the old lore or make it the whole reply.'
+            : 'Use a different comic mechanism and premise from recent replies. Avoid openings, closings and joke subjects already used.';
 
     return {
       replyIntent,
-      action: e.action,
-      valueTarget: e.valueTarget,
-      roastBudget: e.roastBudget,
-      socialRole: e.socialRole,
-      mustBringValue: valueFirst || e.valueTarget === 'truth' || e.valueTarget === 'technical_help',
+      action: plannedAction,
+      valueTarget: gratitudeTurn ? 'social_glue' : helpTurn ? 'support' : e.valueTarget,
+      roastBudget,
+      socialRole: helpTurn ? 'friend' : e.socialRole,
+      mustBringValue:
+        (helpTurn && !gratitudeTurn) ||
+        valueFirst ||
+        e.valueTarget === 'truth' ||
+        e.valueTarget === 'technical_help',
       targetHandles: s.mentionedUsers.length ? s.mentionedUsers : [input.currentHandle],
-      tone: s.bestAngle || (s.botIsBeingCriticized ? 'self-ironic and venomous' : 'group-native'),
+      tone: gratitudeTurn
+        ? 'brief, warm and natural; accept the thanks like a real friend, with no invoice and no roast'
+        : seriousSupport
+          ? 'blunt, calm, protective friend who stays present and gives practical help'
+          : s.bestAngle || (s.botIsBeingCriticized ? 'self-ironic and venomous' : 'group-native'),
       maxLines,
-      maxChars: input.maxChars,
+      maxChars,
       memoryIdsToUse: memoryUseMode === 'none' ? [] : memoryIdsToUse,
       memoryUseMode,
       forbiddenReferences,
       bannedPhrases,
-      noveltyInstruction: s.botIsBeingCriticized
-        ? 'Completely change the structure and opening compared to recent replies. Admit the loop with self-irony, then answer differently.'
-        : 'Avoid openings and jokes already used recently.',
-      mustAnswer: addressed || s.userIntent === 'dangerous_request' || s.userIntent === 'ask_bot',
+      noveltyInstruction,
+      mustAnswer:
+        seriousSupport ||
+        addressed ||
+        s.userIntent === 'dangerous_request' ||
+        s.userIntent === 'ask_bot',
+      ...(socialSignal ? { socialSignal } : {}),
+      comedyStrategy: seriousSupport || gratitudeTurn ? 'none' : input.comedyStrategy,
     };
   }
 }

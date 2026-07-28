@@ -6,7 +6,7 @@ import { Priority } from '../types.js';
 export const visionCommand: CommandSpec = {
   command: 'vision',
   permissions: ['allowed_user', 'not_banned'],
-  needsTermsAccepted: false,
+  needsTermsAccepted: true,
   priority: Priority.DEFAULT,
   quotaConversation: true,
   async handle({ services, message }: HandlerInput): Promise<CommandResponse> {
@@ -15,7 +15,7 @@ export const visionCommand: CommandSpec = {
 
     const description = await services.media.describeImage(visual.buffer, visual.mime);
     if (!description) return { text: 'vision_unavailable' };
-    return { text: 'vision_result', vars: { description } };
+    return { text: 'vision_result', vars: { description }, usage: { visionCalls: 1 } };
   },
 };
 
@@ -28,6 +28,12 @@ async function resolveVisual(
   }
   if (message.repliedImageBuffer) {
     return { buffer: message.repliedImageBuffer, mime: message.repliedImageMime ?? 'image/jpeg' };
+  }
+  const imageAttachment = message.attachments?.find((attachment) =>
+    /^image\//i.test(attachment.mime),
+  );
+  if (imageAttachment) {
+    return { buffer: imageAttachment.buffer, mime: imageAttachment.mime };
   }
   const video = message.videoBuffer ?? message.repliedVideoBuffer;
   if (!video) return null;

@@ -1,6 +1,7 @@
 import type { ImageResult } from '../llm/types.js';
 import { childLogger } from '../../utils/logger.js';
 import type { ImageGenerator, ImageGenerationOptions } from './stableDiffusion.js';
+import { assertMediaGenerationSafe } from '../../safety/mediaSafety.js';
 
 const log = childLogger('image-fallback');
 
@@ -22,6 +23,7 @@ export class FallbackImageGenerator implements ImageGenerator {
   }
 
   async generate(prompt: string, options: ImageGenerationOptions = {}): Promise<ImageResult> {
+    assertMediaGenerationSafe(prompt);
     const needsLocal = Boolean(options.poseReference);
     if (needsLocal && this.fallback.enabled) return this.fallback.generate(prompt, options);
 

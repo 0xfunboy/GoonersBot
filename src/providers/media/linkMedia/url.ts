@@ -33,5 +33,8 @@ export function extractUrls(text: string, max: number): URL[] {
 }
 
 export function hostOf(url: URL): string {
-  return url.hostname.replace(/^www\./, '').toLowerCase();
+  return url.hostname
+    .replace(/\.$/, '')
+    .replace(/^www\./, '')
+    .toLowerCase();
 }

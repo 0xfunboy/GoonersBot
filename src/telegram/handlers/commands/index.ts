@@ -3,10 +3,10 @@ import { startCommand, stopCommand, resetCommand } from './lifecycle.js';
 import { modeCommand, addmodeCommand, deletemodeCommand } from './modes.js';
 import {
   introduceCommand,
-  factCommand,
   setfactCommand,
   factsCommand,
   clearfactsCommand,
+  loreCommand,
   forgetCommand,
 } from './facts.js';
 import { brainCommand, debuglastCommand } from './debug.js';
@@ -15,7 +15,6 @@ import { playCommand, singCommand } from './music.js';
 import { translateCommand } from './translate.js';
 import {
   conversationtrackerCommand,
-  autofactCommand,
   autoengageCommand,
   autopostCommand,
   linkmediaCommand,
@@ -29,6 +28,9 @@ import { usageCommand, languageCommand, tosCommand, helpCommand } from './misc.j
 import { approveCommand, unapproveCommand, approvedCommand } from './access.js';
 import { profileCommand } from './profile.js';
 import { visionCommand } from './vision.js';
+import { capabilitiesCommand, learnCommand } from './capabilities.js';
+import { communityCommand, socialstatusCommand } from './community.js';
+import { registerCommandCatalog } from './aliases.js';
 
 /** All command handlers (original parity + voice/traduci extras). */
 export const commandHandlers: CommandSpec[] = [
@@ -39,13 +41,12 @@ export const commandHandlers: CommandSpec[] = [
   addmodeCommand,
   deletemodeCommand,
   introduceCommand,
-  factCommand,
   setfactCommand,
   factsCommand,
   clearfactsCommand,
+  loreCommand,
   forgetCommand,
   conversationtrackerCommand,
-  autofactCommand,
   autoengageCommand,
   autopostCommand,
   linkmediaCommand,
@@ -71,4 +72,11 @@ export const commandHandlers: CommandSpec[] = [
   approvedCommand,
   profileCommand,
   visionCommand,
+  capabilitiesCommand,
+  learnCommand,
+  communityCommand,
+  socialstatusCommand,
 ];
+
+// Validate the complete command/alias surface once, then publish the same catalog to /help.
+registerCommandCatalog(commandHandlers);

@@ -5,7 +5,7 @@ import { Priority } from '../types.js';
 export const brainCommand: CommandSpec = {
   command: 'brain',
   permissions: ['admin', 'allowed_user', 'not_banned'],
-  needsTermsAccepted: false,
+  needsTermsAccepted: true,
   priority: Priority.ADMIN,
   adminOnly: true,
   async handle({ services, context }) {
@@ -66,7 +66,7 @@ export const brainCommand: CommandSpec = {
 export const debuglastCommand: CommandSpec = {
   command: 'debuglast',
   permissions: ['admin', 'allowed_user', 'not_banned'],
-  needsTermsAccepted: false,
+  needsTermsAccepted: true,
   priority: Priority.ADMIN,
   adminOnly: true,
   async handle({ services, context }) {

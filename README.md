@@ -15,11 +15,14 @@
 <h1 align="center">GoonersBot 🤖</h1>
 
 <p align="center">
-  <b>A group-native entertainment, roleplay, meme and memory Telegram bot for the <i>Gooners</i> community.</b><br>
-  Not an assistant and not ChatGPT in a chat. It is a chat character that knows the group culture:
-  it listens, remembers user and group lore, jumps in when it fits, runs chat modes, and keeps the
-  group alive without spamming.
+  <b>An independent, group-native Telegram assistant for the <i>Gooners</i> community.</b><br>
+  It behaves like a specific foul-mouthed member of the group, while still doing real assistant
+  work: it reads files and replied media, verifies current facts, remembers people and threads,
+  uses tools honestly, and can acquire durable read-only research capabilities.
 </p>
+
+Current release: **2.0.0**. See [CHANGELOG.md](./CHANGELOG.md) for breaking changes and migration
+notes.
 
 ---
 
@@ -35,6 +38,8 @@
 - [Voice (TTS and STT)](#voice-tts-and-stt)
 - [Vision](#vision)
 - [Web and image grounding](#web-and-image-grounding)
+- [Documents and attachments](#documents-and-attachments)
+- [Capability Forge](#capability-forge)
 - [Per-user heat](#per-user-heat)
 - [Knowledge base](#knowledge-base)
 - [Images and autonomous posting](#images-and-autonomous-posting)
@@ -49,9 +54,17 @@
 
 ## Highlights
 
-- Group chat character: reads the room, replies in context, short and direct.
+- Living group persona: learns every member's interests, habits and style; tracks relationships,
+  evolving callbacks and group norms; supports first and roasts only when the scene permits it.
+- Multi-action turns: a validated dependency graph can research, transform and generate several
+  deliverables in one request, then Telegram sends every successful artifact.
+- Document understanding: reads PDF, DOCX, text/Markdown, code, JSON, CSV, XML and HTML from the
+  current message or the replied-to message; scanned PDFs are reported honestly when OCR is needed.
+- Capability Forge: learns safe read-only research recipes, persists them, and exposes them as new
+  slash commands without loading model-generated source code into the bot process.
 - Per-chat modes you add, select and delete at runtime, plus built-in Gooners modes.
-- Memory: manual and mined facts about users and the group, retrieved only when relevant.
+- Memory: every accepted chat message is mined asynchronously; only provenance-backed, durable
+  social changes and episodic lore are retained and retrieved when relevant.
 - Per-user heat: hostility escalates with users who push the bot and cools when they back off.
 - Auto-engage: a scorer decides when to jump in (cooldowns, hourly cap, confidence, risk).
 - Voice in and out: local whisper.cpp STT (voice, audio, video) and Kokoro TTS voice notes.
@@ -144,6 +157,11 @@ LLM_VISION_ENDPOINT_URL=http://192.168.178.27:4024/v1/vision
 LLM_VISION_MODEL=minicpm-v4.5:8b
 # Every Free-group LLM stage uses this economy model instead of LLM_MODEL.
 FREE_LLM_MODEL=gemma-4-26b-a4b-it
+# Background learning is pinned independently and never consumes chat-plan quota.
+MINING_LLM_BASE_URL=http://192.168.178.27:4024
+MINING_LLM_MODEL=gemma-4-31b-it
+MINING_LLM_REQUEST_TIMEOUT_MS=180000
+MINING_LLM_MAX_REQUESTS_PER_MINUTE=3
 
 # DeepSeek
 LLM_PROVIDER=deepseek
@@ -158,8 +176,37 @@ LLM_MODEL=llama3.1
 ```
 
 An optional fallback endpoint (`LLM_FALLBACK_BASE_URL` + `LLM_FALLBACK_MODEL`) can be used for chat
-and reasoning calls when the primary throws, but the production GoonerBot config keeps it empty so
-the local MiniCPM box remains dedicated to vision. Vision, STT and TTS stay on their own providers.
+and reasoning calls when the primary throws. It can now be followed by a free-tier provider pool:
+Groq, Gemini, OpenRouter and Cloudflare Workers AI. A short circuit breaker avoids hammering a
+provider after its quota is exhausted. Vision, STT and TTS stay on their own providers.
+
+Continuous social/lore extraction has a separate `MINING_LLM_*` route. Its model is pinned, request
+model overrides are ignored, the group-plan header is never forwarded and its tokens are not charged
+to the conversational quota. GemRouter calls are FIFO, strictly serial and paced to at most three
+actual upstream starts in any rolling minute, with at least 20 seconds between starts. JSON-mode
+fallbacks and repair attempts use the same budget, so an extraction cannot create a hidden burst.
+The 180-second timeout belongs only to this asynchronous provider; interactive chat keeps
+`LLM_REQUEST_TIMEOUT_MS`.
+
+The worker drains all unseen messages by Telegram `message_id` in bounded batches. Each successful
+window advances a durable cursor/checkpoint; a timeout, malformed result or transient upstream
+failure retains the same window and resumes later. Transient provider failures additionally open a
+60-second cooldown before another slot can be consumed. Backfill and live mining share the same
+serialized lane, so they cannot overlap. Confidence, provenance, privacy and deduplication still
+decide what becomes memory.
+
+Free quotas are useful resilience layers, not unlimited production capacity. Configure only the
+providers you actually have keys for and keep model ids explicit because catalogs change:
+
+- [Groq OpenAI compatibility](https://console.groq.com/docs/openai) and
+  [current free-plan limits](https://console.groq.com/docs/rate-limits)
+- [Gemini OpenAI compatibility](https://ai.google.dev/gemini-api/docs/openai) and
+  [current rate limits](https://ai.google.dev/gemini-api/docs/rate-limits)
+- [OpenRouter free-model router](https://openrouter.ai/docs/cookbook/get-started/free-models-router-playground)
+  and [rate-limit FAQ](https://openrouter.ai/docs/faq)
+- [Cloudflare Workers AI OpenAI endpoint](https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/)
+  and [free allocation/pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/)
+
 The provider reports capabilities (`chat`, `vision`, `transcription`, `imageGeneration`, `tts`);
 a missing one is logged once and skipped.
 
@@ -187,45 +234,47 @@ illegal, no doxxing. NSFW is opt-in per chat and meant for private, consenting a
 
 ## Commands
 
-| Command                      | Who           | What                                                                                     |
-| ---------------------------- | ------------- | ---------------------------------------------------------------------------------------- |
-| `/start`                     | admin         | wake GoonersBot in this chat                                                             |
-| `/stop`                      | admin         | put it to sleep                                                                          |
-| `/reset`                     | admin         | wipe conversation memory                                                                 |
-| `/mode`                      | admin         | pick a mode                                                                              |
-| `/addmode <description>`     | admin         | add a custom mode (`[nsfw]` prefix flags it adult)                                       |
-| `/deletemode`                | admin         | delete a mode                                                                            |
-| `/introduce <text>`          | anyone        | tell GoonersBot who you are (saved as lore)                                              |
-| `/fact`                      | anyone        | mine durable lore from recent chat or the replied-to window                              |
-| `/setfact @handle <text>`    | admin         | manually insert lore                                                                     |
-| `/facts [@handle]`           | anyone        | show stored lore                                                                         |
-| `/clearfacts [@handle]`      | self / admin  | expire stored lore (self anytime, others need admin)                                     |
-| `/lore`                      | anyone        | top group lore (max 5)                                                                   |
-| `/forget`                    | reply / admin | reply to forget lore mined from a message; admin `/forget <id>`                          |
-| `/translate <language>`      | anyone        | translate the replied message (alias `/traduci`)                                         |
-| `/voice`                     | anyone        | turn the last message, or the replied one, into a voice note                             |
-| `/play <query>`              | anyone        | search YouTube and send the audio as a voice note (aliases `/suona`, `/riproduci`)       |
-| `/sing <query>`              | anyone        | same as `/play`, phrased for songs (aliases `/canta`, `/cantami`)                        |
-| `/news`                      | anyone        | force an autonomous post now (alias `/nuovo`)                                            |
-| `/autopost`                  | admin         | toggle timed autonomous posts in this chat                                               |
-| `/genera <prompt>`           | anyone        | generate an original image with Stable Diffusion (aliases `/image`, `/img`)              |
-| `/disegna <prompt>`          | anyone        | force the high-quality PonyXL manga workflow (alias `/draw`)                             |
+| Command                      | Who           | What                                                                                        |
+| ---------------------------- | ------------- | ------------------------------------------------------------------------------------------- |
+| `/start`                     | admin         | wake GoonersBot in this chat                                                                |
+| `/stop`                      | admin         | put it to sleep                                                                             |
+| `/reset`                     | admin         | wipe conversation memory                                                                    |
+| `/mode`                      | admin         | pick a mode                                                                                 |
+| `/addmode <description>`     | admin         | add a custom mode (`[nsfw]` prefix flags it adult)                                          |
+| `/deletemode`                | admin         | delete a mode                                                                               |
+| `/introduce <text>`          | anyone        | tell GoonersBot who you are (saved as lore)                                                 |
+| `/setfact @handle <text>`    | admin         | manually insert lore                                                                        |
+| `/facts [@handle]`           | self / admin  | show personal memory (`/memory` and `/memoria` aliases)                                     |
+| `/clearfacts [@handle]`      | self / admin  | expire stored lore (self anytime, others need admin)                                        |
+| `/lore`                      | anyone        | top group lore (max 5)                                                                      |
+| `/forget`                    | reply / admin | reply to forget lore mined from a message; admin `/forget <id>`                             |
+| `/translate <language>`      | anyone        | translate the replied message (alias `/traduci`)                                            |
+| `/voice`                     | anyone        | turn the last message, or the replied one, into a voice note                                |
+| `/play <query>`              | anyone        | search YouTube and send the audio as a voice note (aliases `/suona`, `/riproduci`)          |
+| `/sing <query>`              | anyone        | same as `/play`, phrased for songs (aliases `/canta`, `/cantami`)                           |
+| `/news`                      | anyone        | force an autonomous post now (alias `/nuovo`)                                               |
+| `/autopost`                  | admin         | toggle timed autonomous posts in this chat                                                  |
+| `/genera <prompt>`           | anyone        | generate an original image with Stable Diffusion (aliases `/image`, `/img`)                 |
+| `/disegna <prompt>`          | anyone        | force the high-quality PonyXL manga workflow (alias `/draw`)                                |
 | `/genvid <prompt>`           | anyone        | generate a short video clip (aliases `/video`, `/genvideo`, `/vid`, `/clip`, `/animazione`) |
-| `/usage`                     | anyone        | your usage and limits                                                                    |
-| `/profile [free\|plus\|pro]` | admin         | show or set the shared group plan and live quotas (aliases: `/groupplan`, `/groupquota`) |
-| `/language`                  | admin         | set chat language (it, en, ru, es)                                                       |
-| `/terms`                     | anyone        | terms of use and acceptance                                                              |
-| `/conversationtracker`       | admin         | toggle passive tracking                                                                  |
-| `/autofact`                  | admin         | toggle automatic fact extraction                                                         |
-| `/autoengage`                | admin         | show passive-reply status                                                                |
-| `/nsfw [off\|base\|smart]`   | admin         | NSFW model routing                                                                       |
-| `/ban @handle [seconds]`     | bot admin     | ban a Gooner (reply-aware, duration optional, 0 = permanent)                             |
-| `/unban @handle`             | bot admin     | unban a Gooner                                                                           |
-| `/brain`, `/debuglast`       | admin         | inspect why the bot answered the way it did                                              |
-| `/approve [id]`              | bot admin     | approve a community chat or user (no id in a group = approve it)                         |
-| `/unapprove [id]`            | bot admin     | revoke approval for a chat or user                                                       |
-| `/approved`                  | bot admin     | list approved chats and users                                                            |
-| `/help`                      | anyone        | help                                                                                     |
+| `/usage`                     | anyone        | your usage and limits                                                                       |
+| `/capabilities`              | approved      | list dynamically learned read-only capabilities                                             |
+| `/learn <goal>`              | bot admin     | explicitly design/install a safe research capability or save a setup proposal               |
+| `/community`                 | anyone        | privacy-safe social-awareness coverage and current community themes                         |
+| `/socialstatus`              | admin         | social-memory lifecycle/coverage diagnostics without exposing private scores                |
+| `/profile [free\|plus\|pro]` | admin         | show or set the shared group plan and live quotas (aliases: `/groupplan`, `/groupquota`)    |
+| `/language`                  | admin         | set chat language (it, en, ru, es)                                                          |
+| `/terms`                     | anyone        | terms of use and acceptance                                                                 |
+| `/conversationtracker`       | admin         | toggle passive tracking                                                                     |
+| `/autoengage`                | admin         | show passive-reply status                                                                   |
+| `/nsfw [off\|base\|smart]`   | admin         | NSFW model routing                                                                          |
+| `/ban @handle [seconds]`     | bot admin     | ban a Gooner (reply-aware, duration optional, 0 = permanent)                                |
+| `/unban @handle`             | bot admin     | unban a Gooner                                                                              |
+| `/brain`, `/debuglast`       | admin         | inspect why the bot answered the way it did                                                 |
+| `/approve [id]`              | bot admin     | approve a community chat or user (no id in a group = approve it)                            |
+| `/unapprove [id]`            | bot admin     | revoke approval for a chat or user                                                          |
+| `/approved`                  | bot admin     | list approved chats and users                                                               |
+| `/help`                      | anyone        | help                                                                                        |
 
 admin means group admin or bot admin (`ADMIN_HANDLES`). bot admin means listed in `ADMIN_HANDLES`.
 Most commands that act on the chat need `/terms` accepted first. Outside the basic commands
@@ -272,10 +321,12 @@ shows current counters and limits. Limits reset on calendar boundaries in the `E
 | Per-chat cooldown       |           20 s |            3 s |             1 s |
 | User/chat burst         |  1 / 3 per min | 6 / 16 per min | 20 / 60 per min |
 
-Free groups are pinned to `FREE_LLM_MODEL` for every direct LLM operation (scene, evaluator/Cortex,
-generation, translation, image-prompt preparation and manual fact extraction); embeddings retain their
-separate configured endpoint. Free groups do not invoke the separate vision model and also skip
-autonomous posting and background memory mining.
+Free groups are pinned to `FREE_LLM_MODEL` for direct conversational LLM operations (scene,
+evaluator/Cortex, generation, translation and image-prompt preparation); embeddings retain their
+separate configured endpoint. Free groups do not invoke the separate vision model or autonomous
+posting. Continuous background learning still runs for every started chat through the independent
+plan-independent `MINING_LLM_*` route, configured for one request at a time and three starts per
+minute.
 All plans store passive messages as context only and never infer or reply until the bot is addressed.
 
 Semantic RAG uses `EMBEDDING_MODEL` (default `bge-m3`, 1024 dimensions) through GemRouter's
@@ -489,6 +540,36 @@ the SearXNG client in `src/search/searxng.ts`.
 
 ---
 
+## Documents and attachments
+
+PDF, DOCX, text/Markdown, source code, JSON, CSV, XML and HTML attachments are inputs to the same
+assistant turn as the Telegram text. The bot inspects both the current message and the replied-to
+message, so replying to an uploaded PDF with “summarise this” does not lose the file relationship.
+Extraction is inert: macros, scripts, HTML JavaScript and code attachments are read as data and never
+executed.
+
+Selectable-text PDFs are extracted directly. Long documents are summarized from chunk-level notes
+before synthesis rather than silently truncating to the first page. If a PDF is scanned or a format
+is unsupported, the response names the actual limitation instead of claiming that no attachment
+exists. Telegram's hosted Bot API download ceiling and the configured per-file/per-turn limits still
+apply.
+
+---
+
+## Capability Forge
+
+`/learn <goal>` lets a bot admin turn a missing, read-only research workflow into a persistent
+declarative recipe. An installed recipe becomes a stable slash command, survives restart and uses
+grounded search plus constrained synthesis; `/capabilities` lists what is currently available.
+
+Requests that need credentials, authenticated APIs, package installation, compilation, shell access,
+local-machine control or external writes are saved as explicit setup proposals. Even when source code
+is attached, the bot may inspect it to design the proposal but never executes it merely because it
+arrived from Telegram. This keeps “learn while talking” useful without turning a message or a
+prompt-injected document into remote code execution.
+
+---
+
 ## Per-user heat
 
 Hostility is tracked per user, per chat as a `heat` score from 0 to 100 (collection `user_heat`). It
@@ -583,13 +664,15 @@ the `.gitignore` also excludes generated image artifact paths as a second guardr
 
 ## Brain and memory
 
-GoonersBot does not dump facts into every prompt. Each reply runs a small pipeline so it behaves like a
-real group member rather than a deterministic bot:
+GoonersBot does not dump facts into every prompt. Each reply runs a bounded pipeline so it behaves
+like a real group member rather than a deterministic bot:
 
 ```text
-message -> Scene Analyzer -> Memory Retriever (+ grounding, knowledge, heat in parallel) ->
-           Reply Planner -> Style Engine -> Response Generator -> Ranker -> Repetition Guard ->
-           reply  +  (background) Memory Mining and Feedback Learning
+message + replied media -> Perception -> Scene + Social Awareness + Memory Retriever ->
+                           Cortex -> Multi-action DAG -> verified tools/artifacts ->
+                           Reply Planner -> Style Engine -> Generator -> Ranker ->
+                           semantic Repetition Guard -> reply + every artifact
+                           + (background) Social/Memory/Feedback Learning
 ```
 
 - Scene Analyzer reads topic, energy, intent and whether the bot is being roasted (LLM with a
@@ -598,13 +681,37 @@ message -> Scene Analyzer -> Memory Retriever (+ grounding, knowledge, heat in p
   topic and salience), skips recently-used ones, and returns nothing when the chat is roasting the bot
   for repetition.
 - Reply Planner and Style Engine pick intent, tone, length and one of ten voice variants. A dynamic
-  banned-phrases list, built from recent replies, kills repeated openings and catchphrase tics.
-- The Generator produces one candidate by default (configurable). The Ranker and Repetition Guard
-  drop assistant-tone, repeated or verbatim-memory replies and regenerate if needed.
+  banned-phrases list plus premise/mechanism history kills repeated openings, recycled roast shapes
+  and catchphrase tics. Gratitude, distress and serious requests suppress gratuitous hostility.
+- The Generator samples three candidates by default (configurable). The Ranker and Repetition Guard
+  use stale openings, premises and comedy strategies as ranking penalties instead of rejecting every
+  otherwise useful answer. Lexical clones above `REPETITION_SIMILARITY_THRESHOLD`, stricter
+  high-confidence semantic clones, explicitly banned/canned phrases, unauthorized verbatim-memory
+  callbacks, internal deflection messages and social-floor violations are hard blocks. The best
+  acceptable candidate is used immediately.
+- Ranking has a deterministic local fallback. If every candidate is hard-blocked, the bot performs
+  one bounded regeneration; if that still produces only repetitive but socially safe, substantive
+  text, it sends the best usable answer instead of the old evasive “rephrase and try again” message.
+  Last-resort recovery may relax only repetition/canned-style blocks: it never revives unauthorized
+  memory, a social-floor violation or an internal deflection. If no safe candidate exists, the
+  fallback gives concise support or states the exact missing evidence/context without discussing the
+  hidden generation pipeline.
+- Social memory keeps evolving profiles, relationships, shared norms and running jokes with
+  provenance, confidence, contradiction handling, lifecycle decay and fatigue. Reactions to the
+  exact bot message teach which style variants and comedy mechanisms work for each person. A
+  checkpointed startup backfill covers the full retained history; invalid structured output never
+  advances the learning cursor, and a privacy-filtered local baseline keeps explicit declarations
+  usable during an upstream outage.
+- A multi-action planner may chain and parallelize available tools. Dependency failures are isolated,
+  successful outputs are verified, and partial completion is reported honestly.
 - The reply always addresses the current speaker, and attached media carries who posted it so the
   roast target is unambiguous.
 - Memory lives in `memory_items` (mined lore with confidence, salience and toxicity), not raw text.
-  Background jobs mine lore while the bot is silent (in `/autofact` chats) and learn from feedback.
+  Social profiles live separately, so changing interests supersede stale claims instead of creating
+  contradictory lore. Both projections evolve continuously in every started chat, including Free
+  groups, from a dedicated pinned model. `/fact` and `/autofact` no longer exist: `/facts`,
+  `/clearfacts`, `/forget`, `/introduce` and admin `/setfact` remain as transparency, erasure and
+  correction controls.
 - Admins use `/brain` and `/debuglast` to see exactly why the bot answered the way it did.
 
 Internal pipeline instructions are written in English (the model follows them best) while the bot is
@@ -634,20 +741,38 @@ The tables below list the common vars; see `.env.example` for the full set with 
 
 ### LLM and media
 
-| Variable                                                                | Default      | Description                                                             |
-| ----------------------------------------------------------------------- | ------------ | ----------------------------------------------------------------------- |
-| `LLM_PROVIDER`                                                          | `ollama`     | `solclawn`, `openai`, `deepseek`, `ollama`, `custom_openai_compatible`. |
-| `LLM_BASE_URL`                                                          | per-provider | OpenAI-compatible base URL.                                             |
-| `LLM_API_KEY`                                                           | none         | Bearer token.                                                           |
-| `LLM_MODEL`                                                             | none         | Chat model (required for text replies).                                 |
-| `FREE_LLM_MODEL`                                                        | `gemma-4-26b-a4b-it` | Economy model forced for every LLM operation in Free groups.        |
-| `LLM_VISION_MODEL`                                                      | none         | Enables image and video-frame understanding.                            |
-| `LLM_VISION_ENDPOINT_URL`                                               | none         | Full dedicated vision endpoint, e.g. GemRouter `/v1/vision`.            |
-| `LLM_VISION_BASE_URL` / `LLM_VISION_API_KEY`                            | none         | Separate chat-compatible vision base; empty reuses the main one.        |
-| `LLM_TRANSCRIPTION_MODEL`                                               | none         | Remote STT fallback; local whisper covers this otherwise.               |
-| `LLM_TTS_MODEL` / `LLM_IMAGE_MODEL`                                     | none         | Enable remote TTS / image generation if your backend has them.          |
-| `LLM_FALLBACK_BASE_URL` / `LLM_FALLBACK_MODEL` / `LLM_FALLBACK_API_KEY` | none         | Fallback chat endpoint when the primary throws.                         |
-| `LLM_REQUEST_TIMEOUT_MS`                                                | `60000`      | Per-request timeout.                                                    |
+| Variable                                                                  | Default                  | Description                                                             |
+| ------------------------------------------------------------------------- | ------------------------ | ----------------------------------------------------------------------- |
+| `LLM_PROVIDER`                                                            | `ollama`                 | `solclawn`, `openai`, `deepseek`, `ollama`, `custom_openai_compatible`. |
+| `LLM_BASE_URL`                                                            | per-provider             | OpenAI-compatible base URL.                                             |
+| `LLM_API_KEY`                                                             | none                     | Bearer token.                                                           |
+| `LLM_MODEL`                                                               | none                     | Chat model (required for text replies).                                 |
+| `FREE_LLM_MODEL`                                                          | `gemma-4-26b-a4b-it`     | Economy model forced for every LLM operation in Free groups.            |
+| `MINING_LLM_BASE_URL` / `MINING_LLM_API_KEY`                              | main LLM route/key       | Independent OpenAI-compatible endpoint/key for continuous learning.     |
+| `MINING_LLM_MODEL`                                                        | `gemma-4-31b-it`         | Pinned background lore/social model; request overrides are ignored.     |
+| `MINING_LLM_REQUEST_TIMEOUT_MS`                                           | `180000`                 | Timeout only for one queued background structured call.                 |
+| `MINING_LLM_MAX_REQUESTS_PER_MINUTE`                                      | `3`                      | Mining-provider cap; default pacing starts calls at least 20s apart.    |
+| `LLM_VISION_MODEL`                                                        | none                     | Enables image and video-frame understanding.                            |
+| `LLM_VISION_ENDPOINT_URL`                                                 | none                     | Full dedicated vision endpoint, e.g. GemRouter `/v1/vision`.            |
+| `LLM_VISION_BASE_URL` / `LLM_VISION_API_KEY`                              | none                     | Separate chat-compatible vision base; empty reuses the main one.        |
+| `LLM_TRANSCRIPTION_MODEL`                                                 | none                     | Remote STT fallback; local whisper covers this otherwise.               |
+| `LLM_TTS_MODEL` / `LLM_IMAGE_MODEL`                                       | none                     | Enable remote TTS / image generation if your backend has them.          |
+| `LLM_FALLBACK_BASE_URL` / `LLM_FALLBACK_MODEL` / `LLM_FALLBACK_API_KEY`   | none                     | Fallback chat endpoint when the primary throws.                         |
+| `LLM_ROUTER_FALLBACK_MODELS`                                              | none                     | Ordered alternative models on the primary gateway, reusing its URL/key. |
+| `GROQ_API_KEY` / `GROQ_MODEL`                                             | none / GPT-OSS           | Optional Groq free-tier fallback.                                       |
+| `GEMINI_API_KEY` / `GEMINI_MODEL`                                         | none                     | Optional Gemini free-tier fallback; model must be explicit.             |
+| `OPENROUTER_API_KEY` / `OPENROUTER_MODEL`                                 | none / `openrouter/free` | Optional free-model router fallback.                                    |
+| `CLOUDFLARE_AI_API_KEY` / `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_AI_MODEL` | none                     | Optional Workers AI free-allocation fallback.                           |
+| `LLM_REQUEST_TIMEOUT_MS`                                                  | `60000`                  | Per-request timeout.                                                    |
+
+Structured internal calls use JSON mode plus a generated JSON Schema, strict Zod validation and one
+validation-error-guided repair. Circuit breakers are operation-specific: a model that temporarily
+fails social/planner JSON is not automatically removed from ordinary chat.
+
+The mining timeout and pacing apply only to the dedicated provider. They do not replace
+`LLM_REQUEST_TIMEOUT_MS`, delay an interactive reply or expand a conversational group's plan. The
+minimum start gap is derived from the configured RPM (`ceil(60000 / RPM)`); leave the production
+value at `3` for GemRouter.
 
 ### Voice, grounding, images, autopost
 
@@ -657,6 +782,8 @@ The tables below list the common vars; see `.env.example` for the full set with 
 | `TTS_TAIL_PADDING_MS`                                                                           | `600`                        | Silent tail appended after TTS so Telegram clients do not clip the last word. |
 | `STT_ENABLED` / `WHISPER_MODEL` / `FFMPEG_BIN`                                                  | off                          | Local whisper.cpp STT (vendor/ defaults).                                     |
 | `WEB_SEARCH_ENABLED` / `SEARXNG_URL`                                                            | off                          | Web grounding via SearXNG.                                                    |
+| `DOCUMENTS_ENABLED` / `DOCUMENT_MAX_CHARS_PER_FILE`                                             | on / `50000`                 | Read current/replied PDF, DOCX and text-like documents as inert content.      |
+| `CAPABILITY_FORGE_ENABLED` / `CAPABILITY_STORE_PATH`                                            | on / `data/capabilities`     | Persist safe read-only research recipes and setup proposals.                  |
 | `IMAGE_LOOKUP_ENABLED`                                                                          | off                          | Reverse-image grounding (needs web search and vision).                        |
 | `IMAGE_SEND_ENABLED` / `IMAGE_SEND_PROBABILITY`                                                 | on / `0.15`                  | Attach a verified waifu image on anime topics.                                |
 | `IMAGE_QUERY_POOL`                                                                              | defaults                     | Comma-separated image query seeds.                                            |
@@ -674,16 +801,23 @@ The tables below list the common vars; see `.env.example` for the full set with 
 
 ### NSFW, heat, knowledge, brain
 
-| Variable                                                               | Default         | Description                                     |
-| ---------------------------------------------------------------------- | --------------- | ----------------------------------------------- |
-| `LLM_NSFW_MODEL`                                                       | none            | Uncensored model. Empty disables NSFW routing.  |
-| `LLM_NSFW_DEFAULT_MODE`                                                | `smart`         | Initial per-chat mode: `off`, `base`, `smart`.  |
-| `LLM_REFUSAL_FALLBACK`                                                 | `true`          | Retry on the NSFW model if the default refuses. |
-| `HEAT_ENABLED` / `HEAT_BASELINE` / `HEAT_DECAY_PER_MINUTE`             | on / `12` / `1` | Per-user hostility escalation.                  |
-| `KNOWLEDGE_ENABLED` / `KNOWLEDGE_MAX_ITEMS` / `KNOWLEDGE_SEED_ON_BOOT` | on / `2` / on   | On-demand knowledge recall.                     |
-| `REPLY_TEMPERATURE` / `REPLY_CANDIDATE_COUNT`                          | `0.95` / `1`    | Generation temperature / candidates per reply.  |
-| `MAX_REPLY_LINES` / `MAX_REPLY_CHARS`                                  | `3` / `420`     | Reply length caps.                              |
-| `MEMORY_MINING_ENABLED` / `FEEDBACK_LEARNING_ENABLED`                  | on / on         | Background lore mining and feedback learning.   |
+| Variable                                                               | Default         | Description                                             |
+| ---------------------------------------------------------------------- | --------------- | ------------------------------------------------------- |
+| `LLM_NSFW_MODEL`                                                       | none            | Uncensored model. Empty disables NSFW routing.          |
+| `LLM_NSFW_DEFAULT_MODE`                                                | `smart`         | Initial per-chat mode: `off`, `base`, `smart`.          |
+| `LLM_REFUSAL_FALLBACK`                                                 | `true`          | Retry on the NSFW model if the default refuses.         |
+| `HEAT_ENABLED` / `HEAT_BASELINE` / `HEAT_DECAY_PER_MINUTE`             | on / `12` / `1` | Per-user hostility escalation.                          |
+| `KNOWLEDGE_ENABLED` / `KNOWLEDGE_MAX_ITEMS` / `KNOWLEDGE_SEED_ON_BOOT` | on / `2` / on   | On-demand knowledge recall.                             |
+| `REPLY_TEMPERATURE` / `REPLY_CANDIDATE_COUNT`                          | `0.95` / `3`    | Generation temperature / candidates per reply.          |
+| `REPLY_MAX_REGENERATIONS`                                              | `1`             | One bounded retry only when every candidate is blocked. |
+| `MAX_REPLY_LINES` / `MAX_REPLY_CHARS`                                  | `3` / `420`     | Reply length caps.                                      |
+| `MEMORY_MINING_ENABLED` / `FEEDBACK_LEARNING_ENABLED`                  | on / on         | Continuous lore/social mining and feedback learning.    |
+| `MEMORY_MINING_BATCH_MESSAGES` / `MEMORY_MINING_CONTEXT_MESSAGES`      | `20` / `30`     | New evidence per call / bounded look-behind window.     |
+| `MEMORY_MINING_INTERVAL_SECONDS`                                       | `60`            | Backlog watchdog; idle cursor checks spend no LLM call. |
+
+Backfill and continuous mining both use one global FIFO lane. The provider remains serial and its
+rolling RPM budget includes native JSON, prompt-only JSON fallback and repair requests; failures
+retain their cursor and are retried after cooldown instead of being replayed immediately.
 
 ### Behaviour and limits
 
@@ -702,17 +836,17 @@ The tables below list the common vars; see `.env.example` for the full set with 
 
 GoonersBot is built for an authorized, self-hosted deployment.
 
-| Area            | Posture                                                                                                                                                        |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Secrets         | Only in `.env` (gitignored). No hardcoded tokens or keys in source. The LLM key is sent as a Bearer header and never logged.                                   |
-| Logging         | Structured (pino). The bot token, LLM key and Mongo URI are never logged.                                                                                      |
-| Auth            | Centralized permission service. Control commands require group admin or bot admin; `/ban` requires bot admin. Callback queries are permission-checked.         |
-| Bans            | Gated on commands and in the message handler; timed bans auto-expire.                                                                                          |
-| NoSQL injection | Mongo queries use fixed field names with user input only as scalar values; no `$where` or `eval`; ids guarded by `ObjectId.isValid`.                           |
-| Rate limiting   | Per-user command cooldown, plan-aware per-group anti-flood, durable hourly/daily quotas, globally serialized image jobs, usage limits and media download caps. |
-| Media and SSRF  | Inbound files come only from Telegram's file API. Outbound hosts are operator-configured, not user input. Fetched images are size-capped and vision-checked.   |
-| MongoDB         | Run it bound to `127.0.0.1` with `--auth` and a least-privilege app user (`scripts/mongo-local.sh` does this).                                                 |
-| Content safety  | NSFW is opt-in per chat with non-negotiable hard limits in the system prompt.                                                                                  |
+| Area            | Posture                                                                                                                                                                                        |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Secrets         | Only in `.env` (gitignored). No hardcoded tokens or keys in source. The LLM key is sent as a Bearer header and never logged.                                                                   |
+| Logging         | Structured (pino). The bot token, LLM key and Mongo URI are never logged.                                                                                                                      |
+| Auth            | Centralized permission service. Control commands require group admin or bot admin; `/ban` requires bot admin. Callback queries are permission-checked.                                         |
+| Bans            | Gated on commands and in the message handler; timed bans auto-expire.                                                                                                                          |
+| NoSQL injection | Mongo queries use fixed field names with user input only as scalar values; no `$where` or `eval`; ids guarded by `ObjectId.isValid`.                                                           |
+| Rate limiting   | Per-user command cooldown, plan-aware per-group anti-flood, durable hourly/daily quotas, a serial three-RPM mining lane, globally serialized image jobs, usage limits and media download caps. |
+| Media and SSRF  | Inbound files come only from Telegram's file API. Outbound hosts are operator-configured, not user input. Fetched images are size-capped and vision-checked.                                   |
+| MongoDB         | Run it bound to `127.0.0.1` with `--auth` and a least-privilege app user (`scripts/mongo-local.sh` does this).                                                                                 |
+| Content safety  | NSFW is opt-in per chat with non-negotiable hard limits in the system prompt.                                                                                                                  |
 
 Prompt-injection and jailbreak attempts in user messages are mitigated by system-prompt guardrails
 but not eliminated; treat model output as untrusted. Keep `ADMIN_HANDLES` tight and Mongo off the
@@ -743,14 +877,16 @@ pnpm tsx scripts/smoke-search.ts        # SearXNG query and grounding gating
 
 ## Troubleshooting
 
-| Symptom                               | Cause and fix                                                                                     |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `/start` says you cannot do that here | You are not a group admin and not in `ADMIN_HANDLES`. Add your `@handle`.                         |
-| Bot ignores normal messages           | Privacy Mode is ON. Disable it in @BotFather (then re-add the bot) or make the bot a group admin. |
-| Replies in the wrong language         | Existing chats keep their stored language; run `/language`. New chats use `DEFAULT_LANGUAGE`.     |
-| A capability is unavailable           | The relevant `LLM_*_MODEL` is not set (vision, image, transcription). Set it or ignore.           |
-| Web search or images do nothing       | SearXNG is not running or `SEARXNG_URL` is wrong. Start it with `scripts/searxng.sh start`.       |
-| Bot will not start                    | Read the fail-fast error, usually a missing `TELEGRAM_BOT_TOKEN` or unreachable `MONGO_URI`.      |
+| Symptom                               | Cause and fix                                                                                                                       |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `/start` says you cannot do that here | You are not a group admin and not in `ADMIN_HANDLES`. Add your `@handle`.                                                           |
+| Bot ignores normal messages           | Privacy Mode is ON. Disable it in @BotFather (then re-add the bot) or make the bot a group admin.                                   |
+| Replies in the wrong language         | Existing chats keep their stored language; run `/language`. New chats use `DEFAULT_LANGUAGE`.                                       |
+| A capability is unavailable           | The relevant `LLM_*_MODEL` is not set (vision, image, transcription). Set it or ignore.                                             |
+| Web search or images do nothing       | SearXNG is not running or `SEARXNG_URL` is wrong. Start it with `scripts/searxng.sh start`.                                         |
+| Memory backfill looks slow            | Expected: production mining is serial and capped at three starts/minute. Inspect checkpoints; do not raise the interactive timeout. |
+| A mining window keeps retrying        | Its structured result or provider failed. The cursor is retained and retried after cooldown.                                        |
+| Bot will not start                    | Read the fail-fast error, usually a missing `TELEGRAM_BOT_TOKEN` or unreachable `MONGO_URI`.                                        |
 
 ---
 

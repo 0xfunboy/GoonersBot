@@ -73,7 +73,7 @@ describe('ImagePromptService', () => {
       'soggetto 1 sulle spalle del soggetto 2, entrambi adulti, strada di notte',
     );
 
-    expect(result.prompt).toContain('2people, two adults');
+    expect(result.prompt).toContain('2subjects, both requested subjects');
     expect(result.prompt).toContain('both subjects visible');
   });
 
@@ -91,7 +91,7 @@ describe('ImagePromptService', () => {
       'woman laying a brown egg over Daniele',
     );
 
-    expect(result.prompt).toContain('1girl, 1boy');
+    expect(result.prompt).toContain('2subjects, both requested subjects');
     expect(result.prompt).toContain('adult man');
   });
 });

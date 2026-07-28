@@ -2,13 +2,13 @@ import type { CommandSpec } from '../types.js';
 import type { CommandResponse } from '../../../domain/types.js';
 import { Priority } from '../types.js';
 import { SET_LANGUAGE_CALLBACK, languagesKeyboard, termsKeyboard, termsHeader } from '../shared.js';
-import { commandAliasHelp } from './aliases.js';
+import { commandCatalogHelp } from './aliases.js';
 
 /** /usage - show the caller's usage this period and limit. */
 export const usageCommand: CommandSpec = {
   command: 'usage',
   permissions: ['allowed_user', 'not_banned'],
-  needsTermsAccepted: false,
+  needsTermsAccepted: true,
   priority: Priority.LAST,
   async handle({ services, person }) {
     const report = await services.usage.getReport(person.userHandle);
@@ -38,7 +38,8 @@ export const languageCommand: CommandSpec = {
 export const tosCommand: CommandSpec = {
   command: 'tos',
   aliases: ['terms'],
-  permissions: ['allowed_user', 'not_banned'],
+  // Read-only onboarding remains available even before allow-listing and while banned.
+  permissions: [],
   needsTermsAccepted: false,
   priority: Priority.DEFAULT,
   async handle({ services, context }) {
@@ -62,7 +63,14 @@ export const helpCommand: CommandSpec = {
   priority: Priority.LAST,
   async handle({ services, context }) {
     const language = await services.getLanguage(context.chatId);
-    const help = services.localizer.t('help_text', {}, language) ?? 'help_text';
-    return { rawText: `${help}\n\n${commandAliasHelp(language)}` };
+    const intro = services.localizer.t('help_intro_text', {}, language) ?? 'help_intro_text';
+    const catalog = commandCatalogHelp(
+      language,
+      (command) =>
+        services.localizer.t(`${command}_description`, {}, language) ??
+        services.localizer.t('default_command_description', {}, language) ??
+        command,
+    );
+    return { rawText: `${intro}\n\n${catalog}` };
   },
 };
