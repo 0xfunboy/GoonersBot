@@ -67,7 +67,7 @@ export const QUOTA_PLANS: Record<QuotaPlanId, QuotaPlan> = {
     id: 'pro',
     conversationDaily: 72,
     conversationHourly: 18,
-    llmTokensDaily: 250_000,
+    llmTokensDaily: 1_000_000,
     webSearchDaily: 75,
     pageScanDaily: 200,
     newsDaily: 24,
