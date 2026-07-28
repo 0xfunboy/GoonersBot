@@ -133,7 +133,9 @@ export class ConversationThreadTracker {
       .sort((a, b) => b.score - a.score);
     const best = scored[0];
     const shouldAttach = Boolean(
-      replyThread || (best && best.score >= 0.55) || (isFollowup(text) && best && best.score >= 0.42),
+      replyThread ||
+      (best && best.score >= 0.55) ||
+      (isFollowup(text) && best && best.score >= 0.42),
     );
     const existing = shouldAttach ? (replyThread ?? best?.thread) : null;
 
@@ -225,10 +227,9 @@ export class ConversationThreadTracker {
     semanticText: string;
   }): Promise<ConversationThreadDoc> {
     const title = input.existing?.title ?? titleFromAliases(input.aliases, input.text);
-    const entityAliases = [...new Set([...(input.existing?.entityAliases ?? []), ...input.aliases])].slice(
-      0,
-      24,
-    );
+    const entityAliases = [
+      ...new Set([...(input.existing?.entityAliases ?? []), ...input.aliases]),
+    ].slice(0, 24);
     const participantHandles = [
       ...(input.existing?.participantHandles ?? []),
       input.person.userHandle,
@@ -293,7 +294,10 @@ function scoreThread(input: {
   score += Math.min(0.8, overlap * 0.22);
   if (input.aliasEntities.some((e) => e.threadIds.includes(input.thread.threadId))) score += 0.55;
   if (input.thread.ownerHandle === input.currentHandle && isFollowup(input.text)) score += 0.3;
-  if (input.queryVec.length === input.embeddingDim && input.thread.embedding?.length === input.embeddingDim) {
+  if (
+    input.queryVec.length === input.embeddingDim &&
+    input.thread.embedding?.length === input.embeddingDim
+  ) {
     const cos = cosineSimilarity(input.queryVec, input.thread.embedding);
     if (cos > 0.35) score += cos * 0.45;
   }
@@ -391,7 +395,9 @@ function extractAliases(text: string): string[] {
     const term = normalizeTerm(m[0]);
     if (term.length >= 3 && !STOP.has(term)) aliases.add(term);
   }
-  for (const m of clean.matchAll(/\b(rtx\s*50\d0|rav4|plug\s*in|plug-in|toyota|ferrari|lamborghini|bitcoin|btc)\b/gi)) {
+  for (const m of clean.matchAll(
+    /\b(rtx\s*50\d0|rav4|plug\s*in|plug-in|toyota|ferrari|lamborghini|bitcoin|btc)\b/gi,
+  )) {
     aliases.add(normalizeTerm(m[0]));
   }
   return [...aliases].slice(0, 18);
@@ -400,7 +406,8 @@ function extractAliases(text: string): string[] {
 function attributesFromText(text: string): string[] {
   const attrs: string[] = [];
   if (/\b202\d\b/.test(text)) attrs.push(text.match(/\b202\d\b/)?.[0] ?? '');
-  if (/\b\d+\s*(k|mila|€|eur|euro)\b/i.test(text)) attrs.push(text.match(/\b\d+\s*(k|mila|€|eur|euro)\b/i)?.[0] ?? '');
+  if (/\b\d+\s*(k|mila|€|eur|euro)\b/i.test(text))
+    attrs.push(text.match(/\b\d+\s*(k|mila|€|eur|euro)\b/i)?.[0] ?? '');
   if (/batteria/i.test(text)) attrs.push('battery mentioned');
   if (/permuta|concessionari|listino|prezzo/i.test(text)) attrs.push('price/trade-in context');
   return attrs.filter(Boolean);
@@ -419,14 +426,19 @@ function summarizeThread(title: string, entity: ConversationEntityDoc, text: str
 }
 
 function titleFromAliases(aliases: string[], text: string): string {
-  const preferred = aliases.filter((a) => /rav4|toyota|ferrari|lamborghini|rtx|bitcoin|btc|plug/.test(a));
+  const preferred = aliases.filter((a) =>
+    /rav4|toyota|ferrari|lamborghini|rtx|bitcoin|btc|plug/.test(a),
+  );
   const picked = (preferred.length ? preferred : aliases).slice(0, 5);
   if (picked.length) return picked.map((p) => (p === 'rav4' ? 'RAV4' : p)).join(' ');
   return text.replace(/\s+/g, ' ').trim().slice(0, 60) || 'chat thread';
 }
 
 function stableEntityId(chatId: number, canonicalName: string, ownerHandle: string | null): string {
-  return `${chatId}:${normalizeTerm(ownerHandle ?? 'group')}:${normalizeTerm(canonicalName)}`.slice(0, 160);
+  return `${chatId}:${normalizeTerm(ownerHandle ?? 'group')}:${normalizeTerm(canonicalName)}`.slice(
+    0,
+    160,
+  );
 }
 
 function normalizeText(text: string): string {
@@ -437,5 +449,8 @@ function normalizeText(text: string): string {
 }
 
 function normalizeTerm(text: string): string {
-  return normalizeText(text).replace(/[^a-z0-9+.-]+/g, ' ').trim().replace(/\s+/g, ' ');
+  return normalizeText(text)
+    .replace(/[^a-z0-9+.-]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
 }

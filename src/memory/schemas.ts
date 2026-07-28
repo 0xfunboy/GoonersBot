@@ -27,6 +27,7 @@ export const memoryCategorySchema = z.enum([
 ]);
 
 export const memoryToxicitySchema = z.enum(['clean', 'vulgar', 'nsfw', 'risky', 'blocked']);
+export const memoryOperationSchema = z.enum(['new', 'reinforce', 'update', 'expire']);
 
 export const memoryCandidateSchema = z.object({
   subjectType: memorySubjectTypeSchema,
@@ -40,6 +41,8 @@ export const memoryCandidateSchema = z.object({
   toxicity: memoryToxicitySchema,
   sourceMessageIds: z.array(z.number()).default([]),
   reason: z.string().default(''),
+  operation: memoryOperationSchema.default('new'),
+  targetMemoryId: z.string().nullable().optional(),
 });
 
 export const memoryMiningResultSchema = z.object({

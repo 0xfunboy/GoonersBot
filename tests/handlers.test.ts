@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { modeCommand, addmodeCommand } from '../src/telegram/handlers/commands/modes.js';
 import { clearfactsCommand } from '../src/telegram/handlers/commands/facts.js';
 import { nsfwCommand } from '../src/telegram/handlers/commands/nsfw.js';
+import { approveCommand } from '../src/telegram/handlers/commands/access.js';
+import { banCommand, unbanCommand } from '../src/telegram/handlers/commands/moderation.js';
 import { autoengageCommand } from '../src/telegram/handlers/commands/toggles.js';
 import { visionCommand } from '../src/telegram/handlers/commands/vision.js';
 import {
@@ -87,6 +89,30 @@ describe('/vision command and bilingual aliases', () => {
     });
   });
 
+  it('accepts an image document exposed through command attachments', async () => {
+    const describeImage = vi.fn().mockResolvedValue('A diagram in a PNG document.');
+    const services = { media: { describeImage, frameFromVideo: vi.fn() } };
+    const buffer = Buffer.from('png');
+    const res = await visionCommand.handle({
+      ...input(services, []),
+      message: {
+        messageText: '',
+        timestamp: new Date(),
+        attachments: [
+          {
+            buffer,
+            fileName: 'diagram.png',
+            mime: 'image/png',
+            size: buffer.byteLength,
+            source: 'reply',
+          },
+        ],
+      },
+    });
+    expect(describeImage).toHaveBeenCalledWith(buffer, 'image/png');
+    expect(res?.text).toBe('vision_result');
+  });
+
   it('registers Italian aliases while the menu keeps the English baseline', () => {
     expect(aliasesForCommand({ ...visionCommand })).toContain('visione');
     expect(aliasesForCommand({ ...visionCommand })).not.toContain('vision');
@@ -137,8 +163,35 @@ describe('set/delete mode callbacks', () => {
   });
 });
 
+describe('callback pagination', () => {
+  const showModes = callbackHandlers.find((c) => c.action === 'show_chat_modes')!;
+
+  it('preserves and bounds the requested keyboard page', async () => {
+    const services = {
+      modes: {
+        list: vi
+          .fn()
+          .mockResolvedValue(
+            Array.from({ length: 18 }, (_, index) => ({ id: `m${index}`, name: `Mode ${index}` })),
+          ),
+      },
+    };
+    const pageTwo = await showModes.handle(input(services, ['set_chat_mode', '2']));
+    const tooFar = await showModes.handle(input(services, ['set_chat_mode', '99']));
+
+    expect(pageTwo?.keyboard?.page).toBe(2);
+    expect(tooFar?.keyboard?.page).toBe(2);
+  });
+});
+
 describe('terms callback', () => {
   const terms = callbackHandlers.find((c) => c.action === 'terms_response')!;
+
+  it('is approval-exempt for onboarding but still enforces the ban permission', () => {
+    expect(terms.approvalExempt).toBe(true);
+    expect(terms.ownerOnly).toBe(true);
+    expect(terms.permissions).toEqual(['not_banned']);
+  });
 
   it('accept records acceptance', async () => {
     const accept = vi.fn().mockResolvedValue(undefined);
@@ -154,6 +207,62 @@ describe('terms callback', () => {
     const res = await terms.handle(input(services, ['decline']));
     expect(decline).toHaveBeenCalledWith('@bob');
     expect(res?.text).toBe('terms_declined');
+  });
+});
+
+describe('strict administrative arguments', () => {
+  it('/approve rejects partial, zero and unsafe numeric ids', async () => {
+    const approveUser = vi.fn();
+    const approveChat = vi.fn();
+    const services = { access: { approveUser, approveChat } };
+    for (const raw of ['123oops', '0', '9007199254740992']) {
+      const response = await approveCommand.handle(input(services, [raw]));
+      expect(response?.text).toBe('approve_usage');
+    }
+    expect(approveUser).not.toHaveBeenCalled();
+    expect(approveChat).not.toHaveBeenCalled();
+  });
+
+  it('/ban rejects malformed handles and durations instead of applying the default ban', async () => {
+    const ban = vi.fn();
+    const services = { bans: { ban } };
+    await expect(banCommand.handle(input(services, ['<alice>', '60']))).resolves.toMatchObject({
+      text: 'invalid_ban_args',
+    });
+    await expect(
+      banCommand.handle(input(services, ['@alice', '60seconds'])),
+    ).resolves.toMatchObject({
+      text: 'invalid_ban_args',
+    });
+    expect(ban).not.toHaveBeenCalled();
+    expect(banCommand.permissions).toContain('not_banned');
+  });
+
+  it('/ban accepts an exact duration and /unban rejects surplus args', async () => {
+    const ban = vi.fn().mockResolvedValue(60);
+    const unban = vi.fn();
+    const services = { bans: { ban, unban } };
+    await banCommand.handle(input(services, ['@alice', '60']));
+    expect(ban).toHaveBeenCalledWith('@alice', 60, '@bob');
+
+    const response = await unbanCommand.handle(input(services, ['@alice', 'extra']));
+    expect(response?.text).toBe('invalid_unban_args');
+    expect(unban).not.toHaveBeenCalled();
+    expect(unbanCommand.permissions).toContain('not_banned');
+  });
+});
+
+describe('callback argument validation', () => {
+  const setLanguage = callbackHandlers.find((c) => c.action === 'set_chat_language')!;
+
+  it('does not persist a language outside the keyboard allowlist', async () => {
+    const setLanguageValue = vi.fn();
+    const services = {
+      localizer: { supportedLanguages: () => ['english', 'italian'] },
+      storage: { chats: { setLanguage: setLanguageValue } },
+    };
+    await expect(setLanguage.handle(input(services, ['not-a-language']))).resolves.toBeNull();
+    expect(setLanguageValue).not.toHaveBeenCalled();
   });
 });
 

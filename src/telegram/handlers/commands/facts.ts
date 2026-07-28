@@ -19,51 +19,11 @@ export const introduceCommand: CommandSpec = {
       subjectHandle: person.userHandle,
       text: introduction,
       createdByHandle: person.userHandle,
+      category: 'role',
+      source: 'self_declared',
     });
     if (!ok) return { text: 'inappropriate_introduction' };
     return { text: 'introduction_added', vars: { user_handle: person.userHandle } };
-  },
-};
-
-/**
- * /fact - mine durable lore from recent chat (or the replied-to window). Normal users can no
- * longer inject arbitrary memory (anti-poisoning); the bot extracts it from real context.
- */
-export const factCommand: CommandSpec = {
-  command: 'fact',
-  permissions: ['allowed_user', 'not_banned'],
-  needsTermsAccepted: true,
-  priority: Priority.DEFAULT,
-  async handle({ services, context }) {
-    const env = services.config.env;
-    const language = await services.getLanguage(context.chatId);
-    const nsfwEnabled =
-      (await services.storage.chats.getNsfwMode(context.chatId, env.LLM_NSFW_DEFAULT_MODE)) !==
-      'off';
-
-    const messages = context.repliedToMessageId
-      ? await services.conversation.getWindowAroundMessage(
-          context.chatId,
-          context.repliedToMessageId,
-          env.FACT_REPLY_CONTEXT_BEFORE,
-          env.FACT_REPLY_CONTEXT_AFTER,
-        )
-      : await services.conversation.getRecent(context.chatId, env.FACT_EXTRACTION_CONTEXT_MESSAGES);
-
-    if (messages.length === 0) return { text: 'fact_mined_none' };
-
-    const res = await services.lore.mineAndStore({
-      chatId: context.chatId,
-      messages,
-      language,
-      nsfwEnabled,
-      minConfidence: env.MEMORY_MANUAL_MIN_CONFIDENCE,
-      source: 'manual_extract',
-      createdByHandle: null,
-      model: await services.modelForChat(context.chatId),
-    });
-    if (res.stored === 0 && res.reinforced === 0) return { text: 'fact_mined_none' };
-    return { text: 'fact_mined', vars: { stored: res.stored, reinforced: res.reinforced } };
   },
 };
 
@@ -73,7 +33,7 @@ export const factCommand: CommandSpec = {
 export const setfactCommand: CommandSpec = {
   command: 'setfact',
   permissions: ['admin', 'allowed_user', 'not_banned'],
-  needsTermsAccepted: false,
+  needsTermsAccepted: true,
   priority: Priority.ADMIN,
   adminOnly: true,
   async handle({ services, context, person, args }) {
@@ -96,10 +56,13 @@ export const setfactCommand: CommandSpec = {
 export const factsCommand: CommandSpec = {
   command: 'facts',
   permissions: ['allowed_user', 'not_banned'],
-  needsTermsAccepted: false,
+  needsTermsAccepted: true,
   priority: Priority.DEFAULT,
   async handle({ services, context, person, args }) {
     const target = args[0] ? normalizeHandle(args[0]) : person.userHandle;
+    const isSelf = target === person.userHandle;
+    const isAdmin = context.isGroupAdmin || services.permissions.isBotAdmin(person.userHandle);
+    if (!isSelf && !isAdmin) return { text: 'facts_forbidden' };
     const items = await services.lore.listForSubject(context.chatId, target);
     if (items.length === 0) {
       const empty: CommandResponse = { text: 'user_facts_empty', vars: { user_handle: target } };
@@ -124,7 +87,10 @@ export const clearfactsCommand: CommandSpec = {
     const isSelf = target === person.userHandle;
     const isAdmin = context.isGroupAdmin || services.permissions.isBotAdmin(person.userHandle);
     if (!isSelf && !isAdmin) return { text: 'clearfacts_forbidden' };
-    await services.lore.expireForSubject(context.chatId, target);
+    await Promise.all([
+      services.lore.expireForSubject(context.chatId, target),
+      services.social?.forgetMember(context.chatId, target) ?? Promise.resolve(false),
+    ]);
     return { text: 'facts_cleared', vars: { user_handle: target } };
   },
 };
@@ -133,7 +99,7 @@ export const clearfactsCommand: CommandSpec = {
 export const loreCommand: CommandSpec = {
   command: 'lore',
   permissions: ['allowed_user', 'not_banned'],
-  needsTermsAccepted: false,
+  needsTermsAccepted: true,
   priority: Priority.DEFAULT,
   async handle({ services, context }) {
     const items = await services.lore.topLore(context.chatId, 5);
@@ -164,11 +130,19 @@ export const forgetCommand: CommandSpec = {
       return ok ? { text: 'forget_done' } : { text: 'forget_none' };
     }
     if (context.repliedToMessageId) {
-      const n = await services.lore.expireBySourceMessage(
+      const source = await services.storage.messages.findByMessageId(
         context.chatId,
         context.repliedToMessageId,
       );
-      return n > 0 ? { text: 'forget_done' } : { text: 'forget_none' };
+      if (!isAdmin && (!source || normalizeHandle(source.handle) !== person.userHandle)) {
+        return { text: 'forget_forbidden' };
+      }
+      const [loreRemoved, socialRemoved] = await Promise.all([
+        services.lore.expireBySourceMessage(context.chatId, context.repliedToMessageId),
+        services.social?.forgetBySourceMessage(context.chatId, context.repliedToMessageId) ??
+          Promise.resolve(0),
+      ]);
+      return loreRemoved + socialRemoved > 0 ? { text: 'forget_done' } : { text: 'forget_none' };
     }
     return { text: 'forget_usage' };
   },

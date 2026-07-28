@@ -1,6 +1,11 @@
 import * as cheerio from 'cheerio';
 import { fetchText } from './http.js';
-import type { LinkMediaKind, ExtractedMediaPost, LinkExtractor, LinkExtractorContext } from './types.js';
+import type {
+  LinkMediaKind,
+  ExtractedMediaPost,
+  LinkExtractor,
+  LinkExtractorContext,
+} from './types.js';
 
 function abs(base: URL, value?: string): string | null {
   if (!value) return null;
@@ -28,11 +33,13 @@ export const genericHtmlExtractor: LinkExtractor = {
       timeoutMs: ctx.timeoutMs,
       maxBytes: 3 * 1024 * 1024,
       userAgent: ctx.userAgent,
+      signal: ctx.signal,
       ...(ctx.cookies ? { headers: { cookie: ctx.cookies } } : {}),
     });
 
     const $ = cheerio.load(html);
-    const title = $('meta[property="og:title"]').attr('content') || $('title').first().text().trim();
+    const title =
+      $('meta[property="og:title"]').attr('content') || $('title').first().text().trim();
     const candidates = new Set<string>();
 
     for (const sel of [

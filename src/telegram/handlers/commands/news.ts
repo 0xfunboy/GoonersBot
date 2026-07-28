@@ -10,7 +10,7 @@ export const newsCommand: CommandSpec = {
   command: 'news',
   aliases: ['nuovo'],
   permissions: ['allowed_user', 'not_banned'],
-  needsTermsAccepted: false,
+  needsTermsAccepted: true,
   priority: Priority.DEFAULT,
   quotaConversation: true,
   async handle({ services, context }: HandlerInput): Promise<CommandResponse | null> {

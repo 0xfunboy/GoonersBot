@@ -69,15 +69,20 @@ export class GroundingService {
   }
 
   /** Identify the pictured subject via the vision model, then enrich it with a web search. */
-  async groundImage(input: GroundImageInput, chatId?: number): Promise<GroundingResult | null> {
+  async groundImage(
+    input: GroundImageInput,
+    chatId?: number,
+    signal?: AbortSignal,
+  ): Promise<GroundingResult | null> {
     if (!this.cfg.imageEnabled || !this.web.enabled) return null;
     if (!(await this.reserve(chatId, 'web_search'))) return null;
-    const label = await this.media.identifyImage(input.imageBuffer, input.imageMime);
+    const label = await this.media.identifyImage(input.imageBuffer, input.imageMime, signal);
     if (!label) return null;
     const query = WHERE_TO_BUY_RE.test(input.question) ? `${label} prezzo acquisto` : label;
     const res = await this.web.search(query, {
       language: input.language,
       max: this.cfg.maxResults,
+      signal,
     });
     const block = this.formatImage(label, res);
     const sources = res?.results.map((r) => r.url) ?? [];
@@ -90,15 +95,16 @@ export class GroundingService {
     query: string,
     language?: string,
     chatId?: number,
+    signal?: AbortSignal,
   ): Promise<GroundingResult | null> {
     if (!this.cfg.webEnabled || !this.web.enabled || !query.trim()) return null;
     if (!(await this.reserve(chatId, 'web_search'))) return null;
-    const res = await this.web.search(query, { language, max: this.cfg.maxResults });
+    const res = await this.web.search(query, { language, max: this.cfg.maxResults, signal });
     if (!res || (res.results.length === 0 && !res.answer)) return null;
     const candidates = res.results.slice(0, 3).map((r) => r.url);
     const pages =
       this.scanner && (await this.reserve(chatId, 'page_scan', candidates.length))
-        ? await this.scanner.scan(candidates)
+        ? await this.scanner.scan(candidates, signal)
         : [];
     log.debug({ query, hits: res.results.length }, 'web grounding');
     return {
@@ -109,13 +115,19 @@ export class GroundingService {
     };
   }
 
-  async findMediaUrl(query: string, language?: string, chatId?: number): Promise<string | null> {
+  async findMediaUrl(
+    query: string,
+    language?: string,
+    chatId?: number,
+    signal?: AbortSignal,
+  ): Promise<string | null> {
     if (!this.cfg.webEnabled || !this.web.enabled || !query.trim()) return null;
     if (!(await this.reserve(chatId, 'web_search'))) return null;
     const res = await this.web.search(query, {
       language,
       max: Math.max(5, this.cfg.maxResults),
       categories: 'videos',
+      signal,
     });
     return res?.results.find((r) => /^https?:\/\//i.test(r.url))?.url ?? null;
   }

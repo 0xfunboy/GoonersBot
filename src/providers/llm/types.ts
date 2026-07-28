@@ -45,6 +45,10 @@ export interface ChatRequest {
   presencePenalty?: number;
   /** override the default chat model */
   model?: string;
+  /** Internal structured-output hint for OpenAI-compatible chat surfaces. */
+  responseFormat?: { type: 'json_object' };
+  /** Cooperative cancellation supplied by the action orchestrator. */
+  signal?: AbortSignal;
 }
 
 export interface VisionRequest {
@@ -53,17 +57,20 @@ export interface VisionRequest {
   imageBase64: string;
   imageMime: string;
   maxTokens?: number;
+  signal?: AbortSignal;
 }
 
 export interface TranscribeRequest {
   audio: Buffer;
   mime: string;
   fileName?: string;
+  signal?: AbortSignal;
 }
 
 export interface ImageRequest {
   prompt: string;
   size?: string;
+  signal?: AbortSignal;
 }
 
 export interface ImageResult {
@@ -72,17 +79,6 @@ export interface ImageResult {
   /** raw image bytes when the backend returns base64 */
   buffer?: Buffer;
   model: string;
-}
-
-export interface Fact {
-  userHandle: string;
-  fact: string;
-}
-
-export interface ExtractFactsRequest {
-  /** the latest exchange + context to mine for durable facts */
-  context: string;
-  existingFacts: string[];
 }
 
 export type AutoEngageRisk = 'low' | 'medium' | 'high';
@@ -99,6 +95,7 @@ export interface ScoreAutoEngageRequest {
   /** the fully-composed scoring prompt (built by prompts/) */
   prompt: string;
   system?: string;
+  signal?: AbortSignal;
 }
 
 /** A schema-validated JSON request. The provider parses + zod-validates + repairs once. */
@@ -106,15 +103,20 @@ export interface JsonRequest<T> {
   system?: string;
   prompt: string;
   schema: import('zod').ZodType<T>;
+  /** Human-readable contract added beside the generated JSON Schema. */
+  schemaHint?: string;
+  /** Lossless field normalization applied before validation (never JSON repair). */
+  normalizeCandidate?: (candidate: unknown) => unknown;
   temperature?: number;
   model?: string;
   maxTokens?: number;
+  signal?: AbortSignal;
 }
 
 /**
  * The capability methods are optional at runtime: a provider exposes `capabilities` and may
- * omit unsupported methods. `chatCompletion` and the two "reasoning" helpers
- * (`extractFacts`, `scoreAutoEngage`) build on chat and are always available when `chat` is true.
+ * omit unsupported methods. `chatCompletion` and the reasoning helper `scoreAutoEngage` build on
+ * chat and are always available when `chat` is true.
  */
 export interface LLMProvider {
   readonly name: string;
@@ -129,7 +131,6 @@ export interface LLMProvider {
   generateImage?(req: ImageRequest): Promise<ImageResult>;
   embed?(texts: string[]): Promise<number[][]>;
 
-  extractFacts(req: ExtractFactsRequest): Promise<Fact[]>;
   scoreAutoEngage(req: ScoreAutoEngageRequest): Promise<AutoEngageScore>;
 
   /**

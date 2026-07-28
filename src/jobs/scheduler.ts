@@ -1,32 +1,34 @@
 import type { AppConfig } from '../config/index.js';
 import type { Storage } from '../storage/index.js';
 import type { LoreEngine } from '../memory/loreEngine.js';
-import type { GroupQuotaService } from '../services/groupQuota.js';
 import { childLogger } from '../utils/logger.js';
 import { runRetentionCleanup } from './cleanup.js';
 import { runMemoryMiningJob } from './memoryMiningJob.js';
 import { runFeedbackLearningJob } from './feedbackLearningJob.js';
+import type { SocialLearningPipeline } from '../social/index.js';
 
 const log = childLogger('scheduler');
 
 /**
  * In-process scheduler (setInterval; no external cron/queue). Runs:
  *  - hourly retention cleanup
- *  - background memory mining (learns lore while the bot is silent, /autofact chats)
+ *  - background memory mining (always-on for started chats, dedicated quota-independent model)
  *  - feedback learning (scores recent replies, adapts memory salience)
  */
 export class Scheduler {
   private timers: NodeJS.Timeout[] = [];
+  private readonly runningJobs = new Set<string>();
 
   constructor(
     private readonly config: AppConfig,
     private readonly storage: Storage,
     private readonly lore: LoreEngine,
-    private readonly quota: GroupQuotaService,
     /** optional autonomous-posting tick (sends unprompted posts); needs the bot's send API */
     private readonly autopostTick?: () => Promise<void>,
     /** independent generated-image posting tick; intentionally has separate enablement/pace */
     private readonly generatedImageTick?: () => Promise<void>,
+    /** evolving people/relationship/community model, mined beside durable lore */
+    private readonly socialLearning?: SocialLearningPipeline,
   ) {}
 
   start(): void {
@@ -39,7 +41,7 @@ export class Scheduler {
     if (this.config.env.MEMORY_MINING_ENABLED) {
       this.every(this.config.env.MEMORY_MINING_INTERVAL_SECONDS * 1000, 60_000, () =>
         this.safe('mining', () =>
-          runMemoryMiningJob(this.storage, this.lore, this.quota, this.config),
+          runMemoryMiningJob(this.storage, this.lore, this.config, this.socialLearning),
         ),
       );
     }
@@ -74,10 +76,17 @@ export class Scheduler {
   }
 
   private async safe(name: string, fn: () => Promise<void>): Promise<void> {
+    if (this.runningJobs.has(name)) {
+      log.debug({ job: name }, 'scheduled job still running; overlapping tick skipped');
+      return;
+    }
+    this.runningJobs.add(name);
     try {
       await fn();
     } catch (err) {
       log.error({ err, job: name }, 'scheduled job failed');
+    } finally {
+      this.runningJobs.delete(name);
     }
   }
 

@@ -13,18 +13,6 @@ export const conversationtrackerCommand: CommandSpec = {
   },
 };
 
-/** /autofact - toggle automatic fact extraction. */
-export const autofactCommand: CommandSpec = {
-  command: 'autofact',
-  permissions: ['admin', 'allowed_user', 'not_banned'],
-  needsTermsAccepted: false,
-  priority: Priority.DEFAULT,
-  async handle({ services, context }) {
-    const on = await services.storage.chats.switchAutoFact(context.chatId);
-    return { text: on ? 'autofact_turned_on' : 'autofact_turned_off' };
-  },
-};
-
 /** /autoengage - toggle opt-in passive replies for this chat. Group quotas still apply. */
 export const autoengageCommand: CommandSpec = {
   command: 'autoengage',

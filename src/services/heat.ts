@@ -54,8 +54,9 @@ const LEVELS: { min: number; level: string; aggression: number; instruction: str
   {
     min: 0,
     level: 'baseline',
-    aggression: 0.35,
-    instruction: 'your default gruff self: a bit rude and hostile, but not cruel to them yet.',
+    aggression: 0.12,
+    instruction:
+      'normal friendship: warmth, curiosity and practical help are allowed; a jab is optional, never mandatory.',
   },
 ];
 

@@ -2,8 +2,8 @@ import type { Storage } from '../storage/index.js';
 
 /**
  * Terms of use state. Ports the accept/decline flow. On decline, the user's custom stored data
- * is cleared (messages, facts, modes they created, PII) while safety bookkeeping (terms + bans)
- * is retained - matching the original behaviour and the documented terms text.
+ * is cleared (messages, facts, long-lived memory/social state, modes they created and PII) while
+ * safety bookkeeping (terms + bans) is retained - matching the documented terms text.
  */
 export class TermsService {
   constructor(private readonly storage: Storage) {}
@@ -32,6 +32,8 @@ export class TermsService {
       this.storage.facts.deleteByUser(handle),
       this.storage.modes.deleteByCreator(handle),
       this.storage.users.scrubPii(handle),
+      this.storage.memoryItems.deleteByHandleEverywhere(handle),
+      this.storage.socialProfiles.deleteByHandleEverywhere(handle),
     ]);
   }
 }

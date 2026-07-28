@@ -4,7 +4,6 @@ import {
   buildReplyUserPrompt,
   buildAutoEngagePrompt,
   buildAutoEngageSystem,
-  buildFactExtractionContext,
 } from '../src/prompts/index.js';
 
 describe('prompt builders', () => {
@@ -61,18 +60,5 @@ describe('prompt builders', () => {
     });
     expect(p).toContain('anyone around?');
     expect(p).toContain('Default');
-  });
-
-  it('fact extraction context lists good vs bad facts', () => {
-    const p = buildFactExtractionContext({
-      userHandle: '@bob',
-      latestMessage: 'I love doom metal',
-      botReply: 'based',
-      history: [],
-      botLabel: 'bot',
-    });
-    expect(p).toContain('@bob');
-    expect(p.toLowerCase()).toContain('running joke');
-    expect(p.toLowerCase()).toContain('medical');
   });
 });

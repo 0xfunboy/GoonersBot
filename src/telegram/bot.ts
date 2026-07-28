@@ -10,6 +10,16 @@ import { childLogger } from '../utils/logger.js';
 import { runWithGroupPlan } from '../providers/llm/requestContext.js';
 import { aliasesForCommand, menuNameForCommand } from './handlers/commands/aliases.js';
 import { extractUrls } from '../providers/media/linkMedia/url.js';
+import {
+  applyReactionFeedback,
+  isFeedbackReaction,
+  telegramReactionActorKey,
+} from '../services/reactionFeedback.js';
+import {
+  executeDynamicCapabilityTurn,
+  tryAcquireDynamicCommandRateLimit,
+} from './handlers/commands/dynamic.js';
+import { localizeResponse, sendResponse } from './render.js';
 
 const log = childLogger('bot');
 
@@ -29,6 +39,14 @@ export async function createBot(config: AppConfig, services: Services): Promise<
 
   const deps: DispatchDeps = { services, botUsername };
 
+  services.capabilities.reserveCommands(
+    commandHandlers.flatMap((spec) => [
+      spec.command,
+      ...aliasesForCommand(spec),
+      menuNameForCommand(spec),
+    ]),
+  );
+
   // Register every English/Italian alias; the menu exposes the English baseline below.
   for (const spec of commandHandlers) {
     const names = [spec.command, ...aliasesForCommand(spec)];
@@ -40,6 +58,22 @@ export async function createBot(config: AppConfig, services: Services): Promise<
     bot.callbackQuery(new RegExp(`^${spec.action}(\\||$)`), (ctx) => runCallback(ctx, spec, deps));
   }
 
+  // Telegram reactions are explicit, message-level feedback. Observe both additions and removals
+  // so changing a reaction corrects the score instead of leaving stale positive/negative feedback.
+  bot.on('message_reaction', async (ctx) => {
+    const diff = ctx.reactions();
+    if (![...diff.emojiAdded, ...diff.emojiRemoved].some(isFeedbackReaction)) return;
+    const actorKey = telegramReactionActorKey(ctx.messageReaction);
+    if (!actorKey) return;
+    await applyReactionFeedback({
+      storage: services.storage,
+      chatId: ctx.messageReaction.chat.id,
+      botMessageId: ctx.messageReaction.message_id,
+      actorKey,
+      emojis: diff.emoji,
+    });
+  });
+
   // Free-text / media messages (not commands) go to the conversational handler.
   bot.on(
     [
@@ -49,11 +83,66 @@ export async function createBot(config: AppConfig, services: Services): Promise<
       'message:video',
       'message:video_note',
       'message:photo',
+      'message:document',
       'message:caption',
     ],
     async (ctx) => {
-      // Ignore commands here (handled above).
-      if (ctx.message?.text?.startsWith('/')) return;
+      const commandMatch = ctx.message?.text?.match(/^\/([a-z0-9_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i);
+      if (commandMatch) {
+        const command = commandMatch[1]?.toLowerCase() ?? '';
+        const input = commandMatch[2]?.trim() ?? '';
+        // Registered static commands stop in their own middleware. Unknown slash commands are
+        // handled here only when CapabilityForge owns a non-reserved route.
+        if (!services.capabilities.hasCommand(command)) return;
+        if (!tryAcquireDynamicCommandRateLimit(services, ctx.chat?.id ?? 0, ctx.from?.id ?? 0)) {
+          log.debug(
+            { chatId: ctx.chat?.id, telegramId: ctx.from?.id, command },
+            'dynamic command rate-limited',
+          );
+          return;
+        }
+
+        const person = buildPerson(ctx);
+        const context = await buildChatContext(ctx, botUsername);
+        if (!person || !context) return;
+        await services.initializeContext(person, context);
+        if (
+          !(await services.permissions.checkAll(['allowed_user', 'not_banned'], person, context)) ||
+          !(await services.terms.hasAccepted(person.userHandle)) ||
+          !services.isApproved(person, context)
+        ) {
+          return;
+        }
+
+        const result = await executeDynamicCapabilityTurn({
+          services,
+          person,
+          context,
+          command,
+          input,
+          language: await services.getLanguage(context.chatId),
+        });
+        if (result.status === 'usage_denied') {
+          const localized = await localizeResponse(services, context.chatId, {
+            text: 'usage_limit_exceeded',
+            vars: { user_handle: person.userHandle, usage_limit: result.limit },
+          });
+          await sendResponse(ctx, localized);
+        } else if (result.status === 'quota_denied') {
+          const localized = await localizeResponse(services, context.chatId, {
+            text: 'group_quota_exceeded',
+            vars: {
+              reason: result.reason,
+              retry_after: result.retryAfterSeconds,
+            },
+          });
+          await sendResponse(ctx, localized);
+        } else if (result.status === 'completed') {
+          await ctx.reply(result.execution.text.slice(0, 4000));
+        }
+        return;
+      }
+
       const person = buildPerson(ctx);
       const context = await buildChatContext(ctx, botUsername);
       if (!person || !context) return;
@@ -62,7 +151,11 @@ export async function createBot(config: AppConfig, services: Services): Promise<
       // Unaddressed traffic stays text-only. It enters inference only when this chat explicitly
       // enabled /autoengage; otherwise it remains free background context.
       const wantVoice = addressed;
-      const message = await buildIncomingMessage(ctx, { image: addressed, voice: wantVoice });
+      const message = await buildIncomingMessage(ctx, {
+        image: addressed,
+        voice: wantVoice,
+        documents: addressed,
+      });
       const autoengageEnabled =
         !addressed && (await services.storage.chats.getAutoengage(context.chatId));
       const hasMediaUrl =
@@ -107,7 +200,16 @@ export async function createBot(config: AppConfig, services: Services): Promise<
     start: async () => {
       log.info('starting long-polling');
       // grammY start() resolves only when the bot stops; run it detached.
-      void bot.start({ drop_pending_updates: false });
+      void bot
+        .start({
+          drop_pending_updates: false,
+          allowed_updates: ['message', 'callback_query', 'message_reaction'],
+        })
+        .catch((err) => {
+          log.error({ err }, 'long-polling stopped unexpectedly');
+          // Let systemd's restart policy recover instead of leaving a healthy-looking dead process.
+          process.exit(1);
+        });
     },
     stop: async () => {
       await bot.stop();

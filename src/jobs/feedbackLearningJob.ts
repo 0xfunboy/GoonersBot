@@ -41,6 +41,7 @@ export async function runFeedbackLearningJob(
   if (!config.env.FEEDBACK_LEARNING_ENABLED) return;
   const lookahead = config.env.FEEDBACK_LOOKAHEAD_MESSAGES;
   const minAgeMs = 60 * 1000; // give the chat a minute to react before scoring
+  const maxAgeMs = 15 * 60 * 1000;
   const now = Date.now();
   const chatIds = await storage.chats.listStartedChatIds();
 
@@ -52,11 +53,29 @@ export async function runFeedbackLearningJob(
         const following = await storage.messages.getMessagesSince(
           chatId,
           reply.createdAt,
-          lookahead,
+          Math.max(lookahead * 3, lookahead),
         );
-        const human = following.filter((m) => !m.isBot);
-        if (human.length === 0) continue;
-        const { score, reasons } = inferFeedback(human.map((m) => m.message.messageText ?? ''));
+        // Only an exact Telegram reply to this bot message is attributable feedback. A random
+        // "lol" later in a busy group may target somebody else and must not train several replies.
+        const deadline = new Date(reply.createdAt).getTime() + maxAgeMs;
+        const targeted = following
+          .filter(
+            (message) =>
+              !message.isBot &&
+              reply.messageId !== undefined &&
+              message.replyToMessageId === reply.messageId &&
+              new Date(message.message.timestamp).getTime() <= deadline,
+          )
+          .slice(0, lookahead);
+        if (targeted.length === 0) {
+          if (now >= deadline && reply._id) {
+            await storage.botReplies.setFeedback(reply._id, 0, ['no_explicit_feedback']);
+          }
+          continue;
+        }
+        const { score, reasons } = inferFeedback(
+          targeted.map((message) => message.message.messageText ?? ''),
+        );
         if (reply._id) await storage.botReplies.setFeedback(reply._id, score, reasons);
         if (score !== 0) {
           for (const memId of reply.usedMemoryIds) {

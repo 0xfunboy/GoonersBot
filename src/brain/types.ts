@@ -26,6 +26,50 @@ export type UserIntent =
   | 'dangerous_request'
   | 'unknown';
 
+/**
+ * A turn's social meaning, kept separate from literal intent. "Help me, coglione" is still a
+ * support turn; profanity alone must never route vulnerability into the roast pipeline.
+ */
+export type SocialSituation =
+  | 'urgent_distress'
+  | 'vulnerability'
+  | 'practical_help'
+  | 'factual_help'
+  | 'gratitude'
+  | 'celebration'
+  | 'banter'
+  | 'conflict'
+  | 'creative_play'
+  | 'casual';
+
+export type SupportNeed = 'none' | 'low' | 'high' | 'urgent';
+
+export type ResponsePosture =
+  | 'protective'
+  | 'steady'
+  | 'practical'
+  | 'curious'
+  | 'celebratory'
+  | 'sparring'
+  | 'deescalating'
+  | 'playful';
+
+export type MemoryPolicy = 'avoid_callbacks' | 'implicit_only' | 'eligible';
+
+export type ResponseOrder = 'stabilize_then_help' | 'answer_then_color' | 'play_first';
+
+export interface SocialSignal {
+  situation: SocialSituation;
+  supportNeed: SupportNeed;
+  posture: ResponsePosture;
+  humorAllowed: boolean;
+  roastCeiling: RoastBudget;
+  memoryPolicy: MemoryPolicy;
+  responseOrder: ResponseOrder;
+  confidence: number;
+  cues: string[];
+}
+
 export interface SceneAnalysis {
   currentTopic: string;
   energy: SceneEnergy;
@@ -40,10 +84,13 @@ export interface SceneAnalysis {
   shouldBeDefensive: boolean;
   bestAngle: string;
   risk: 'low' | 'medium' | 'high';
+  /** Deterministic social floor; optional for old debug records and external callers. */
+  socialSignal?: SocialSignal;
 }
 
 export type ReplyIntent =
   | 'answer_question'
+  | 'acknowledge_gratitude'
   | 'roast_user'
   | 'roast_self'
   | 'summarize'
@@ -64,9 +111,11 @@ export type TurnAction =
   | 'download_media'
   | 'generate_image'
   | 'draw_image'
+  | 'generate_video'
   | 'translate_text'
   | 'make_voice'
   | 'post_news'
+  | 'acquire_capability'
   | 'summarize_thread'
   | 'use_group_lore'
   | 'banter_only'
@@ -81,8 +130,10 @@ export type ProviderRequest =
   | 'music'
   | 'link_media'
   | 'image_generation'
+  | 'video_generation'
   | 'translation'
-  | 'tts';
+  | 'tts'
+  | 'capability_forge';
 
 export type ValueTarget =
   | 'truth'
@@ -93,6 +144,24 @@ export type ValueTarget =
   | 'social_glue';
 
 export type RoastBudget = 'none' | 'light' | 'medium' | 'heavy';
+
+/**
+ * The comic mechanism, not merely the tone. Rotating this prevents every response from being the
+ * same insult wearing a different adjective.
+ */
+export type ComedyStrategy =
+  | 'none'
+  | 'surgical_observation'
+  | 'absurd_analogy'
+  | 'mock_authority'
+  | 'status_reversal'
+  | 'literal_misread'
+  | 'escalating_specificity'
+  | 'understatement'
+  | 'self_own'
+  | 'callback_remix'
+  | 'shared_enemy'
+  | 'warm_deadpan';
 
 export type SocialRole =
   | 'friend'
@@ -111,11 +180,14 @@ export interface TurnEvaluation {
   socialRole: SocialRole;
   confidence: number;
   reason: string;
+  /** Hard social calibration inferred from the actual turn, not personality flavor. */
+  socialSignal?: SocialSignal;
   searchQuery?: string;
   musicQuery?: string;
   mediaQuery?: string;
   mediaUrl?: string;
   imagePrompt?: string;
+  videoPrompt?: string;
   targetLanguage?: string;
   sourceText?: string;
   voiceText?: string;
@@ -123,6 +195,7 @@ export interface TurnEvaluation {
 
 export interface ProviderBundle {
   threadContext?: string;
+  socialContext?: string;
   groupContext?: string;
   knowledgeContext?: string;
   webContext?: string;
@@ -148,6 +221,8 @@ export interface ReplyPlan {
   bannedPhrases: string[];
   noveltyInstruction: string;
   mustAnswer: boolean;
+  socialSignal?: SocialSignal;
+  comedyStrategy?: ComedyStrategy;
 }
 
 export interface StyleProfile {
@@ -163,6 +238,10 @@ export interface StyleProfile {
   degen: number;
   /** chosen named variants (1-2) for this turn */
   variants: string[];
+  /** chosen joke mechanics; `none` is intentional during serious support. */
+  comedyStrategies?: ComedyStrategy[];
+  supportPosture?: ResponsePosture;
+  humorAllowed?: boolean;
 }
 
 export interface RankedReply {
@@ -174,23 +253,40 @@ export interface RankedReply {
 
 export interface RepetitionCheck {
   allowed: boolean;
+  /** True only for a reason strong enough to justify another model call. */
+  hardBlocked: boolean;
   reason?: string;
+  /** Variety hints used for ranking/telemetry; they never discard an otherwise useful reply. */
+  advisoryReasons: string[];
   similarityToRecentReplies: number;
   repeatedPhrases: string[];
   overusedMemoryIds: string[];
   sameOpening: boolean;
+  /** Similarity after lightweight concept canonicalisation, so paraphrases are visible. */
+  semanticSimilarity: number;
+  /** Reused joke subjects such as "wallet/trading loss" or "low intelligence". */
+  repeatedPremises: string[];
+  sameComedyStrategy: boolean;
+  callbackSaturation: boolean;
 }
 
 /** A persisted bot reply (for repetition guard + feedback). */
 export interface BotReplyRecord {
   _id?: string;
   chatId: number;
+  /** Person the reply was aimed at, used for relationship-specific adaptation. */
+  recipientHandle?: string;
   messageId?: number;
+  /** Every Telegram message emitted for this turn (text plus successful media artifacts). */
+  messageIds?: number[];
   text: string;
   normalizedText: string;
   fingerprint: string;
   createdAt: Date;
   styleVariant?: string;
+  comedyStrategy?: ComedyStrategy;
+  jokePremises?: string[];
+  socialSituation?: SocialSituation;
   usedMemoryIds: string[];
   model?: string | null;
   feedbackScore?: number;

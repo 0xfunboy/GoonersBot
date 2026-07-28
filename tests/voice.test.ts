@@ -113,6 +113,25 @@ describe('/voice command', () => {
     expect(res?.audioBuffer).toBeInstanceOf(Buffer);
   });
 
+  it('uses replied Telegram text when the message was never persisted', async () => {
+    const synth = vi.fn().mockResolvedValue(Buffer.from('OGG'));
+    const findByMessageId = vi.fn();
+    const services = {
+      tts: { enabled: true, synth },
+      getLanguage: () => 'italian',
+      storage: { messages: { findByMessageId, getLatest: vi.fn() } },
+    };
+    const res = await voiceCommand.handle(
+      input(
+        services,
+        ctx({ repliedToMessageId: 42, repliedToText: 'testo direttamente da Telegram' }),
+      ),
+    );
+    expect(findByMessageId).not.toHaveBeenCalled();
+    expect(synth).toHaveBeenCalledWith('testo direttamente da Telegram', 'italian');
+    expect(res?.audioBuffer).toBeInstanceOf(Buffer);
+  });
+
   it('voices the latest message when used alone', async () => {
     const synth = vi.fn().mockResolvedValue(Buffer.from('OGG'));
     const getLatest = vi.fn().mockResolvedValue({ message: { messageText: 'ultimo' } });

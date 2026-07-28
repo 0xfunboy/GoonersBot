@@ -45,16 +45,13 @@ const setChatLanguage: CallbackSpec = {
   needsTermsAccepted: false,
   async handle({ services, context, args }) {
     const language = args[0];
-    if (!language) return null;
+    if (!language || !services.localizer.supportedLanguages().includes(language)) return null;
     await services.storage.chats.setLanguage(context.chatId, language);
     return { text: 'language_set', vars: { language } };
   },
 };
 
-/**
- * show_chat_modes|<buttonAction>|<page> - pagination repaint. Returns a fresh modes keyboard.
- * (The keyboard renderer always shows page 0; richer pagination is a documented simplification.)
- */
+/** show_chat_modes|<buttonAction>|<page> - pagination repaint. */
 const showChatModes: CallbackSpec = {
   action: SHOW_MODES_CALLBACK,
   permissions: ['allowed_user', 'not_banned'],
@@ -62,12 +59,14 @@ const showChatModes: CallbackSpec = {
   async handle({ services, context, args }) {
     const buttonAction = args[0] ?? SET_MODE_CALLBACK;
     const modes = await services.modes.list(context.chatId);
+    const page = boundedPage(args[1], modes.length);
     return {
       text: 'choose_mode',
       keyboard: {
         options: modes.map((m) => ({ id: m.id, label: m.name })),
         callback: SHOW_MODES_CALLBACK,
         buttonAction,
+        page,
       },
     };
   },
@@ -81,12 +80,14 @@ const showChatLanguages: CallbackSpec = {
   async handle({ services, args }) {
     const buttonAction = args[0] ?? SET_LANGUAGE_CALLBACK;
     const langs = services.localizer.supportedLanguages();
+    const page = boundedPage(args[1], langs.length);
     return {
       text: 'choose_language',
       keyboard: {
         options: langs.map((l) => ({ id: l, label: l })),
         callback: SHOW_LANGUAGES_CALLBACK,
         buttonAction,
+        page,
       },
     };
   },
@@ -95,8 +96,10 @@ const showChatLanguages: CallbackSpec = {
 /** terms_response|accept|decline - record terms acceptance/decline. */
 const termsResponse: CallbackSpec = {
   action: TERMS_CALLBACK,
-  permissions: ['allowed_user', 'not_banned'],
+  permissions: ['not_banned'],
   needsTermsAccepted: false,
+  approvalExempt: true,
+  ownerOnly: true,
   async handle({ services, person, context, args }) {
     const action = args[0];
     const vars = { user_handle: person.userHandle };
@@ -104,7 +107,11 @@ const termsResponse: CallbackSpec = {
       await services.terms.accept(person.userHandle);
       // In a non-approved private chat, follow the signature with the "request approval" notice.
       if (!context.isGroup && !services.isApproved(person, context)) {
-        return { text: 'dm_info', vars: { admin_handle: services.adminContact() }, deleteOrigin: true };
+        return {
+          text: 'dm_info',
+          vars: { admin_handle: services.adminContact() },
+          deleteOrigin: true,
+        };
       }
       // delete the (personal) terms prompt and confirm citing who accepted
       return { text: 'terms_accepted', vars, deleteOrigin: true };
@@ -125,3 +132,9 @@ export const callbackHandlers: CallbackSpec[] = [
   showChatLanguages,
   termsResponse,
 ];
+
+function boundedPage(raw: string | undefined, itemCount: number): number {
+  const parsed = raw && /^\d+$/.test(raw) ? Number(raw) : 0;
+  const lastPage = Math.max(0, Math.ceil(itemCount / 8) - 1);
+  return Math.max(0, Math.min(lastPage, Number.isSafeInteger(parsed) ? parsed : 0));
+}

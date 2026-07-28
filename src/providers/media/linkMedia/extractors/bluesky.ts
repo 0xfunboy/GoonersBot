@@ -21,6 +21,7 @@ export const blueskyExtractor: LinkExtractor = {
       timeoutMs: ctx.timeoutMs,
       maxBytes: 2 * 1024 * 1024,
       userAgent: ctx.userAgent,
+      signal: ctx.signal,
     });
     const post = (JSON.parse(raw) as any).thread?.post;
     if (!post) return null;

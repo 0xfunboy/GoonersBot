@@ -1,6 +1,8 @@
 import { childLogger } from '../utils/logger.js';
 import type { SearxngProvider } from '../search/searxng.js';
 import type { MediaProcessor } from '../providers/media/index.js';
+import { throwIfAborted } from '../utils/abort.js';
+import { fetchSafeRemoteBuffer } from '../utils/safeRemoteFetch.js';
 
 const log = childLogger('image-finder');
 
@@ -16,6 +18,11 @@ export interface FoundImage {
   buffer: Buffer;
   /** vision description (the bot "looked at it") for an on-theme comment */
   description: string;
+}
+
+interface DownloadedImage {
+  buffer: Buffer;
+  mime: string;
 }
 
 /**
@@ -35,10 +42,10 @@ export class ImageFinder {
   }
 
   /** Pick a query (a hint, or a random one from the pool) and return a verified image + description. */
-  async find(hint?: string): Promise<FoundImage | null> {
+  async find(hint?: string, signal?: AbortSignal): Promise<FoundImage | null> {
     if (!this.enabled) return null;
     const query = (hint && hint.trim()) || this.randomQuery();
-    const urls = await this.searxng.searchImages(query, { max: 30 });
+    const urls = await this.searxng.searchImages(query, { max: 30, signal });
     if (urls.length === 0) {
       log.debug({ query }, 'no image candidates from search');
       return null;
@@ -46,16 +53,17 @@ export class ImageFinder {
 
     // Try several candidates; send the first that downloads and is not hardcore/minor content.
     for (const url of shuffle(urls).slice(0, 8)) {
-      const buffer = await this.download(url);
-      if (!buffer) continue;
-      const description = await this.media.describeImage(buffer, guessMime(url));
+      throwIfAborted(signal);
+      const image = await this.download(url, signal);
+      if (!image) continue;
+      const description = await this.media.describeImage(image.buffer, image.mime, signal);
       // No description means vision could not look at it: skip (cannot vet it).
       if (!description) continue;
       if (MINOR_BLOCK_RE.test(description) || HARDCORE_RE.test(description)) {
         log.debug({ url }, 'image rejected (hardcore/minor)');
         continue;
       }
-      return { buffer, description };
+      return { buffer: image.buffer, description };
     }
     log.debug({ query, tried: Math.min(urls.length, 8) }, 'no candidate passed verification');
     return null;
@@ -65,18 +73,22 @@ export class ImageFinder {
    * Find a neutral visual reference used only as an OpenPose source. It is never sent to Telegram
    * or written to disk: Forge receives its pose map in the generation request.
    */
-  async findPoseReference(hint: string): Promise<FoundImage | null> {
+  async findPoseReference(hint: string, signal?: AbortSignal): Promise<FoundImage | null> {
     if (!this.enabled) return null;
-    const urls = await this.searxng.searchImages(`${hint} pose reference full body`, { max: 20 });
+    const urls = await this.searxng.searchImages(`${hint} pose reference full body`, {
+      max: 20,
+      signal,
+    });
     for (const url of shuffle(urls).slice(0, 8)) {
-      const buffer = await this.download(url);
-      if (!buffer) continue;
-      const description = await this.media.describeImage(buffer, guessMime(url));
+      throwIfAborted(signal);
+      const image = await this.download(url, signal);
+      if (!image) continue;
+      const description = await this.media.describeImage(image.buffer, image.mime, signal);
       if (!description || MINOR_BLOCK_RE.test(description) || HARDCORE_RE.test(description))
         continue;
       if (!/\b(person|people|man|woman|adult|standing|pose|body)\b/i.test(description)) continue;
       log.info({ hint }, 'selected SearXNG image as an in-memory OpenPose reference');
-      return { buffer, description };
+      return { buffer: image.buffer, description };
     }
     log.info({ hint }, 'no suitable SearXNG OpenPose reference found');
     return null;
@@ -86,21 +98,22 @@ export class ImageFinder {
     return this.queryPool[Math.floor(Math.random() * this.queryPool.length)] ?? 'anime waifu';
   }
 
-  private async download(url: string): Promise<Buffer | null> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10_000);
+  private async download(url: string, signal?: AbortSignal): Promise<DownloadedImage | null> {
     try {
-      const res = await fetch(url, { signal: controller.signal });
-      if (!res.ok) return null;
-      const type = res.headers.get('content-type') ?? '';
-      if (!type.startsWith('image/')) return null;
-      const buf = Buffer.from(await res.arrayBuffer());
-      if (buf.length < 1024 || buf.length > MAX_BYTES) return null;
-      return buf;
+      const result = await fetchSafeRemoteBuffer(url, {
+        timeoutMs: 10_000,
+        maxBytes: MAX_BYTES,
+        signal,
+        allowedContentTypes: ['image/*'],
+        headers: { Accept: 'image/avif,image/webp,image/png,image/jpeg,image/gif,image/*;q=0.8' },
+      });
+      if (result.buffer.length < 1024) return null;
+      return {
+        buffer: result.buffer,
+        mime: result.contentType || guessMime(result.finalUrl),
+      };
     } catch {
       return null;
-    } finally {
-      clearTimeout(timer);
     }
   }
 }

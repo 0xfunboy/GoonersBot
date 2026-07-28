@@ -2,6 +2,44 @@ import { z } from 'zod';
 
 /** Zod schemas for LLM-produced brain JSON (scene, plan, ranker). */
 
+export const socialSignalSchema = z.object({
+  situation: z
+    .enum([
+      'urgent_distress',
+      'vulnerability',
+      'practical_help',
+      'factual_help',
+      'gratitude',
+      'celebration',
+      'banter',
+      'conflict',
+      'creative_play',
+      'casual',
+    ])
+    .default('casual'),
+  supportNeed: z.enum(['none', 'low', 'high', 'urgent']).default('none'),
+  posture: z
+    .enum([
+      'protective',
+      'steady',
+      'practical',
+      'curious',
+      'celebratory',
+      'sparring',
+      'deescalating',
+      'playful',
+    ])
+    .default('playful'),
+  humorAllowed: z.boolean().default(true),
+  roastCeiling: z.enum(['none', 'light', 'medium', 'heavy']).default('medium'),
+  memoryPolicy: z.enum(['avoid_callbacks', 'implicit_only', 'eligible']).default('implicit_only'),
+  responseOrder: z
+    .enum(['stabilize_then_help', 'answer_then_color', 'play_first'])
+    .default('play_first'),
+  confidence: z.number().min(0).max(1).default(0.5),
+  cues: z.array(z.string()).default([]),
+});
+
 export const sceneSchema = z.object({
   currentTopic: z.string().default(''),
   energy: z.enum(['dead', 'low', 'medium', 'high', 'chaotic']).default('medium'),
@@ -41,12 +79,14 @@ export const sceneSchema = z.object({
   shouldBeDefensive: z.boolean().default(false),
   bestAngle: z.string().default(''),
   risk: z.enum(['low', 'medium', 'high']).default('low'),
+  socialSignal: socialSignalSchema.optional(),
 });
 
 export const planSchema = z.object({
   replyIntent: z
     .enum([
       'answer_question',
+      'acknowledge_gratitude',
       'roast_user',
       'roast_self',
       'summarize',
@@ -67,9 +107,11 @@ export const planSchema = z.object({
       'download_media',
       'generate_image',
       'draw_image',
+      'generate_video',
       'translate_text',
       'make_voice',
       'post_news',
+      'acquire_capability',
       'summarize_thread',
       'use_group_lore',
       'banter_only',
@@ -86,11 +128,28 @@ export const planSchema = z.object({
   mustBringValue: z.boolean().default(true),
   targetHandles: z.array(z.string()).default([]),
   tone: z.string().default('group-native'),
-  maxLines: z.number().int().min(1).max(8).default(2),
+  maxLines: z.number().int().min(1).max(30).default(2),
   memoryUseMode: z.enum(['none', 'implicit_style', 'explicit_callback']).default('none'),
   memoryIdsToUse: z.array(z.string()).default([]),
   noveltyInstruction: z.string().default(''),
   mustAnswer: z.boolean().default(true),
+  socialSignal: socialSignalSchema.optional(),
+  comedyStrategy: z
+    .enum([
+      'none',
+      'surgical_observation',
+      'absurd_analogy',
+      'mock_authority',
+      'status_reversal',
+      'literal_misread',
+      'escalating_specificity',
+      'understatement',
+      'self_own',
+      'callback_remix',
+      'shared_enemy',
+      'warm_deadpan',
+    ])
+    .optional(),
 });
 
 export type ScenePayload = z.infer<typeof sceneSchema>;
@@ -113,9 +172,11 @@ export const turnEvaluationSchema = z.object({
       'download_media',
       'generate_image',
       'draw_image',
+      'generate_video',
       'translate_text',
       'make_voice',
       'post_news',
+      'acquire_capability',
       'summarize_thread',
       'use_group_lore',
       'banter_only',
@@ -133,8 +194,10 @@ export const turnEvaluationSchema = z.object({
         'music',
         'link_media',
         'image_generation',
+        'video_generation',
         'translation',
         'tts',
+        'capability_forge',
       ]),
     )
     .default([]),
@@ -145,6 +208,7 @@ export const turnEvaluationSchema = z.object({
   socialRole: z
     .enum(['friend', 'truth_checker', 'banter', 'lorekeeper', 'quiet_listener', 'technical_peer'])
     .default('friend'),
+  socialSignal: socialSignalSchema.optional(),
   confidence: z.number().min(0).max(1).default(0.5),
   reason: z.string().default(''),
   searchQuery: z.string().optional(),

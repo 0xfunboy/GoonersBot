@@ -1,12 +1,11 @@
 import { childLogger } from '../../utils/logger.js';
-import { currentGroupPlan } from './requestContext.js';
+import { currentGroupPlan, recordCurrentLlmUsage } from './requestContext.js';
+import { createAbortScope, throwIfAborted } from '../../utils/abort.js';
 import {
   CapabilityUnavailableError,
   type AutoEngageScore,
   type ChatRequest,
   type ChatResult,
-  type ExtractFactsRequest,
-  type Fact,
   type ImageRequest,
   type ImageResult,
   type LLMProvider,
@@ -15,10 +14,17 @@ import {
   type TranscribeRequest,
   type VisionRequest,
 } from './types.js';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 
 export interface OpenAICompatibleOptions {
   name: string;
   baseUrl: string;
+  /** LeakRouter-specific plan header; disabled for independent public provider endpoints. */
+  forwardGroupPlan?: boolean;
+  /** Defaults to true. Set false for a route whose configured chat model must stay pinned. */
+  allowRequestModelOverride?: boolean;
+  /** Defaults to true. Set false when calls must not debit the conversational request context. */
+  meterUsage?: boolean;
   apiKey: string | undefined;
   chatModel: string | undefined;
   visionModel: string | undefined;
@@ -41,6 +47,83 @@ export interface OpenAICompatibleOptions {
 }
 
 const log = childLogger('llm');
+const MAX_LLM_BODY_BYTES = 64 * 1024 * 1024;
+const MAX_ERROR_BODY_BYTES = 64 * 1024;
+type ByteStreamReadResult = Awaited<ReturnType<ReadableStreamDefaultReader<Uint8Array>['read']>>;
+
+async function readStreamChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal: AbortSignal,
+): Promise<ByteStreamReadResult> {
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (
+      callback: (value: ByteStreamReadResult | PromiseLike<ByteStreamReadResult>) => void,
+      value: ByteStreamReadResult,
+    ): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      callback(value);
+    };
+    const fail = (reason: unknown): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      reject(reason);
+    };
+    const onAbort = (): void => {
+      const reason =
+        signal.reason instanceof Error ? signal.reason : new Error('LLM response read aborted');
+      void reader.cancel(reason).catch(() => undefined);
+      fail(reason);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    reader.read().then((value) => finish(resolve, value), fail);
+  });
+}
+
+async function readResponseText(
+  response: Response,
+  signal: AbortSignal,
+  maxBytes = MAX_LLM_BODY_BYTES,
+): Promise<string> {
+  if (!response.body) {
+    throwIfAborted(signal);
+    return '';
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = '';
+  let finished = false;
+  try {
+    for (;;) {
+      const chunk = await readStreamChunk(reader, signal);
+      if (chunk.done) {
+        finished = true;
+        text += decoder.decode();
+        break;
+      }
+      bytes += chunk.value.byteLength;
+      if (bytes > maxBytes) {
+        throw new Error(`LLM response body exceeds ${maxBytes} bytes`);
+      }
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+    throwIfAborted(signal);
+    return text;
+  } finally {
+    if (!finished) await reader.cancel(signal.reason).catch(() => undefined);
+  }
+}
+
+async function readResponseJson<T>(response: Response, signal: AbortSignal): Promise<T> {
+  const text = await readResponseText(response, signal);
+  throwIfAborted(signal);
+  return JSON.parse(text) as T;
+}
 
 /** Rough token estimate (~4 chars/token) used when the backend omits usage. */
 function estimateTokens(text: string): number {
@@ -107,7 +190,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     const h: Record<string, string> = { 'Content-Type': 'application/json', ...extra };
     if (this.opts.apiKey) h['Authorization'] = `Bearer ${this.opts.apiKey}`;
     const groupPlan = currentGroupPlan();
-    if (groupPlan) h['X-LeakRouter-Group-Plan'] = groupPlan;
+    if (this.opts.forwardGroupPlan && groupPlan) h['X-LeakRouter-Group-Plan'] = groupPlan;
     return h;
   }
 
@@ -124,26 +207,41 @@ export class OpenAICompatibleProvider implements LLMProvider {
       const h: Record<string, string> = { 'Content-Type': 'application/json' };
       if (this.opts.nsfwApiKey) h['Authorization'] = `Bearer ${this.opts.nsfwApiKey}`;
       const groupPlan = currentGroupPlan();
-      if (groupPlan) h['X-LeakRouter-Group-Plan'] = groupPlan;
+      if (this.opts.forwardGroupPlan && groupPlan) h['X-LeakRouter-Group-Plan'] = groupPlan;
       return { url: `${this.opts.nsfwBaseUrl.replace(/\/+$/, '')}/chat/completions`, headers: h };
     }
     return { url: this.url('/chat/completions'), headers: this.headers() };
   }
 
-  private async fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.opts.requestTimeoutMs);
+  /**
+   * Keep the timeout/parent-abort scope alive until the response body has been fully consumed.
+   * `fetch()` resolves as soon as the headers arrive, so disposing the scope immediately after it
+   * returns leaves `json()`, `text()` and SSE readers able to hang forever.
+   */
+  private async withTimedResponse<T>(
+    url: string,
+    init: RequestInit,
+    consume: (response: Response, signal: AbortSignal) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    const scope = createAbortScope(this.opts.requestTimeoutMs, signal, 'LLM request');
     try {
-      return await fetch(url, { ...init, signal: controller.signal });
+      const response = await fetch(url, { ...init, signal: scope.signal });
+      return await consume(response, scope.signal);
     } finally {
-      clearTimeout(timer);
+      scope.dispose();
     }
   }
 
   protected requireChatModel(model?: string): string {
-    const m = model ?? this.opts.chatModel;
+    const requestedModel = this.opts.allowRequestModelOverride === false ? undefined : model;
+    const m = requestedModel ?? this.opts.chatModel;
     if (!m) throw new CapabilityUnavailableError('chat');
     return m;
+  }
+
+  private recordUsage(usage: ChatResult['usage']): void {
+    if (this.opts.meterUsage !== false) recordCurrentLlmUsage(usage);
   }
 
   async chatCompletion(req: ChatRequest): Promise<ChatResult> {
@@ -155,36 +253,45 @@ export class OpenAICompatibleProvider implements LLMProvider {
       stream: false,
     };
     applySampling(body, req);
+    if (req.responseFormat) body['response_format'] = req.responseFormat;
 
     const ep = this.chatEndpoint(model);
-    const res = await this.fetchWithTimeout(ep.url, {
-      method: 'POST',
-      headers: ep.headers,
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`chat completion failed (${res.status}): ${text.slice(0, 500)}`);
-    }
-    const json = (await res.json()) as ChatCompletionResponse;
-    const text = json.choices?.[0]?.message?.content ?? '';
-    const usage = json.usage;
-    return {
-      text,
-      model,
-      finishReason: normalizeFinishReason(json.choices?.[0]?.finish_reason),
-      usage: usage
-        ? {
-            inputTokens: usage.prompt_tokens,
-            outputTokens: usage.completion_tokens,
-            estimated: false,
-          }
-        : {
-            inputTokens: estimateTokens(messages.map((m) => m.content).join('\n')),
-            outputTokens: estimateTokens(text),
-            estimated: true,
-          },
-    };
+    return this.withTimedResponse(
+      ep.url,
+      {
+        method: 'POST',
+        headers: ep.headers,
+        body: JSON.stringify(body),
+      },
+      async (res, signal) => {
+        if (!res.ok) {
+          const text = await readResponseText(res, signal, MAX_ERROR_BODY_BYTES);
+          throw new Error(`chat completion failed (${res.status}): ${text.slice(0, 500)}`);
+        }
+        const json = await readResponseJson<ChatCompletionResponse>(res, signal);
+        const text = json.choices?.[0]?.message?.content ?? '';
+        const usage = json.usage;
+        const result: ChatResult = {
+          text,
+          model,
+          finishReason: normalizeFinishReason(json.choices?.[0]?.finish_reason),
+          usage: usage
+            ? {
+                inputTokens: usage.prompt_tokens,
+                outputTokens: usage.completion_tokens,
+                estimated: false,
+              }
+            : {
+                inputTokens: estimateTokens(messages.map((m) => m.content).join('\n')),
+                outputTokens: estimateTokens(text),
+                estimated: true,
+              },
+        };
+        this.recordUsage(result.usage);
+        return result;
+      },
+      req.signal,
+    );
   }
 
   async *streamChatCompletion(req: ChatRequest): AsyncGenerator<string, ChatResult, void> {
@@ -194,55 +301,73 @@ export class OpenAICompatibleProvider implements LLMProvider {
     applySampling(body, req);
 
     const ep = this.chatEndpoint(model);
-    const res = await this.fetchWithTimeout(ep.url, {
-      method: 'POST',
-      headers: ep.headers,
-      body: JSON.stringify(body),
-    });
-    if (!res.ok || !res.body) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`stream chat failed (${res.status}): ${text.slice(0, 500)}`);
-    }
+    const scope = createAbortScope(this.opts.requestTimeoutMs, req.signal, 'LLM request');
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let streamFinished = false;
+    try {
+      const res = await fetch(ep.url, {
+        method: 'POST',
+        headers: ep.headers,
+        body: JSON.stringify(body),
+        signal: scope.signal,
+      });
+      if (!res.ok || !res.body) {
+        const text = await readResponseText(res, scope.signal, MAX_ERROR_BODY_BYTES);
+        throw new Error(`stream chat failed (${res.status}): ${text.slice(0, 500)}`);
+      }
 
-    let full = '';
-    let finishReason: ChatResult['finishReason'];
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith('data:')) continue;
-        const data = trimmed.slice(5).trim();
-        if (data === '[DONE]') continue;
-        try {
-          const chunk = JSON.parse(data) as ChatCompletionStreamChunk;
-          const delta = chunk.choices?.[0]?.delta?.content;
-          finishReason = normalizeFinishReason(chunk.choices?.[0]?.finish_reason) ?? finishReason;
-          if (delta) {
-            full += delta;
-            yield delta;
+      let full = '';
+      let finishReason: ChatResult['finishReason'];
+      reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { value, done } = await readStreamChunk(reader, scope.signal);
+        if (done) {
+          streamFinished = true;
+          buffer += decoder.decode();
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
+          const data = trimmed.slice(5).trim();
+          if (data === '[DONE]') continue;
+          try {
+            const chunk = JSON.parse(data) as ChatCompletionStreamChunk;
+            const delta = chunk.choices?.[0]?.delta?.content;
+            finishReason = normalizeFinishReason(chunk.choices?.[0]?.finish_reason) ?? finishReason;
+            if (delta) {
+              full += delta;
+              yield delta;
+            }
+          } catch {
+            // Ignore a malformed upstream event, but never ignore an abort/read failure.
           }
-        } catch {
-          // ignore partial/non-JSON keepalive lines
         }
       }
+      throwIfAborted(scope.signal);
+      const result: ChatResult = {
+        text: full,
+        model,
+        finishReason,
+        usage: {
+          inputTokens: estimateTokens(messages.map((m) => m.content).join('\n')),
+          outputTokens: estimateTokens(full),
+          estimated: true,
+        },
+      };
+      this.recordUsage(result.usage);
+      return result;
+    } finally {
+      if (reader && !streamFinished) {
+        await reader.cancel(scope.signal.reason).catch(() => undefined);
+      }
+      scope.dispose();
     }
-    return {
-      text: full,
-      model,
-      finishReason,
-      usage: {
-        inputTokens: estimateTokens(messages.map((m) => m.content).join('\n')),
-        outputTokens: estimateTokens(full),
-        estimated: true,
-      },
-    };
   }
 
   private buildMessages(req: ChatRequest): Array<{ role: string; content: string }> {
@@ -272,8 +397,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
     const visionUrl = this.opts.visionEndpointUrl
       ? this.opts.visionEndpointUrl
       : this.opts.visionBaseUrl
-      ? `${this.opts.visionBaseUrl.replace(/\/+$/, '')}/chat/completions`
-      : this.url('/chat/completions');
+        ? `${this.opts.visionBaseUrl.replace(/\/+$/, '')}/chat/completions`
+        : this.url('/chat/completions');
     const visionHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
     const visionKey = this.opts.visionEndpointUrl
       ? (nonEmpty(this.opts.visionApiKey) ?? this.opts.apiKey)
@@ -282,30 +407,40 @@ export class OpenAICompatibleProvider implements LLMProvider {
         : this.opts.apiKey;
     if (visionKey) visionHeaders['Authorization'] = `Bearer ${visionKey}`;
     const groupPlan = currentGroupPlan();
-    if (groupPlan) visionHeaders['X-LeakRouter-Group-Plan'] = groupPlan;
-
-    const res = await this.fetchWithTimeout(visionUrl, {
-      method: 'POST',
-      headers: visionHeaders,
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`vision completion failed (${res.status}): ${text.slice(0, 500)}`);
+    if (this.opts.forwardGroupPlan && groupPlan) {
+      visionHeaders['X-LeakRouter-Group-Plan'] = groupPlan;
     }
-    const json = (await res.json()) as ChatCompletionResponse;
-    const text = json.choices?.[0]?.message?.content ?? '';
-    return {
-      text,
-      model,
-      usage: json.usage
-        ? {
-            inputTokens: json.usage.prompt_tokens,
-            outputTokens: json.usage.completion_tokens,
-            estimated: false,
-          }
-        : { outputTokens: estimateTokens(text), estimated: true },
-    };
+
+    return this.withTimedResponse(
+      visionUrl,
+      {
+        method: 'POST',
+        headers: visionHeaders,
+        body: JSON.stringify(body),
+      },
+      async (res, signal) => {
+        if (!res.ok) {
+          const text = await readResponseText(res, signal, MAX_ERROR_BODY_BYTES);
+          throw new Error(`vision completion failed (${res.status}): ${text.slice(0, 500)}`);
+        }
+        const json = await readResponseJson<ChatCompletionResponse>(res, signal);
+        const text = json.choices?.[0]?.message?.content ?? '';
+        const result: ChatResult = {
+          text,
+          model,
+          usage: json.usage
+            ? {
+                inputTokens: json.usage.prompt_tokens,
+                outputTokens: json.usage.completion_tokens,
+                estimated: false,
+              }
+            : { outputTokens: estimateTokens(text), estimated: true },
+        };
+        this.recordUsage(result.usage);
+        return result;
+      },
+      req.signal,
+    );
   }
 
   private async doTranscribe(req: TranscribeRequest): Promise<string> {
@@ -316,17 +451,23 @@ export class OpenAICompatibleProvider implements LLMProvider {
     form.append('file', blob, req.fileName ?? 'audio.ogg');
     form.append('model', model);
 
-    const res = await this.fetchWithTimeout(this.url('/audio/transcriptions'), {
-      method: 'POST',
-      headers: this.opts.apiKey ? { Authorization: `Bearer ${this.opts.apiKey}` } : {},
-      body: form,
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`transcription failed (${res.status}): ${text.slice(0, 500)}`);
-    }
-    const json = (await res.json()) as { text?: string };
-    return json.text ?? '';
+    return this.withTimedResponse(
+      this.url('/audio/transcriptions'),
+      {
+        method: 'POST',
+        headers: this.opts.apiKey ? { Authorization: `Bearer ${this.opts.apiKey}` } : {},
+        body: form,
+      },
+      async (res, signal) => {
+        if (!res.ok) {
+          const text = await readResponseText(res, signal, MAX_ERROR_BODY_BYTES);
+          throw new Error(`transcription failed (${res.status}): ${text.slice(0, 500)}`);
+        }
+        const json = await readResponseJson<{ text?: string }>(res, signal);
+        return json.text ?? '';
+      },
+      req.signal,
+    );
   }
 
   private async doGenerateImage(req: ImageRequest): Promise<ImageResult> {
@@ -338,20 +479,26 @@ export class OpenAICompatibleProvider implements LLMProvider {
       size: req.size ?? '1024x1024',
       n: 1,
     };
-    const res = await this.fetchWithTimeout(this.url('/images/generations'), {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`image generation failed (${res.status}): ${text.slice(0, 500)}`);
-    }
-    const json = (await res.json()) as ImageGenResponse;
-    const item = json.data?.[0];
-    if (item?.url) return { url: item.url, model };
-    if (item?.b64_json) return { buffer: Buffer.from(item.b64_json, 'base64'), model };
-    throw new Error('image generation returned no data');
+    return this.withTimedResponse(
+      this.url('/images/generations'),
+      {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(body),
+      },
+      async (res, signal) => {
+        if (!res.ok) {
+          const text = await readResponseText(res, signal, MAX_ERROR_BODY_BYTES);
+          throw new Error(`image generation failed (${res.status}): ${text.slice(0, 500)}`);
+        }
+        const json = await readResponseJson<ImageGenResponse>(res, signal);
+        const item = json.data?.[0];
+        if (item?.url) return { url: item.url, model };
+        if (item?.b64_json) return { buffer: Buffer.from(item.b64_json, 'base64'), model };
+        throw new Error('image generation returned no data');
+      },
+      req.signal,
+    );
   }
 
   private async doEmbed(texts: string[]): Promise<number[][]> {
@@ -364,76 +511,86 @@ export class OpenAICompatibleProvider implements LLMProvider {
       ? (nonEmpty(this.opts.embeddingApiKey) ?? this.opts.apiKey)
       : this.opts.apiKey;
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
-    const res = await this.fetchWithTimeout(`${baseUrl}/embeddings`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ model, input: texts }),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`embeddings failed (${res.status}): ${text.slice(0, 500)}`);
-    }
-    const json = (await res.json()) as EmbeddingsResponse;
-    return texts.map((_, i) => json.data?.[i]?.embedding ?? []);
-  }
-
-  async extractFacts(req: ExtractFactsRequest): Promise<Fact[]> {
-    const system =
-      'You extract durable, useful, non-sensitive facts about group chat members. ' +
-      'Return ONLY JSON: {"facts":[{"userHandle":"@handle","fact":"..."}]}. ' +
-      'If nothing is worth saving, return {"facts":[]}. ' +
-      'Never store medical, political, address, identity, password or temporary-mood data.';
-    const user =
-      `${req.context}\n\nExisting facts (do not duplicate):\n` +
-      `${req.existingFacts.map((f) => `- ${f}`).join('\n') || '(none)'}\n\n` +
-      'Return the JSON now.';
-    const result = await this.chatCompletion({
-      system,
-      messages: [{ role: 'user', content: user }],
-      temperature: 0,
-    });
-    const parsed = safeJson<{ facts?: Array<{ userHandle?: string; fact?: string }> }>(result.text);
-    if (!parsed?.facts) return [];
-    return parsed.facts
-      .filter((f): f is { userHandle: string; fact: string } => Boolean(f.userHandle && f.fact))
-      .map((f) => ({ userHandle: f.userHandle, fact: f.fact }));
+    return this.withTimedResponse(
+      `${baseUrl}/embeddings`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ model, input: texts }),
+      },
+      async (res, signal) => {
+        if (!res.ok) {
+          const text = await readResponseText(res, signal, MAX_ERROR_BODY_BYTES);
+          throw new Error(`embeddings failed (${res.status}): ${text.slice(0, 500)}`);
+        }
+        const json = await readResponseJson<EmbeddingsResponse>(res, signal);
+        return texts.map((_, i) => json.data?.[i]?.embedding ?? []);
+      },
+    );
   }
 
   async jsonCompletion<T>(req: import('./types.js').JsonRequest<T>): Promise<T | null> {
+    const generatedSchema = compactJsonSchema(req.schema);
+    const schemaContract = [req.schemaHint?.trim(), generatedSchema].filter(Boolean).join('\n\n');
     const sys =
       (req.system ? `${req.system}\n\n` : '') +
-      'Output ONLY a single valid JSON object. No prose, no markdown fences, no comments.';
-    const first = await this.chatCompletion({
-      system: sys,
-      messages: [{ role: 'user', content: req.prompt }],
-      temperature: req.temperature ?? 0.1,
-      ...(req.model ? { model: req.model } : {}),
-      ...(req.maxTokens ? { maxTokens: req.maxTokens } : {}),
-    });
-    const parsed1 = safeJson<unknown>(first.text);
-    const v1 = parsed1 !== null ? req.schema.safeParse(parsed1) : null;
-    if (v1 && v1.success) return v1.data;
+      'Output ONLY a single valid JSON object. No prose, no markdown fences, no comments.' +
+      (schemaContract ? `\n\nREQUIRED OUTPUT CONTRACT:\n${schemaContract}` : '');
+    const complete = async (
+      messages: import('./types.js').ChatMessage[],
+      temperature: number,
+    ): Promise<ChatResult> => {
+      const request: ChatRequest = {
+        system: sys,
+        messages,
+        temperature,
+        responseFormat: { type: 'json_object' },
+        ...(req.model ? { model: req.model } : {}),
+        ...(req.maxTokens ? { maxTokens: req.maxTokens } : {}),
+        signal: req.signal,
+      };
+      try {
+        return await this.chatCompletion(request);
+      } catch (error) {
+        if (!isUnsupportedJsonModeError(error)) throw error;
+        log.debug({ model: req.model }, 'JSON mode unsupported; retrying with prompt-only JSON');
+        const { responseFormat: _responseFormat, ...plainRequest } = request;
+        return this.chatCompletion(plainRequest);
+      }
+    };
+    const first = await complete([{ role: 'user', content: req.prompt }], req.temperature ?? 0.1);
+    const firstValidation = validateJsonCandidates(first.text, req);
+    if (firstValidation.data !== null) return firstValidation.data;
 
-    // One repair attempt: show the model its broken output and demand valid JSON.
-    const repair = await this.chatCompletion({
-      system: sys,
-      messages: [
+    // One repair attempt: show the model its broken output, exact contract and bounded validation
+    // failures. No parser-side value repair occurs: the model must produce a fresh valid object.
+    throwIfAborted(req.signal);
+    const repair = await complete(
+      [
         { role: 'user', content: req.prompt },
-        { role: 'assistant', content: first.text.slice(0, 2000) },
+        { role: 'assistant', content: first.text.slice(0, 4_000) },
         {
           role: 'user',
           content:
-            'That was not valid JSON for the required schema. Reply again with ONLY the corrected JSON object.',
+            'That output did not satisfy the required JSON contract.' +
+            (firstValidation.issues.length
+              ? ` Validation failures:\n- ${firstValidation.issues.join('\n- ')}`
+              : ' It did not contain a complete JSON object.') +
+            '\nReply again with ONLY one corrected JSON object. Preserve supported facts; do not invent missing values.',
         },
       ],
-      temperature: 0,
-      ...(req.model ? { model: req.model } : {}),
-      ...(req.maxTokens ? { maxTokens: req.maxTokens } : {}),
-    });
-    const parsed2 = safeJson<unknown>(repair.text);
-    const v2 = parsed2 !== null ? req.schema.safeParse(parsed2) : null;
-    if (v2 && v2.success) return v2.data;
-    log.debug('jsonCompletion failed validation after repair');
+      0,
+    );
+    const repairedValidation = validateJsonCandidates(repair.text, req);
+    if (repairedValidation.data !== null) return repairedValidation.data;
+    log.debug(
+      {
+        model: req.model,
+        firstIssues: firstValidation.issues,
+        repairIssues: repairedValidation.issues,
+      },
+      'jsonCompletion failed validation after repair',
+    );
     return null;
   }
 
@@ -446,6 +603,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       system,
       messages: [{ role: 'user', content: req.prompt }],
       temperature: 0,
+      signal: req.signal,
     });
     const parsed = safeJson<Partial<AutoEngageScore>>(result.text);
     return {
@@ -463,20 +621,108 @@ function clamp01(n: number): number {
   return Math.min(1, Math.max(0, n));
 }
 
-/** Parse JSON that may be wrapped in markdown fences or surrounded by prose. */
-export function safeJson<T>(text: string): T | null {
-  if (!text) return null;
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced?.[1] ?? text;
-  const start = candidate.indexOf('{');
-  const end = candidate.lastIndexOf('}');
-  if (start === -1 || end === -1 || end < start) return null;
-  try {
-    return JSON.parse(candidate.slice(start, end + 1)) as T;
-  } catch {
-    log.debug('failed to parse JSON from model output');
-    return null;
+/**
+ * Extract complete object/array values with a quote-aware balanced scanner. This avoids the old
+ * first-"{" / last-"}" greediness when a model emits reasoning or more than one JSON candidate.
+ */
+export function extractJsonValues(text: string, maxCandidates = 16): unknown[] {
+  if (!text) return [];
+  const values: unknown[] = [];
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+  const stack: string[] = [];
+  for (let index = 0; index < text.length && values.length < maxCandidates; index += 1) {
+    const char = text[index] ?? '';
+    if (start < 0) {
+      if (char === '{' || char === '[') {
+        start = index;
+        stack.push(char);
+      }
+      continue;
+    }
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === '{' || char === '[') {
+      stack.push(char);
+      continue;
+    }
+    if (char !== '}' && char !== ']') continue;
+    const opening = stack.at(-1);
+    if ((char === '}' && opening !== '{') || (char === ']' && opening !== '[')) {
+      start = -1;
+      stack.length = 0;
+      continue;
+    }
+    stack.pop();
+    if (stack.length > 0) continue;
+    const candidate = text.slice(start, index + 1);
+    start = -1;
+    try {
+      values.push(JSON.parse(candidate) as unknown);
+    } catch {
+      // Continue scanning: a later candidate may still be complete and schema-valid.
+    }
   }
+  return values;
+}
+
+/** Parse the first complete JSON value that may be fenced or surrounded by prose. */
+export function safeJson<T>(text: string): T | null {
+  return (extractJsonValues(text, 1)[0] as T | undefined) ?? null;
+}
+
+function compactJsonSchema<T>(schema: import('zod').ZodType<T>): string {
+  try {
+    const jsonSchema = zodToJsonSchema(schema, {
+      name: 'response',
+      $refStrategy: 'none',
+    });
+    const serialized = JSON.stringify(jsonSchema);
+    return serialized.length <= 16_000
+      ? `JSON Schema: ${serialized}`
+      : `JSON Schema (truncated; obey the human contract above): ${serialized.slice(0, 16_000)}`;
+  } catch (error) {
+    log.debug({ error }, 'could not render Zod schema for structured prompt');
+    return '';
+  }
+}
+
+function validateJsonCandidates<T>(
+  text: string,
+  req: import('./types.js').JsonRequest<T>,
+): { data: T | null; issues: string[] } {
+  const candidates = extractJsonValues(text);
+  const issues: string[] = [];
+  for (const candidate of candidates) {
+    const normalized = req.normalizeCandidate?.(candidate) ?? candidate;
+    const validation = req.schema.safeParse(normalized);
+    if (validation.success) return { data: validation.data, issues: [] };
+    for (const issue of validation.error.issues.slice(0, 8)) {
+      const path = issue.path.length ? issue.path.join('.') : '(root)';
+      issues.push(`${path}: ${issue.message}`);
+      if (issues.length >= 8) break;
+    }
+    if (issues.length >= 8) break;
+  }
+  return { data: null, issues };
+}
+
+function isUnsupportedJsonModeError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    /\b(?:400|404|415|422)\b/.test(message) &&
+    /\b(?:response[_ -]?format|json[_ -]?object|json mode|unsupported)\b/i.test(message) &&
+    !/\b(?:degraded|cool(?:down|ing)|rate.?limit|quota)\b/i.test(message)
+  );
 }
 
 // ---- response shapes ----

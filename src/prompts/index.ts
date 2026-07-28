@@ -3,8 +3,8 @@ import type { StoredMessage } from '../storage/repositories/messages.js';
 
 /**
  * Prompt builders. Each section is a separate, composable function (spec: identity, mode behavior,
- * group context, user facts, group facts, recent messages, safety constraints, output style,
- * autoengage scoring, fact extraction). The original prompt_manager.py logic is preserved and
+ * group context, recalled memory, recent messages, safety constraints, output style and
+ * autoengage scoring). The original prompt_manager.py logic is preserved and
  * rebranded to GoonersBot's group-native voice.
  */
 
@@ -188,24 +188,5 @@ export function buildAutoEngagePrompt(params: {
     `Bot replies in the last hour in this chat: ${params.recentBotReplies}`,
     `Conversation energy (messages in recent window): ${params.conversationEnergy}`,
     'Decide now. Return the JSON.',
-  ].join('\n\n');
-}
-
-// ---- 10. fact extraction context ----
-export function buildFactExtractionContext(params: {
-  userHandle: string;
-  latestMessage: string;
-  botReply: string;
-  history: StoredMessage[];
-  botLabel: string;
-}): string {
-  return [
-    `Mine durable, useful, non-sensitive facts about Gooners from this exchange.`,
-    buildHistorySection(params.history, params.botLabel),
-    `${params.userHandle} said: ${params.latestMessage}`,
-    `The bot replied: ${params.botReply}`,
-    'Good facts: recurring nickname, preferred meme style, role in the group, running joke, project affiliation, lore element.',
-    'Bad facts: medical, political, address, identity, passwords/secrets, temporary one-off mood. Skip those.',
-    'For userHandle always use the @handle, never a display name.',
   ].join('\n\n');
 }

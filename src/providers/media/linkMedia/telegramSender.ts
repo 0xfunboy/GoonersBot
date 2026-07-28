@@ -25,8 +25,13 @@ function sendOpts(caption?: string, replyToMessageId?: number) {
   };
 }
 
-/** Upload a local file as the right Telegram media type; returns the resulting file_id. */
-export async function sendPreparedMedia(input: SendPreparedMediaInput): Promise<string | null> {
+export interface SentTelegramMedia {
+  fileId: string | null;
+  messageId: number;
+}
+
+/** Upload a local file as the right Telegram media type; returns cache and delivery receipts. */
+export async function sendPreparedMedia(input: SendPreparedMediaInput): Promise<SentTelegramMedia> {
   const opts = sendOpts(input.caption, input.replyToMessageId);
   const file = new InputFile(input.path);
 
@@ -43,22 +48,22 @@ export async function sendPreparedMedia(input: SendPreparedMediaInput): Promise<
       ...(v.thumbnailPath ? { thumbnail: new InputFile(v.thumbnailPath) } : {}),
     };
     const sent = await input.ctx.replyWithVideo(file, videoOpts);
-    return sent.video?.file_id ?? null;
+    return { fileId: sent.video?.file_id ?? null, messageId: sent.message_id };
   }
   if (input.kind === 'gif') {
     const sent = await input.ctx.replyWithAnimation(file, opts);
-    return sent.animation?.file_id ?? null;
+    return { fileId: sent.animation?.file_id ?? null, messageId: sent.message_id };
   }
   if (input.kind === 'image') {
     const sent = await input.ctx.replyWithPhoto(file, opts);
-    return sent.photo?.at(-1)?.file_id ?? null;
+    return { fileId: sent.photo?.at(-1)?.file_id ?? null, messageId: sent.message_id };
   }
   if (input.kind === 'audio') {
     const sent = await input.ctx.replyWithAudio(file, opts);
-    return sent.audio?.file_id ?? null;
+    return { fileId: sent.audio?.file_id ?? null, messageId: sent.message_id };
   }
   const sent = await input.ctx.replyWithDocument(file, opts);
-  return sent.document?.file_id ?? null;
+  return { fileId: sent.document?.file_id ?? null, messageId: sent.message_id };
 }
 
 /** Re-send a previously cached Telegram file by file_id, using the matching media method. */
@@ -68,11 +73,11 @@ export async function sendCachedMedia(
   fileId: string,
   caption?: string,
   replyToMessageId?: number,
-): Promise<void> {
+): Promise<number> {
   const opts = sendOpts(caption, replyToMessageId);
-  if (kind === 'video') await ctx.replyWithVideo(fileId, opts);
-  else if (kind === 'gif') await ctx.replyWithAnimation(fileId, opts);
-  else if (kind === 'image') await ctx.replyWithPhoto(fileId, opts);
-  else if (kind === 'audio') await ctx.replyWithAudio(fileId, opts);
-  else await ctx.replyWithDocument(fileId, opts);
+  if (kind === 'video') return (await ctx.replyWithVideo(fileId, opts)).message_id;
+  if (kind === 'gif') return (await ctx.replyWithAnimation(fileId, opts)).message_id;
+  if (kind === 'image') return (await ctx.replyWithPhoto(fileId, opts)).message_id;
+  if (kind === 'audio') return (await ctx.replyWithAudio(fileId, opts)).message_id;
+  return (await ctx.replyWithDocument(fileId, opts)).message_id;
 }

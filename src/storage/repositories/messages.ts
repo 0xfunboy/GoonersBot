@@ -6,6 +6,7 @@ export interface StoredMessage {
   messageId?: number | null;
   handle: string;
   isBot: boolean;
+  replyToMessageId?: number | null;
   replyToHandle?: string | null;
   message: TranscribedMessage;
 }
@@ -110,6 +111,7 @@ export class MessagesRepo {
       messageId: d.messageId ?? null,
       handle: d.userHandle,
       isBot: d.isBot,
+      replyToMessageId: d.replyToMessageId ?? null,
       replyToHandle: d.replyToHandle ?? null,
       message: {
         messageText: d.messageText,

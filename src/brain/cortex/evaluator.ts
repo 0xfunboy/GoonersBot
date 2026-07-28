@@ -21,8 +21,10 @@ export interface CortexCapabilities {
   music: boolean;
   linkMedia: boolean;
   imageGeneration: boolean;
+  videoGeneration: boolean;
   translation: boolean;
   tts: boolean;
+  capabilityForge?: boolean;
 }
 
 export interface CortexInput {
@@ -129,8 +131,10 @@ export function availableToolsFor(capabilities: CortexCapabilities): CortexTool[
   if (capabilities.music) tools.push('music');
   if (capabilities.linkMedia) tools.push('link_media');
   if (capabilities.imageGeneration) tools.push('image_gen');
+  if (capabilities.videoGeneration) tools.push('video_gen');
   if (capabilities.translation) tools.push('translate');
   if (capabilities.tts) tools.push('tts');
+  if (capabilities.capabilityForge) tools.push('capability_forge');
   return tools;
 }
 
@@ -156,6 +160,7 @@ export function cortexToTurnEvaluation(
     ...(tool('link_media')?.query ? { mediaQuery: tool('link_media')?.query } : {}),
     ...(tool('link_media')?.args?.url ? { mediaUrl: tool('link_media')?.args?.url } : {}),
     ...(tool('image_gen')?.query ? { imagePrompt: tool('image_gen')?.query } : {}),
+    ...(tool('video_gen')?.query ? { videoPrompt: tool('video_gen')?.query } : {}),
     ...(tool('translate')?.args?.targetLanguage
       ? { targetLanguage: tool('translate')?.args?.targetLanguage }
       : {}),
@@ -170,7 +175,9 @@ export function cortexToTurnEvaluation(
 
 function providerFromTool(tool: CortexTool): TurnEvaluation['providerRequests'][number] {
   if (tool === 'image_gen') return 'image_generation';
+  if (tool === 'video_gen') return 'video_generation';
   if (tool === 'translate') return 'translation';
+  if (tool === 'capability_forge') return 'capability_forge';
   return tool;
 }
 
@@ -181,12 +188,14 @@ function actionFromDecision(
   const has = (intent: CortexDecision['intents'][number]): boolean =>
     decision.intents.includes(intent);
   const tool = (name: CortexTool): boolean => decision.toolCalls.some((call) => call.tool === name);
+  if (has('make_video') || tool('video_gen')) return 'generate_video';
   if (has('download_media') || tool('link_media')) return 'download_media';
   if (has('play_music') || tool('music')) return 'download_music';
   if (has('draw_image')) return 'draw_image';
   if (has('make_image') || tool('image_gen')) return 'generate_image';
   if (has('translate') || tool('translate')) return 'translate_text';
   if (has('voice_note') || tool('tts')) return 'make_voice';
+  if (has('extend_capability') || tool('capability_forge')) return 'acquire_capability';
   if (has('news_context') && tool('news') && !has('answer')) return 'post_news';
   if (has('correct_claim')) return 'challenge_claim';
   if (has('web_lookup') || tool('web_search'))

@@ -31,4 +31,8 @@ export class ChatMembersRepo {
     const docs = await this.col.find({ chatId }, { projection: { handle: 1 } }).toArray();
     return docs.map((d) => d.handle);
   }
+
+  async listMembers(chatId: number): Promise<ChatMemberDoc[]> {
+    return this.col.find({ chatId }).sort({ messageCount: -1, lastSeenAt: -1 }).toArray();
+  }
 }

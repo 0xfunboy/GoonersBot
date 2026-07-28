@@ -13,13 +13,20 @@ export interface ChatDoc {
   language: string;
   isStarted: boolean;
   conversationTracker: boolean;
-  autoFact: boolean;
+  /** Legacy pre-v2 toggle. Continuous mining no longer uses this field. */
+  autoFact?: boolean;
   autoengage: boolean;
   autopost?: boolean;
   /** per-chat link-media rehosting toggle; absent means on (default) */
   linkMedia?: boolean;
   /** epoch ms of the newest message seen by the last memory-mining run (skip idle re-mining) */
   lastMinedAt?: number;
+  /** Telegram message cursor paired with lastMinedAt, immune to equal-second timestamps. */
+  lastMinedMessageId?: number;
+  /** independent cursor for social-profile mining; lore failure must not block social continuity */
+  lastSocialMinedAt?: number;
+  /** Telegram message cursor paired with lastSocialMinedAt. */
+  lastSocialMinedMessageId?: number;
   nsfwMode: NsfwMode;
   createdAt: Date;
   updatedAt: Date;

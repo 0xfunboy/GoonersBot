@@ -44,3 +44,6 @@ vendor/
 
 # runtime approval store (chat/user ids)
 data/approved.json
+
+# Runtime-learned capability manifests/proposals (may contain user requests or integration names).
+data/capabilities/
