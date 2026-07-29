@@ -150,4 +150,51 @@ describe('storage migration compatibility', () => {
       },
     );
   });
+
+  it('atomically stops every autonomous feature when Telegram reports removal', async () => {
+    const updateOne = vi.fn(async () => ({ acknowledged: true }));
+    const db = {
+      collection: () => ({ updateOne }),
+    } as unknown as Db;
+    const chats = new ChatsRepo(db);
+
+    await chats.setTelegramMembership(-100, 'kicked', {
+      chatName: 'Removed group',
+      audited: true,
+    });
+
+    expect(updateOne).toHaveBeenCalledWith(
+      { chatId: -100 },
+      {
+        $set: expect.objectContaining({
+          telegramMembershipStatus: 'kicked',
+          chatName: 'Removed group',
+          isStarted: false,
+          autoengage: false,
+          autopost: false,
+          conversationTracker: false,
+          telegramMembershipAuditedAt: expect.any(Date),
+        }),
+      },
+    );
+  });
+
+  it('requires approval and active Telegram membership in the mining query', async () => {
+    const find = vi.fn(() => ({ toArray: async () => [] }));
+    const db = {
+      collection: () => ({ find }),
+    } as unknown as Db;
+    const chats = new ChatsRepo(db);
+
+    await chats.listForMining([-100, -200]);
+
+    expect(find).toHaveBeenCalledWith(
+      {
+        chatId: { $in: [-100, -200] },
+        isStarted: true,
+        telegramMembershipStatus: { $in: ['member', 'administrator'] },
+      },
+      { projection: { chatId: 1, language: 1, nsfwMode: 1 } },
+    );
+  });
 });

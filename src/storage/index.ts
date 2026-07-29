@@ -23,6 +23,7 @@ import { LinkMediaCacheRepo } from './repositories/linkMediaCache.js';
 import { ChatQuotaRepo } from './repositories/chatQuota.js';
 import { ConversationThreadsRepo } from './repositories/conversationThreads.js';
 import { ConversationEntitiesRepo } from './repositories/conversationEntities.js';
+import { ChatMembershipEventsRepo } from './repositories/chatMembershipEvents.js';
 import { MongoSocialProfileStore } from '../social/mongoStore.js';
 
 const log = childLogger('storage');
@@ -53,6 +54,7 @@ export class Storage {
   readonly chatQuota: ChatQuotaRepo;
   readonly conversationThreads: ConversationThreadsRepo;
   readonly conversationEntities: ConversationEntitiesRepo;
+  readonly chatMembershipEvents: ChatMembershipEventsRepo;
   readonly socialProfiles: MongoSocialProfileStore;
 
   private constructor(
@@ -85,6 +87,7 @@ export class Storage {
     this.chatQuota = new ChatQuotaRepo(db);
     this.conversationThreads = new ConversationThreadsRepo(db);
     this.conversationEntities = new ConversationEntitiesRepo(db);
+    this.chatMembershipEvents = new ChatMembershipEventsRepo(db);
     this.socialProfiles = new MongoSocialProfileStore(db);
   }
 
@@ -115,6 +118,7 @@ export class Storage {
     await ChatQuotaRepo.ensureIndexes(this.db);
     await ConversationThreadsRepo.ensureIndexes(this.db);
     await ConversationEntitiesRepo.ensureIndexes(this.db);
+    await ChatMembershipEventsRepo.ensureIndexes(this.db);
     await MongoSocialProfileStore.ensureIndexes(this.db);
     log.info('indexes ensured');
   }

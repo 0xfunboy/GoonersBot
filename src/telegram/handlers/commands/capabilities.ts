@@ -1,5 +1,6 @@
 import type { CommandSpec } from '../types.js';
 import { Priority } from '../types.js';
+import { trustedHtml } from '../../../config/i18n.js';
 
 /** /capabilities (alias /skills) - list durable, dynamically acquired read-only capabilities. */
 export const capabilitiesCommand: CommandSpec = {
@@ -14,11 +15,14 @@ export const capabilitiesCommand: CommandSpec = {
     return {
       text: 'capabilities_list',
       vars: {
-        capabilities: installed
-          .map(
-            (item) => `/<code>${escapeHtml(item.command)}</code> — ${escapeHtml(item.description)}`,
-          )
-          .join('\n'),
+        capabilities: trustedHtml(
+          installed
+            .map(
+              (item) =>
+                `/<code>${escapeHtml(item.command)}</code> — ${escapeHtml(item.description)}`,
+            )
+            .join('\n'),
+        ),
       },
     };
   },
@@ -56,10 +60,13 @@ export const learnCommand: CommandSpec = {
       learned.sources.length > 0
         ? `\n\n${learned.sources
             .slice(0, 5)
-            .map((source, index) => `${index + 1}. ${escapeHtml(source)}`)
+            .map((source, index) => `${index + 1}. ${escapeHtml(source.slice(0, 120))}`)
             .join('\n')}`
         : '';
-    return { rawText: `${escapeHtml(learned.text)}${installed}${sources}`.slice(0, 4000) };
+    return {
+      rawText: `${escapeHtml(learned.text.slice(0, 3_200))}${installed}${sources}`,
+      textFormat: 'html',
+    };
   },
 };
 

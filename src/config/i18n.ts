@@ -10,6 +10,8 @@
  * are provided too; the chat language is changeable at runtime with /language.
  */
 
+import type { ResponseVariable, TrustedHtmlValue } from '../domain/types.js';
+
 export type LanguageMap = Record<string, string>;
 export type TranslationMap = Record<string, LanguageMap>;
 
@@ -303,13 +305,13 @@ export const translations: TranslationMap = {
   },
   approve_usage: {
     italian:
-      'Uso: /approve <id> (id negativo = chat, positivo = utente), oppure /approve in un gruppo per approvarlo.',
+      'Uso: /approve &lt;id&gt; (id negativo = chat, positivo = utente), oppure /approve in un gruppo per approvarlo.',
     english:
-      'Usage: /approve <id> (negative = chat, positive = user), or /approve inside a group to approve it.',
+      'Usage: /approve &lt;id&gt; (negative = chat, positive = user), or /approve inside a group to approve it.',
     russian:
-      'Использование: /approve <id> (отрицательный = чат, положительный = пользователь) или /approve в группе.',
+      'Использование: /approve &lt;id&gt; (отрицательный = чат, положительный = пользователь) или /approve в группе.',
     spanish:
-      'Uso: /approve <id> (negativo = chat, positivo = usuario), o /approve dentro de un grupo para aprobarlo.',
+      'Uso: /approve &lt;id&gt; (negativo = chat, positivo = usuario), o /approve dentro de un grupo para aprobarlo.',
   },
   setfact_description: {
     italian: 'Inserisci lore manuale (solo admin)',
@@ -384,10 +386,10 @@ export const translations: TranslationMap = {
     spanish: 'El módulo de música no está configurado (falta yt-dlp o ffmpeg).',
   },
   music_none: {
-    italian: 'E cosa ti suono, il silenzio? Dimmi un titolo: /play <brano>.',
-    english: 'And what do I play, silence? Give me a title: /play <track>.',
-    russian: 'И что мне играть, тишину? Назови трек: /play <название>.',
-    spanish: '¿Y qué te toco, el silencio? Dime un título: /play <canción>.',
+    italian: 'E cosa ti suono, il silenzio? Dimmi un titolo: /play &lt;brano&gt;.',
+    english: 'And what do I play, silence? Give me a title: /play &lt;track&gt;.',
+    russian: 'И что мне играть, тишину? Назови трек: /play &lt;название&gt;.',
+    spanish: '¿Y qué te toco, el silencio? Dime un título: /play &lt;canción&gt;.',
   },
   music_not_found: {
     italian: 'Non ho trovato un cazzo per "{query}". Prova con un altro titolo.',
@@ -408,10 +410,14 @@ export const translations: TranslationMap = {
     spanish: 'Traduce el mensaje citado al idioma indicado (p. ej. /translate español)',
   },
   translate_usage: {
-    italian: 'Usalo in risposta a un messaggio: /translate <lingua> (es. "/translate spagnolo").',
-    english: 'Use it as a reply to a message: /translate <language> (e.g. "/translate spanish").',
-    russian: 'Используй в ответ на сообщение: /translate <язык> (напр. "/translate russian").',
-    spanish: 'Úsalo respondiendo a un mensaje: /translate <idioma> (p. ej. "/translate español").',
+    italian:
+      'Usalo in risposta a un messaggio: /translate &lt;lingua&gt; (es. "/translate spagnolo").',
+    english:
+      'Use it as a reply to a message: /translate &lt;language&gt; (e.g. "/translate spanish").',
+    russian:
+      'Используй в ответ на сообщение: /translate &lt;язык&gt; (напр. "/translate russian").',
+    spanish:
+      'Úsalo respondiendo a un mensaje: /translate &lt;idioma&gt; (p. ej. "/translate español").',
   },
   translate_no_target: {
     italian: 'In che lingua? Es: "/translate spagnolo" o "/translate in inglese".',
@@ -488,10 +494,10 @@ export const translations: TranslationMap = {
     spanish: 'Ese modo no. Prueba con algo que no nos banee.',
   },
   invalid_mode_args: {
-    italian: 'Uso: /addmode <descrizione>',
-    english: 'Usage: /addmode <description>',
-    russian: 'Использование: /addmode <описание>',
-    spanish: 'Uso: /addmode <descripción>',
+    italian: 'Uso: /addmode &lt;descrizione&gt;',
+    english: 'Usage: /addmode &lt;description&gt;',
+    russian: 'Использование: /addmode &lt;описание&gt;',
+    spanish: 'Uso: /addmode &lt;descripción&gt;',
   },
   introduction_added: {
     italian: 'Segnato, {user_handle}. Benvenuto nella lore.',
@@ -536,10 +542,10 @@ export const translations: TranslationMap = {
     spanish: 'Lore sobre {user_handle} grabada en piedra.',
   },
   setfact_usage: {
-    italian: 'Uso: /setfact @handle <testo> oppure /setfact <lore di gruppo>',
-    english: 'Usage: /setfact @handle <text> or /setfact <group lore>',
-    russian: 'Использование: /setfact @handle <текст> или /setfact <лор группы>',
-    spanish: 'Uso: /setfact @handle <texto> o /setfact <lore de grupo>',
+    italian: 'Uso: /setfact @handle &lt;testo&gt; oppure /setfact &lt;lore di gruppo&gt;',
+    english: 'Usage: /setfact @handle &lt;text&gt; or /setfact &lt;group lore&gt;',
+    russian: 'Использование: /setfact @handle &lt;текст&gt; или /setfact &lt;лор группы&gt;',
+    spanish: 'Uso: /setfact @handle &lt;texto&gt; o /setfact &lt;lore de grupo&gt;',
   },
   lore_text: {
     italian: '📜 Lore del gruppo:\n{lore}',
@@ -566,10 +572,10 @@ export const translations: TranslationMap = {
     spanish: 'No había lore ligada a ese mensaje.',
   },
   forget_usage: {
-    italian: 'Rispondi a un messaggio con /forget, oppure (admin) /forget <id>.',
-    english: 'Reply to a message with /forget, or (admin) /forget <id>.',
-    russian: 'Ответь на сообщение командой /forget, или (админ) /forget <id>.',
-    spanish: 'Responde a un mensaje con /forget, o (admin) /forget <id>.',
+    italian: 'Rispondi a un messaggio con /forget, oppure (admin) /forget &lt;id&gt;.',
+    english: 'Reply to a message with /forget, or (admin) /forget &lt;id&gt;.',
+    russian: 'Ответь на сообщение командой /forget, или (админ) /forget &lt;id&gt;.',
+    spanish: 'Responde a un mensaje con /forget, o (admin) /forget &lt;id&gt;.',
   },
   forget_forbidden: {
     italian: 'Puoi dimenticare solo i tuoi messaggi; per quelli altrui serve un admin.',
@@ -608,11 +614,10 @@ export const translations: TranslationMap = {
     spanish: '{user_handle}, llegaste a tu límite ({usage_limit}). Relájate un poco.',
   },
   group_quota_exceeded: {
-    italian: 'Quota gruppo raggiunta ({reason}). Riprova tra {retry_after}s o al prossimo reset.',
-    english: 'Group quota reached ({reason}). Retry in {retry_after}s or after the next reset.',
-    russian: 'Лимит группы достигнут ({reason}). Повтори через {retry_after}с или после сброса.',
-    spanish:
-      'Cuota del grupo alcanzada ({reason}). Reintenta en {retry_after}s o tras el reinicio.',
+    italian: 'Quota gruppo raggiunta ({reason}). Riprova {retry_when}.',
+    english: 'Group quota reached ({reason}). Retry {retry_when}.',
+    russian: 'Лимит группы достигнут ({reason}). Повтори {retry_when}.',
+    spanish: 'Cuota del grupo alcanzada ({reason}). Reintenta {retry_when}.',
   },
   profile_group_only: {
     italian: 'Questo comando si usa in un gruppo.',
@@ -709,10 +714,10 @@ export const translations: TranslationMap = {
     spanish: 'Genera un vídeo corto desde un prompt (p. ej. /genvid un perro mordiéndose la cola)',
   },
   video_needs_prompt: {
-    italian: 'E che ti genero, il vuoto cosmico? Dimmi cosa: /genvid <cosa deve succedere>.',
-    english: 'And what do I generate, the void? Tell me what: /genvid <what happens>.',
-    russian: 'И что мне сгенерировать, пустоту? Скажи что: /genvid <что происходит>.',
-    spanish: '¿Y qué te genero, la nada? Dime qué: /genvid <qué pasa>.',
+    italian: 'E che ti genero, il vuoto cosmico? Dimmi cosa: /genvid &lt;cosa deve succedere&gt;.',
+    english: 'And what do I generate, the void? Tell me what: /genvid &lt;what happens&gt;.',
+    russian: 'И что мне сгенерировать, пустоту? Скажи что: /genvid &lt;что происходит&gt;.',
+    spanish: '¿Y qué te genero, la nada? Dime qué: /genvid &lt;qué pasa&gt;.',
   },
   video_done: {
     italian: 'Ecco il video: {prompt}',
@@ -1250,7 +1255,7 @@ export class Localizer {
    * Resolve a key in the given language with `{var}` interpolation.
    * Returns null if the key is unknown (so callers can decide on a fallback).
    */
-  t(key: string, vars: Record<string, string | number> = {}, language?: string): string | null {
+  t(key: string, vars: Record<string, ResponseVariable> = {}, language?: string): string | null {
     const entry = this.map[key];
     if (!entry) return null;
     const lang = language ?? this.defaultLanguage;
@@ -1258,11 +1263,54 @@ export class Localizer {
     if (template === undefined) return null;
     return interpolate(template, vars);
   }
+
+  /**
+   * Resolve a localized string as visible plain text. The conversational pipeline subsequently
+   * applies its own CommonMark renderer, so carrying HTML entities into it would double-escape
+   * prompts such as `<brano>`.
+   */
+  tPlain(
+    key: string,
+    vars: Record<string, ResponseVariable> = {},
+    language?: string,
+  ): string | null {
+    const html = this.t(key, vars, language);
+    return html === null ? null : localizedHtmlToPlain(html);
+  }
 }
 
-function interpolate(template: string, vars: Record<string, string | number>): string {
+/** Mark a pre-sanitized internal fragment as intentional Telegram HTML for interpolation. */
+export function trustedHtml(value: string): TrustedHtmlValue {
+  return { kind: 'trusted_html', value };
+}
+
+function interpolate(template: string, vars: Record<string, ResponseVariable>): string {
   return template.replace(/\{(\w+)\}/g, (match, name: string) => {
     const v = vars[name];
-    return v === undefined ? match : String(v);
+    if (v === undefined) return match;
+    if (typeof v === 'object' && v.kind === 'trusted_html') return v.value;
+    return escapeHtml(String(v));
   });
+}
+
+function escapeHtml(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+function localizedHtmlToPlain(value: string): string {
+  return value
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:p|div|blockquote|pre)>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&#(\d+);/g, (_match, number: string) =>
+      String.fromCodePoint(Number.parseInt(number, 10)),
+    )
+    .replace(/&#x([0-9a-f]+);/gi, (_match, number: string) =>
+      String.fromCodePoint(Number.parseInt(number, 16)),
+    )
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#39;', "'")
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&amp;', '&');
 }

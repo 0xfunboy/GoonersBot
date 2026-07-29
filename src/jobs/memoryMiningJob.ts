@@ -249,20 +249,21 @@ async function drainSocial(params: {
 }
 
 /**
- * Drain all retained unseen messages for every started chat. There is no plan, quota, relevance or
- * `/autofact` gate: every new human message reaches Gemma in bounded batches. Epistemic/privacy
- * validation still decides what is allowed to become durable memory.
+ * Drain retained unseen messages only for approved chats whose live Telegram membership is active.
+ * There is no plan, quota, relevance or `/autofact` gate inside that trusted boundary: every new
+ * human message reaches Gemma in bounded batches.
  */
 export async function runMemoryMiningJob(
   storage: Storage,
   lore: LoreEngine,
   config: AppConfig,
   socialLearning?: SocialLearningPipeline,
+  approvedChatIds: readonly number[] = [],
 ): Promise<void> {
   if (!config.env.MEMORY_MINING_ENABLED) return;
   await withContinuousMiningLock(async () => {
     const env = config.env;
-    const chats = await storage.chats.listForMining();
+    const chats = await storage.chats.listForMining(approvedChatIds);
     for (const chat of chats) {
       try {
         const messages = await storage.messages.getRecent(

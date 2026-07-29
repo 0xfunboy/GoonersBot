@@ -31,7 +31,10 @@ async function handleMusic({
   if (!quota.allowed) {
     return {
       text: 'group_quota_exceeded',
-      vars: { reason: quota.reason ?? 'media', retry_after: 0 },
+      vars: {
+        reason: quota.reason ?? 'media',
+        retry_after: quota.retryAfterSeconds ?? 0,
+      },
     };
   }
 
@@ -41,6 +44,7 @@ async function handleMusic({
   const language = await services.getLanguage(context.chatId);
   return {
     audioBuffer: result.ogg,
+    textFormat: 'html',
     rawText: captionFor(
       result.title,
       result.url,

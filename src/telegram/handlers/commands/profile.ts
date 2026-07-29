@@ -16,16 +16,23 @@ export const profileCommand: CommandSpec = {
     if (!context.isGroup) {
       return {
         rawText: services.localizer.t('profile_group_only', {}, language) ?? 'profile_group_only',
+        textFormat: 'html',
       };
     }
     const requested = args[0]?.toLowerCase();
     if (requested && !isQuotaPlanId(requested)) {
-      return { rawText: services.localizer.t('profile_usage', {}, language) ?? 'profile_usage' };
+      return {
+        rawText: services.localizer.t('profile_usage', {}, language) ?? 'profile_usage',
+        textFormat: 'html',
+      };
     }
     const report = requested
       ? await setRequestedPlan(services, context.chatId, requested)
       : await services.quota.getReport(context.chatId);
-    return { rawText: formatReport(services, language, report, Boolean(requested)) };
+    return {
+      rawText: formatReport(services, language, report, Boolean(requested)),
+      textFormat: 'html',
+    };
   },
 };
 

@@ -39,16 +39,19 @@ const MAX_CAS_RETRIES = 12;
  * can admit a request while updating its day/hour/minute windows and flood state together.
  */
 export class GroupQuotaService {
-  constructor(private readonly storage: Storage) {}
+  constructor(
+    private readonly storage: Storage,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
 
   async setPlan(chatId: number, plan: QuotaPlanId): Promise<GroupQuotaReport> {
     for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt += 1) {
       const current = await this.storage.chatQuota.getOrCreate(chatId);
       const next = cloneQuota(current);
-      normalizeWindows(next, new Date());
+      normalizeWindows(next, this.now());
       next.plan = plan;
       next.version = current.version + 1;
-      next.updatedAt = new Date();
+      next.updatedAt = this.now();
       if (await this.storage.chatQuota.compareAndSet(next, current.version))
         return this.toReport(next);
     }
@@ -58,7 +61,7 @@ export class GroupQuotaService {
   async getReport(chatId: number): Promise<GroupQuotaReport> {
     const current = await this.storage.chatQuota.getOrCreate(chatId);
     const normalized = cloneQuota(current);
-    normalizeWindows(normalized, new Date());
+    normalizeWindows(normalized, this.now());
     return this.toReport(normalized);
   }
 
@@ -101,14 +104,18 @@ export class GroupQuotaService {
       if (doc.minute.chatRequests >= plan.antiFlood.chatBurstPerMinute) {
         return denied('chat_burst', secondsToNextMinute(now));
       }
-      if (doc.daily.conversations >= plan.conversationDaily) return denied('conversation_daily');
-      if (doc.hourly.conversations >= plan.conversationHourly) return denied('conversation_hourly');
+      if (doc.daily.conversations >= plan.conversationDaily) {
+        return denied('conversation_daily', secondsToNextWindow(now, false));
+      }
+      if (doc.hourly.conversations >= plan.conversationHourly) {
+        return denied('conversation_hourly', secondsToNextWindow(now, true));
+      }
       if (input.passive && doc.hourly.passiveReplies >= plan.passiveHourly) {
-        return denied('passive_hourly');
+        return denied('passive_hourly', secondsToNextWindow(now, true));
       }
       const tokenReservation = input.reserveTokens === false ? 0 : tokenReservationFor(plan);
       if (doc.daily.llmTokens + tokenReservation > plan.llmTokensDaily) {
-        return denied('llm_tokens');
+        return denied('llm_tokens', secondsToNextWindow(now, false));
       }
 
       doc.daily.conversations += 1;
@@ -125,9 +132,11 @@ export class GroupQuotaService {
 
   async reserve(chatId: number, resource: QuotaResource, amount = 1): Promise<QuotaDecision> {
     if (amount <= 0) return { allowed: true };
-    return this.mutate(chatId, (doc, plan) => {
+    return this.mutate(chatId, (doc, plan, now) => {
       const { counter, limit } = resourceLimit(doc, plan, resource);
-      if (counter + amount > limit) return denied(resource);
+      if (counter + amount > limit) {
+        return denied(resource, secondsToNextWindow(now, false));
+      }
       incrementResource(doc, resource, amount);
       return { allowed: true };
     });
@@ -149,7 +158,7 @@ export class GroupQuotaService {
     for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt += 1) {
       const current = await this.storage.chatQuota.getOrCreate(chatId);
       const next = cloneQuota(current);
-      const now = new Date();
+      const now = this.now();
       normalizeWindows(next, now);
       const decision = apply(next, QUOTA_PLANS[next.plan], now);
       if (!decision.allowed) return decision;
@@ -285,6 +294,26 @@ function remainingSeconds(last: Date, cooldownMs: number, now: Date): number {
 
 function secondsToNextMinute(now: Date): number {
   return Math.max(1, 60 - now.getUTCSeconds());
+}
+
+/**
+ * Return the real elapsed seconds until the persisted Rome day/hour key changes. Looking for the
+ * key boundary instead of adding a fixed hour/day keeps the timer correct across DST transitions.
+ */
+export function secondsToNextWindow(now: Date, hourly: boolean): number {
+  const currentKey = zonedKey(now, hourly);
+  const start = now.getTime();
+  let low = start;
+  let high = start + (hourly ? 3 : 27) * 60 * 60 * 1000;
+  while (zonedKey(new Date(high), hourly) === currentKey) {
+    high += (hourly ? 3 : 27) * 60 * 60 * 1000;
+  }
+  while (high - low > 1) {
+    const midpoint = Math.floor((low + high) / 2);
+    if (zonedKey(new Date(midpoint), hourly) === currentKey) low = midpoint;
+    else high = midpoint;
+  }
+  return Math.max(1, Math.ceil((high - start) / 1_000));
 }
 
 function tokenReservationFor(plan: QuotaPlan): number {

@@ -1,10 +1,20 @@
 import type { StableDiffusionConfig } from '../../config/index.js';
 import type { ImageResult } from '../llm/types.js';
 import { childLogger } from '../../utils/logger.js';
-import { assertMediaGenerationSafe } from '../../safety/mediaSafety.js';
+import {
+  assertMediaGenerationSafe,
+  containsExplicitMediaReference,
+  containsSuggestiveMediaReference,
+} from '../../safety/mediaSafety.js';
 import { abortableDelay, createAbortScope, throwIfAborted } from '../../utils/abort.js';
+import type {
+  ImageContentRating,
+  ImageMedium,
+  ProviderImagePrompts,
+} from '../../services/imagePrompt.js';
 
 const log = childLogger('stable-diffusion');
+const MAX_FORGE_RESPONSE_BYTES = 32 * 1024 * 1024;
 
 export interface ImageGenerator {
   readonly enabled: boolean;
@@ -15,6 +25,18 @@ export type ImageProfile = 'manga' | 'anime' | 'realistic' | 'nsfw';
 
 export interface ImageGenerationOptions {
   profile?: ImageProfile;
+  medium?: ImageMedium;
+  rating?: ImageContentRating;
+  /** Prompts compiled from one shared scene contract for the individual backends. */
+  providerPrompts?: ProviderImagePrompts;
+  /** Natural visual contract used by the vision QA pass. */
+  qualityBrief?: string;
+  /** True when an adult-rated scene contains people whose visible adulthood must be verified. */
+  expectsPeople?: boolean;
+  /** Preferred first backend; the fallback router may still use the other one. */
+  preferredProvider?: 'agnes' | 'pony';
+  /** Focused correction from a failed generated-image QA pass. */
+  retryFeedback?: string;
   /** Per-scene defects supplied by the visual planner, appended to the checkpoint baseline. */
   negativePrompt?: string;
   /** An in-memory pose reference passed to Forge's OpenPose preprocessor. */
@@ -39,8 +61,6 @@ interface SdOptions {
   sd_model_checkpoint?: string;
 }
 
-const NSFW_RE =
-  /\b(nsfw|nude|nudity|naked|explicit|sex|sexual|porn|pussy|tits|boobs|cum|orgasm|lingerie|sesso|sessuale|porno|pornograf|nudo|nuda|cazzo|pompino|bocchino|figa|fica|vagina|pene|sborra|sperma|orgasmo|masturb|seghe|scopare|scopata|incul|culo|tette|tettona)\b/i;
 const ANIME_RE = /\b(anime|manga|waifu|otaku|gacha|vtuber|illustration|illustrated|cartoon)\b/i;
 
 /**
@@ -48,7 +68,6 @@ const ANIME_RE = /\b(anime|manga|waifu|otaku|gacha|vtuber|illustration|illustrat
  * /options is global to the WebUI process; without the queue two users could get each other's model.
  */
 export class StableDiffusionGenerator implements ImageGenerator {
-  private activeModel: string | undefined;
   private models: SdModel[] | undefined;
   private queue: Promise<void> = Promise.resolve();
 
@@ -80,8 +99,12 @@ export class StableDiffusionGenerator implements ImageGenerator {
     throwIfAborted(options.signal);
 
     const profile = options.profile ?? selectImageProfile(userPrompt);
-    const model = await this.resolveModel(profile, options.signal);
-    const workflow = workflowFor(profile, this.config, userPrompt);
+    const medium = options.medium ?? mediumFromProfile(profile);
+    const rating = options.rating ?? ratingFromProfile(profile);
+    const providerPrompt = options.providerPrompts?.pony ?? userPrompt;
+    assertMediaGenerationSafe(providerPrompt);
+    const model = await this.resolveModel(profile, medium, rating, options.signal);
+    const workflow = workflowFor(profile, this.config, providerPrompt);
     const poseImage = options.poseReference?.toString('base64');
     const usesOpenPose = Boolean(poseImage && this.config.controlNet.enabled);
     const effectiveWorkflow = applyAspectRatio(
@@ -104,14 +127,12 @@ export class StableDiffusionGenerator implements ImageGenerator {
     const res = await this.post(
       usesOpenPose ? '/sdapi/v1/img2img' : '/sdapi/v1/txt2img',
       {
-        prompt: buildPrompt(userPrompt, profile),
-        negative_prompt: [
-          negativePrompt(this.config.negativePrompt, profile, userPrompt),
+        prompt: buildPrompt(providerPrompt, medium, rating, options.retryFeedback),
+        negative_prompt: mergeNegativePrompts(
+          filterConfiguredNegative(this.config.negativePrompt, providerPrompt),
+          negativePrompt(medium, rating, providerPrompt),
           options.negativePrompt,
-        ]
-          .filter(Boolean)
-          .join(', ')
-          .slice(0, 2_000),
+        ),
         sampler_name: effectiveWorkflow.sampler,
         steps: effectiveWorkflow.steps,
         width: effectiveWorkflow.width,
@@ -159,15 +180,22 @@ export class StableDiffusionGenerator implements ImageGenerator {
     return {
       buffer: Buffer.from(base64.replace(/^data:image\/\w+;base64,/, ''), 'base64'),
       model,
+      provider: 'pony',
+      mime: 'image/png',
     };
   }
 
-  private async resolveModel(profile: ImageProfile, signal?: AbortSignal): Promise<string> {
+  private async resolveModel(
+    profile: ImageProfile,
+    medium: ImageMedium,
+    rating: ImageContentRating,
+    signal?: AbortSignal,
+  ): Promise<string> {
     const configured =
-      profile === 'anime' || profile === 'manga'
-        ? this.config.animeModel
-        : profile === 'nsfw'
-          ? this.config.nsfwModel
+      rating === 'explicit' || profile === 'nsfw'
+        ? this.config.nsfwModel
+        : medium === 'anime' || medium === 'manga' || medium === 'comic'
+          ? this.config.animeModel
           : this.config.realisticModel;
     const models = await this.listModels(signal);
     const match = models.find((model) => modelMatches(model, configured));
@@ -185,21 +213,19 @@ export class StableDiffusionGenerator implements ImageGenerator {
   }
 
   private async applyModel(model: string, signal?: AbortSignal): Promise<void> {
-    if (this.activeModel === model) return;
-    if (this.activeModel === undefined) {
-      const res = await this.request('/sdapi/v1/options', {}, this.config.timeoutMs, signal);
-      const options = (await res.json()) as SdOptions;
-      if (
-        options.sd_model_checkpoint &&
-        modelMatches({ title: options.sd_model_checkpoint }, model)
-      ) {
-        this.activeModel = model;
-        log.info({ model }, 'requested checkpoint is already active in Forge');
-        return;
-      }
+    // Forge is shared with its frontend and other clients. Never trust our local cache without
+    // checking the process-wide option: an external checkpoint switch must not silently make this
+    // request run on, and be reported as, the wrong model.
+    const res = await this.request('/sdapi/v1/options', {}, this.config.timeoutMs, signal);
+    const options = (await res.json()) as SdOptions;
+    if (
+      options.sd_model_checkpoint &&
+      modelMatches({ title: options.sd_model_checkpoint }, model)
+    ) {
+      log.info({ model }, 'requested checkpoint is already active in Forge');
+      return;
     }
     await this.post('/sdapi/v1/options', { sd_model_checkpoint: model }, signal);
-    this.activeModel = model;
   }
 
   /** Wait for work started outside the bot too: Forge only has one global generation queue. */
@@ -260,124 +286,220 @@ export class StableDiffusionGenerator implements ImageGenerator {
         const text = await res.text().catch(() => '');
         throw new Error(`Stable Diffusion ${path} failed (${res.status}): ${text.slice(0, 500)}`);
       }
-      return res;
+      const body = await readBoundedBody(res, MAX_FORGE_RESPONSE_BYTES);
+      // Return an in-memory response so callers can parse JSON after the timeout scope is disposed
+      // without leaving the Forge body stream or global generation queue unbounded.
+      return new Response(body.length ? body : null, {
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers,
+      });
     } finally {
       scope.dispose();
     }
   }
 }
 
+async function readBoundedBody(response: Response, maxBytes: number): Promise<Buffer> {
+  if (!response.body) return Buffer.alloc(0);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel('Forge response exceeded byte limit').catch(() => undefined);
+      throw new Error(`Stable Diffusion response exceeded ${maxBytes} byte limit`);
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(
+    chunks.map((chunk) => Buffer.from(chunk)),
+    total,
+  );
+}
+
 export function selectImageProfile(prompt: string): ImageProfile {
-  // Tags such as `rating_explicit` use underscores, which are word characters in JS regexes.
-  // Normalize them before matching so an NSFW prompt can never fall through to the anime profile.
   const normalized = prompt.replace(/[_-]/g, ' ');
-  if (NSFW_RE.test(normalized)) return 'nsfw';
+  if (containsExplicitMediaReference(normalized) || containsSuggestiveMediaReference(normalized)) {
+    return 'nsfw';
+  }
   return ANIME_RE.test(normalized) ? 'anime' : 'realistic';
 }
 
-function buildPrompt(userPrompt: string, profile: ImageProfile): string {
+function buildPrompt(
+  userPrompt: string,
+  medium: ImageMedium,
+  rating: ImageContentRating,
+  retryFeedback?: string,
+): string {
   const subject = sanitizePrompt(userPrompt);
-  const composition = compositionControls(subject);
-  if (profile === 'nsfw') {
-    return [
-      'score_9, score_8_up, score_7_up, score_6_up, source_anime, rating_explicit',
-      'adult, consenting adults only, detailed anatomy, coherent pose, expressive face',
-      composition,
-      subject,
-      'highly detailed anime illustration, clean composition, no text, no watermark',
-    ].join(', ');
-  }
-  if (profile === 'manga') {
-    const subjectControls = mangaSubjectControls(subject);
-    return [
-      'score_9, score_8_up, score_7_up, score_6_up, source_anime, rating_safe',
-      'full-color high-end manga key visual, precise ink lineart, controlled screentone accents, polished cel shading',
-      'dynamic cinematic composition, visible expressive faces, precise anatomy, detailed background',
-      subjectControls,
-      composition,
-      subject,
-      'adult character when a person is depicted, no text, no logo, no watermark',
-    ].join(', ');
-  }
-  if (profile === 'anime') {
-    return [
-      'score_9, score_8_up, score_7_up, score_6_up, source_anime, rating_safe',
-      'detailed anime illustration, coherent anatomy, cinematic composition',
-      composition,
-      subject,
-      'adult character when a person is depicted, no text, no watermark',
-    ].join(', ');
-  }
-  return [
-    'score_9, score_8_up, score_7_up, score_6_up, source_anime, rating_safe',
-    'photo (medium), photorealistic, highly detailed, natural skin texture',
-    composition,
+  return uniquePromptParts(
+    'score_9',
+    'score_8_up',
+    'score_7_up',
+    'score_6_up',
+    'score_5_up',
+    'score_4_up',
+    sourceTag(medium),
+    ratingTag(rating),
+    mediumPositive(medium),
+    rating === 'explicit' ? 'unambiguously adult, consenting adults only' : '',
     subject,
-    'professional editorial photography, cinematic lighting, coherent anatomy, sharp focus, no text, no watermark',
-  ].join(', ');
+    retryFeedback ? `correction, ${sanitizePrompt(retryFeedback)}` : '',
+    'coherent anatomy',
+    'intentional composition',
+    'high detail',
+  )
+    .join(', ')
+    .slice(0, 2_500);
 }
 
-function compositionControls(prompt: string): string {
-  const normalized = prompt.toLowerCase().replace(/[_-]/g, ' ');
-  const twoSubjects =
-    /\b(1girl\s*,\s*1boy|1boy\s*,\s*1girl|2girls|2boys|2people|two (?:people|subjects|characters|adults)|due (?:persone|soggetti)|soggetto\s*1.*soggetto\s*2|couple)\b/.test(
-      normalized,
-    );
-  if (!twoSubjects) {
-    const livingSubject =
-      /\b(person|people|woman|women|man|men|adult|character|portrait|animal|dog|cat|horse|bird|persona|persone|donna|donne|uomo|uomini|personaggio|ritratt|animale|cane|gatto|cavallo|uccello)\b/.test(
-        normalized,
-      );
-    return livingSubject
-      ? 'single requested subject, subject fully visible, coherent anatomy'
-      : 'balanced composition, preserve the complete requested scene';
-  }
-  const shoulders = /\b(piggyback|riding on shoulders|on shoulders|sulle spalle|in spalla)\b/.test(
-    normalized,
-  );
-  return [
-    '(two people:1.45)',
-    '(both subjects visible:1.35)',
-    'full body',
-    'wide shot',
-    'both faces visible',
-    'clear separate bodies',
-    'detailed faces',
-    shoulders
-      ? '(piggyback pose:1.5), (carrying person on shoulders:1.4), standing'
-      : 'clear interaction',
-  ].join(', ');
-}
-
-function mangaSubjectControls(prompt: string): string {
-  const hasGirl = /\b1girl\b/i.test(prompt);
-  const hasBoy = /\b1boy\b/i.test(prompt);
-  if (hasGirl && hasBoy) {
-    return '(1girl:1.4), (1boy:1.35), (two separate characters:1.35), both characters visible';
-  }
-  if (hasGirl) return '(1girl:1.3), visible face, visible hands';
-  if (hasBoy) return '(1boy:1.3), visible face, visible hands';
-  return '';
-}
-
-function negativePrompt(base: string, profile: ImageProfile, userPrompt: string): string {
-  const anatomy =
-    'bad anatomy, bad hands, extra fingers, missing fingers, deformed, duplicate, cropped';
+function negativePrompt(
+  medium: ImageMedium,
+  rating: ImageContentRating,
+  userPrompt: string,
+): string {
   const shoulderPose =
     /\b(piggyback|carrying person on shoulders|on shoulders|sulle spalle|in spalla)\b/i.test(
       userPrompt,
     );
   const actionNegative = shoulderPose ? ', motorcycle, motor vehicle, bicycle, car, scooter' : '';
-  if (profile === 'nsfw') {
-    return `${base}, ${anatomy}, extra arms, extra legs, fused bodies, malformed limbs, bad face, poorly drawn face, cross-eyed, underage, child, loli, shota, censored, mosaic censorship, text, watermark, signature, score_4, score_3, score_2, score_1${actionNegative}`;
+  return (
+    uniquePromptParts(
+      'score_3',
+      'score_2',
+      'score_1',
+      'bad anatomy',
+      'bad hands',
+      'extra fingers',
+      'missing fingers',
+      'duplicate',
+      'extra subjects',
+      'fused bodies',
+      'malformed limbs',
+      'bad face',
+      'cross-eyed',
+      ...providerMediumNegatives(medium),
+      ...(rating === 'explicit'
+        ? ['underage', 'child', 'loli', 'shota', 'censored', 'mosaic censorship']
+        : ['rating_explicit', 'nsfw', 'nudity']),
+    ).join(', ') + actionNegative
+  );
+}
+
+function mediumFromProfile(profile: ImageProfile): ImageMedium {
+  if (profile === 'manga') return 'manga';
+  if (profile === 'anime' || profile === 'nsfw') return 'anime';
+  return 'photo';
+}
+
+function ratingFromProfile(profile: ImageProfile): ImageContentRating {
+  return profile === 'nsfw' ? 'explicit' : 'safe';
+}
+
+function sourceTag(medium: ImageMedium): string {
+  if (medium === 'anime' || medium === 'manga') return 'source_anime';
+  if (medium === 'comic' || medium === 'pixel_art' || medium === 'digital_illustration') {
+    return 'source_cartoon';
   }
-  if (profile === 'manga') {
-    return `${base}, ${anatomy}, extra arms, extra legs, fused bodies, malformed limbs, bad face, poorly drawn face, cross-eyed, photorealistic, 3d render, color photo, blurry lineart, messy composition, silhouette, faceless, blacked-out face, text, watermark, logo, source_furry, source_pony, source_cartoon, rating_explicit, score_4, score_3, score_2, score_1${actionNegative}`;
+  return '';
+}
+
+function ratingTag(rating: ImageContentRating): string {
+  if (rating === 'explicit') return 'rating_explicit';
+  if (rating === 'suggestive') return 'rating_questionable';
+  return 'rating_safe';
+}
+
+function mediumPositive(medium: ImageMedium): string {
+  switch (medium) {
+    case 'photo':
+      return 'photo (medium), photorealistic, professional editorial photography, natural skin texture';
+    case 'anime':
+      return 'polished anime illustration, clean lineart, controlled cel shading';
+    case 'manga':
+      return 'professional manga illustration, precise ink lineart, controlled screentone';
+    case 'comic':
+      return 'professional comic-book illustration, expressive ink linework';
+    case 'watercolor':
+      return 'traditional watercolor painting, visible watercolor pigment, textured paper';
+    case 'oil_painting':
+      return 'traditional oil painting, visible brushwork, layered pigments';
+    case 'pixel_art':
+      return 'crisp pixel art, deliberate pixel clusters, limited palette';
+    case 'three_d':
+      return 'high-end 3d render, physically based materials, cinematic render';
+    case 'digital_illustration':
+    default:
+      return 'high-end digital illustration, polished rendering';
   }
-  if (profile === 'anime') {
-    return `${base}, ${anatomy}, extra arms, extra legs, fused bodies, malformed limbs, bad face, poorly drawn face, cross-eyed, photorealistic, 3d render, source_furry, source_pony, source_cartoon, rating_explicit, score_4, score_3, score_2, score_1${actionNegative}`;
+}
+
+function providerMediumNegatives(medium: ImageMedium): string[] {
+  switch (medium) {
+    case 'photo':
+      return ['anime', 'manga', 'cartoon', 'illustration', '3d render', 'plastic skin'];
+    case 'anime':
+      return ['photorealistic', '3d render', 'muddy colors'];
+    case 'manga':
+      return ['photorealistic', '3d render', 'muddy lineart'];
+    case 'comic':
+      return ['photorealistic', '3d render', 'muddy lineart'];
+    case 'watercolor':
+      return ['photorealistic', '3d render', 'pixel art', 'vector art'];
+    case 'oil_painting':
+      return ['photorealistic', '3d render', 'pixel art', 'vector art'];
+    case 'pixel_art':
+      return ['photorealistic', 'smooth painting', '3d render', 'vector art'];
+    case 'three_d':
+      return ['flat illustration', 'sketch', 'watercolor'];
+    case 'digital_illustration':
+    default:
+      return ['photorealistic', 'low-detail sketch'];
   }
-  return `${base}, ${anatomy}, extra arms, extra legs, fused bodies, malformed limbs, bad face, poorly drawn face, cross-eyed, traditional media, painting, sketch, cartoon, illustration, 3d render, source_furry, source_pony, source_cartoon, rating_explicit, score_4, score_3, score_2, score_1${actionNegative}`;
+}
+
+function mergeNegativePrompts(...prompts: Array<string | undefined>): string {
+  return uniquePromptParts(
+    ...prompts.flatMap((prompt) => (prompt ?? '').split(',').map((part) => part.trim())),
+  )
+    .join(', ')
+    .slice(0, 2_000);
+}
+
+function filterConfiguredNegative(negative: string, positive: string): string {
+  const allowsText = /\b(exact text|text reading|caption reading|requested placement)\b/i.test(
+    positive,
+  );
+  const allowsLogo = /\b(logo|logotype|brand mark|emblem)\b/i.test(positive);
+  if (!allowsText && !allowsLogo) return negative;
+  return negative
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => {
+      if (allowsText && /^(?:text|caption|letters?|typography)$/i.test(part)) return false;
+      if (allowsLogo && /^(?:logo|logotype|brand mark|emblem)$/i.test(part)) return false;
+      return true;
+    })
+    .join(', ');
+}
+
+function uniquePromptParts(...parts: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of parts) {
+    const value = raw?.replace(/\s+/g, ' ').trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(value);
+  }
+  return result;
 }
 
 function workflowFor(
@@ -465,7 +587,7 @@ function blankCanvasPpm(): Buffer {
 }
 
 function sanitizePrompt(prompt: string): string {
-  return prompt.replace(/\s+/g, ' ').trim().slice(0, 1_000);
+  return prompt.replace(/\s+/g, ' ').trim().slice(0, 1_800);
 }
 
 function modelMatches(model: SdModel, configured: string): boolean {

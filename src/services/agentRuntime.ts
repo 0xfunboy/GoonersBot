@@ -41,9 +41,15 @@ const log = childLogger('agent-runtime');
 
 type RuntimeData =
   | { kind: 'text'; text: string }
-  | { kind: 'image_prompt'; prepared: PreparedImagePrompt }
-  | { kind: 'video_prompt'; prepared: PreparedVideoPrompt }
-  | { kind: 'image'; buffer: Buffer; spoiler: boolean }
+  | { kind: 'image_prompt'; prepared: PreparedImagePrompt; sourceRequest: string }
+  | { kind: 'video_prompt'; prepared: PreparedVideoPrompt; sourceRequest: string }
+  | {
+      kind: 'image';
+      buffer: Buffer;
+      spoiler: boolean;
+      generationAttempts: number;
+      qaVisionCalls: number;
+    }
   | { kind: 'video'; buffer: Buffer; spoiler: boolean; meta: VideoSendMeta }
   | { kind: 'voice'; buffer: Buffer }
   | { kind: 'music'; result: MusicResult }
@@ -84,6 +90,7 @@ export interface AgentRuntimeResult {
   sources: string[];
   styleVariant: string;
   imageCalls: number;
+  visionCalls: number;
   imageBuffer?: Buffer;
   imageSpoiler?: boolean;
   videoBuffer?: Buffer;
@@ -171,6 +178,7 @@ export class AgentRuntime {
       sources: [...new Set(result.answer.evidence.map((item) => item.source))],
       styleVariant: `agent:${result.plan.actions.map((action) => action.tool).join('+')}`,
       imageCalls: 0,
+      visionCalls: 0,
       status: result.answer.status,
       actionCount: result.plan.actions.length,
     };
@@ -181,7 +189,8 @@ export class AgentRuntime {
       if (data.kind === 'image' && !output.imageBuffer) {
         output.imageBuffer = data.buffer;
         output.imageSpoiler = data.spoiler;
-        output.imageCalls += 1;
+        output.imageCalls += data.generationAttempts;
+        output.visionCalls += data.qaVisionCalls;
       } else if (data.kind === 'video' && !output.videoBuffer) {
         output.videoBuffer = data.buffer;
         output.videoSpoiler = data.spoiler;
@@ -236,7 +245,8 @@ export class AgentRuntime {
           'Never invent tool success, links or artifacts.',
           `SOCIAL CONTRACT: ${socialContract(input.socialSignal)}`,
           'Use a fresh structure and wording. Do not reuse the rejected opening, joke premise,',
-          'callback or insult. Return only the final user-facing answer.',
+          'callback or insult. Use only simple CommonMark when formatting helps; never emit HTML.',
+          'Return only the final user-facing answer.',
         ].join('\n'),
         messages: [
           {
@@ -464,7 +474,11 @@ export class AgentRuntime {
             });
             return {
               summary: `Video brief ready: ${prepared.coreIntent}`,
-              data: { kind: 'video_prompt', prepared } satisfies RuntimeData,
+              data: {
+                kind: 'video_prompt',
+                prepared,
+                sourceRequest: request,
+              } satisfies RuntimeData,
               verified: Boolean(prepared.prompt),
             };
           }
@@ -476,7 +490,7 @@ export class AgentRuntime {
           });
           return {
             summary: `Image brief ready: ${prepared.creativeBrief}`,
-            data: { kind: 'image_prompt', prepared } satisfies RuntimeData,
+            data: { kind: 'image_prompt', prepared, sourceRequest: request } satisfies RuntimeData,
             verified: Boolean(prepared.prompt),
           };
         } catch (error) {
@@ -486,19 +500,27 @@ export class AgentRuntime {
       },
 
       image_gen: async (toolCtx) => {
-        const request = enrichedMediaRequest(toolCtx, input.request);
+        const request = enrichedMediaRequest(toolCtx, input.request, ['image_prompt']);
         if (containsMinorMediaReference(request)) return mediaSafetyFailure(input.language);
         if (!(await this.reserveImage(input))) return failedOutput('Image quota exhausted.');
-        const dependencyPrompt = dependencyData(toolCtx, 'image_prompt')?.prepared;
+        const dependency = dependencyData(toolCtx, 'image_prompt');
+        const dependencyPrompt = dependency?.prepared;
         const requestedProfile = imageProfile(stringArg(toolCtx, 'profile'));
+        const requestedAspectRatio = aspectRatioArg(toolCtx);
+        const dependencyCompatible =
+          dependencyPrompt &&
+          sameMediaRequest(dependency.sourceRequest, request) &&
+          (!requestedProfile || dependencyPrompt.profile === requestedProfile) &&
+          (!requestedAspectRatio || dependencyPrompt.aspectRatio === requestedAspectRatio) &&
+          (!input.model || dependencyPrompt.model === input.model);
         let prepared: PreparedImagePrompt;
         try {
           prepared =
-            dependencyPrompt ??
+            (dependencyCompatible ? dependencyPrompt : undefined) ??
             (await this.deps.imagePrompts.prepare(request, {
               context: mediaContext(),
               ...(requestedProfile ? { profile: requestedProfile } : {}),
-              ...(aspectRatioArg(toolCtx) ? { aspectRatio: aspectRatioArg(toolCtx) } : {}),
+              ...(requestedAspectRatio ? { aspectRatio: requestedAspectRatio } : {}),
               ...(input.model ? { model: input.model } : {}),
               signal: toolCtx.signal,
             }));
@@ -508,16 +530,23 @@ export class AgentRuntime {
           throw error;
         }
         const profile = requestedProfile ?? prepared.profile ?? selectImageProfile(request);
-        const poseReference = prepared.poseReferenceQuery
-          ? await this.deps.imageFinder.findPoseReference(
+        const poseLookup = prepared.poseReferenceQuery
+          ? await this.deps.imageFinder.findPoseReferenceWithUsage(
               prepared.poseReferenceQuery,
               toolCtx.signal,
             )
-          : null;
+          : { image: null, visionCalls: 0 };
+        const poseReference = poseLookup.image;
         const image = await this.deps.media.generateImage(prepared.prompt, {
           profile,
+          medium: prepared.medium,
+          rating: prepared.rating,
           negativePrompt: prepared.negativePrompt,
-          ...(aspectRatioArg(toolCtx) ? { aspectRatio: aspectRatioArg(toolCtx) } : {}),
+          providerPrompts: prepared.providerPrompts,
+          qualityBrief: prepared.qualityBrief,
+          expectsPeople: prepared.expectsPeople,
+          preferredProvider: prepared.preferredProvider,
+          aspectRatio: prepared.aspectRatio,
           ...(poseReference ? { poseReference: poseReference.buffer } : {}),
           signal: toolCtx.signal,
         });
@@ -527,7 +556,9 @@ export class AgentRuntime {
           data: {
             kind: 'image',
             buffer: image.buffer,
-            spoiler: profile === 'nsfw',
+            spoiler: prepared.rating !== 'safe',
+            generationAttempts: image.generationAttempts ?? 1,
+            qaVisionCalls: poseLookup.visionCalls + (image.qaVisionCalls ?? 0),
           } satisfies RuntimeData,
           artifacts: [{ kind: 'image', id: `generated:image:${toolCtx.action.id}` }],
           confidence: 1,
@@ -536,14 +567,17 @@ export class AgentRuntime {
       },
 
       video_gen: async (toolCtx) => {
-        const request = enrichedMediaRequest(toolCtx, input.request);
+        const request = enrichedMediaRequest(toolCtx, input.request, ['video_prompt']);
         if (containsMinorMediaReference(request)) return mediaSafetyFailure(input.language);
         if (!(await this.reserveImage(input))) return failedOutput('Video quota exhausted.');
-        const dependencyPrompt = dependencyData(toolCtx, 'video_prompt')?.prepared;
+        const dependency = dependencyData(toolCtx, 'video_prompt');
+        const dependencyPrompt = dependency?.prepared;
         let prepared: PreparedVideoPrompt;
         try {
           prepared =
-            dependencyPrompt ??
+            (dependencyPrompt && sameMediaRequest(dependency.sourceRequest, request)
+              ? dependencyPrompt
+              : undefined) ??
             (await this.deps.videoPrompts.prepare(request, {
               context: mediaContext(),
               ...(durationArg(toolCtx) ? { durationSeconds: durationArg(toolCtx) } : {}),
@@ -832,14 +866,28 @@ function sourceText(ctx: ToolExecutionContext, fallback: string): string {
   return fallback;
 }
 
-function enrichedMediaRequest(ctx: ToolExecutionContext, fallback: string): string {
+function enrichedMediaRequest(
+  ctx: ToolExecutionContext,
+  fallback: string,
+  ignoredKinds: RuntimeData['kind'][] = [],
+): string {
   const base = toolQuery(ctx, fallback);
   const evidence = dependencyOutputs(ctx)
+    .filter((output) => {
+      const data = asRuntimeData(output.data);
+      return !data || !ignoredKinds.includes(data.kind);
+    })
     .map((output) => output.summary.trim())
     .filter(Boolean)
     .join('\n')
     .slice(0, 3_000);
   return evidence ? `${base}\n\nVerified/reference context:\n${evidence}` : base;
+}
+
+function sameMediaRequest(left: string, right: string): boolean {
+  const normalize = (value: string): string =>
+    value.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+  return normalize(left) === normalize(right);
 }
 
 function firstUrl(value: string | undefined): string | undefined {
@@ -892,12 +940,22 @@ function mediaPromptTimeout(config: AppConfig): number {
 }
 
 function imageGenerationTimeout(config: AppConfig): number {
-  const remoteThenLocal =
+  const providerRound =
     config.agnes.image.timeoutMs +
     config.stableDiffusion.queueTimeoutMs +
     config.stableDiffusion.timeoutMs +
     30_000;
-  return Math.min(900_000, Math.max(180_000, remoteThenLocal));
+  const qaEnabled = config.env?.IMAGE_GENERATION_QA_ENABLED ?? true;
+  const qaRetries = qaEnabled
+    ? Math.max(0, Math.min(2, config.env?.IMAGE_GENERATION_QA_MAX_RETRIES ?? 1))
+    : 0;
+  const rounds = 1 + qaRetries;
+  const visionBudget = qaEnabled ? (config.llm?.requestTimeoutMs ?? 60_000) * rounds : 0;
+  // Budget for the same render→vision→corrective-render loop as MediaProcessor, then apply the
+  // coordinator's hard 15-minute deadline. Under simultaneous worst-case provider timeouts the
+  // later corrective round is deliberately best-effort rather than holding a Telegram turn open
+  // for 20+ minutes.
+  return Math.min(900_000, Math.max(180_000, providerRound * rounds + visionBudget));
 }
 
 function videoGenerationTimeout(config: AppConfig): number {

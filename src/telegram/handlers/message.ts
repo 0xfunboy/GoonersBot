@@ -12,35 +12,19 @@ import type { LinkMediaResult } from '../../services/linkMedia.js';
 import { extractUrls } from '../../providers/media/linkMedia/url.js';
 import { extractJokePremises } from '../../brain/repetitionGuard.js';
 import { currentLlmUsage } from '../../providers/llm/requestContext.js';
+import {
+  renderTelegramText,
+  splitTelegramMarkdown,
+  splitTelegramText,
+  telegramPlainText,
+} from '../format.js';
 
 const log = childLogger('message');
 
 // Rate-limit the "request approval" DM notice so a non-approved user cannot spam it out of the bot.
 const dmInfoCooldown = new Cooldown(30 * 60 * 1000);
 
-/** Preserve complete agent answers while staying below Telegram's 4096-character text limit. */
-export function splitTelegramText(text: string, maxChars = 3_900): string[] {
-  const remaining = text.trim();
-  if (!remaining) return [];
-  const chunks: string[] = [];
-  let rest = remaining;
-  while (rest.length > maxChars) {
-    const window = rest.slice(0, maxChars + 1);
-    const candidates = [
-      window.lastIndexOf('\n\n'),
-      window.lastIndexOf('\n'),
-      window.lastIndexOf('. '),
-      window.lastIndexOf(' '),
-    ];
-    const splitAt = candidates.find((index) => index >= Math.floor(maxChars * 0.55)) ?? maxChars;
-    const includePunctuation = window.slice(splitAt, splitAt + 2) === '. ' ? 1 : 0;
-    const chunk = rest.slice(0, splitAt + includePunctuation).trim();
-    chunks.push(chunk || rest.slice(0, maxChars));
-    rest = rest.slice(splitAt + includePunctuation).trimStart();
-  }
-  if (rest.trim()) chunks.push(rest.trim());
-  return chunks;
-}
+export { splitTelegramText };
 
 export interface MessageDeps {
   services: Services;
@@ -268,6 +252,25 @@ export async function handleMessage(
     return;
   }
 
+  const bypassGroupPlan = services.bypassesGroupPlan(person, context);
+  if (!addressed && !bypassGroupPlan && !(await services.quota.canPassiveReply(context.chatId))) {
+    if (tracking) {
+      await services.conversation.addUserMessage(
+        context.chatId,
+        person.userHandle,
+        {
+          messageText: message.messageText || null,
+          timestamp: message.timestamp,
+          imageDescription: null,
+          voiceDescription: null,
+        },
+        metaOf(person, context),
+      );
+    }
+    log.debug({ chatId: context.chatId }, 'passive quota exhausted before LLM scoring');
+    return;
+  }
+
   const decision = await services.autoengage.decide(
     {
       person,
@@ -321,7 +324,6 @@ export async function handleMessage(
     return;
   }
 
-  const bypassGroupPlan = services.bypassesGroupPlan(person, context);
   const quota = bypassGroupPlan
     ? { allowed: true, tokenReservation: 0 }
     : await services.quota.admitConversation({
@@ -375,6 +377,7 @@ export async function handleMessage(
       nsfwModel: freePlan ? undefined : services.modelRouter.nsfwModel,
       recentBotReplies: recentReplies,
       quotaBypass: bypassGroupPlan,
+      passive: !addressed,
       allowCapabilityInstall: services.permissions.isBotAdmin(person.userHandle),
     });
     const meteredUsage = currentLlmUsage();
@@ -483,9 +486,17 @@ export async function handleMessage(
         }
       }
       if (!voiceSent) {
-        const chunks = splitTelegramText(finalText);
+        const chunks = splitTelegramMarkdown(finalText);
         for (const [index, chunk] of chunks.entries()) {
-          const sent = await ctx.reply(chunk, index === 0 ? replyOpts : {});
+          const rendered = renderTelegramText(chunk, 'markdown');
+          const options = {
+            ...(index === 0 ? replyOpts : {}),
+            parse_mode: rendered.parseMode,
+          };
+          const sent = await ctx.reply(rendered.text, options).catch(async (err) => {
+            log.warn({ err, chatId: context.chatId, index }, 'formatted text send failed');
+            return ctx.reply(telegramPlainText(chunk, 'markdown'), index === 0 ? replyOpts : {});
+          });
           rememberBotMessage(sent.message_id);
         }
         log.info(

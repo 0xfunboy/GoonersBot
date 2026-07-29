@@ -20,6 +20,11 @@ import {
   tryAcquireDynamicCommandRateLimit,
 } from './handlers/commands/dynamic.js';
 import { localizeResponse, sendResponse } from './render.js';
+import { renderTelegramText, splitTelegramMarkdown, telegramPlainText } from './format.js';
+import {
+  auditApprovedChatMemberships,
+  persistMyChatMemberUpdate,
+} from './membership.js';
 
 const log = childLogger('bot');
 
@@ -38,6 +43,10 @@ export async function createBot(config: AppConfig, services: Services): Promise<
   log.info({ botUsername, id: me.id }, 'authenticated with Telegram');
 
   const deps: DispatchDeps = { services, botUsername };
+
+  // Refresh membership before any scheduler is started. Mining/autopost queries fail closed until
+  // Telegram has confirmed that an approved chat still contains the bot.
+  await auditApprovedChatMemberships(bot, services, me.id);
 
   services.capabilities.reserveCommands(
     commandHandlers.flatMap((spec) => [
@@ -71,6 +80,22 @@ export async function createBot(config: AppConfig, services: Services): Promise<
       botMessageId: ctx.messageReaction.message_id,
       actorKey,
       emojis: diff.emoji,
+    });
+  });
+
+  // Telegram emits this update when the bot is added, promoted, demoted, removed or banned.
+  // Persist it independently of ordinary messages: a kicked bot cannot receive a final message
+  // from the group with which to repair stale local state.
+  bot.on('my_chat_member', async (ctx) => {
+    const membership = ctx.update.my_chat_member;
+    const chatName = 'title' in membership.chat ? membership.chat.title : undefined;
+    await persistMyChatMemberUpdate(services, {
+      updateId: ctx.update.update_id,
+      chatId: membership.chat.id,
+      chatName,
+      oldStatus: membership.old_chat_member.status,
+      newStatus: membership.new_chat_member.status,
+      occurredAt: new Date(membership.date * 1_000),
     });
   });
 
@@ -138,7 +163,16 @@ export async function createBot(config: AppConfig, services: Services): Promise<
           });
           await sendResponse(ctx, localized);
         } else if (result.status === 'completed') {
-          await ctx.reply(result.execution.text.slice(0, 4000));
+          const chunks = splitTelegramMarkdown(result.execution.text);
+          for (const [index, chunk] of chunks.entries()) {
+            const rendered = renderTelegramText(chunk, 'markdown');
+            await ctx
+              .reply(rendered.text, { parse_mode: rendered.parseMode })
+              .catch(async (err) => {
+                log.warn({ err, command, index }, 'dynamic command formatted send failed');
+                await ctx.reply(telegramPlainText(chunk, 'markdown'));
+              });
+          }
         }
         return;
       }
@@ -203,7 +237,7 @@ export async function createBot(config: AppConfig, services: Services): Promise<
       void bot
         .start({
           drop_pending_updates: false,
-          allowed_updates: ['message', 'callback_query', 'message_reaction'],
+          allowed_updates: ['message', 'callback_query', 'message_reaction', 'my_chat_member'],
         })
         .catch((err) => {
           log.error({ err }, 'long-polling stopped unexpectedly');

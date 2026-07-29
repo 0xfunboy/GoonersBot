@@ -46,8 +46,11 @@ export function mediaContextBlock(context?: MediaPromptContext): string {
     context.desiredMood ? `desired mood=${compact(context.desiredMood, 250)}` : '',
     context.relevantLore?.length
       ? `visual lore=${context.relevantLore
-          .slice(0, 6)
-          .map((item) => compact(item, 250))
+          .flatMap((item) => item.split(/\r?\n/))
+          .map((item) => item.trim())
+          .filter(Boolean)
+          .slice(0, 10)
+          .map((item) => compact(item, 320))
           .join(' | ')}`
       : '',
     context.continuity?.seriesId
@@ -73,11 +76,21 @@ export function mediaFallbackHints(context?: MediaPromptContext): string[] {
         `${character.name}, ${character.visualDescription}` +
         (character.wardrobe ? `, ${character.wardrobe}` : ''),
     );
+  const loreHints = (context.relevantLore ?? [])
+    .flatMap((item) => item.split(/\r?\n/))
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 4);
+  const recentHints = (context.recentMessages ?? [])
+    .slice(-3)
+    .map((message) => `${message.handle}: ${message.text}`);
   return [
     context.groupAesthetic,
     context.desiredMood,
     context.continuity?.previousPrompt,
     ...characterHints,
+    ...loreHints,
+    ...recentHints,
   ]
     .filter((hint): hint is string => Boolean(hint?.trim()))
     .map((hint) => compact(hint, 500));

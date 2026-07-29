@@ -4,7 +4,7 @@ import { GroupQuotaService } from '../src/services/groupQuota.js';
 import { emptyQuota } from '../src/storage/repositories/chatQuota.js';
 import { fakeStorage } from './helpers.js';
 
-function quotaService() {
+function quotaService(now: () => Date = () => new Date()) {
   let doc: ChatQuotaDoc | undefined;
   const storage = fakeStorage({
     chatQuota: {
@@ -19,7 +19,7 @@ function quotaService() {
       },
     },
   });
-  return { service: new GroupQuotaService(storage), getDoc: () => doc };
+  return { service: new GroupQuotaService(storage, now), getDoc: () => doc };
 }
 
 describe('GroupQuotaService', () => {
@@ -59,8 +59,9 @@ describe('GroupQuotaService', () => {
   it('changes the entire policy through one plan assignment', async () => {
     const { service } = quotaService();
     const report = await service.setPlan(-100, 'pro');
-    expect(report.plan.conversationHourly).toBe(18);
-    expect(report.plan.llmTokensDaily).toBe(1_000_000);
+    expect(report.plan.conversationDaily).toBe(144);
+    expect(report.plan.conversationHourly).toBe(30);
+    expect(report.plan.llmTokensDaily).toBe(2_000_000);
     expect(report.plan.webSearchDaily).toBe(75);
     expect(report.plan.imagesDaily).toBe(48);
   });
@@ -72,5 +73,45 @@ describe('GroupQuotaService', () => {
     if (!doc) throw new Error('quota document missing');
     doc.hourly.passiveReplies = 0;
     expect(await service.canPassiveReply(-100)).toBe(false);
+  });
+
+  it('reports the real number of seconds until an hourly reset', async () => {
+    // 12:34:20 Europe/Rome in summer; the next hourly key starts in 25m40s.
+    const fixed = new Date('2026-07-28T10:34:20.000Z');
+    const { service, getDoc } = quotaService(() => fixed);
+    await service.setPlan(-100, 'pro');
+    const doc = getDoc();
+    if (!doc) throw new Error('quota document missing');
+    doc.hourly.conversations = 30;
+    const decision = await service.admitConversation({
+      chatId: -100,
+      telegramId: 42,
+      passive: false,
+    });
+    expect(decision).toMatchObject({
+      allowed: false,
+      reason: 'conversation_hourly',
+      retryAfterSeconds: 1_540,
+    });
+  });
+
+  it('reports the daily Rome reset instead of a zero-second retry', async () => {
+    // 23:23:30 Europe/Rome in summer; midnight is 36m30s away.
+    const fixed = new Date('2026-07-28T21:23:30.000Z');
+    const { service, getDoc } = quotaService(() => fixed);
+    await service.setPlan(-100, 'pro');
+    const doc = getDoc();
+    if (!doc) throw new Error('quota document missing');
+    doc.daily.conversations = 144;
+    const decision = await service.admitConversation({
+      chatId: -100,
+      telegramId: 42,
+      passive: false,
+    });
+    expect(decision).toMatchObject({
+      allowed: false,
+      reason: 'conversation_daily',
+      retryAfterSeconds: 2_190,
+    });
   });
 });

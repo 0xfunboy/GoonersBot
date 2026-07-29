@@ -123,6 +123,7 @@ const envSchema = z.object({
     (value) => Number.isInteger(value) && value >= 1,
     'MINING_LLM_MAX_TOKENS_PER_MINUTE must be an integer >= 1',
   ),
+  MINING_LLM_FOREGROUND_QUIET_MS: intFromString(15_000),
   // A queued 31B background model can legitimately need more than the interactive 60s budget.
   // This route never blocks Telegram replies, so favour completion over abort/retry churn.
   MINING_LLM_REQUEST_TIMEOUT_MS: intFromString(180_000),
@@ -197,6 +198,11 @@ const envSchema = z.object({
   IMAGE_SEND_ENABLED: boolFromString(true),
   IMAGE_SEND_PROBABILITY: floatFromString(0.15), // chance to attach an image on anime/waifu replies
   IMAGE_QUERY_POOL: z.string().optional(), // comma-separated query seeds (defaults provided)
+  // Generated images are inspected by the configured vision model. A clearly wrong result receives
+  // one focused retry, normally on the other free backend, before the best candidate is returned.
+  IMAGE_GENERATION_QA_ENABLED: boolFromString(true),
+  IMAGE_GENERATION_QA_MIN_SCORE: floatFromString(0.72),
+  IMAGE_GENERATION_QA_MAX_RETRIES: intFromString(1),
 
   // Stable Diffusion / Automatic1111 image generation. The endpoint returns base64 bitmap data.
   SD_ENABLED: boolFromString(true),
@@ -298,6 +304,9 @@ const envSchema = z.object({
   MAX_REPLIES_PER_CHAT_PER_HOUR: intFromString(72),
   AUTOENGAGE_MIN_COOLDOWN_SECONDS: intFromString(45),
   AUTOENGAGE_USER_COOLDOWN_SECONDS: intFromString(20),
+  // A small direct model keeps the passive gate from adding a full reply-model round trip.
+  AUTOENGAGE_MODEL: optStr,
+  AUTOENGAGE_MAX_TOKENS: intFromString(160),
   AUTOENGAGE_MIN_CONFIDENCE: z
     .string()
     .optional()

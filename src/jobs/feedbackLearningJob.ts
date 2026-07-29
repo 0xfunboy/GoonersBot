@@ -37,13 +37,14 @@ export async function runFeedbackLearningJob(
   storage: Storage,
   lore: LoreEngine,
   config: AppConfig,
+  approvedChatIds: readonly number[] = [],
 ): Promise<void> {
   if (!config.env.FEEDBACK_LEARNING_ENABLED) return;
   const lookahead = config.env.FEEDBACK_LOOKAHEAD_MESSAGES;
   const minAgeMs = 60 * 1000; // give the chat a minute to react before scoring
   const maxAgeMs = 15 * 60 * 1000;
   const now = Date.now();
-  const chatIds = await storage.chats.listStartedChatIds();
+  const chatIds = await storage.chats.listStartedChatIds(approvedChatIds);
 
   for (const chatId of chatIds) {
     try {

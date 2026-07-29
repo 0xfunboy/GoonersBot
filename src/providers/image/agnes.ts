@@ -7,7 +7,8 @@ import { createAbortScope } from '../../utils/abort.js';
 import { fetchSafeRemoteBuffer, readBoundedResponseBuffer } from '../../utils/safeRemoteFetch.js';
 
 const log = childLogger('agnes-image');
-const MAX_JSON_BYTES = 1024 * 1024;
+const MAX_JSON_HARD_CAP_BYTES = 64 * 1024 * 1024;
+const JSON_ENVELOPE_BYTES = 64 * 1024;
 
 interface AgnesImageResponse {
   data?: Array<{ url?: string; b64_json?: string }>;
@@ -32,12 +33,23 @@ export class AgnesImageGenerator implements ImageGenerator {
   async generate(prompt: string, options: ImageGenerationOptions = {}): Promise<ImageResult> {
     if (!this.enabled) throw new Error('Agnes image generation is disabled');
     assertMediaGenerationSafe(prompt);
-    const styled = [
-      options.profile ? `${prompt}, ${styleHint(options.profile)}` : prompt,
-      options.negativePrompt ? `Avoid: ${options.negativePrompt}` : '',
-    ]
-      .filter(Boolean)
-      .join('. ');
+    const providerPrompt = options.providerPrompts?.agnes;
+    const styled = providerPrompt
+      ? [
+          providerPrompt,
+          options.retryFeedback
+            ? `Correction required after visual inspection: ${options.retryFeedback}.`
+            : '',
+        ]
+          .filter(Boolean)
+          .join(' ')
+      : `${prompt}${options.profile ? `, ${styleHint(options.profile)}` : ''}`;
+    assertMediaGenerationSafe(styled);
+    const ratio = options.aspectRatio ?? '1:1';
+    // GemRouter exposes Agnes through an OpenAI-compatible validator. It accepts the standard
+    // DALL-E canvas values but currently rejects Agnes' native `size: "1K"` + `ratio` pair.
+    // The upstream model accepts these legacy exact sizes and preserves the requested orientation.
+    const size = openAiCompatibleSize(ratio);
 
     const scope = createAbortScope(this.cfg.timeoutMs, options.signal, 'Agnes image generation');
     try {
@@ -48,9 +60,14 @@ export class AgnesImageGenerator implements ImageGenerator {
           'content-type': 'application/json',
           ...(this.cfg.apiKey ? { authorization: `Bearer ${this.cfg.apiKey}` } : {}),
         },
-        body: JSON.stringify({ model: this.cfg.model, prompt: styled, n: 1 }),
+        body: JSON.stringify({
+          model: this.cfg.model,
+          prompt: styled,
+          size,
+          n: 1,
+        }),
       });
-      const json = await readAgnesJson(res, scope.signal);
+      const json = await readAgnesJson(res, scope.signal, this.cfg.maxBytes);
       if (!res.ok) {
         throw new Error(
           `agnes image HTTP ${res.status}: ${json.error?.message ?? 'unknown error'}`,
@@ -61,12 +78,16 @@ export class AgnesImageGenerator implements ImageGenerator {
         return {
           buffer: decodeBoundedBase64(first.b64_json, this.cfg.maxBytes),
           model: this.cfg.model,
+          provider: 'agnes',
         };
       }
       if (!first?.url) throw new Error('agnes image response had no url');
       const buffer = await this.download(first.url, scope.signal);
-      log.info({ model: this.cfg.model, bytes: buffer.length }, 'agnes image generated');
-      return { buffer, model: this.cfg.model };
+      log.info(
+        { model: this.cfg.model, ratio, size, bytes: buffer.length },
+        'agnes image generated',
+      );
+      return { buffer, model: this.cfg.model, provider: 'agnes' };
     } finally {
       scope.dispose();
     }
@@ -86,8 +107,24 @@ export class AgnesImageGenerator implements ImageGenerator {
   }
 }
 
-async function readAgnesJson(res: Response, signal: AbortSignal): Promise<AgnesImageResponse> {
-  const raw = await readBoundedResponseBuffer(res, MAX_JSON_BYTES, signal);
+function openAiCompatibleSize(ratio: NonNullable<ImageGenerationOptions['aspectRatio']>): string {
+  if (ratio === '16:9') return '1792x1024';
+  if (ratio === '9:16') return '1024x1792';
+  return '1024x1024';
+}
+
+async function readAgnesJson(
+  res: Response,
+  signal: AbortSignal,
+  maxImageBytes: number,
+): Promise<AgnesImageResponse> {
+  // Inline Base64 is ~4/3 the binary size. Keep the envelope bounded while allowing the configured
+  // image limit; the previous fixed 1 MB cap rejected perfectly valid 1K results.
+  const maxJsonBytes = Math.min(
+    MAX_JSON_HARD_CAP_BYTES,
+    Math.ceil(maxImageBytes / 3) * 4 + JSON_ENVELOPE_BYTES,
+  );
+  const raw = await readBoundedResponseBuffer(res, maxJsonBytes, signal);
   if (!raw.length) return {};
   try {
     return JSON.parse(raw.toString('utf8')) as AgnesImageResponse;

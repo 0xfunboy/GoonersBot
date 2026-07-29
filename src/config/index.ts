@@ -49,6 +49,7 @@ export interface MiningLLMConfig {
   model: string;
   maxRequestsPerMinute: number;
   maxTokensPerMinute: number;
+  foregroundQuietMs: number;
   requestTimeoutMs: number;
 }
 
@@ -192,6 +193,7 @@ export function resolveMiningLLMConfig(
     model: env.MINING_LLM_MODEL,
     maxRequestsPerMinute: env.MINING_LLM_MAX_REQUESTS_PER_MINUTE,
     maxTokensPerMinute: env.MINING_LLM_MAX_TOKENS_PER_MINUTE,
+    foregroundQuietMs: env.MINING_LLM_FOREGROUND_QUIET_MS,
     requestTimeoutMs: env.MINING_LLM_REQUEST_TIMEOUT_MS,
   };
 }

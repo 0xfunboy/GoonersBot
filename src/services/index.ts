@@ -125,7 +125,8 @@ export class Services {
     });
     this.tts = new TtsProvider(config.voice.tts);
     this.stt = new SttProvider(config.voice.stt);
-    // Remote Agnes first, local Stable Diffusion as automatic fallback (and for pose/ControlNet jobs).
+    // Capability-aware router: Agnes handles instruction-dense scenes, while local Pony owns
+    // focused anime/explicit and every pose/ControlNet job. Compatible failures can cross-fallback.
     const imageGenerator = new FallbackImageGenerator(
       new AgnesImageGenerator(config.agnes.image),
       new StableDiffusionGenerator(config.stableDiffusion),
@@ -140,6 +141,11 @@ export class Services {
         timeoutMs: config.voice.stt.timeoutMs,
       },
       imageGenerator,
+      {
+        enabled: env.IMAGE_GENERATION_QA_ENABLED,
+        minScore: env.IMAGE_GENERATION_QA_MIN_SCORE,
+        maxRetries: env.IMAGE_GENERATION_QA_MAX_RETRIES,
+      },
     );
     this.music = new MusicService(config.music);
     this.quota = new GroupQuotaService(storage);
@@ -159,6 +165,8 @@ export class Services {
       maxRepliesPerChatPerHour: env.MAX_REPLIES_PER_CHAT_PER_HOUR,
       chatCooldownSeconds: env.AUTOENGAGE_MIN_COOLDOWN_SECONDS,
       userCooldownSeconds: env.AUTOENGAGE_USER_COOLDOWN_SECONDS,
+      model: env.AUTOENGAGE_MODEL,
+      maxTokens: env.AUTOENGAGE_MAX_TOKENS,
       minConfidence: env.AUTOENGAGE_MIN_CONFIDENCE,
     });
     this.modelRouter = new ModelRouter({
@@ -243,14 +251,16 @@ export class Services {
       this.lore,
       this.quota,
     );
+    this.imagePrompts = new ImagePromptService(llm, config);
     this.generatedImagePoster = new GeneratedImagePoster(
       this.media,
+      this.imagePrompts,
       config,
       storage,
       this.quota,
       this.localizer,
+      this.imageFinder,
     );
-    this.imagePrompts = new ImagePromptService(llm, config);
     this.videoPrompts = new VideoPromptService(llm, config);
     this.social = new SocialProfileEngine(storage.socialProfiles);
     this.socialLearning = new SocialLearningPipeline(

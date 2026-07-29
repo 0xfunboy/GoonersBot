@@ -511,8 +511,10 @@ export class OpenAICompatibleProvider implements LLMProvider {
         }
         const json = await readResponseJson<ImageGenResponse>(res, signal);
         const item = json.data?.[0];
-        if (item?.url) return { url: item.url, model };
-        if (item?.b64_json) return { buffer: Buffer.from(item.b64_json, 'base64'), model };
+        if (item?.url) return { url: item.url, model, provider: 'llm' };
+        if (item?.b64_json) {
+          return { buffer: Buffer.from(item.b64_json, 'base64'), model, provider: 'llm' };
+        }
         throw new Error('image generation returned no data');
       },
       req.signal,
@@ -622,6 +624,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
       system,
       messages: [{ role: 'user', content: req.prompt }],
       temperature: 0,
+      ...(req.model ? { model: req.model } : {}),
+      maxTokens: req.maxTokens ?? 160,
       signal: req.signal,
     });
     const parsed = safeJson<Partial<AutoEngageScore>>(result.text);

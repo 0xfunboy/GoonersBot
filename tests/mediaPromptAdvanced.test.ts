@@ -8,16 +8,107 @@ import { fakeLLM } from './helpers.js';
 const config = { llm: { model: 'creative-model' } } as AppConfig;
 
 describe('context-aware media prompts', () => {
+  it('keeps unrelated chat lore out of a standalone image request', async () => {
+    let plannerPrompt = '';
+    const llm = {
+      ...fakeLLM({}),
+      jsonCompletion: vi.fn(async (request) => {
+        plannerPrompt = request.prompt;
+        return {
+          objective: 'A solitary lighthouse at dawn',
+          medium: 'digital_illustration',
+          contentRating: 'safe',
+          aspectRatio: '16:9',
+          subjects: [
+            {
+              count: 1,
+              kind: 'lighthouse',
+              description: 'weathered white lighthouse on a rocky cliff',
+              action: 'casting a fading beam over the sea',
+              position: 'left third',
+            },
+          ],
+          interaction: '',
+          composition: {
+            shot: 'wide shot',
+            angle: 'low aerial angle',
+            lens: '24mm',
+            focus: 'lighthouse and horizon',
+          },
+          setting: 'empty rocky coast at dawn',
+          lighting: 'cold blue dawn with a warm horizon',
+          palette: 'blue, gray and amber',
+          mood: 'quiet and cinematic',
+          importantDetails: ['rough sea'],
+          mustInclude: [],
+          mustAvoid: ['people'],
+          exactText: null,
+        };
+      }),
+    } as LLMProvider;
+
+    const result = await new ImagePromptService(llm, config).prepare(
+      'illustrazione orizzontale di un faro solitario sulla scogliera all’alba',
+      {
+        context: {
+          creatorHandle: 'funboy',
+          intent: 'unrelated community callback',
+          groupAesthetic: 'purple neon nightclub',
+          relevantLore: ['Rob always wears a purple hoodie'],
+          recentMessages: [
+            { handle: 'rob', text: 'mettimi davanti al bar con il neon rotto' },
+            { handle: 'alice', text: 'aggiungi tre persone alla scena' },
+          ],
+        },
+      },
+    );
+
+    expect(plannerPrompt).toContain('CHAT/CONTINUITY CONTEXT');
+    expect(plannerPrompt).toContain('(none)');
+    expect(plannerPrompt).not.toContain('purple hoodie');
+    expect(plannerPrompt).not.toContain('purple neon nightclub');
+    expect(plannerPrompt).not.toContain('aggiungi tre persone');
+    expect(result.creativeBrief).toBe(
+      'illustrazione orizzontale di un faro solitario sulla scogliera all’alba',
+    );
+    expect(result.aspectRatio).toBe('16:9');
+  });
+
   it('enriches image prompts with bounded visual continuity without replacing the request', async () => {
     let userPrompt = '';
     const llm = {
       ...fakeLLM({}),
-      chatCompletion: vi.fn(async (request) => {
-        userPrompt = request.messages[0]?.content ?? '';
+      jsonCompletion: vi.fn(async (request) => {
+        userPrompt = request.prompt;
         return {
-          text: '1boy, purple hoodie, broken neon sign, wide shot, cinematic rain',
-          usage: { estimated: true },
-          model: 'creative-model',
+          objective: 'Rob in front of the ruined bar as a movie cover',
+          medium: 'digital_illustration',
+          contentRating: 'safe',
+          aspectRatio: '16:9',
+          subjects: [
+            {
+              count: 1,
+              kind: 'adult man',
+              description: 'shaved head, crooked grin, purple hoodie',
+              action: 'standing in front of the ruined bar',
+              position: 'foreground',
+            },
+          ],
+          interaction: '',
+          composition: {
+            shot: 'wide shot',
+            angle: 'eye level',
+            lens: 'cinematic wide lens',
+            focus: 'Rob and the broken neon sign',
+          },
+          setting: 'ruined bar in cinematic rain',
+          lighting: 'broken purple neon',
+          palette: 'purple and black',
+          mood: 'grimy but affectionate',
+          importantDetails: ['broken neon sign'],
+          mustInclude: ['purple hoodie'],
+          mustAvoid: ['readable text'],
+          exactText: null,
         };
       }),
     } as LLMProvider;
@@ -49,12 +140,12 @@ describe('context-aware media prompts', () => {
     );
 
     expect(userPrompt).toContain('REQUEST: Rob davanti al bar distrutto');
-    expect(userPrompt).toContain('ASPECT RATIO: 16:9');
+    expect(userPrompt).toContain('LOCKED ASPECT RATIO: 16:9');
     expect(userPrompt).toContain('purple hoodie');
     expect(userPrompt).toContain('untrusted reference data');
-    expect(result.prompt).toContain('broken neon sign');
+    expect(result.providerPrompts.pony).toContain('broken neon sign');
     expect(result.creativeBrief).toContain('community in-joke');
-    expect(result.negativePrompt).toContain('malformed hands');
+    expect(result.negativePrompt).toContain('bad hands');
     expect(result.usedFallback).toBe(false);
   });
 

@@ -43,7 +43,10 @@ export async function generateVideo(
   if (!quota.allowed) {
     return {
       text: 'group_quota_exceeded',
-      vars: { reason: quota.reason ?? 'video', retry_after: 0 },
+      vars: {
+        reason: quota.reason ?? 'video',
+        retry_after: quota.retryAfterSeconds ?? 0,
+      },
     };
   }
 

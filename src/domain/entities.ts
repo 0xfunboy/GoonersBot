@@ -7,6 +7,9 @@
 /** NSFW routing mode for a chat. off => never; base => whole chat uses NSFW model; smart => per-message lexicon. */
 export type NsfwMode = 'off' | 'base' | 'smart';
 
+/** Normalized Telegram membership states relevant to a bot account. */
+export type TelegramMembershipStatus = 'member' | 'administrator' | 'left' | 'kicked';
+
 export interface ChatDoc {
   chatId: number;
   chatName?: string;
@@ -27,9 +30,27 @@ export interface ChatDoc {
   lastSocialMinedAt?: number;
   /** Telegram message cursor paired with lastSocialMinedAt. */
   lastSocialMinedMessageId?: number;
+  /** Latest membership state observed through Telegram API or a my_chat_member update. */
+  telegramMembershipStatus?: TelegramMembershipStatus;
+  /** When the latest Telegram membership state was observed. */
+  telegramMembershipUpdatedAt?: Date;
+  /** Last successful proactive getChatMember audit. */
+  telegramMembershipAuditedAt?: Date;
   nsfwMode: NsfwMode;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface ChatMembershipEventDoc {
+  chatId: number;
+  chatName?: string;
+  status: TelegramMembershipStatus;
+  previousStatus?: TelegramMembershipStatus;
+  source: 'my_chat_member' | 'startup_audit' | 'manual_cleanup';
+  /** Telegram update id makes webhook/polling re-delivery idempotent. */
+  updateId?: number;
+  occurredAt: Date;
+  createdAt: Date;
 }
 
 export interface ChatQuotaDoc {
