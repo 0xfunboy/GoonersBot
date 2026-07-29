@@ -23,6 +23,8 @@ const COMPOSER_SYSTEM = [
   'The NON-NEGOTIABLE SOCIAL CONTRACT in the prompt overrides personality and banter.',
   'Match the requested language and tone. Friendly vulgar banter may season the answer, but must',
   'never displace the useful payload or target protected traits.',
+  'Use plain text by default. If structure helps, use only CommonMark bold, italic, links, bullets',
+  'and fenced code. Never emit HTML or Markdown tables.',
 ].join('\n');
 
 export interface FinalAnswerComposerConfig {

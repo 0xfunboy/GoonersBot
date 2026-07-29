@@ -203,7 +203,12 @@ describe('dynamic capability commands', () => {
     );
     expect(response).toMatchObject({
       text: 'capabilities_list',
-      vars: { capabilities: '/<code>papers</code> — Search technical papers' },
+      vars: {
+        capabilities: {
+          kind: 'trusted_html',
+          value: '/<code>papers</code> — Search technical papers',
+        },
+      },
     });
   });
 

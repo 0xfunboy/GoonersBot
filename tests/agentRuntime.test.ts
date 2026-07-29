@@ -2,6 +2,50 @@ import { describe, expect, it, vi } from 'vitest';
 import { AgentRuntime } from '../src/services/agentRuntime.js';
 
 describe('AgentRuntime live provider bridge', () => {
+  it('budgets the image tool for visual-QA corrective render rounds', () => {
+    const runtime = new AgentRuntime({
+      config: {
+        env: {
+          IMAGE_GENERATION_QA_ENABLED: true,
+          IMAGE_GENERATION_QA_MAX_RETRIES: 1,
+        },
+        llm: { requestTimeoutMs: 10_000, freeFallbacks: [] },
+        brain: { cortex: { model: 'test' }, replyModel: 'test' },
+        linkMedia: { enabled: false },
+        music: { timeoutMs: 10_000 },
+        voice: { tts: { timeoutMs: 10_000 } },
+        agnes: {
+          image: { timeoutMs: 120_000 },
+          video: { timeoutMs: 10_000 },
+        },
+        stableDiffusion: { queueTimeoutMs: 120_000, timeoutMs: 120_000 },
+        search: { timeoutMs: 1_000 },
+      } as never,
+      llm: { capabilities: { chat: true } } as never,
+      media: { canGenerateImage: true } as never,
+      music: { enabled: false } as never,
+      video: { enabled: false } as never,
+      tts: { enabled: false } as never,
+      grounding: { enabled: false } as never,
+      knowledge: { enabled: false } as never,
+      imageFinder: {} as never,
+      imagePrompts: {} as never,
+      videoPrompts: {} as never,
+      quota: {} as never,
+      capabilities: { enabled: false } as never,
+    });
+
+    const definitions = (
+      runtime as unknown as {
+        definitions(input: Record<string, unknown>): Array<{ name: string; timeoutMs?: number }>;
+      }
+    ).definitions({});
+
+    expect(definitions.find((definition) => definition.name === 'image_gen')?.timeoutMs).toBe(
+      800_000,
+    );
+  });
+
   it('executes a translation and feeds its verified output into TTS in the same turn', async () => {
     const jsonCompletion = vi
       .fn()
@@ -189,6 +233,131 @@ describe('AgentRuntime live provider bridge', () => {
     expect(prepare).not.toHaveBeenCalled();
     expect(generateImage).not.toHaveBeenCalled();
     expect(reserve).not.toHaveBeenCalled();
+  });
+
+  it('replans an image when a dependency prompt describes a different scene', async () => {
+    const jsonCompletion = vi
+      .fn()
+      .mockResolvedValueOnce({
+        goal: 'generate the requested dog image',
+        actions: [
+          {
+            id: 'wrong_prompt',
+            tool: 'media_prompt',
+            purpose: 'prepare a cat image',
+            query: 'un gatto rosso',
+            args: { kind: 'image' },
+            dependsOn: [],
+            optional: false,
+            timeoutMs: 5_000,
+            acceptance: { requireOutput: true, minEvidence: 0, requiredArtifactKinds: [] },
+          },
+          {
+            id: 'make_image',
+            tool: 'image_gen',
+            purpose: 'generate a dog image',
+            query: 'un cane blu',
+            args: {},
+            dependsOn: ['wrong_prompt'],
+            optional: false,
+            timeoutMs: 30_000,
+            acceptance: {
+              requireOutput: true,
+              minEvidence: 0,
+              requiredArtifactKinds: ['image'],
+            },
+          },
+        ],
+        finalResponse: {
+          language: 'Italian',
+          format: 'mixed',
+          mustInclude: [],
+          tone: 'direct',
+        },
+      })
+      .mockResolvedValueOnce({
+        message: 'Fatto: cane blu generato.',
+        usedActionIds: ['wrong_prompt', 'make_image'],
+        uncertainties: [],
+      });
+    const prepared = (request: string) => ({
+      prompt: `${request} pony`,
+      negativePrompt: 'bad quality',
+      providerPrompts: { agnes: `${request} agnes`, pony: `${request} pony` },
+      scene: {},
+      creativeBrief: request,
+      qualityBrief: request,
+      profile: 'realistic',
+      medium: 'digital_illustration',
+      rating: 'safe',
+      aspectRatio: '1:1',
+      preferredProvider: 'agnes',
+      model: 'test',
+      usedFallback: false,
+    });
+    const prepare = vi.fn(async (request: string) => prepared(request));
+    const generateImage = vi.fn(async (_prompt: string, options: { providerPrompts: unknown }) => ({
+      buffer: Buffer.from('dog-image'),
+      model: 'agnes',
+      provider: 'agnes',
+      generationAttempts: 1,
+      qaVisionCalls: 1,
+      options,
+    }));
+    const runtime = new AgentRuntime({
+      config: {
+        brain: { cortex: { model: 'test' }, replyModel: 'test' },
+        env: { REPETITION_SIMILARITY_THRESHOLD: 0.78 },
+        llm: { requestTimeoutMs: 1_000, freeFallbacks: [] },
+        linkMedia: { enabled: false },
+        music: { timeoutMs: 10_000 },
+        voice: { tts: { timeoutMs: 10_000 } },
+        agnes: {
+          image: { timeoutMs: 10_000 },
+          video: { timeoutMs: 10_000 },
+        },
+        stableDiffusion: { queueTimeoutMs: 10_000, timeoutMs: 10_000 },
+        search: { timeoutMs: 1_000 },
+      } as never,
+      llm: { capabilities: { chat: true }, jsonCompletion } as never,
+      media: { canGenerateImage: true, generateImage } as never,
+      music: { enabled: false } as never,
+      video: { enabled: false } as never,
+      tts: { enabled: false } as never,
+      grounding: { enabled: false } as never,
+      knowledge: { enabled: false } as never,
+      imageFinder: { findPoseReference: vi.fn(async () => null) } as never,
+      imagePrompts: { prepare } as never,
+      videoPrompts: {} as never,
+      quota: {} as never,
+      capabilities: { enabled: false } as never,
+    });
+
+    const result = await runtime.run({
+      request: 'fammi un cane blu',
+      language: 'italian',
+      person: { telegramId: 1, userHandle: '@alice' },
+      context: {
+        chatId: -100,
+        isGroup: true,
+        isBotMentioned: true,
+        isGroupAdmin: false,
+        isReplyToBot: false,
+      },
+      recentMessages: [],
+      quotaBypass: true,
+    });
+
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(prepare.mock.calls[0]?.[0]).toBe('un gatto rosso');
+    expect(prepare.mock.calls[1]?.[0]).toBe('un cane blu');
+    expect(generateImage).toHaveBeenCalledWith(
+      'un cane blu pony',
+      expect.objectContaining({
+        providerPrompts: { agnes: 'un cane blu agnes', pony: 'un cane blu pony' },
+      }),
+    );
+    expect(result?.imageBuffer?.toString()).toBe('dog-image');
   });
 
   it('applies the gratitude social floor to multi-tool answers and rewrites hostile output', async () => {

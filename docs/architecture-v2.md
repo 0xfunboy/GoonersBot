@@ -51,6 +51,15 @@ bounded batches, using Telegram `message_id` rather than timestamps so bursts an
 messages are not lost. Older messages can provide look-behind context but cannot be reused as fresh
 provenance. Bootstrap and scheduled learning share one serialized, low-priority lane.
 
+Background eligibility is fail-closed and shared by backfill, continuous mining, feedback learning
+and autonomous posting. A chat must be present in the runtime approval store, locally started and
+confirmed by Telegram as `member` or `administrator`. Boot performs a `getChatMember` audit before
+the scheduler starts. Telegram `my_chat_member` transitions are stored idempotently in the
+append-only `chat_membership_events` collection; the current normalized state and audit timestamps
+also live on the chat document. `left` and `kicked` atomically stop the chat and disable every
+autonomous toggle. Transient Telegram failures preserve the last known state rather than falsely
+classifying a live group as removed.
+
 The learning lane uses an independent OpenAI-compatible provider. Its configured model is pinned,
 the conversation-plan header and model overrides are suppressed, and its usage never debits chat
 quota. An unmetered model allocation removes economic preselection, not upstream rate limits: the
@@ -155,11 +164,64 @@ turning prompt injection into host access.
 
 ## Media prompt compilation
 
-Image and video requests are compiled before generation. The compiler keeps the user's intent, then
-adds relevant conversation and social context, subject continuity, composition, lighting, camera,
-motion, temporal coherence and provider-specific quality constraints. Negative prompts are passed to
-local Stable Diffusion instead of being discarded. Video prompts describe a shot over time rather
-than treating video as a static image with the word "moving" appended.
+Image and video requests are compiled before generation. Video prompts describe a shot over time
+rather than treating video as a static image with the word "moving" appended. Still images use a
+provider-neutral, structured scene plan as the boundary between conversational understanding and
+rendering:
+
+```text
+user request
+  -> structured scene plan (validated; deterministic fallback)
+  -> provider compilers
+       -> Agnes natural-language visual contract
+       -> PonyXL content tags + separate scene negative
+  -> capability router
+  -> bitmap
+  -> vision QA
+  -> at most N focused retries, normally on the other backend
+```
+
+The scene plan locks medium, rating and aspect ratio and records each distinct subject with its
+count, description, action and position. Interaction, camera, setting, lighting, palette, mood,
+must-include/must-avoid details and exact visible text remain separate fields. The normalizer checks
+explicit subject counts, prevents exclusions from contradicting requested subjects, preserves
+direct framing instructions and only injects chat continuity when the request references it.
+
+Agnes and Pony therefore never receive the same generic prompt:
+
+- Agnes gets compact natural-language direction and explicit constraints. Through GemRouter it uses
+  the validator-compatible exact sizes `1024x1024`, `1792x1024` and `1024x1792`; the router
+  currently rejects Agnes' native `size: "1K"` plus `ratio` form. Anatomical left/right
+  requirements are compiled into unambiguous final-image coordinates, and full-body requests
+  explicitly require both feet inside the canvas.
+- Pony gets booru-compatible content tags. Forge prepends the full positive score chain
+  `score_9` through `score_4_up`, then adds source, rating and medium tags. Its native
+  `negative_prompt` deduplicates the operator baseline, provider defects and scene exclusions and
+  keeps `score_3`, `score_2` and `score_1` negative. Natural framing/background phrases are
+  normalized into Pony-native tags and paired with contextual negatives for unwanted framing,
+  scenery and props.
+
+Provider preference describes capability rather than availability: explicit work stays on Pony;
+focused anime, manga and pixel-art work normally starts there; Agnes handles exact text, multiple
+subjects, detail-dense contracts and other media. Pose-guided work is forced to Pony + OpenPose.
+Ordinary provider failure falls back to the other compatible backend. Agnes and Forge have
+independent short circuits, and caller cancellation never counts as a provider failure.
+
+When the configured LLM exposes vision, generated-image QA uses ffmpeg to downsize the bitmap for
+bounded inspection when available and scores visible evidence against a quality brief derived from
+the same scene plan. Only major semantic or structural failures trigger a correction. The retry
+carries one focused instruction: Pony-first focused art may move to Agnes, while an Agnes-first
+instruction-dense scene retries on Agnes and pose-guided/explicit work remains on Pony. The
+inspection also labels visible age as `adult_only`, `no_people` or
+`ambiguous_or_minor` and visible content as `safe`, `suggestive`, `explicit` or `uncertain`.
+Candidates above the requested content rating are hard failures; exhausted over-rating candidates
+are never delivered. Suggestive and explicit scenes with people are fail-closed unless every person
+is visibly adult, while an object-only adult scene may correctly report `no_people`. A positively
+minor/ambiguous bitmap is never delivered at any rating.
+`IMAGE_GENERATION_QA_MIN_SCORE` controls acceptance; `IMAGE_GENERATION_QA_MAX_RETRIES` is clamped to
+two. The Agent coordinator grants the loop a hard 15-minute total deadline; a later corrective
+round is best-effort if both backends consume their full individual timeout. For safe work only, a
+missing/flaky vision provider keeps the first generated image.
 
 ## Provider resilience
 

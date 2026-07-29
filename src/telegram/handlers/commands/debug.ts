@@ -9,9 +9,11 @@ export const brainCommand: CommandSpec = {
   priority: Priority.ADMIN,
   adminOnly: true,
   async handle({ services, context }) {
-    if (!services.config.env.BRAIN_DEBUG_ENABLED) return { rawText: 'Brain debug disabled.' };
+    if (!services.config.env.BRAIN_DEBUG_ENABLED) {
+      return { rawText: 'Brain debug disabled.', textFormat: 'plain' };
+    }
     const turn = await services.storage.brainDebug.getLast(context.chatId);
-    if (!turn) return { rawText: 'No brain turns recorded yet.' };
+    if (!turn) return { rawText: 'No brain turns recorded yet.', textFormat: 'plain' };
     const evaluation = turn.evaluation ?? {
       shouldAct: true,
       action: 'answer',
@@ -58,7 +60,7 @@ export const brainCommand: CommandSpec = {
       `repetition: ${turn.repetitionChecks.map((r) => (r.allowed ? 'ok' : `blocked(${r.reason})`)).join(', ') || '(none)'}`,
       `final: ${turn.finalText.slice(0, 200)}`,
     ];
-    return { rawText: lines.join('\n') };
+    return { rawText: lines.join('\n'), textFormat: 'plain' };
   },
 };
 
@@ -70,9 +72,11 @@ export const debuglastCommand: CommandSpec = {
   priority: Priority.ADMIN,
   adminOnly: true,
   async handle({ services, context }) {
-    if (!services.config.env.BRAIN_DEBUG_ENABLED) return { rawText: 'Brain debug disabled.' };
+    if (!services.config.env.BRAIN_DEBUG_ENABLED) {
+      return { rawText: 'Brain debug disabled.', textFormat: 'plain' };
+    }
     const turn = await services.storage.brainDebug.getLast(context.chatId);
-    if (!turn) return { rawText: 'No brain turns recorded yet.' };
+    if (!turn) return { rawText: 'No brain turns recorded yet.', textFormat: 'plain' };
     const evaluation = turn.evaluation ?? {
       shouldAct: true,
       action: 'answer',
@@ -99,6 +103,6 @@ export const debuglastCommand: CommandSpec = {
       finalText: turn.finalText,
     };
     const json = JSON.stringify(compact, null, 2).slice(0, 3500);
-    return { rawText: '```\n' + json + '\n```' };
+    return { rawText: '```\n' + json + '\n```', textFormat: 'markdown' };
   },
 };

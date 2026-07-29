@@ -29,6 +29,8 @@ export class Scheduler {
     private readonly generatedImageTick?: () => Promise<void>,
     /** evolving people/relationship/community model, mined beside durable lore */
     private readonly socialLearning?: SocialLearningPipeline,
+    /** Runtime approval store; evaluated on every tick so revocations take effect immediately. */
+    private readonly getApprovedChatIds: () => readonly number[] = () => [],
   ) {}
 
   start(): void {
@@ -41,13 +43,26 @@ export class Scheduler {
     if (this.config.env.MEMORY_MINING_ENABLED) {
       this.every(this.config.env.MEMORY_MINING_INTERVAL_SECONDS * 1000, 60_000, () =>
         this.safe('mining', () =>
-          runMemoryMiningJob(this.storage, this.lore, this.config, this.socialLearning),
+          runMemoryMiningJob(
+            this.storage,
+            this.lore,
+            this.config,
+            this.socialLearning,
+            this.getApprovedChatIds(),
+          ),
         ),
       );
     }
     if (this.config.env.FEEDBACK_LEARNING_ENABLED) {
       this.every(90_000, 75_000, () =>
-        this.safe('feedback', () => runFeedbackLearningJob(this.storage, this.lore, this.config)),
+        this.safe('feedback', () =>
+          runFeedbackLearningJob(
+            this.storage,
+            this.lore,
+            this.config,
+            this.getApprovedChatIds(),
+          ),
+        ),
       );
     }
     if (this.config.auto.autopostEnabled && this.autopostTick) {

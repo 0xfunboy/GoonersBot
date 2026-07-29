@@ -178,12 +178,18 @@ export function buildAutoEngagePrompt(params: {
   conversationEnergy: number;
   botLabel: string;
 }): string {
+  const compactHistory = params.history
+    .slice(-8)
+    .map((message) => {
+      const speaker = message.isBot ? params.botLabel : message.handle;
+      const text = (message.message.messageText ?? '').replace(/\s+/g, ' ').trim().slice(0, 280);
+      return `${speaker}: ${text || '[media]'}`;
+    })
+    .join('\n');
   return [
     `Current mode: ${params.modeName} - ${params.modeDescription}`,
-    buildHistorySection(params.history, params.botLabel),
-    `Latest message from ${params.userHandle}: ${params.currentMessage}`,
-    buildUserFacts(params.userHandle, params.userFacts),
-    buildGroupFacts(params.groupFacts),
+    `Recent chat:\n${compactHistory || '[empty]'}`,
+    `Latest message from ${params.userHandle}: ${params.currentMessage.slice(0, 500)}`,
     `Bot directly addressed (mention/reply): ${params.isMentionedOrReplied ? 'YES' : 'no'}`,
     `Bot replies in the last hour in this chat: ${params.recentBotReplies}`,
     `Conversation energy (messages in recent window): ${params.conversationEnergy}`,

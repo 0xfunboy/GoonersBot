@@ -269,7 +269,7 @@ illegal, no doxxing. NSFW is opt-in per chat and meant for private, consenting a
 | `/news`                      | anyone        | force an autonomous post now (alias `/nuovo`)                                               |
 | `/autopost`                  | admin         | toggle timed autonomous posts in this chat                                                  |
 | `/genera <prompt>`           | anyone        | generate an original image with Stable Diffusion (aliases `/image`, `/img`)                 |
-| `/disegna <prompt>`          | anyone        | force the high-quality PonyXL manga workflow (alias `/draw`)                                |
+| `/disegna <prompt>`          | anyone        | force manga planning/style while retaining capability routing (alias `/draw`)               |
 | `/genvid <prompt>`           | anyone        | generate a short video clip (aliases `/video`, `/genvideo`, `/vid`, `/clip`, `/animazione`) |
 | `/usage`                     | anyone        | your usage and limits                                                                       |
 | `/capabilities`              | approved      | list dynamically learned read-only capabilities                                             |
@@ -310,6 +310,12 @@ never replies and nothing is generated for them.
   silent.
 - **Approving**: a bot admin runs `/approve` inside a group to approve it, or `/approve <id>` from
   anywhere (negative id = chat, positive id = user). `/unapprove` and `/approved` manage the list.
+- Approval alone does not schedule background work. On boot the bot audits every approved group
+  with Telegram; mining, feedback and autonomous posts run only while its persisted status is
+  `member` or `administrator`. `/approved` shows that status and the last successful audit.
+- `my_chat_member` updates are persisted in an append-only `chat_membership_events` audit. A
+  transition to `left` or `kicked` immediately stops the chat and disables autoengage, autopost and
+  conversation tracking, even when no ordinary message can arrive after the removal.
 - Approvals are seeded from `APPROVED_CHATS` / `APPROVED_USERS` on first run and then persisted to
   `APPROVED_STORE_PATH` (a JSON file, gitignored), so runtime `/approve` changes survive restarts.
 
@@ -323,14 +329,14 @@ shows current counters and limits. Limits reset on calendar boundaries in the `E
 
 | Resource                |           Free |           Plus |             Pro |
 | ----------------------- | -------------: | -------------: | --------------: |
-| Conversational requests | 12/day, 3/hour | 32/day, 9/hour | 72/day, 18/hour |
-| LLM tokens              |        30k/day |       150k/day |          1M/day |
+| Conversational requests | 12/day, 3/hour | 32/day, 9/hour | 144/day, 30/hour |
+| LLM tokens              |        30k/day |       150k/day |           2M/day |
 | Web searches            |          8/day |         33/day |          75/day |
 | Opened/scanned pages    |         15/day |         75/day |         200/day |
 | News retrievals         |          2/day |          9/day |          24/day |
 | Generated images        |          1/day |         18/day |          48/day |
 | Downloaded media        |  3/day, 100 MB | 20/day, 600 MB |  40/day, 1.2 GB |
-| Passive LLM replies     |       disabled |       disabled |        disabled |
+| Passive LLM replies     |       disabled |         9/hour |         12/hour |
 | Per-user cooldown       |           30 s |            6 s |             1 s |
 | Per-chat cooldown       |           20 s |            3 s |             1 s |
 | User/chat burst         |  1 / 3 per min | 6 / 16 per min | 20 / 60 per min |
@@ -340,8 +346,12 @@ evaluator/Cortex, generation, translation and image-prompt preparation); embeddi
 separate configured endpoint. Free groups do not invoke the separate vision model or autonomous
 posting. Continuous background learning still runs for every started chat through the independent
 plan-independent `MINING_LLM_*` route, configured for one request at a time and three starts per
-minute.
-All plans store passive messages as context only and never infer or reply until the bot is addressed.
+minute. The miner also waits for a foreground quiet window so background extraction does not start
+while an interactive LLM operation is active.
+All plans store passive messages as context. With `/autoengage` enabled, Plus and Pro may additionally
+run a compact Flash-Lite gate and chime in within their passive hourly allowance; approved passive
+turns skip redundant scene/Cortex model calls but retain social memory, tools, style and final
+generation.
 
 Semantic RAG uses `EMBEDDING_MODEL` (default `bge-m3`, 1024 dimensions) through GemRouter's
 OpenAI-compatible `/v1/embeddings` endpoint. It helps group-memory retrieval, curated knowledge
@@ -620,13 +630,66 @@ the bot drops an unprompted line. It is either a styled take on a current event 
 opt-in per chat (`/autopost`, default off) and can be forced on demand with `/news` (alias `/nuovo`).
 Composer in `src/services/autonomousPoster.ts`, feeds in `src/news/newsService.ts`.
 
-### Remote generation (Agnes) with local fallback
+### Generated-image planning and provider routing
 
-Image generation goes to the remote **Agnes** model (`agnes-image-2.1-flash`) through the router's
-OpenAI-compatible `POST /v1/images/generations`, and falls back **automatically to the local Stable
-Diffusion** below whenever the remote call fails or is disabled. Pose/ControlNet jobs always go
-local, because only Forge can honour an OpenPose reference. Nothing else changes: `/genera`,
-`/disegna`, the autonomous image poster and the cortex `image_gen` tool all use the same path.
+`/genera`, `/disegna`, autonomous generated images and the cortex `image_gen` tool share one visual
+pipeline. A loose request is not forwarded verbatim to a model:
+
+```text
+request + relevant continuity -> validated scene plan
+                             -> Agnes natural-language prompt
+                             -> PonyXL tag prompt + native negative prompt
+                             -> capability-aware provider routing
+                             -> generated bitmap
+                             -> vision QA -> optional corrected retry -> best bitmap
+```
+
+The prompt model first returns a Zod-validated scene plan containing the locked medium, content
+rating and aspect ratio; exact subject counts and per-subject descriptions/actions/positions;
+interaction, framing, camera, setting, lighting, palette and mood; required and excluded details;
+and any exact visible text. It must translate visual fields to English and cannot silently replace,
+merge or add subjects. If structured generation fails, a deterministic scene contract preserves the
+request instead of dropping image generation. Chat lore is considered only for an explicitly
+referenced member/series or continuity request such as "same as before".
+
+That single contract is compiled twice:
+
+- **Agnes** receives an instruction-following natural-language prompt with literal subject counts,
+  spatial relationships, composition, environment, hard requirements and exclusions.
+- **PonyXL** receives concise booru-compatible content tags. Its checkpoint-specific quality,
+  source and rating chain and its negative prompt are added only by the Forge provider.
+
+The first provider is selected by capability, not by a fixed global preference. Explicit content
+stays on Pony; focused anime, manga and pixel art normally prefer Pony; requested exact text,
+multiple subjects, detail-dense contracts and the other visual media prefer Agnes. A pose reference
+always uses local PonyXL + OpenPose. Either backend can fall back to the other when the requested
+capability permits it. Independent five-minute circuits open after two consecutive Agnes or Forge
+failures, while caller cancellations do not poison provider health.
+
+Agnes uses the router's OpenAI-compatible `POST /v1/images/generations` with
+the GemRouter-compatible exact sizes `1024x1024`, `1792x1024` and `1024x1792`. These preserve the
+resolved `1:1`, `16:9` or `9:16` orientation through the router, whose current OpenAI validator
+rejects Agnes' otherwise documented native `size: "1K"` plus `ratio` body. An explicit tool ratio
+wins; otherwise square/avatar requests become `1:1`, vertical/story requests `9:16`, and
+landscape/banner requests `16:9`, with `1:1` as the neutral default.
+`AGNES_BASE_URL` and `AGNES_API_KEY` fall back to the main LLM route/key, while
+`AGNES_IMAGE_ENABLED=false` removes Agnes from image routing without disabling local generation.
+
+When vision is configured and `IMAGE_GENERATION_QA_ENABLED=true`, the generated bitmap is resized to
+a bounded JPEG for inspection when ffmpeg is available, then scored against a compact quality brief
+built from the original scene plan. Missing/extra main subjects, a wrong central action, medium or
+framing, unreadable required text and severe anatomy are hard failures. A failed candidate gets a
+bounded, focused retry: Pony-first focused art may move to Agnes, Agnes-first instruction-dense work
+stays on Agnes, and pose-guided/explicit retries stay on Pony. The best inspected candidate is
+returned if no attempt reaches the threshold. QA also reports
+whether every visible person is unambiguously adult and independently classifies the pixels as
+`safe`, `suggestive`, `explicit` or `uncertain`. Output above the requested rating is regenerated and
+never returned after the retry budget: a safe request cannot leak an unspoilered explicit bitmap,
+and suggestive work cannot leak explicit content. Suggestive and explicit scenes containing people
+are not delivered when the adult-only check is missing or ambiguous; object-only adult scenes use
+`no_people` instead. Any bitmap positively identified as minor/age-ambiguous is blocked at every
+rating. Safe work remains fail-open only when vision itself is malformed or unavailable, so a flaky
+inspector does not turn an otherwise safe image request into an error.
 
 ### Video generation
 
@@ -652,22 +715,36 @@ AGNES_VIDEO_MODEL=agnes-video-v2.0
 AGNES_VIDEO_MIN_INTERVAL_MS=60000   # upstream allows 1 video/minute
 ```
 
-### Stable Diffusion generation (local, also the image fallback)
+### Stable Diffusion generation (local PonyXL backend)
 
 `/genera <prompt>` generates an original bitmap through a self-hosted Forge/Automatic1111 API;
-`/image` and `/img` are aliases. The command turns the request into a concise English SD prompt before
-generation. All workflows use Pony Diffusion XL: it stays loaded as the single checkpoint on the shared
-Forge host, avoiding the RAM-heavy swaps that destabilize it. The configured primary LLM compiles every
-request into scene tags; Pony-specific prompt profiles then distinguish anime, manga, photorealistic and
-explicit-adult outputs.
+`/image` and `/img` are aliases. All local workflows use Pony Diffusion XL: it stays loaded as the
+single checkpoint on the shared Forge host, avoiding the RAM-heavy swaps that destabilize it. Model
+selection still understands anime/manga/comic, general/photographic and explicit profiles, so an
+operator may configure separate checkpoints later without changing the scene compiler.
 
-`/disegna <prompt>` is intentionally separate: it forces Pony's manga workflow with Euler a,
-manga key-visual prompting, clean ink lineart and screentone negatives. `/genera` keeps the generic
-routing, with Pony score/rating/source tags matched to safe anime, realistic or explicit adult content.
+`/disegna <prompt>` is intentionally separate: it forces the manga medium/profile, including manga
+prompting, clean ink lineart and screentone negatives when Pony is selected. It still retains
+capability routing, so exact-text, multi-subject or instruction-dense manga can use Agnes.
+`/genera` infers both medium and routing.
+Every Pony prompt receives the complete positive score chain
+`score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up`, the appropriate
+`source_anime`/`source_cartoon` tag when applicable, and one of
+`rating_safe`, `rating_questionable` or `rating_explicit`. The native Forge `negative_prompt` merges
+the operator baseline, medium/rating defects and scene-specific exclusions while deduplicating them;
+low score tags `score_3, score_2, score_1` remain negative rather than contaminating the positive
+prompt. The compiler also translates prose that Pony commonly misreads into checkpoint-native
+framing/background tags (`upper body`, `waist up`, `simple background`) and contextual negatives:
+for example, a requested bust portrait suppresses full-body framing, while an unarmed warrior does
+not silently acquire a sword.
 
 The defaults are deliberately sized for a shared 12 GB RTX 3080 Ti: normal Pony renders use 28 steps;
-OpenPose-guided renders use a reduced 22-step canvas to preserve VRAM headroom. Before a request the bot
-polls Forge's global queue, and waits up to five minutes rather than treating a model load as downtime.
+the selected aspect ratio maps to `1024x1024`, `1152x640` or `640x1152`. OpenPose-guided renders use
+a reduced 22-step canvas to preserve VRAM headroom. Before a request the bot polls Forge's global
+queue and re-verifies the process-wide checkpoint because the frontend may have changed it. Forge
+response bodies remain under the render timeout and a 32 MB cap. Image jobs and their QA retries
+remain globally serialized. OpenPose search is restricted to genuinely complex interactions, checks
+at most two candidates and caches a verified neutral pose for 30 minutes.
 
 The normal news/web-image autopost pipeline never sends generated images. A separate generated-image
 scheduler exists behind `GENERATED_IMAGE_AUTOPOST_ENABLED=false` and must remain off until explicitly
@@ -766,7 +843,8 @@ The tables below list the common vars; see `.env.example` for the full set with 
 | `MINING_LLM_MODEL`                                                        | `gemma-4-31b-it`         | Pinned background lore/social model; request overrides are ignored.     |
 | `MINING_LLM_REQUEST_TIMEOUT_MS`                                           | `180000`                 | Timeout only for one queued background structured call.                 |
 | `MINING_LLM_MAX_REQUESTS_PER_MINUTE`                                      | `3`                      | Mining-provider cap; default pacing starts calls at least 20s apart.    |
-| `MINING_LLM_MAX_TOKENS_PER_MINUTE`                                        | `15000`                  | Conservative rolling mining token envelope, including output reserve.  |
+| `MINING_LLM_MAX_TOKENS_PER_MINUTE`                                        | `15000`                  | Conservative rolling mining token envelope, including output reserve.   |
+| `MINING_LLM_FOREGROUND_QUIET_MS`                                          | `15000`                  | Defer new mining calls while/just after interactive LLM work.            |
 | `LLM_VISION_MODEL`                                                        | none                     | Enables image and video-frame understanding.                            |
 | `LLM_VISION_ENDPOINT_URL`                                                 | none                     | Full dedicated vision endpoint, e.g. GemRouter `/v1/vision`.            |
 | `LLM_VISION_BASE_URL` / `LLM_VISION_API_KEY`                              | none                     | Separate chat-compatible vision base; empty reuses the main one.        |
@@ -802,9 +880,15 @@ value at `3` for GemRouter.
 | `IMAGE_LOOKUP_ENABLED`                                                                          | off                          | Reverse-image grounding (needs web search and vision).                        |
 | `IMAGE_SEND_ENABLED` / `IMAGE_SEND_PROBABILITY`                                                 | on / `0.15`                  | Attach a verified waifu image on anime topics.                                |
 | `IMAGE_QUERY_POOL`                                                                              | defaults                     | Comma-separated image query seeds.                                            |
+| `IMAGE_GENERATION_QA_ENABLED`                                                                   | on                           | Vision-check generated images against their structured scene plan.            |
+| `IMAGE_GENERATION_QA_MIN_SCORE` / `IMAGE_GENERATION_QA_MAX_RETRIES`                             | `0.72` / `1`                 | Acceptance threshold / bounded corrective generations (`0..2`).               |
+| `AGNES_BASE_URL` / `AGNES_API_KEY`                                                              | main LLM route/key           | Optional dedicated router endpoint and bearer token for Agnes media.          |
+| `AGNES_IMAGE_ENABLED` / `AGNES_IMAGE_MODEL`                                                     | on / `agnes-image-2.1-flash` | Enable the instruction-following image route; Pony remains available.         |
+| `AGNES_IMAGE_TIMEOUT_MS` / `AGNES_IMAGE_MAX_MB`                                                 | `120000` / `25`              | Remote render timeout and bounded returned-image size.                        |
 | `SD_ENABLED` / `SD_API_URL`                                                                     | on / Forge URL               | Enable the self-hosted Forge/Automatic1111 generator.                         |
 | `SD_ANIME_MODEL` / `SD_REALISTIC_MODEL` / `SD_NSFW_MODEL`                                       | PonyXL                       | Keep all three set to the same PonyXL checkpoint to avoid Forge model swaps.  |
-| `SD_NEGATIVE_PROMPT` / `SD_STEPS` / `SD_WIDTH` / `SD_HEIGHT` / `SD_CFG_SCALE`                   | tuned defaults               | Shared Stable Diffusion generation controls.                                  |
+| `SD_NEGATIVE_PROMPT` / `SD_STEPS`                                                               | tuned defaults               | Pony baseline negative and sampling floor.                                    |
+| `SD_WIDTH` / `SD_HEIGHT` / `SD_CFG_SCALE`                                                       | compatibility values         | Legacy/direct workflow values; planned requests use the tuned ratio presets.  |
 | `SD_TIMEOUT_MS` / `SD_QUEUE_TIMEOUT_MS` / `SD_QUEUE_POLL_MS`                                    | `300000` / `300000` / `2000` | Per-render timeout and wait policy when Forge is busy.                        |
 | `SD_CONTROLNET_ENABLED` / `SD_CONTROLNET_OPENPOSE_MODEL` / `SD_CONTROLNET_PROCESSOR_RESOLUTION` | on / `OpenPoseXL2` / `512`   | SearXNG pose-reference workflow for complex poses, tuned for the shared GPU.  |
 | `AUTOPOST_ENABLED` / `AUTOPOST_DEFAULT_ENABLED`                                                 | on / off                     | Scheduler switch / per-chat default (opt-in).                                 |
@@ -843,6 +927,7 @@ retain their cursor and are retried after cooldown instead of being replayed imm
 | `AUTOENGAGE_DEFAULT_ENABLED` / `CONVERSATION_TRACKER_DEFAULT_ENABLED`  | on / on     | Initial toggles for new chats.                                                      |
 | `MAX_REPLIES_PER_CHAT_PER_HOUR`                                        | `72`        | Global safety ceiling; the active `/profile` plan enforces the lower per-group cap. |
 | `AUTOENGAGE_MIN_COOLDOWN_SECONDS` / `AUTOENGAGE_USER_COOLDOWN_SECONDS` | `45` / `20` | Passive-reply cooldowns.                                                            |
+| `AUTOENGAGE_MODEL` / `AUTOENGAGE_MAX_TOKENS`                           | main / `160` | Optional fast passive gate model and its strict JSON output cap.                    |
 | `MESSAGE_HISTORY_RETENTION_DAYS` / `MAX_CONTEXT_MESSAGES`              | `30` / `25` | Message TTL / context window.                                                       |
 | `COMMAND_RATE_LIMIT_SECONDS`                                           | `1`         | Min seconds between accepted commands per user.                                     |
 

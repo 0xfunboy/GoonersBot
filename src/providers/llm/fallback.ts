@@ -126,7 +126,7 @@ export class FallbackLLMProvider implements LLMProvider {
     return this.withFallback(
       'scoreAutoEngage',
       () => this.primary.scoreAutoEngage(req),
-      () => this.fallback.scoreAutoEngage(req),
+      () => this.fallback.scoreAutoEngage(this.fallbackRequest(req)),
       req.signal,
     );
   }

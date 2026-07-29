@@ -5,6 +5,7 @@ import { OpenAICompatibleProvider } from './openaiCompatible.js';
 import { FallbackLLMProvider } from './fallback.js';
 import type { ChatRequest, ChatResult, LLMProvider } from './types.js';
 import { estimateMiningRequestTokens, MiningRequestPacer } from './miningPacer.js';
+import { InteractiveLLMProvider, waitForInteractiveQuiet } from './workload.js';
 
 const log = childLogger('llm-factory');
 const MINING_TRANSIENT_FAILURE_COOLDOWN_MS = 60_000;
@@ -43,6 +44,7 @@ class ContinuousMiningProvider extends OpenAICompatibleProvider {
     options: ConstructorParameters<typeof OpenAICompatibleProvider>[0],
     maxRequestsPerMinute: number,
     maxTokensPerMinute: number,
+    private readonly foregroundQuietMs: number,
   ) {
     super(options);
     this.pacer = new MiningRequestPacer({ maxRequestsPerMinute, maxTokensPerMinute });
@@ -56,6 +58,7 @@ class ContinuousMiningProvider extends OpenAICompatibleProvider {
   }
 
   private async paced<T>(req: ChatRequest, request: () => Promise<T>): Promise<T> {
+    await waitForInteractiveQuiet(this.foregroundQuietMs, req.signal);
     return this.pacer.run(
       async () => {
         try {
@@ -190,6 +193,7 @@ export function createLLMProvider(cfg: LLMConfig, embeddings?: EmbeddingsConfig)
     );
     provider = new FallbackLLMProvider(provider, fallbackProvider);
   }
+  provider = new InteractiveLLMProvider(provider);
 
   log.info(
     { provider: provider.name, baseUrl: cfg.baseUrl, capabilities: provider.capabilities },
@@ -232,6 +236,7 @@ export function createMiningLLMProvider(cfg: MiningLLMConfig): LLMProvider {
     },
     cfg.maxRequestsPerMinute,
     cfg.maxTokensPerMinute,
+    cfg.foregroundQuietMs ?? 0,
   );
   log.info(
     {
@@ -240,6 +245,7 @@ export function createMiningLLMProvider(cfg: MiningLLMConfig): LLMProvider {
       baseUrl: cfg.baseUrl,
       maxRequestsPerMinute: cfg.maxRequestsPerMinute,
       maxTokensPerMinute: cfg.maxTokensPerMinute,
+      foregroundQuietMs: cfg.foregroundQuietMs,
     },
     'dedicated continuous-mining LLM initialized',
   );

@@ -111,7 +111,7 @@ export const translateCommand: CommandSpec = {
       });
       const text = result.text.trim();
       if (!text) return { text: 'translate_failed' };
-      return { rawText: text };
+      return { rawText: text, textFormat: 'markdown' };
     } catch {
       return { text: 'translate_failed' };
     }

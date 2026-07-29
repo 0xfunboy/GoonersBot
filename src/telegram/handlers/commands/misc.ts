@@ -71,6 +71,6 @@ export const helpCommand: CommandSpec = {
         services.localizer.t('default_command_description', {}, language) ??
         command,
     );
-    return { rawText: `${intro}\n\n${catalog}` };
+    return { rawText: `${intro}\n\n${catalog}`, textFormat: 'html' };
   },
 };

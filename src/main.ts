@@ -8,6 +8,8 @@ import { Scheduler } from './jobs/scheduler.js';
 import { buildMiningWindows, withContinuousMiningLock } from './jobs/memoryMiningJob.js';
 import { KNOWLEDGE_SEED } from './knowledge/seed.js';
 import { getLogger } from './utils/logger.js';
+import { currentLlmUsage, runWithGroupPlan } from './providers/llm/requestContext.js';
+import { renderTelegramText } from './telegram/format.js';
 
 /**
  * One versioned historical pass seeds both projections with the same dedicated Gemma route.
@@ -20,7 +22,7 @@ async function runInitialCommunityBackfill(
 ): Promise<void> {
   await withContinuousMiningLock(async () => {
     const log = getLogger();
-    for (const chatId of await storage.chats.listStartedChatIds()) {
+    for (const chatId of await storage.chats.listStartedChatIds(services.access.list().chats)) {
       const backfillJob = `community_backfill_gemma31b_v1:${chatId}`;
       try {
         if (await storage.jobs.lastRun(backfillJob)) continue;
@@ -155,7 +157,7 @@ async function main(): Promise<void> {
   // 4. Services.
   const services = new Services(config, storage, llm, miningLlm);
   await services.capabilities.initialize();
-  for (const chatId of await storage.chats.listStartedChatIds()) {
+  for (const chatId of await storage.chats.listStartedChatIds(services.access.list().chats)) {
     const members = await storage.chatMembers.listMembers(chatId);
     const totalMessagesByTelegramId = new Map<number, number>();
     for (const member of members) {
@@ -197,7 +199,7 @@ async function main(): Promise<void> {
 
   // 6. Background scheduler (incl. probabilistic autonomous posting into opted-in chats).
   const autopostTick = async (): Promise<void> => {
-    const chats = await storage.chats.listForAutopost();
+    const chats = await storage.chats.listForAutopost(services.access.list().chats);
     for (const c of chats) {
       if (services.isFreePlan(await services.planForChat(c.chatId))) continue;
       if (Math.random() >= config.auto.autopostProbability) continue;
@@ -206,14 +208,17 @@ async function main(): Promise<void> {
       });
       if (!post) continue;
       try {
+        const rendered = post.text ? renderTelegramText(post.text, 'markdown') : undefined;
         if (post.imageBuffer) {
           await goonerBot.bot.api.sendPhoto(
             c.chatId,
             new InputFile(post.imageBuffer),
-            post.text ? { caption: post.text } : {},
+            rendered ? { caption: rendered.text, parse_mode: rendered.parseMode } : {},
           );
-        } else if (post.text) {
-          await goonerBot.bot.api.sendMessage(c.chatId, post.text);
+        } else if (rendered) {
+          await goonerBot.bot.api.sendMessage(c.chatId, rendered.text, {
+            parse_mode: rendered.parseMode,
+          });
         }
       } catch (err) {
         log.warn({ err, chatId: c.chatId }, 'autopost send failed');
@@ -221,16 +226,40 @@ async function main(): Promise<void> {
     }
   };
   const generatedImageTick = async (): Promise<void> => {
-    const chats = await storage.chats.listForAutopost();
+    const chats = await storage.chats.listForAutopost(services.access.list().chats);
     for (const c of chats) {
-      if (services.isFreePlan(await services.planForChat(c.chatId))) continue;
+      const plan = await services.planForChat(c.chatId);
+      if (services.isFreePlan(plan)) continue;
       if (Math.random() >= config.auto.generatedImageAutopostProbability) continue;
-      const post = await services.generatedImagePoster.compose(c.chatId, c.language);
+      const execution = await runWithGroupPlan(plan.id, async () => {
+        const post = await services.generatedImagePoster.compose(c.chatId, c.language);
+        return { post, usage: currentLlmUsage() };
+      });
+      const post = execution.post;
+      const llmTokens = (execution.usage?.inputTokens ?? 0) + (execution.usage?.outputTokens ?? 0);
+      await services.quota
+        .recordLlmTokens(c.chatId, llmTokens)
+        .catch((err) =>
+          log.warn({ err, chatId: c.chatId }, 'generated image autopost token accounting failed'),
+        );
       if (!post) continue;
       try {
+        const rendered = renderTelegramText(post.text, 'markdown');
         await goonerBot.bot.api.sendPhoto(c.chatId, new InputFile(post.imageBuffer), {
-          caption: post.text,
+          caption: rendered.text,
+          parse_mode: rendered.parseMode,
+          ...(post.imageSpoiler ? { has_spoiler: true } : {}),
         });
+        log.info(
+          {
+            chatId: c.chatId,
+            llmCalls: execution.usage?.calls ?? 0,
+            llmTokens,
+            imageCalls: post.generationAttempts,
+            visionCalls: post.visionCalls,
+          },
+          'generated image autopost delivered',
+        );
       } catch (err) {
         log.warn({ err, chatId: c.chatId }, 'generated image autopost send failed');
       }
@@ -243,6 +272,7 @@ async function main(): Promise<void> {
     autopostTick,
     generatedImageTick,
     services.socialLearning,
+    () => services.access.list().chats,
   );
   scheduler.start();
 

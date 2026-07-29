@@ -37,6 +37,31 @@ describe('Agnes image remote output hardening', () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
       'http://127.0.0.1:8080/v1/images/generations',
     );
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain('"size":"1024x1024"');
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).not.toContain('"ratio"');
+  });
+
+  it('uses the provider-specific natural prompt and requested aspect ratio', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ data: [{ b64_json: 'AQIDBA==' }] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await new AgnesImageGenerator(cfg).generate('pony tags', {
+      aspectRatio: '16:9',
+      providerPrompts: {
+        pony: 'score_9, 1girl',
+        agnes: 'Create exactly one red-haired adult astronaut in a cinematic lunar scene.',
+      },
+      negativePrompt: 'bad anatomy, extra fingers',
+    });
+
+    const body = String(fetchMock.mock.calls[0]?.[1]?.body);
+    expect(body).toContain('"size":"1792x1024"');
+    expect(body).not.toContain('"ratio"');
+    expect(body).toContain('exactly one red-haired adult astronaut');
+    expect(body).not.toContain('score_9');
+    expect(body).not.toContain('bad anatomy');
   });
 
   it('rejects a provider response that points at metadata without a second request', async () => {

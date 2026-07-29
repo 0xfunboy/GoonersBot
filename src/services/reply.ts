@@ -13,7 +13,7 @@ import type { MusicResult, MusicService } from '../providers/media/music.js';
 import { AgnesVideoGenerator, VideoRateLimitError } from '../providers/video/agnes.js';
 import { prepareVideoForTelegram } from '../providers/video/prepare.js';
 import type { TtsProvider } from '../providers/voice/tts.js';
-import { selectImageProfile, type ImageProfile } from '../providers/image/stableDiffusion.js';
+import type { ImageProfile } from '../providers/image/stableDiffusion.js';
 import type { ConversationService } from './conversation.js';
 import { BOT_LABEL } from './conversation.js';
 import type { MemoryRetrievalInput } from '../memory/memoryRetriever.js';
@@ -24,7 +24,7 @@ import type { KnowledgeRetriever } from '../knowledge/knowledgeRetriever.js';
 import type { ImageFinder } from '../media/imageFinder.js';
 import type { NewsService } from '../news/newsService.js';
 import type { AutonomousPoster } from './autonomousPoster.js';
-import type { ImagePromptService } from './imagePrompt.js';
+import type { ImagePromptService, PreparedImagePrompt } from './imagePrompt.js';
 import type { VideoPromptService } from './videoPrompt.js';
 import type { GroupQuotaService } from './groupQuota.js';
 import type { ConversationThreadTracker, ConversationThreadState } from './threadTracker.js';
@@ -47,7 +47,8 @@ import { RepetitionGuard } from '../brain/repetitionGuard.js';
 import { decideReplyAcceptance, type AssessedReplyCandidate } from '../brain/replyAcceptance.js';
 import { TurnEvaluator } from '../brain/turnEvaluator.js';
 import { violatesSocialFloor } from '../brain/socialAwareness.js';
-import { Cortex, cortexToTurnEvaluation } from '../brain/cortex/evaluator.js';
+import { availableToolsFor, Cortex, cortexToTurnEvaluation } from '../brain/cortex/evaluator.js';
+import { fallbackCortex } from '../brain/cortex/fallback.js';
 import type { CortexTool, SourcedCortexDecision } from '../brain/cortex/schema.js';
 import { isRefusal } from './modelRouter.js';
 import type {
@@ -60,6 +61,7 @@ import type {
   TurnEvaluation,
 } from '../brain/types.js';
 import { childLogger } from '../utils/logger.js';
+import { containsMinorMediaReference, MediaSafetyError } from '../safety/mediaSafety.js';
 
 const log = childLogger('reply');
 
@@ -221,6 +223,13 @@ function imageProfileFromTool(value: string | undefined): ImageProfile | undefin
   return undefined;
 }
 
+function imageAspectRatioFromTool(value: string | undefined): '16:9' | '9:16' | '1:1' | undefined {
+  const normalized = value?.replace(/\s+/g, '');
+  return normalized === '16:9' || normalized === '9:16' || normalized === '1:1'
+    ? normalized
+    : undefined;
+}
+
 function hardFloorFallback(plan: ReplyPlan, language: string, topic: string): string {
   const italian = /^it(?:alian)?$/i.test(language);
   if (plan.socialSignal?.situation === 'gratitude') {
@@ -294,6 +303,8 @@ export interface ReplyContext {
   recentBotReplies: BotReplyRecord[];
   /** Operator/private-admin turn: do not spend or block on secondary group quotas. */
   quotaBypass?: boolean | undefined;
+  /** Passive autoengage turn: the LLM gate already approved participation. */
+  passive?: boolean | undefined;
   /** Only a bot operator may persist a new global capability. */
   allowCapabilityInstall?: boolean | undefined;
 }
@@ -616,7 +627,7 @@ export class ReplyService {
     const semanticMessage = [ctx.message.messageText, attachmentSummary && `[${attachmentSummary}]`]
       .filter(Boolean)
       .join('\n');
-    const scene = await this.sceneAnalyzer.analyze({
+    const sceneInput = {
       history,
       currentMessage: semanticMessage,
       currentHandle: ctx.person.userHandle,
@@ -625,7 +636,15 @@ export class ReplyService {
       botLabel: BOT_LABEL,
       ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
       model: ctx.internalModel,
-    });
+    };
+    // Autoengage already spent one focused model call deciding that a passive intervention is
+    // worthwhile. Repeating scene + cortex inference serially adds latency without changing that
+    // decision, so passive turns use their deterministic counterparts and retain the full
+    // memory/style/generation pipeline below.
+    const passiveFastPath = Boolean(ctx.passive);
+    const scene = passiveFastPath
+      ? this.sceneAnalyzer.heuristic(sceneInput)
+      : await this.sceneAnalyzer.analyze(sceneInput);
     const sceneForcesNsfw = Boolean(
       scene.userIntent === 'dangerous_request' && ctx.allowRefusalFallback && ctx.nsfwModel,
     );
@@ -648,42 +667,56 @@ export class ReplyService {
       capabilityForge: this.capabilities.enabled,
     };
     let cortexDecision: SourcedCortexDecision | undefined;
-    const evaluation = this.config.brain.cortex.enabled
-      ? await (async () => {
-          cortexDecision = await this.cortex.evaluate({
+    const evaluation = passiveFastPath
+      ? (() => {
+          cortexDecision = fallbackCortex({
+            currentMessage: semanticMessage,
+            // The autoengage gate is the addressing signal for this internal deterministic pass.
+            botIsAddressed: true,
+            availableTools: availableToolsFor(capabilities),
+          });
+          cortexDecision = {
+            ...cortexDecision,
+            reason: 'passive autoengage gate approved; skipped redundant scene/cortex inference',
+          };
+          return cortexToTurnEvaluation(cortexDecision, false);
+        })()
+      : this.config.brain.cortex.enabled
+        ? await (async () => {
+            cortexDecision = await this.cortex.evaluate({
+              scene,
+              history,
+              currentMessage: semanticMessage,
+              botIsAddressed: addressed,
+              recentNegativeFeedback,
+              capabilities,
+              ...(cognitiveContext ? { threadContext: cognitiveContext } : {}),
+              model: ctx.internalModel,
+            });
+            return cortexToTurnEvaluation(cortexDecision, addressed);
+          })()
+        : await this.evaluator.evaluate({
             scene,
             history,
-            currentMessage: semanticMessage,
+            currentMessage: ctx.message.messageText,
             botIsAddressed: addressed,
+            recentBotReplies: ctx.recentBotReplies,
             recentNegativeFeedback,
             capabilities,
-            ...(cognitiveContext ? { threadContext: cognitiveContext } : {}),
+            groundingHints: {
+              wantsWebSearch: this.grounding.wantsWebSearch(ctx.message.messageText || ''),
+              wantsImageLookup: Boolean(
+                visual &&
+                ctx.allowVision &&
+                this.grounding.wantsImageLookup(ctx.message.messageText || ''),
+              ),
+            },
             model: ctx.internalModel,
           });
-          return cortexToTurnEvaluation(cortexDecision, addressed);
-        })()
-      : await this.evaluator.evaluate({
-          scene,
-          history,
-          currentMessage: ctx.message.messageText,
-          botIsAddressed: addressed,
-          recentBotReplies: ctx.recentBotReplies,
-          recentNegativeFeedback,
-          capabilities,
-          groundingHints: {
-            wantsWebSearch: this.grounding.wantsWebSearch(ctx.message.messageText || ''),
-            wantsImageLookup: Boolean(
-              visual &&
-              ctx.allowVision &&
-              this.grounding.wantsImageLookup(ctx.message.messageText || ''),
-            ),
-          },
-          model: ctx.internalModel,
-        });
     const callFor = (tool: CortexTool) =>
       cortexDecision?.toolCalls.find((call) => call.tool === tool);
     const t = (key: string, vars: Record<string, string | number> = {}): string =>
-      this.localizer.t(key, vars, ctx.language) ?? key;
+      this.localizer.tPlain(key, vars, ctx.language) ?? key;
     const wants = (tool: CortexTool, legacy: TurnEvaluation['providerRequests'][number]) =>
       cortexDecision ? Boolean(callFor(tool)) : evaluation.providerRequests.includes(legacy);
     const makeImmediatePlan = (retrievedMemories: RetrievedMemory[] = []): ReplyPlan => {
@@ -714,6 +747,7 @@ export class ReplyService {
       audioBuffer?: Buffer;
       music?: MusicResult;
       imageCalls?: number;
+      visionCalls?: number;
       usage?: { inputTokens: number; outputTokens: number; estimated: boolean };
       model?: string | null;
       plan?: ReplyPlan;
@@ -723,7 +757,7 @@ export class ReplyService {
         transcribedUserMessage: transcribed,
         usage: params.usage ?? { inputTokens: 0, outputTokens: 0, estimated: true },
         model: params.model ?? null,
-        visionCalls,
+        visionCalls: params.visionCalls ?? visionCalls,
         transcriptionCalls,
         imageCalls: params.imageCalls ?? 0,
         scene,
@@ -864,6 +898,7 @@ export class ReplyService {
               ...(socialContext ? { socialContext } : {}),
             },
             imageCalls: coordinated.imageCalls,
+            visionCalls: visionCalls + coordinated.visionCalls,
             ...(coordinated.imageBuffer ? { imageBuffer: coordinated.imageBuffer } : {}),
             ...(coordinated.imageSpoiler ? { imageSpoiler: true } : {}),
             ...(coordinated.videoBuffer ? { videoBuffer: coordinated.videoBuffer } : {}),
@@ -1151,40 +1186,64 @@ export class ReplyService {
           styleVariant: 'image_needs_prompt',
         });
       }
+      if (containsMinorMediaReference(prompt)) {
+        return immediateOutcome({
+          text: t('image_minor_refused'),
+          styleVariant: 'image_minor_refused',
+        });
+      }
       if (!ctx.quotaBypass && !(await this.quota.reserve(ctx.context.chatId, 'image')).allowed) {
         return immediateOutcome({
           text: t('image_quota_exhausted'),
           styleVariant: 'image_quota_exhausted',
         });
       }
-      const requestedProfile = imageProfileFromTool(callFor('image_gen')?.args?.profile);
-      const inferredProfile = selectImageProfile(prompt);
+      const imageCall = callFor('image_gen');
+      const requestedProfile = imageProfileFromTool(imageCall?.args?.profile);
+      const requestedAspectRatio = imageAspectRatioFromTool(
+        imageCall?.args?.aspectRatio ?? imageCall?.args?.aspect_ratio ?? imageCall?.args?.ratio,
+      );
       const profile: ImageProfile | undefined =
-        requestedProfile ??
-        (inferredProfile === 'nsfw'
-          ? 'nsfw'
-          : evaluation.action === 'draw_image'
-            ? 'manga'
-            : undefined);
-      const prepared = await this.imagePrompts.prepare(prompt, {
-        ...(profile ? { profile } : {}),
-        ...(ctx.model ? { model: ctx.model } : {}),
-        context: {
-          creatorHandle: ctx.person.userHandle,
-          intent: prompt,
-          relevantLore: socialContext ? [socialContext.slice(0, 1_200)] : [],
-          recentMessages: history.slice(-6).map((message) => ({
-            handle: message.isBot ? BOT_LABEL : message.handle,
-            text: message.message.messageText ?? '',
-          })),
-        },
-      });
-      const poseReference = prepared.poseReferenceQuery
-        ? await this.imageFinder.findPoseReference(prepared.poseReferenceQuery)
-        : null;
+        requestedProfile ?? (evaluation.action === 'draw_image' ? 'manga' : undefined);
+      let prepared: PreparedImagePrompt;
+      try {
+        prepared = await this.imagePrompts.prepare(prompt, {
+          ...(profile ? { profile } : {}),
+          ...(requestedAspectRatio ? { aspectRatio: requestedAspectRatio } : {}),
+          ...(ctx.model ? { model: ctx.model } : {}),
+          context: {
+            creatorHandle: ctx.person.userHandle,
+            intent: prompt,
+            relevantLore: socialContext ? [socialContext.slice(0, 1_200)] : [],
+            recentMessages: history.slice(-6).map((message) => ({
+              handle: message.isBot ? BOT_LABEL : message.handle,
+              text: message.message.messageText ?? '',
+            })),
+          },
+        });
+      } catch (error) {
+        if (error instanceof MediaSafetyError) {
+          return immediateOutcome({
+            text: t('image_minor_refused'),
+            styleVariant: 'image_minor_refused',
+          });
+        }
+        throw error;
+      }
+      const poseLookup = prepared.poseReferenceQuery
+        ? await this.imageFinder.findPoseReferenceWithUsage(prepared.poseReferenceQuery)
+        : { image: null, visionCalls: 0 };
+      const poseReference = poseLookup.image;
       const image = await this.media.generateImage(prepared.prompt, {
-        ...(profile ? { profile } : {}),
+        profile: profile ?? prepared.profile,
+        medium: prepared.medium,
+        rating: prepared.rating,
         negativePrompt: prepared.negativePrompt,
+        providerPrompts: prepared.providerPrompts,
+        qualityBrief: prepared.qualityBrief,
+        expectsPeople: prepared.expectsPeople,
+        preferredProvider: prepared.preferredProvider,
+        aspectRatio: prepared.aspectRatio,
         ...(poseReference ? { poseReference: poseReference.buffer } : {}),
       });
       if (!image?.buffer) {
@@ -1196,8 +1255,9 @@ export class ReplyService {
       return immediateOutcome({
         text: t('image_done', { prompt: prompt.slice(0, 180) }),
         imageBuffer: image.buffer,
-        imageSpoiler: profile === 'nsfw' || inferredProfile === 'nsfw',
-        imageCalls: 1,
+        imageSpoiler: prepared.rating !== 'safe',
+        imageCalls: image.generationAttempts ?? 1,
+        visionCalls: visionCalls + poseLookup.visionCalls + (image.qaVisionCalls ?? 0),
         styleVariant: evaluation.action,
       });
     }
@@ -1673,6 +1733,7 @@ export class ReplyService {
     let imageUrl: string | undefined;
     let imageBuffer: Buffer | undefined;
     const imageCalls = 0;
+    let ambientVisionCalls = 0;
     // 6b. send a verified waifu/anime image when the user asked for one, when the reply PROMISED one
     // (a promise must be honored), or ambiently when the topic is anime/waifu (the bot's taste).
     const userMsg = ctx.message.messageText || '';
@@ -1689,10 +1750,18 @@ export class ReplyService {
       (wantsImage || promisedImage || ambient)
     ) {
       const subject = wantsImage || promisedImage ? imageQueryFromMessage(userMsg) : undefined;
-      let found = await this.imageFinder.find(subject);
+      let lookup = await this.imageFinder.findWithUsage(subject);
+      ambientVisionCalls += lookup.visionCalls;
+      let found = lookup.image;
       // if a specific subject found nothing, fall back to a generic waifu so the promise is kept
-      if (!found && subject && (wantsImage || promisedImage)) found = await this.imageFinder.find();
-      if (found) imageBuffer = found.buffer;
+      if (!found && subject && (wantsImage || promisedImage)) {
+        lookup = await this.imageFinder.findWithUsage();
+        ambientVisionCalls += lookup.visionCalls;
+        found = lookup.image;
+      }
+      if (found) {
+        imageBuffer = found.buffer;
+      }
     }
 
     const usedMemoryIds = actuallyUsedMemoryIds(best, retrieved, plan);
@@ -1706,7 +1775,7 @@ export class ReplyService {
       transcribedUserMessage: transcribed,
       usage,
       model,
-      visionCalls,
+      visionCalls: visionCalls + ambientVisionCalls,
       transcriptionCalls,
       imageCalls,
       scene,

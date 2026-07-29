@@ -1,5 +1,9 @@
 import type { Collection, Db } from 'mongodb';
-import type { ChatDoc, NsfwMode } from '../../domain/entities.js';
+import type {
+  ChatDoc,
+  NsfwMode,
+  TelegramMembershipStatus,
+} from '../../domain/entities.js';
 
 export interface ChatDefaults {
   language: string;
@@ -12,6 +16,15 @@ export interface ChatDefaults {
 export interface MiningCursor {
   timestamp: number;
   messageId: number;
+}
+
+export interface ChatMembershipAuditRow {
+  chatId: number;
+  chatName?: string;
+  isStarted: boolean;
+  status: TelegramMembershipStatus | 'unknown';
+  updatedAt?: Date;
+  auditedAt?: Date;
 }
 
 export class ChatsRepo {
@@ -64,6 +77,82 @@ export class ChatsRepo {
 
   async stopChat(chatId: number): Promise<void> {
     await this.col.updateOne({ chatId }, { $set: { isStarted: false, updatedAt: new Date() } });
+  }
+
+  /**
+   * Persist Telegram's current view of the bot membership. A removal immediately disables every
+   * autonomous feature so stale local toggles cannot keep scheduling work.
+   */
+  async setTelegramMembership(
+    chatId: number,
+    status: TelegramMembershipStatus,
+    options: { chatName?: string; audited?: boolean; observedAt?: Date } = {},
+  ): Promise<void> {
+    const observedAt = options.observedAt ?? new Date();
+    const inactive = status === 'left' || status === 'kicked';
+    await this.col.updateOne(
+      { chatId },
+      {
+        $set: {
+          telegramMembershipStatus: status,
+          telegramMembershipUpdatedAt: observedAt,
+          ...(options.audited ? { telegramMembershipAuditedAt: observedAt } : {}),
+          ...(options.chatName ? { chatName: options.chatName } : {}),
+          ...(inactive
+            ? {
+                isStarted: false,
+                autoengage: false,
+                autopost: false,
+                conversationTracker: false,
+              }
+            : {}),
+          updatedAt: observedAt,
+        },
+      },
+    );
+  }
+
+  async getTelegramMembership(chatId: number): Promise<TelegramMembershipStatus | undefined> {
+    const doc = await this.col.findOne(
+      { chatId },
+      { projection: { telegramMembershipStatus: 1 } },
+    );
+    return doc?.telegramMembershipStatus;
+  }
+
+  async listMembershipAudit(chatIds: readonly number[]): Promise<ChatMembershipAuditRow[]> {
+    if (chatIds.length === 0) return [];
+    const docs = await this.col
+      .find(
+        { chatId: { $in: [...chatIds] } },
+        {
+          projection: {
+            chatId: 1,
+            chatName: 1,
+            isStarted: 1,
+            telegramMembershipStatus: 1,
+            telegramMembershipUpdatedAt: 1,
+            telegramMembershipAuditedAt: 1,
+          },
+        },
+      )
+      .toArray();
+    const byId = new Map(docs.map((doc) => [doc.chatId, doc]));
+    return chatIds.map((chatId) => {
+      const doc = byId.get(chatId);
+      return {
+        chatId,
+        ...(doc?.chatName ? { chatName: doc.chatName } : {}),
+        isStarted: doc?.isStarted ?? false,
+        status: doc?.telegramMembershipStatus ?? 'unknown',
+        ...(doc?.telegramMembershipUpdatedAt
+          ? { updatedAt: doc.telegramMembershipUpdatedAt }
+          : {}),
+        ...(doc?.telegramMembershipAuditedAt
+          ? { auditedAt: doc.telegramMembershipAuditedAt }
+          : {}),
+      };
+    });
   }
 
   async isStarted(chatId: number): Promise<boolean> {
@@ -177,10 +266,21 @@ export class ChatsRepo {
     return this.toggle(chatId, 'autopost');
   }
 
-  /** Started chats with autopost enabled (targets for the autonomous-posting tick). */
-  async listForAutopost(): Promise<Array<{ chatId: number; language: string }>> {
+  /** Approved, active Telegram chats with autopost enabled. */
+  async listForAutopost(
+    approvedChatIds: readonly number[],
+  ): Promise<Array<{ chatId: number; language: string }>> {
+    if (approvedChatIds.length === 0) return [];
     const docs = await this.col
-      .find({ isStarted: true, autopost: true }, { projection: { chatId: 1, language: 1 } })
+      .find(
+        {
+          chatId: { $in: [...approvedChatIds] },
+          isStarted: true,
+          autopost: true,
+          telegramMembershipStatus: { $in: ['member', 'administrator'] },
+        },
+        { projection: { chatId: 1, language: 1 } },
+      )
       .toArray();
     return docs.map((d) => ({ chatId: d.chatId, language: d.language }));
   }
@@ -226,10 +326,20 @@ export class ChatsRepo {
     return next;
   }
 
-  /** Every started chat is drained by the quota-independent continuous-learning worker. */
-  async listForMining(): Promise<Array<{ chatId: number; language: string; nsfwMode: NsfwMode }>> {
+  /** Only approved chats where Telegram confirms active membership may be mined. */
+  async listForMining(
+    approvedChatIds: readonly number[],
+  ): Promise<Array<{ chatId: number; language: string; nsfwMode: NsfwMode }>> {
+    if (approvedChatIds.length === 0) return [];
     const docs = await this.col
-      .find({ isStarted: true }, { projection: { chatId: 1, language: 1, nsfwMode: 1 } })
+      .find(
+        {
+          chatId: { $in: [...approvedChatIds] },
+          isStarted: true,
+          telegramMembershipStatus: { $in: ['member', 'administrator'] },
+        },
+        { projection: { chatId: 1, language: 1, nsfwMode: 1 } },
+      )
       .toArray();
     return docs.map((d) => ({
       chatId: d.chatId,
@@ -238,9 +348,19 @@ export class ChatsRepo {
     }));
   }
 
-  /** All started chats (targets for the feedback job). */
-  async listStartedChatIds(): Promise<number[]> {
-    const docs = await this.col.find({ isStarted: true }, { projection: { chatId: 1 } }).toArray();
+  /** Approved started chats where Telegram confirms that the bot is still present. */
+  async listStartedChatIds(approvedChatIds: readonly number[]): Promise<number[]> {
+    if (approvedChatIds.length === 0) return [];
+    const docs = await this.col
+      .find(
+        {
+          chatId: { $in: [...approvedChatIds] },
+          isStarted: true,
+          telegramMembershipStatus: { $in: ['member', 'administrator'] },
+        },
+        { projection: { chatId: 1 } },
+      )
+      .toArray();
     return docs.map((d) => d.chatId);
   }
 }

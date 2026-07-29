@@ -101,6 +101,17 @@ export interface KeyboardResponse {
   page?: number;
 }
 
+/** Rendering contract used by the Telegram adapter for final response text. */
+export type ResponseTextFormat = 'html' | 'markdown' | 'plain';
+
+/** Explicit escape hatch for the very few localized variables that intentionally contain HTML. */
+export interface TrustedHtmlValue {
+  readonly kind: 'trusted_html';
+  readonly value: string;
+}
+
+export type ResponseVariable = string | number | TrustedHtmlValue;
+
 /**
  * Abstract response returned by handlers. `text` is a translation KEY (localized later),
  * unless `rawText` is set (already-final text, e.g. AI output). Mirrors the original
@@ -110,9 +121,14 @@ export interface CommandResponse {
   /** translation key to localize */
   text?: string | undefined;
   /** interpolation vars for the translation key */
-  vars?: Record<string, string | number> | undefined;
+  vars?: Record<string, ResponseVariable> | undefined;
   /** already-final text that must NOT be localized (AI output) */
   rawText?: string | undefined;
+  /**
+   * Markup carried by `rawText`. Localized strings default to trusted Telegram HTML; raw AI output
+   * defaults to CommonMark and is converted by the Telegram adapter.
+   */
+  textFormat?: ResponseTextFormat | undefined;
   /** image to send (url or buffer) */
   imageUrl?: string | undefined;
   imageBuffer?: Buffer | undefined;
@@ -148,6 +164,7 @@ export interface VideoSendMeta {
 /** A localized, render-ready response. */
 export interface LocalizedResponse {
   text?: string | undefined;
+  textFormat?: ResponseTextFormat | undefined;
   imageUrl?: string | undefined;
   imageBuffer?: Buffer | undefined;
   imageSpoiler?: boolean | undefined;

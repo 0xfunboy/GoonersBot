@@ -100,4 +100,19 @@ describe('AutoEngageScorer', () => {
     const d = await scorer.decide(inputs(), false, true);
     expect(d.shouldReply).toBe(false);
   });
+
+  it('does not spend a model request on low-information passive chatter', async () => {
+    const llm = fakeLLM({ score: { shouldReply: true, confidence: 0.99 } });
+    let calls = 0;
+    const original = llm.scoreAutoEngage.bind(llm);
+    llm.scoreAutoEngage = async (request) => {
+      calls += 1;
+      return original(request);
+    };
+    const scorer = new AutoEngageScorer(llm, cfg);
+    const d = await scorer.decide({ ...inputs(), currentMessage: 'ok' }, false, true);
+    expect(d.shouldReply).toBe(false);
+    expect(d.reason).toMatch(/low-information/);
+    expect(calls).toBe(0);
+  });
 });

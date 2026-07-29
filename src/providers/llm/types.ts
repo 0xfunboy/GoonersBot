@@ -79,6 +79,16 @@ export interface ImageResult {
   /** raw image bytes when the backend returns base64 */
   buffer?: Buffer;
   model: string;
+  /** Concrete backend identity, kept separate from the operator-defined model/checkpoint name. */
+  provider?: 'agnes' | 'pony' | 'llm';
+  /** Best-effort media type for raw bytes. Consumers still verify/sniff untrusted results. */
+  mime?: string;
+  /** Internal attempts used to produce the delivered artifact; one user action may retry. */
+  generationAttempts?: number;
+  /** Vision inspections performed by generated-image QA. */
+  qaVisionCalls?: number;
+  /** Final QA score on the 0..100 scale, when inspection succeeded. */
+  qaScore?: number;
 }
 
 export type AutoEngageRisk = 'low' | 'medium' | 'high';
@@ -95,6 +105,9 @@ export interface ScoreAutoEngageRequest {
   /** the fully-composed scoring prompt (built by prompts/) */
   prompt: string;
   system?: string;
+  /** Optional fast model dedicated to the passive decision gate. */
+  model?: string;
+  maxTokens?: number;
   signal?: AbortSignal;
 }
 

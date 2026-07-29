@@ -5,12 +5,17 @@ import type { Storage } from '../storage/index.js';
 import { childLogger } from '../utils/logger.js';
 import type { GroupQuotaService } from './groupQuota.js';
 import type { Localizer } from '../config/i18n.js';
+import type { ImagePromptService } from './imagePrompt.js';
+import type { ImageFinder } from '../media/imageFinder.js';
 
 const log = childLogger('generated-image-autopost');
 
 export interface GeneratedImagePost {
   text: string;
   imageBuffer: Buffer;
+  imageSpoiler: boolean;
+  generationAttempts: number;
+  visionCalls: number;
 }
 
 /**
@@ -21,10 +26,12 @@ export interface GeneratedImagePost {
 export class GeneratedImagePoster {
   constructor(
     private readonly media: MediaProcessor,
+    private readonly imagePrompts: ImagePromptService,
     private readonly config: AppConfig,
     private readonly storage: Storage,
     private readonly quota: GroupQuotaService,
     private readonly localizer: Localizer,
+    private readonly imageFinder: ImageFinder,
   ) {}
 
   get enabled(): boolean {
@@ -39,7 +46,32 @@ export class GeneratedImagePoster {
     const prompt =
       `${subject}, original adult character, stylish editorial illustration, high detail, ` +
       'cinematic lighting, no text, no logo';
-    const generated = await this.media.generateImage(prompt);
+    let generated;
+    let prepared;
+    let poseVisionCalls = 0;
+    try {
+      prepared = await this.imagePrompts.prepare(prompt);
+      const poseLookup = prepared.poseReferenceQuery
+        ? await this.imageFinder.findPoseReferenceWithUsage(prepared.poseReferenceQuery)
+        : { image: null, visionCalls: 0 };
+      const poseReference = poseLookup.image;
+      poseVisionCalls = poseLookup.visionCalls;
+      generated = await this.media.generateImage(prepared.prompt, {
+        profile: prepared.profile,
+        medium: prepared.medium,
+        rating: prepared.rating,
+        providerPrompts: prepared.providerPrompts,
+        qualityBrief: prepared.qualityBrief,
+        expectsPeople: prepared.expectsPeople,
+        preferredProvider: prepared.preferredProvider,
+        negativePrompt: prepared.negativePrompt,
+        aspectRatio: prepared.aspectRatio,
+        ...(poseReference ? { poseReference: poseReference.buffer } : {}),
+      });
+    } catch (err) {
+      log.warn({ err, chatId }, 'generated image autopost planning failed');
+      return null;
+    }
     if (!generated?.buffer || generated.buffer.length < 1_024) return null;
 
     const dedupeKey = `image:${createHash('sha256').update(generated.buffer).digest('hex')}`;
@@ -54,6 +86,9 @@ export class GeneratedImagePoster {
       text:
         this.localizer.t('generated_image_autopost', {}, language) ?? 'generated_image_autopost',
       imageBuffer: generated.buffer,
+      imageSpoiler: prepared.rating !== 'safe',
+      generationAttempts: generated.generationAttempts ?? 1,
+      visionCalls: poseVisionCalls + (generated.qaVisionCalls ?? 0),
     };
   }
 }

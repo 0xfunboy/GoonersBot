@@ -20,6 +20,7 @@ describe('loadEnv', () => {
     expect(env.MINING_LLM_MODEL).toBe('gemma-4-31b-it');
     expect(env.MINING_LLM_MAX_REQUESTS_PER_MINUTE).toBe(3);
     expect(env.MINING_LLM_MAX_TOKENS_PER_MINUTE).toBe(15_000);
+    expect(env.MINING_LLM_FOREGROUND_QUIET_MS).toBe(15_000);
     expect(env.MINING_LLM_REQUEST_TIMEOUT_MS).toBe(180_000);
     expect(env.MEMORY_MINING_MAX_WINDOW_BYTES).toBe(12_000);
     expect(env.LLM_NSFW_DEFAULT_MODE).toBe('smart');
@@ -65,6 +66,7 @@ describe('resolveMiningLLMConfig', () => {
       model: 'gemma-4-31b-it',
       maxRequestsPerMinute: 3,
       maxTokensPerMinute: 15_000,
+      foregroundQuietMs: 15_000,
       requestTimeoutMs: 180_000,
     });
   });
@@ -77,6 +79,7 @@ describe('resolveMiningLLMConfig', () => {
       MINING_LLM_MODEL: 'gemma-4-31b-it',
       MINING_LLM_MAX_REQUESTS_PER_MINUTE: '2',
       MINING_LLM_MAX_TOKENS_PER_MINUTE: '12000',
+      MINING_LLM_FOREGROUND_QUIET_MS: '5000',
       MINING_LLM_REQUEST_TIMEOUT_MS: '90000',
     });
     const cfg = resolveMiningLLMConfig(env);
@@ -87,6 +90,7 @@ describe('resolveMiningLLMConfig', () => {
       model: 'gemma-4-31b-it',
       maxRequestsPerMinute: 2,
       maxTokensPerMinute: 12_000,
+      foregroundQuietMs: 5_000,
       requestTimeoutMs: 90_000,
     });
   });

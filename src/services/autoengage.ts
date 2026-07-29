@@ -12,6 +12,8 @@ export interface AutoEngageConfig {
   maxRepliesPerChatPerHour: number;
   chatCooldownSeconds: number;
   userCooldownSeconds: number;
+  model?: string;
+  maxTokens?: number;
   minConfidence: number;
 }
 
@@ -101,6 +103,7 @@ export class AutoEngageScorer {
     if (!this.userCooldown.isReady(`${chatKey}:${inputs.person.userHandle}`)) {
       return no('user cooldown active');
     }
+    if (!worthScoring(inputs.currentMessage)) return no('low-information passive message');
 
     let score: AutoEngageScore;
     try {
@@ -117,7 +120,12 @@ export class AutoEngageScorer {
         conversationEnergy: inputs.history.length,
         botLabel: BOT_LABEL,
       });
-      score = await this.llm.scoreAutoEngage({ prompt, system: buildAutoEngageSystem() });
+      score = await this.llm.scoreAutoEngage({
+        prompt,
+        system: buildAutoEngageSystem(),
+        ...(this.cfg.model ? { model: this.cfg.model } : {}),
+        maxTokens: this.cfg.maxTokens ?? 160,
+      });
     } catch (err) {
       log.warn({ err }, 'autoengage scoring failed - not engaging');
       return no('scoring failed');
@@ -138,4 +146,14 @@ export class AutoEngageScorer {
       shouldUseMemory: true,
     };
   }
+}
+
+function worthScoring(message: string): boolean {
+  const text = message.trim();
+  if (text.length < 3) return false;
+  if (/^[\p{P}\p{S}\s]+$/u.test(text)) return false;
+  if (/^(?:ok|okay|s[iì]|no|boh|mah|lol|lmao|ahah+a?|grazie|thanks|thx)[.!?]*$/i.test(text)) {
+    return false;
+  }
+  return true;
 }

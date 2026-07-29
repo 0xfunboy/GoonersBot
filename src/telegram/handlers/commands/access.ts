@@ -67,13 +67,22 @@ export const approvedCommand: CommandSpec = {
   adminOnly: true,
   async handle({ services }: HandlerInput): Promise<CommandResponse | null> {
     const { chats, users } = services.access.list();
+    const audit = await services.storage.chats.listMembershipAudit(chats);
+    const chatLines = audit.map((row) => {
+      const name = row.chatName ? ` ${row.chatName}` : '';
+      const activity = row.isStarted ? 'started' : 'stopped';
+      const audited = row.auditedAt
+        ? `audit ${row.auditedAt.toISOString().replace('T', ' ').slice(0, 16)}Z`
+        : 'mai verificato';
+      return `${row.chatId}${name} | ${row.status} | ${activity} | ${audited}`;
+    });
     const text = [
       `Approved chats (${chats.length}):`,
-      chats.length ? chats.join('\n') : '-',
+      chatLines.length ? chatLines.join('\n') : '-',
       '',
       `Approved users (${users.length}):`,
       users.length ? users.join('\n') : '-',
     ].join('\n');
-    return { rawText: text };
+    return { rawText: text, textFormat: 'plain' };
   },
 };

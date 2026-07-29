@@ -144,6 +144,41 @@ export function extractVideoFrame(
 }
 
 /**
+ * Downscale arbitrary image bytes to a compact JPEG accepted by the vision gateway.
+ * Generated PNGs can be several megabytes; embedding them as Base64 otherwise exceeds the router's
+ * request-body limit before the vision model gets a chance to inspect them.
+ */
+export function toVisionJpeg(
+  bin: string,
+  input: Buffer,
+  timeoutMs = 30_000,
+  signal?: AbortSignal,
+): Promise<Buffer> {
+  return runFfmpeg(
+    bin,
+    [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-i',
+      'pipe:0',
+      '-vf',
+      "scale='min(768,iw)':-2",
+      '-frames:v',
+      '1',
+      '-q:v',
+      '5',
+      '-f',
+      'mjpeg',
+      'pipe:1',
+    ],
+    input,
+    timeoutMs,
+    signal,
+  );
+}
+
+/**
  * Decode a media FILE → 16 kHz mono PCM WAV. Reading from a seekable file (not a pipe) is required
  * for containers like MP4 whose moov atom sits at the end (videos / video-notes / audio files).
  * ffmpeg auto-detects the format and extracts the audio track regardless of container.
