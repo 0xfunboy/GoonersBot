@@ -44,4 +44,10 @@ describe('redactSecrets', () => {
     expect(redactSecrets('mongodb://user:pw123@host/db')).toContain(':[redacted]@');
     expect(redactSecrets('hello world')).toBe('hello world');
   });
+
+  it('removes bearer-like query strings from media URLs', () => {
+    expect(
+      redactSecrets('failed https://cdn.example/video.mp4?Policy=secret&Signature=also-secret'),
+    ).toBe('failed https://cdn.example/video.mp4?[redacted]');
+  });
 });

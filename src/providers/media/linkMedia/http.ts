@@ -2,6 +2,7 @@ import {
   assertSafeRemoteUrl,
   downloadSafeRemoteFile,
   fetchSafeRemoteBuffer,
+  type SafeRemoteDownloadResult,
 } from '../../../utils/safeRemoteFetch.js';
 
 const TEXT_CONTENT_TYPES = [
@@ -18,6 +19,7 @@ export interface HttpFetchOptions {
   headers?: Record<string, string>;
   signal?: AbortSignal;
   allowedContentTypes?: readonly string[];
+  validateUrl?: ((url: URL) => void | Promise<void>) | undefined;
 }
 
 /** Backward-compatible name used by the yt-dlp bridge. */
@@ -29,6 +31,7 @@ export async function fetchText(url: string, opts: HttpFetchOptions): Promise<st
     maxBytes: opts.maxBytes,
     signal: opts.signal,
     allowedContentTypes: opts.allowedContentTypes ?? TEXT_CONTENT_TYPES,
+    validateUrl: opts.validateUrl,
     headers: {
       'user-agent': opts.userAgent,
       accept: 'text/html,application/xhtml+xml,application/json;q=0.9,text/plain;q=0.7',
@@ -42,12 +45,13 @@ export async function downloadToFile(
   url: string,
   dest: string,
   opts: HttpFetchOptions,
-): Promise<void> {
-  await downloadSafeRemoteFile(url, dest, {
+): Promise<SafeRemoteDownloadResult> {
+  return downloadSafeRemoteFile(url, dest, {
     timeoutMs: opts.timeoutMs,
     maxBytes: opts.maxBytes,
     signal: opts.signal,
     allowedContentTypes: opts.allowedContentTypes,
+    validateUrl: opts.validateUrl,
     headers: {
       'user-agent': opts.userAgent,
       accept: '*/*',

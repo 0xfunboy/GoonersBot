@@ -41,6 +41,30 @@ describe('GroupQuotaService', () => {
     expect(denied).toMatchObject({ allowed: false, reason: 'image' });
   });
 
+  it('reserves a media item and its bytes atomically', async () => {
+    const { service, getDoc } = quotaService();
+    expect(await service.reserveMedia(-100, 40 * 1024 * 1024)).toMatchObject({ allowed: true });
+    expect(getDoc()?.daily.media).toBe(1);
+    expect(getDoc()?.daily.mediaBytes).toBe(40 * 1024 * 1024);
+
+    expect(await service.reserveMedia(-100, 70 * 1024 * 1024)).toMatchObject({
+      allowed: false,
+      reason: 'media_bytes',
+    });
+    expect(getDoc()?.daily.media).toBe(1);
+    expect(getDoc()?.daily.mediaBytes).toBe(40 * 1024 * 1024);
+  });
+
+  it('preflights without consuming and rolls a failed delivery reservation back', async () => {
+    const { service } = quotaService();
+    expect(await service.canReserveMedia(-100, 1024)).toMatchObject({ allowed: true });
+    expect(await service.reserveMedia(-100, 1024)).toMatchObject({ allowed: true });
+    await service.releaseMedia(-100, 1024);
+    const report = await service.getReport(-100);
+    expect(report.daily.media).toBe(0);
+    expect(report.daily.mediaBytes).toBe(0);
+  });
+
   it('applies anti-flood before a second immediate request from the same user', async () => {
     const { service } = quotaService();
     expect(

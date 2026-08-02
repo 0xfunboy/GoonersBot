@@ -89,6 +89,27 @@ describe('safe remote fetch', () => {
     expect(result.finalUrl).toBe('https://8.8.8.8/final');
   });
 
+  it('re-applies caller content policy before following a redirect', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: 'https://8.8.8.8/adult-media' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      fetchSafeRemoteBuffer('https://1.1.1.1/start', {
+        timeoutMs: 1_000,
+        maxBytes: 1024,
+        validateUrl(url) {
+          if (url.hostname === '8.8.8.8') throw new Error('blocked by content policy');
+        },
+      }),
+    ).rejects.toThrow(/content policy/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects declared and streamed bodies above the byte cap', async () => {
     const fetchMock = vi
       .fn()

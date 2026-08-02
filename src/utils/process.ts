@@ -34,9 +34,22 @@ export function runProcess(
       );
       return;
     }
+    const detached = process.platform !== 'win32';
     const child = spawn(bin, args, {
       stdio: [opts.input ? 'pipe' : 'ignore', opts.collectStdout ? 'pipe' : 'ignore', 'pipe'],
+      detached,
     });
+    const killTree = (): void => {
+      if (detached && child.pid !== undefined) {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+          return;
+        } catch {
+          // The process may have exited between the timeout/abort and this signal.
+        }
+      }
+      child.kill('SIGKILL');
+    };
     const out: Buffer[] = [];
     let err = '';
     let settled = false;
@@ -51,13 +64,13 @@ export function runProcess(
       reject(error);
     };
     const onAbort = (): void => {
-      child.kill('SIGKILL');
+      killTree();
       rejectOnce(
         opts.signal?.reason instanceof Error ? opts.signal.reason : new Error('process aborted'),
       );
     };
     const timer = setTimeout(() => {
-      child.kill('SIGKILL');
+      killTree();
       rejectOnce(new Error('process timed out'));
     }, opts.timeoutMs);
     opts.signal?.addEventListener('abort', onAbort, { once: true });

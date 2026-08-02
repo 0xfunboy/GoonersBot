@@ -73,7 +73,10 @@ notes.
 - Image sending: fetches a waifu/anime image online and vision-checks it before posting.
 - Autonomous posting: timed, opt-in takes on current events (RSS) or a commented image, plus `/news`.
 - Music: `/play` and `/sing` (or natural language like "mi canti X", "suona X", "play X", "cantame X") search YouTube, extract the audio and send it as a voice note.
-- Link media rehost: when a media URL is posted, the bot re-uploads it as a native Telegram attachment. Video streams (YouTube, TikTok, adult/cam, ...) are downloaded with yt-dlp; social posts (X, Instagram, Bluesky) are sent as images plus context (post text, likes, reposts). Results are cached by file_id, toggle per chat with `/linkmedia`.
+- Link media rehost: approved users can post YouTube Shorts, Instagram/Facebook Reels, TikTok,
+  RedGifs, X/Reddit and other trusted video links; the bot downloads, normalizes and re-uploads them
+  as native Telegram media. Galleries are delivered item by item and single files are cached by
+  `file_id`. Toggle per chat with `/linkmedia`.
 - Translation: `/translate` (alias `/traduci`) translates the replied message into any language.
 - NSFW routing to a separate uncensored model, decided before generation, with a refusal backstop.
 - Pluggable LLM backends (GemRouter, OpenAI, DeepSeek, Ollama, any OpenAI-compatible host) with an
@@ -327,19 +330,19 @@ Every approved group has one persistent plan. New groups start on **Free**; a gr
 the plan with `/profile free`, `/profile plus`, or `/profile pro`. `/profile` without arguments
 shows current counters and limits. Limits reset on calendar boundaries in the `Europe/Rome` timezone.
 
-| Resource                |           Free |           Plus |             Pro |
-| ----------------------- | -------------: | -------------: | --------------: |
+| Resource                |           Free |           Plus |              Pro |
+| ----------------------- | -------------: | -------------: | ---------------: |
 | Conversational requests | 12/day, 3/hour | 32/day, 9/hour | 144/day, 30/hour |
 | LLM tokens              |        30k/day |       150k/day |           2M/day |
-| Web searches            |          8/day |         33/day |          75/day |
-| Opened/scanned pages    |         15/day |         75/day |         200/day |
-| News retrievals         |          2/day |          9/day |          24/day |
-| Generated images        |          1/day |         18/day |          48/day |
-| Downloaded media        |  3/day, 100 MB | 20/day, 600 MB |  40/day, 1.2 GB |
-| Passive LLM replies     |       disabled |         9/hour |         12/hour |
-| Per-user cooldown       |           30 s |            6 s |             1 s |
-| Per-chat cooldown       |           20 s |            3 s |             1 s |
-| User/chat burst         |  1 / 3 per min | 6 / 16 per min | 20 / 60 per min |
+| Web searches            |          8/day |         33/day |           75/day |
+| Opened/scanned pages    |         15/day |         75/day |          200/day |
+| News retrievals         |          2/day |          9/day |           24/day |
+| Generated images        |          1/day |         18/day |           48/day |
+| Downloaded media        |  3/day, 100 MB | 20/day, 600 MB |   40/day, 1.2 GB |
+| Passive LLM replies     |       disabled |         9/hour |          12/hour |
+| Per-user cooldown       |           30 s |            6 s |              1 s |
+| Per-chat cooldown       |           20 s |            3 s |              1 s |
+| User/chat burst         |  1 / 3 per min | 6 / 16 per min |  20 / 60 per min |
 
 Free groups are pinned to `FREE_LLM_MODEL` for direct conversational LLM operations (scene,
 evaluator/Cortex, generation, translation and image-prompt preparation); embeddings retain their
@@ -452,21 +455,26 @@ MUSIC_MAX_DURATION_SECONDS=720   # 12 minutes
 
 ## Link media rehost
 
-When someone posts a media URL in the group, the bot downloads the real content and re-uploads it as
-a native Telegram attachment (so it plays inline, with no preview-stripping), then caches the source
-URL to a Telegram file_id so the next post of the same link is instant. Toggle per chat with
-`/linkmedia` (admin; on by default).
+When an authorized user posts a media URL in an approved group or DM, the bot downloads the real
+content and re-uploads it as a native Telegram attachment. Link interception is independent from
+conversation tracking; `/linkmedia` controls it per chat (admin; on by default). Single-file results
+are cached as Telegram `file_id`s, while galleries/carousels are delivered item by item so a cache
+hit cannot collapse them to the first attachment. Instagram multi-video posts, TikTok photo-mode
+shares and explicitly bounded playlist URLs run as one yt-dlp batch and deliver up to
+`LINK_MEDIA_MAX_MEDIA_PER_URL` ordered video entries; Reels, Shorts and normal clip URLs stay
+single-item jobs.
 
 ### Two paths, on purpose
 
 The bot picks the right kind of media per link:
 
-- **Video -> the actual clip, via yt-dlp.** YouTube/Shorts, TikTok, Vimeo, Streamable, Twitch clips,
-  Facebook, Dailymotion, Kick, Reddit video, Instagram reels, **video tweets**, and adult/cam sites
-  are handled by the vendored `yt-dlp` binary (the same one `/play` uses). It picks the best clip up
-  to 720p, merges video+audio with ffmpeg, and respects the size and duration caps. yt-dlp covers
-  ~1800 sites, so most "here is a video" links just work. Reddit video and X video go through yt-dlp
-  because their direct URLs are either split tracks (Reddit) or an uncapped 4K master (X).
+- **Video -> the actual clip, via yt-dlp.** The curated registry includes YouTube/Shorts,
+  Instagram/Facebook Reels, TikTok/Douyin, RedGifs, X, Reddit, Snapchat, Pinterest, Vimeo,
+  Streamable, Twitch clips, Dailymotion, Kick, Rumble, Bilibili, VK, Loom, Medal and other established
+  video hosts. It selects a <=720p stream, merges split video/audio, bounds retries and duration, and
+  prefers H.264/AAC for Telegram. The registry is intentionally narrower than yt-dlp's full extractor
+  list: arbitrary pages are never handed to an unrestricted subprocess. Operators can add a
+  reviewed domain with `LINK_MEDIA_EXTRA_YTDLP_HOSTS`.
 - **Social photos -> image(s) + context.** A photo tweet (via the fxtwitter API) and Bluesky posts
   are sent as the image(s) with a caption carrying the context: the post text, the author, and the
   engagement counts (likes, reposts, replies, views). That context is also fed to the brain when the
@@ -475,13 +483,34 @@ The bot picks the right kind of media per link:
   we cannot download within the caps), the bot grabs one frame with ffmpeg and posts that still
   instead, optionally with a vision description.
 
-Direct file links (`.mp4`, `.gif`, `.jpg`, `.mp3`, ...), Imgur, Giphy and Tenor are fetched
-directly; anything else falls back to a generic OpenGraph/JSON-LD scan.
+Direct files (`.mp4`, `.gif`, `.jpg`, `.mp3`, ...), Imgur, Giphy and Tenor are fetched directly;
+other public pages get a bounded OpenGraph/HTML5/JSON-LD scan. HLS/DASH manifests require a curated
+host or an explicit trusted-host entry because their nested requests cross the generic HTTP safety
+boundary.
 
-> **Instagram needs cookies.** Logged-out Instagram no longer exposes media to scrapers or yt-dlp,
-> so IG reels/posts only work if you set `LINK_MEDIA_COOKIES_INSTAGRAM` to either a raw Cookie header
-> string or a path to a Netscape `cookies.txt` exported from a logged-in browser. Without it, IG
-> links are silently skipped.
+### Cookies and platform changes
+
+Instagram and some Facebook/TikTok/YouTube posts commonly require a logged-in session. Prefer one
+Netscape `cookies.txt` exported from a dedicated, low-privilege browser profile:
+
+```bash
+install -m 600 /secure/export/cookies.txt data/link-media.cookies.txt
+# .env
+LINK_MEDIA_COOKIES_FILE=data/link-media.cookies.txt
+```
+
+Never commit the jar or paste it into logs/chat. Site-specific `LINK_MEDIA_COOKIES_*` values override
+the shared jar and retain raw Cookie-header compatibility. Every yt-dlp job works on its own mode-600
+copy; graceful shutdown and a dead-process/age-guarded startup sweep remove scratch copies. Missing
+access, quota exhaustion and bounded fallback failure are reported in chat instead of being silent.
+
+Social extractors change frequently. Keep the official standalone binary current; stable is the
+default, while yt-dlp recommends trying nightly when a currently supported site breaks:
+
+```bash
+vendor/bin/yt-dlp -U
+vendor/bin/yt-dlp --update-to nightly   # use when stable has a known extractor regression
+```
 
 ### Behaviour and safety
 
@@ -494,23 +523,48 @@ directly; anything else falls back to a generic OpenGraph/JSON-LD scan.
 - Short clips can be transcribed (STT) or frame-described (vision); that, plus the social post text
   and stats, is fed to the brain when the bot is tagged, so it can actually comment on the link.
 - SSRF-guarded: only http/https, and hosts resolving to localhost/private/link-local/cloud-metadata
-  addresses are refused. Per-chat and per-user cooldowns prevent spam.
+  addresses are refused. Native downloads pin sockets to checked DNS results and re-check every
+  redirect. yt-dlp and any ffmpeg child run in a bubblewrap network namespace with no direct egress;
+  their only exit is a private local proxy which repeats DNS and blocked/NSFW policy checks for each
+  HTTP request or HTTPS tunnel. If bubblewrap is missing, the default configuration disables the
+  yt-dlp path instead of silently running it unisolated. Per-chat and per-user cooldowns prevent
+  spam, and quotas are preflighted before expensive extraction then committed only for delivery.
 - **Adult/cam** sites are supported but gated: they are skipped unless `LINK_MEDIA_NSFW_ALLOW=true`.
-  Live cam streams (no fixed duration) are not captured, only recorded videos.
+  RedGifs uses the same gate. Live cam streams (no fixed duration) are not captured, only recorded
+  videos or a bounded still where available.
+- Telegram upload degradation is explicit: video retries without a thumbnail, then as a document;
+  large/incompatible photos, animations and audio also fall back to a document. Invalid cached
+  `file_id`s are evicted and re-downloaded; transient Telegram errors retain the cache.
 
 ```bash
 # Relevant .env knobs (full list in .env.example):
 LINK_MEDIA_ENABLED=true
+LINK_MEDIA_AUTO_REHOST=true
 LINK_MEDIA_NSFW_ALLOW=false        # set true to allow adult/cam video hosts
 LINK_MEDIA_MAX_URLS_PER_MESSAGE=2
+LINK_MEDIA_MAX_MEDIA_PER_URL=6
 LINK_MEDIA_MAX_UPLOAD_MB=45
 LINK_MEDIA_MAX_DURATION_SECONDS=180
+LINK_MEDIA_COOKIES_FILE=data/link-media.cookies.txt
+LINK_MEDIA_EXTRA_YTDLP_HOSTS=      # only domains you explicitly trust
+LINK_MEDIA_YTDLP_NETWORK_ISOLATION=true
+LINK_MEDIA_BWRAP_BIN=/usr/bin/bwrap
 YTDLP_BIN=vendor/bin/yt-dlp        # shared with /play; scripts/setup-voice.sh installs it
 ```
 
-> YouTube note: without a JavaScript runtime installed, yt-dlp can only fetch progressive
-> (~360p) formats. That is fine for a Telegram rehost; install a JS runtime if you want higher
-> resolutions.
+`LINK_MEDIA_PROXY` is retained for deployments with their own filtered egress proxy. While the
+default bubblewrap isolation is enabled, the local guarded proxy takes precedence. Disable network
+isolation only when the external proxy/firewall independently denies loopback, RFC1918, link-local
+and cloud-metadata destinations for yt-dlp and all of its children.
+
+The bot passes its own Node executable to yt-dlp as the JavaScript runtime by default. Override with
+`LINK_MEDIA_YTDLP_JS_RUNTIME=deno:/usr/bin/deno` if the deployment standardizes on Deno. Browser
+impersonation is attempted once only for Instagram/Facebook/TikTok failures; leave the global
+`LINK_MEDIA_YTDLP_IMPERSONATE` override empty unless a reproducible case requires it.
+
+For unmentioned group links, Telegram must actually deliver ordinary messages to the bot: make it a
+group admin or disable Privacy Mode in BotFather. DMs additionally need `/start`, accepted terms and
+an approved numeric user ID (`/approve <id>`).
 
 ---
 
@@ -844,7 +898,7 @@ The tables below list the common vars; see `.env.example` for the full set with 
 | `MINING_LLM_REQUEST_TIMEOUT_MS`                                           | `180000`                 | Timeout only for one queued background structured call.                 |
 | `MINING_LLM_MAX_REQUESTS_PER_MINUTE`                                      | `3`                      | Mining-provider cap; default pacing starts calls at least 20s apart.    |
 | `MINING_LLM_MAX_TOKENS_PER_MINUTE`                                        | `15000`                  | Conservative rolling mining token envelope, including output reserve.   |
-| `MINING_LLM_FOREGROUND_QUIET_MS`                                          | `15000`                  | Defer new mining calls while/just after interactive LLM work.            |
+| `MINING_LLM_FOREGROUND_QUIET_MS`                                          | `15000`                  | Defer new mining calls while/just after interactive LLM work.           |
 | `LLM_VISION_MODEL`                                                        | none                     | Enables image and video-frame understanding.                            |
 | `LLM_VISION_ENDPOINT_URL`                                                 | none                     | Full dedicated vision endpoint, e.g. GemRouter `/v1/vision`.            |
 | `LLM_VISION_BASE_URL` / `LLM_VISION_API_KEY`                              | none                     | Separate chat-compatible vision base; empty reuses the main one.        |
@@ -921,15 +975,15 @@ retain their cursor and are retried after cooldown instead of being replayed imm
 
 ### Behaviour and limits
 
-| Variable                                                               | Default     | Description                                                                         |
-| ---------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------- |
-| `DEFAULT_LANGUAGE`                                                     | `italian`   | `italian`, `english`, `russian`, `spanish`; per chat via `/language`.               |
-| `AUTOENGAGE_DEFAULT_ENABLED` / `CONVERSATION_TRACKER_DEFAULT_ENABLED`  | on / on     | Initial toggles for new chats.                                                      |
-| `MAX_REPLIES_PER_CHAT_PER_HOUR`                                        | `72`        | Global safety ceiling; the active `/profile` plan enforces the lower per-group cap. |
-| `AUTOENGAGE_MIN_COOLDOWN_SECONDS` / `AUTOENGAGE_USER_COOLDOWN_SECONDS` | `45` / `20` | Passive-reply cooldowns.                                                            |
+| Variable                                                               | Default      | Description                                                                         |
+| ---------------------------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------- |
+| `DEFAULT_LANGUAGE`                                                     | `italian`    | `italian`, `english`, `russian`, `spanish`; per chat via `/language`.               |
+| `AUTOENGAGE_DEFAULT_ENABLED` / `CONVERSATION_TRACKER_DEFAULT_ENABLED`  | on / on      | Initial toggles for new chats.                                                      |
+| `MAX_REPLIES_PER_CHAT_PER_HOUR`                                        | `72`         | Global safety ceiling; the active `/profile` plan enforces the lower per-group cap. |
+| `AUTOENGAGE_MIN_COOLDOWN_SECONDS` / `AUTOENGAGE_USER_COOLDOWN_SECONDS` | `45` / `20`  | Passive-reply cooldowns.                                                            |
 | `AUTOENGAGE_MODEL` / `AUTOENGAGE_MAX_TOKENS`                           | main / `160` | Optional fast passive gate model and its strict JSON output cap.                    |
-| `MESSAGE_HISTORY_RETENTION_DAYS` / `MAX_CONTEXT_MESSAGES`              | `30` / `25` | Message TTL / context window.                                                       |
-| `COMMAND_RATE_LIMIT_SECONDS`                                           | `1`         | Min seconds between accepted commands per user.                                     |
+| `MESSAGE_HISTORY_RETENTION_DAYS` / `MAX_CONTEXT_MESSAGES`              | `30` / `25`  | Message TTL / context window.                                                       |
+| `COMMAND_RATE_LIMIT_SECONDS`                                           | `1`          | Min seconds between accepted commands per user.                                     |
 
 ---
 

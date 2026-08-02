@@ -17,6 +17,7 @@ export const redditExtractor: LinkExtractor = {
       maxBytes: 3 * 1024 * 1024,
       userAgent: ctx.userAgent,
       signal: ctx.signal,
+      validateUrl: ctx.validateUrl,
     });
     const data = JSON.parse(raw) as any;
     const post = data?.[0]?.data?.children?.[0]?.data;

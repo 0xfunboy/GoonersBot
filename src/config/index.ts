@@ -591,11 +591,17 @@ export interface LinkMediaConfig {
   blockedHosts: string[];
   nsfwAllow: boolean;
   cookies: {
+    default: string | undefined;
     instagram: string | undefined;
     tiktok: string | undefined;
     facebook: string | undefined;
     x: string | undefined;
+    youtube: string | undefined;
   };
+  extraYtdlpHosts: string[];
+  ytdlpImpersonate: string | undefined;
+  ytdlpJsRuntime: string;
+  bwrapBin: string | undefined;
   proxy: string | undefined;
   cacheTtlDays: number;
   ffmpegBin: string;
@@ -620,7 +626,12 @@ export function resolveLinkMediaConfig(env: Env): LinkMediaConfig {
   const ffmpegBin = resolve(env.FFMPEG_BIN);
   const ffmpegAvailable = exists(ffmpegBin);
   const ytdlpBin = resolve(env.YTDLP_BIN);
-  const ytdlpAvailable = exists(ytdlpBin);
+  const bwrapBin = resolve(env.LINK_MEDIA_BWRAP_BIN);
+  const isolateYtdlp = env.LINK_MEDIA_YTDLP_NETWORK_ISOLATION;
+  const ytdlpAvailable = exists(ytdlpBin) && (!isolateYtdlp || exists(bwrapBin));
+  const sharedCookies = env.LINK_MEDIA_COOKIES_FILE
+    ? resolve(env.LINK_MEDIA_COOKIES_FILE)
+    : undefined;
   return {
     enabled: env.LINK_MEDIA_ENABLED && ffmpegAvailable,
     autoRehost: env.LINK_MEDIA_AUTO_REHOST,
@@ -640,11 +651,17 @@ export function resolveLinkMediaConfig(env: Env): LinkMediaConfig {
     blockedHosts: csv(env.LINK_MEDIA_BLOCKED_HOSTS, []),
     nsfwAllow: env.LINK_MEDIA_NSFW_ALLOW,
     cookies: {
+      default: sharedCookies,
       instagram: env.LINK_MEDIA_COOKIES_INSTAGRAM,
       tiktok: env.LINK_MEDIA_COOKIES_TIKTOK,
       facebook: env.LINK_MEDIA_COOKIES_FACEBOOK,
       x: env.LINK_MEDIA_COOKIES_X,
+      youtube: env.LINK_MEDIA_COOKIES_YOUTUBE,
     },
+    extraYtdlpHosts: csv(env.LINK_MEDIA_EXTRA_YTDLP_HOSTS, []),
+    ytdlpImpersonate: env.LINK_MEDIA_YTDLP_IMPERSONATE,
+    ytdlpJsRuntime: env.LINK_MEDIA_YTDLP_JS_RUNTIME ?? `node:${process.execPath}`,
+    bwrapBin: isolateYtdlp ? bwrapBin : undefined,
     proxy: env.LINK_MEDIA_PROXY,
     cacheTtlDays: env.LINK_MEDIA_CACHE_TTL_DAYS,
     ffmpegBin,

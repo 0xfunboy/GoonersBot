@@ -117,7 +117,7 @@ export function normalizeHost(value: string | URL): string {
     .replace(/^www\./, '');
 
   // Config values are hostnames, not URLs, credentials, paths, or host:port pairs.
-  if (!raw || /[\s/:@?#\[\]]/.test(raw)) return '';
+  if (!raw || /[\s/:@?#]/.test(raw) || raw.includes('[') || raw.includes(']')) return '';
   return domainToASCII(raw).toLowerCase();
 }
 

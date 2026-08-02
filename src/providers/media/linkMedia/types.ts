@@ -53,6 +53,8 @@ export interface ExtractedMediaItem {
   headers?: Record<string, string>;
   /** download engine: plain HTTP (default) or the yt-dlp binary (video streams, adult/cam sites) */
   via?: 'http' | 'ytdlp';
+  /** A bounded playlist is one social post containing multiple downloadable video entries. */
+  ytdlpMode?: 'single' | 'bounded_playlist';
 }
 
 /** Engagement metrics for social posts (shown as context, not as media). */
@@ -84,6 +86,8 @@ export interface LinkExtractorContext {
   proxy?: string | undefined;
   cookies?: string | undefined;
   maxMediaPerUrl: number;
+  /** Deployment content policy, applied by generic HTTP extraction to every redirect. */
+  validateUrl?: ((url: URL) => void | Promise<void>) | undefined;
 }
 
 export interface LinkExtractor {
