@@ -1,82 +1,73 @@
+import { hostMatches, isKnownYtdlpHost, normalizeHost } from '../hosts.js';
 import type { LinkExtractor, LinkMediaPlatform } from '../types.js';
 
-// Hosts whose media is a video stream best fetched by yt-dlp (merges video+audio, ~1800 sites).
-const VIDEO_HOSTS = [
-  'youtube.com',
-  'm.youtube.com',
-  'youtu.be',
-  'music.youtube.com',
-  'tiktok.com',
-  'vimeo.com',
-  'player.vimeo.com',
-  'streamable.com',
-  'twitch.tv',
-  'clips.twitch.tv',
-  'm.twitch.tv',
-  'facebook.com',
-  'm.facebook.com',
-  'fb.watch',
-  'dailymotion.com',
-  'dai.ly',
-  'kick.com',
-  // Instagram reels/posts: logged-out scraping no longer returns media, so let yt-dlp handle it
-  // (needs LINK_MEDIA_COOKIES_INSTAGRAM for most content).
-  'instagram.com',
-  'instagr.am',
+const PLATFORM_HOSTS: ReadonlyArray<
+  readonly [platform: LinkMediaPlatform, hosts: readonly string[]]
+> = [
+  ['youtube', ['youtube.com', 'youtu.be', 'youtube-nocookie.com']],
+  ['instagram', ['instagram.com', 'instagr.am']],
+  ['tiktok', ['tiktok.com']],
+  ['facebook', ['facebook.com', 'fb.watch']],
+  ['redgifs', ['redgifs.com']],
+  ['twitter', ['x.com', 'twitter.com', 'fxtwitter.com', 'vxtwitter.com', 'fixupx.com']],
+  ['reddit', ['reddit.com', 'redd.it']],
+  ['bluesky', ['bsky.app']],
+  ['threads', ['threads.net', 'threads.com']],
+  ['snapchat', ['snapchat.com']],
+  ['pinterest', ['pinterest.com', 'pin.it']],
+  ['tumblr', ['tumblr.com']],
+  ['vimeo', ['vimeo.com']],
+  ['streamable', ['streamable.com']],
+  ['twitch', ['twitch.tv']],
+  ['dailymotion', ['dailymotion.com', 'dai.ly']],
+  ['kick', ['kick.com']],
+  ['rumble', ['rumble.com']],
+  ['bilibili', ['bilibili.com', 'bilibili.tv', 'b23.tv']],
+  ['douyin', ['douyin.com', 'iesdouyin.com']],
+  ['likee', ['likee.video']],
+  ['linkedin', ['linkedin.com']],
+  ['loom', ['loom.com']],
+  ['medal', ['medal.tv']],
+  ['coub', ['coub.com']],
+  ['vk', ['vk.com', 'vkvideo.ru']],
+  ['odysee', ['odysee.com']],
+  ['imgur', ['imgur.com']],
 ];
 
-// Adult / cam video hosts (only fetched when LINK_MEDIA_NSFW_ALLOW=true; gated in the service).
-const ADULT_HOSTS = [
-  'pornhub.com',
-  'xvideos.com',
-  'xhamster.com',
-  'redtube.com',
-  'youporn.com',
-  'spankbang.com',
-  'eporner.com',
-  'tube8.com',
-  'xnxx.com',
-  'motherless.com',
-  'chaturbate.com',
-  'stripchat.com',
-  'cam4.com',
-  'bongacams.com',
-  'camsoda.com',
-  'myfreecams.com',
-];
-
-const ALL_HOSTS = [...VIDEO_HOSTS, ...ADULT_HOSTS];
-
-function platformFor(host: string): LinkMediaPlatform {
-  if (/youtube\.com$|youtu\.be$/.test(host)) return 'youtube';
-  if (/tiktok\.com$/.test(host)) return 'tiktok';
-  if (/vimeo\.com$/.test(host)) return 'vimeo';
-  if (/streamable\.com$/.test(host)) return 'streamable';
-  if (/twitch\.tv$/.test(host)) return 'twitch';
-  if (/facebook\.com$|fb\.watch$/.test(host)) return 'facebook';
-  if (/instagram\.com$|instagr\.am$/.test(host)) return 'instagram';
+export function ytdlpPlatformFor(host: string | URL): LinkMediaPlatform {
+  const normalized = normalizeHost(host);
+  for (const [platform, hosts] of PLATFORM_HOSTS) {
+    if (hosts.some((candidate) => hostMatches(normalized, candidate))) return platform;
+  }
   return 'generic';
 }
 
 /**
- * yt-dlp video extractor. Does not pre-fetch metadata: it signals via:'ytdlp' so the service runs
- * yt-dlp to download (and learn title/duration). Covers YouTube, TikTok, Vimeo, Twitch, Facebook,
- * Dailymotion, Kick, and adult/cam video sites.
+ * Build a yt-dlp page extractor with an optional deployment-owned host allowlist. The default
+ * singleton below remains useful for built-in hosts and for explicit native-extractor fallback.
  */
-export const ytdlpExtractor: LinkExtractor = {
-  platform: 'youtube',
-  match(url) {
-    const h = url.hostname.replace(/^www\./, '').toLowerCase();
-    return ALL_HOSTS.some((host) => h === host || h.endsWith(`.${host}`));
-  },
-  async extract(url) {
-    const host = url.hostname.replace(/^www\./, '').toLowerCase();
-    return {
-      platform: platformFor(host),
-      originalUrl: url.toString(),
-      canonicalUrl: url.toString(),
-      webpageUrl: url.toString(),
-      items: [{ kind: 'video', url: url.toString(), via: 'ytdlp' }],
-    };
-  },
-};
+export function createYtdlpExtractor(extraHosts: readonly string[] = []): LinkExtractor {
+  return {
+    // This is only a registry hint. The extracted post is labelled with the URL's real platform.
+    platform: 'generic',
+    match(url) {
+      return isKnownYtdlpHost(url, extraHosts);
+    },
+    async extract(url) {
+      const sourceUrl = url.toString();
+      return {
+        platform: ytdlpPlatformFor(url),
+        originalUrl: sourceUrl,
+        canonicalUrl: sourceUrl,
+        webpageUrl: sourceUrl,
+        items: [{ kind: 'video', url: sourceUrl, via: 'ytdlp' }],
+      };
+    },
+  };
+}
+
+/**
+ * yt-dlp video extractor. It intentionally does not pre-fetch metadata: via:'ytdlp' tells the
+ * service to perform a bounded download and learn title/duration from yt-dlp's info JSON.
+ */
+export const ytdlpExtractor: LinkExtractor = createYtdlpExtractor();
