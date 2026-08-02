@@ -27,6 +27,24 @@ describe('loadEnv', () => {
     expect(env.REPLY_CANDIDATE_COUNT).toBe(3);
     expect(env.REPLY_MAX_REGENERATIONS).toBe(1);
     expect(env.MONGO_DB).toBe('goonerbot');
+    expect(env.LINK_MEDIA_COOKIES_FILE).toBeUndefined();
+    expect(env.LINK_MEDIA_EXTRA_YTDLP_HOSTS).toBeUndefined();
+    expect(env.LINK_MEDIA_YTDLP_NETWORK_ISOLATION).toBe(true);
+    expect(env.LINK_MEDIA_BWRAP_BIN).toBe('/usr/bin/bwrap');
+  });
+
+  it('normalizes link-media cookie/runtime configuration', () => {
+    const env = loadEnv({
+      ...base,
+      LINK_MEDIA_COOKIES_FILE: ' data/link-media.cookies.txt ',
+      LINK_MEDIA_COOKIES_INSTAGRAM: ' sessionid=test ',
+      LINK_MEDIA_YTDLP_JS_RUNTIME: ' deno:/usr/bin/deno ',
+      LINK_MEDIA_EXTRA_YTDLP_HOSTS: 'videos.example, clips.example',
+    });
+    expect(env.LINK_MEDIA_COOKIES_FILE).toBe('data/link-media.cookies.txt');
+    expect(env.LINK_MEDIA_COOKIES_INSTAGRAM).toBe('sessionid=test');
+    expect(env.LINK_MEDIA_YTDLP_JS_RUNTIME).toBe('deno:/usr/bin/deno');
+    expect(env.LINK_MEDIA_EXTRA_YTDLP_HOSTS).toBe('videos.example, clips.example');
   });
 
   it('parses ALLOWED_HANDLES into normalized list, * => unrestricted', () => {

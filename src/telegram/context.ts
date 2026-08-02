@@ -1,4 +1,5 @@
 import type { Context } from 'grammy';
+import type { MessageEntity } from 'grammy/types';
 import type { ChatContext, IncomingMessage, MessageAttachment, Person } from '../domain/types.js';
 import { fallbackHandle, normalizeHandle } from '../utils/handles.js';
 import { childLogger } from '../utils/logger.js';
@@ -121,7 +122,9 @@ export async function buildIncomingMessage(
   opts: { image: boolean; voice: boolean; documents?: boolean },
 ): Promise<IncomingMessage> {
   const msg = ctx.message;
-  const text = msg?.text ?? msg?.caption ?? '';
+  const rawText = msg?.text ?? msg?.caption ?? '';
+  const entities = msg?.text !== undefined ? msg.entities : msg?.caption_entities;
+  const text = appendTextLinkUrls(rawText, entities);
   const timestamp = msg?.date ? new Date(msg.date * 1000) : new Date();
 
   const out: IncomingMessage = { messageText: text, timestamp };
@@ -214,6 +217,24 @@ export async function buildIncomingMessage(
     }
   }
   return out;
+}
+
+/** Include URLs hidden behind Telegram text_link/caption entities in the normal URL pipeline. */
+export function appendTextLinkUrls(
+  text: string,
+  entities: readonly MessageEntity[] | undefined,
+): string {
+  const hiddenUrls = (entities ?? []).flatMap((entity) => {
+    if (entity.type !== 'text_link') return [];
+    try {
+      const url = new URL(entity.url);
+      return url.protocol === 'http:' || url.protocol === 'https:' ? [url.toString()] : [];
+    } catch {
+      return [];
+    }
+  });
+  const missing = [...new Set(hiddenUrls)].filter((url) => !text.includes(url));
+  return [text, ...missing].filter(Boolean).join('\n');
 }
 
 function isAudioOrVideoDocument(mime: string | undefined): boolean {

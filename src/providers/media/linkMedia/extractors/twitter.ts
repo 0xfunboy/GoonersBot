@@ -43,6 +43,7 @@ export const twitterExtractor: LinkExtractor = {
       maxBytes: 1024 * 1024,
       userAgent: ctx.userAgent,
       signal: ctx.signal,
+      validateUrl: ctx.validateUrl,
     });
     const tweet = (JSON.parse(raw) as FxTwitterResponse).tweet;
     if (!tweet) return null;

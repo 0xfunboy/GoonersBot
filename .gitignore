@@ -45,5 +45,8 @@ vendor/
 # runtime approval store (chat/user ids)
 data/approved.json
 
+# Browser session jar used by link-media (must remain a mounted/local secret)
+data/link-media.cookies.txt
+
 # Runtime-learned capability manifests/proposals (may contain user requests or integration names).
 data/capabilities/

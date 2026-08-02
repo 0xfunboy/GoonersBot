@@ -471,7 +471,7 @@ const envSchema = z.object({
   MUSIC_PROXY: z.string().optional(), // optional outbound proxy for yt-dlp
 
   // ---- Link media rehost: download media from URLs posted in chat and re-upload as Telegram
-  // attachments (native TypeScript extractors, no Python/yt-dlp). ffmpeg normalizes for Telegram.
+  // attachments. Native extractors retain social context; yt-dlp handles video sites and embeds.
   LINK_MEDIA_ENABLED: boolFromString(true),
   LINK_MEDIA_AUTO_REHOST: boolFromString(true),
   LINK_MEDIA_AI_COMMENT_ENABLED: boolFromString(true),
@@ -489,10 +489,25 @@ const envSchema = z.object({
   LINK_MEDIA_ALLOWED_HOSTS: z.string().optional(),
   LINK_MEDIA_BLOCKED_HOSTS: z.string().optional(),
   LINK_MEDIA_NSFW_ALLOW: boolFromString(false),
-  LINK_MEDIA_COOKIES_INSTAGRAM: z.string().optional(),
-  LINK_MEDIA_COOKIES_TIKTOK: z.string().optional(),
-  LINK_MEDIA_COOKIES_FACEBOOK: z.string().optional(),
-  LINK_MEDIA_COOKIES_X: z.string().optional(),
+  // Prefer a Netscape jar exported from a dedicated browser profile. Site-specific values override
+  // the shared jar and may also be raw Cookie headers for backwards compatibility.
+  LINK_MEDIA_COOKIES_FILE: optStr,
+  LINK_MEDIA_COOKIES_INSTAGRAM: optStr,
+  LINK_MEDIA_COOKIES_TIKTOK: optStr,
+  LINK_MEDIA_COOKIES_FACEBOOK: optStr,
+  LINK_MEDIA_COOKIES_X: optStr,
+  LINK_MEDIA_COOKIES_YOUTUBE: optStr,
+  // Extra trusted domains to route through yt-dlp. This extends the built-in social/video registry.
+  LINK_MEDIA_EXTRA_YTDLP_HOSTS: z.string().optional(),
+  // Optional browser impersonation fallback (for example "chrome"). Leave empty normally: forcing
+  // it globally can reduce stability, while supported extractors request it when they need it.
+  LINK_MEDIA_YTDLP_IMPERSONATE: optStr,
+  // Deno is yt-dlp's preferred JS runtime; the resolver falls back to the running Node executable.
+  LINK_MEDIA_YTDLP_JS_RUNTIME: optStr,
+  // Default-on network namespace. Without it yt-dlp/ffmpeg redirects cannot share the native HTTP
+  // client's DNS-rebinding/SSRF guard. Disable only behind an independently filtered egress proxy.
+  LINK_MEDIA_YTDLP_NETWORK_ISOLATION: boolFromString(true),
+  LINK_MEDIA_BWRAP_BIN: z.string().default('/usr/bin/bwrap'),
   LINK_MEDIA_PROXY: z.string().optional(),
   LINK_MEDIA_CACHE_TTL_DAYS: intFromString(30),
 });

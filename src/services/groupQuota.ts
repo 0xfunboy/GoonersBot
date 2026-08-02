@@ -142,6 +142,46 @@ export class GroupQuotaService {
     });
   }
 
+  /** Atomically account one delivered media item and its bytes, so a rejected half cannot burn the
+   * other half of the allowance. */
+  async reserveMedia(chatId: number, bytes: number): Promise<QuotaDecision> {
+    if (!Number.isSafeInteger(bytes) || bytes < 0) return denied('media_bytes');
+    return this.mutate(chatId, (doc, plan, now) => {
+      const media = resourceLimit(doc, plan, 'media');
+      if (media.counter + 1 > media.limit) {
+        return denied('media', secondsToNextWindow(now, false));
+      }
+      const mediaBytes = resourceLimit(doc, plan, 'media_bytes');
+      if (mediaBytes.counter + bytes > mediaBytes.limit) {
+        return denied('media_bytes', secondsToNextWindow(now, false));
+      }
+      incrementResource(doc, 'media', 1);
+      incrementResource(doc, 'media_bytes', bytes);
+      return { allowed: true };
+    });
+  }
+
+  /** Cheap non-consuming guard used before an expensive extraction. Final admission remains the
+   * atomic reserveMedia call once the exact normalized byte size is known. */
+  async canReserveMedia(chatId: number, minimumBytes = 1): Promise<QuotaDecision> {
+    if (!Number.isSafeInteger(minimumBytes) || minimumBytes < 0) return denied('media_bytes');
+    const report = await this.getReport(chatId);
+    if (report.daily.media + 1 > report.plan.mediaDaily) return denied('media');
+    if (report.daily.mediaBytes + minimumBytes > report.plan.mediaBytesDaily)
+      return denied('media_bytes');
+    return { allowed: true };
+  }
+
+  /** Roll back a reservation when Telegram definitively rejects the delivery. */
+  async releaseMedia(chatId: number, bytes: number): Promise<void> {
+    if (!Number.isSafeInteger(bytes) || bytes < 0) return;
+    await this.mutate(chatId, (doc) => {
+      doc.daily.media = Math.max(0, doc.daily.media - 1);
+      doc.daily.mediaBytes = Math.max(0, doc.daily.mediaBytes - bytes);
+      return { allowed: true };
+    });
+  }
+
   /** Adjust the daily token ledger after a completed turn. Overages block the following turn. */
   async recordLlmTokens(chatId: number, tokens: number, reservedTokens = 0): Promise<void> {
     if (tokens <= 0 && reservedTokens <= 0) return;

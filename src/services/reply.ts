@@ -305,6 +305,8 @@ export interface ReplyContext {
   quotaBypass?: boolean | undefined;
   /** Passive autoengage turn: the LLM gate already approved participation. */
   passive?: boolean | undefined;
+  /** Per-chat link-media toggle resolved by the Telegram handler for this turn. */
+  allowLinkMedia?: boolean | undefined;
   /** Only a bot operator may persist a new global capability. */
   allowCapabilityInstall?: boolean | undefined;
 }
@@ -659,7 +661,7 @@ export class ReplyService {
       news: this.news.enabled,
       knowledge: this.knowledge.enabled,
       music: this.music.enabled,
-      linkMedia: this.config.linkMedia.enabled,
+      linkMedia: this.config.linkMedia.enabled && ctx.allowLinkMedia !== false,
       imageGeneration: this.media.canGenerateImage,
       videoGeneration: this.video.enabled,
       translation: this.llm.capabilities.chat,
@@ -944,7 +946,7 @@ export class ReplyService {
     const wantsLinkMedia =
       wants('link_media', 'link_media') || evaluation.action === 'download_media';
     if (wantsLinkMedia) {
-      if (!this.config.linkMedia.enabled) {
+      if (!this.config.linkMedia.enabled || ctx.allowLinkMedia === false) {
         return immediateOutcome({
           text: t('media_tool_unavailable'),
           styleVariant: 'media_unavailable',
@@ -976,12 +978,8 @@ export class ReplyService {
           styleVariant: 'media_not_found',
         });
       }
-      if (!ctx.quotaBypass && !(await this.quota.reserve(ctx.context.chatId, 'media')).allowed) {
-        return immediateOutcome({
-          text: t('media_quota_exhausted'),
-          styleVariant: 'media_quota_exhausted',
-        });
-      }
+      // The downloader reserves media quota at the point of execution. Reserving here as well made
+      // a single addressed link consume the allowance twice (or three times after auto-rehosting).
       return immediateOutcome({
         linkMediaUrl: url,
         providerBundle: { sources: [url] },

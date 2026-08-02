@@ -9,7 +9,10 @@ import {
 } from '../src/providers/media/linkMedia/hosts.js';
 import { genericHtmlExtractor } from '../src/providers/media/linkMedia/genericHtmlExtractor.js';
 import { isSafeYtdlpFallback, pickExtractor } from '../src/providers/media/linkMedia/registry.js';
-import { ytdlpExtractor } from '../src/providers/media/linkMedia/extractors/ytdlpSites.js';
+import {
+  ytdlpExtractor,
+  ytdlpModeFor,
+} from '../src/providers/media/linkMedia/extractors/ytdlpSites.js';
 import type {
   LinkExtractorContext,
   LinkMediaPlatform,
@@ -102,6 +105,18 @@ describe('link-media yt-dlp registry', () => {
         extraYtdlpHosts: ['partner.example'],
       }),
     ).toBe(false);
+  });
+
+  it.each([
+    ['https://www.instagram.com/p/carousel/', 'bounded_playlist'],
+    ['https://www.instagram.com/reel/clip/', 'single'],
+    ['https://www.tiktok.com/@person/photo/123', 'bounded_playlist'],
+    ['https://vm.tiktok.com/ZMshare/', 'bounded_playlist'],
+    ['https://www.tiktok.com/@person/video/123', 'single'],
+    ['https://www.youtube.com/playlist?list=PL123', 'bounded_playlist'],
+    ['https://www.youtube.com/shorts/abc?list=PL123', 'single'],
+  ] as const)('classifies bounded carousel routing for %s', (raw, expected) => {
+    expect(ytdlpModeFor(new URL(raw))).toBe(expected);
   });
 });
 

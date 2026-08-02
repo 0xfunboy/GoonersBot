@@ -749,6 +749,16 @@ export const translations: TranslationMap = {
     russian: 'Не смог перезалить, но вот ссылка: {url}',
     spanish: 'No pude resubirlo, pero aquí tienes el enlace: {url}',
   },
+  media_rehost_auto_failed: {
+    italian:
+      'Non riesco a scaricare questo contenuto: può richiedere accesso/cookie, aver raggiunto il limite media oppure essere temporaneamente bloccato. Riprova tra poco.',
+    english:
+      'I could not download this content: it may require access/cookies, have reached the media limit, or be temporarily blocked. Try again shortly.',
+    russian:
+      'Не удалось скачать этот материал: могут требоваться доступ/cookie, мог быть исчерпан лимит медиа или действует временная блокировка. Попробуйте позже.',
+    spanish:
+      'No pude descargar este contenido: puede requerir acceso/cookies, haber alcanzado el límite de medios o estar bloqueado temporalmente. Inténtalo pronto.',
+  },
   generated_image_autopost: {
     italian: 'Originale appena sfornata. Non fate i critici d’arte per finta.',
     english: 'Fresh original. Do not pretend you suddenly became art critics.',

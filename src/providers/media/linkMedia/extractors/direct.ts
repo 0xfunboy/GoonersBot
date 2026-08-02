@@ -5,6 +5,8 @@ const EXT_KIND: Record<string, LinkMediaKind> = {
   webm: 'video',
   mov: 'video',
   m4v: 'video',
+  m3u8: 'video',
+  mpd: 'video',
   jpg: 'image',
   jpeg: 'image',
   png: 'image',

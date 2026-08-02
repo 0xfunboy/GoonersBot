@@ -312,6 +312,11 @@ async function main(): Promise<void> {
       log.warn({ err }, 'error stopping bot');
     }
     try {
+      await services.linkMedia.shutdown();
+    } catch (err) {
+      log.warn({ err }, 'error stopping link-media jobs');
+    }
+    try {
       await storage.close();
     } catch (err) {
       log.warn({ err }, 'error closing storage');

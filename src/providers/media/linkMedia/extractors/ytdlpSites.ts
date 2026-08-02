@@ -42,6 +42,28 @@ export function ytdlpPlatformFor(host: string | URL): LinkMediaPlatform {
   return 'generic';
 }
 
+export function ytdlpModeFor(url: URL): 'single' | 'bounded_playlist' {
+  const host = normalizeHost(url);
+  const path = url.pathname.toLowerCase();
+  if (hostMatches(host, 'instagram.com') || hostMatches(host, 'instagr.am')) {
+    return /\/(?:[^/]+\/)?p\/[^/]+/.test(path) ? 'bounded_playlist' : 'single';
+  }
+  if (hostMatches(host, 'tiktok.com')) {
+    return /\/@[^/]+\/photo\/[^/]+/.test(path) || /^(?:vm|vt)\.tiktok\.com$/.test(host)
+      ? 'bounded_playlist'
+      : 'single';
+  }
+  if (hostMatches(host, 'facebook.com')) {
+    return /\/(?:posts|photos|share\/p)\//.test(path) || path.endsWith('/permalink.php')
+      ? 'bounded_playlist'
+      : 'single';
+  }
+  if (hostMatches(host, 'youtube.com')) {
+    return path === '/playlist' ? 'bounded_playlist' : 'single';
+  }
+  return 'single';
+}
+
 /**
  * Build a yt-dlp page extractor with an optional deployment-owned host allowlist. The default
  * singleton below remains useful for built-in hosts and for explicit native-extractor fallback.
@@ -60,7 +82,14 @@ export function createYtdlpExtractor(extraHosts: readonly string[] = []): LinkEx
         originalUrl: sourceUrl,
         canonicalUrl: sourceUrl,
         webpageUrl: sourceUrl,
-        items: [{ kind: 'video', url: sourceUrl, via: 'ytdlp' }],
+        items: [
+          {
+            kind: 'video',
+            url: sourceUrl,
+            via: 'ytdlp',
+            ytdlpMode: ytdlpModeFor(url),
+          },
+        ],
       };
     },
   };

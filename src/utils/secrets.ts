@@ -51,6 +51,9 @@ export function containsSensitive(text: string): boolean {
 
 // Replacement rules for redaction (mask, not detect). Order matters (connection strings first).
 const REDACTIONS: Array<[RegExp, string]> = [
+  // Signed CDN/media URLs commonly carry bearer-equivalent query values. Paths remain useful for
+  // diagnostics, but query strings must never enter logs or durable prompts.
+  [/(https?:\/\/[^\s?#]+)\?[^\s]*/gi, '$1?[redacted]'],
   [/Cookie:\s*\S+/gi, 'Cookie:[redacted]'],
   [
     /(-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----)[\s\S]*?(-----END [A-Z0-9 ]*PRIVATE KEY-----)/g,

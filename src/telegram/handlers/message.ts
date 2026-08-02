@@ -9,7 +9,7 @@ import { fingerprint, escapeHtml } from '../../utils/text.js';
 import { Cooldown } from '../../utils/rateLimit.js';
 import { childLogger } from '../../utils/logger.js';
 import type { LinkMediaResult } from '../../services/linkMedia.js';
-import { extractUrls } from '../../providers/media/linkMedia/url.js';
+import { extractUrls, mediaUrlKey } from '../../providers/media/linkMedia/url.js';
 import { extractJokePremises } from '../../brain/repetitionGuard.js';
 import { currentLlmUsage } from '../../providers/llm/requestContext.js';
 import {
@@ -70,19 +70,21 @@ export async function handleMessage(
   if (!started) return;
   const tracking = await services.conversation.isTrackingEnabled(context.chatId);
   const addressed = !context.isGroup || context.isBotMentioned || context.isReplyToBot;
-  if (!tracking && !addressed) return;
+  const mediaUrls = message.messageText
+    ? extractUrls(message.messageText, services.config.linkMedia.maxUrlsPerMessage)
+    : [];
+  const linkMediaAllowed =
+    services.linkMedia.enabled && (await services.storage.chats.getLinkMedia(context.chatId));
+  const linkMediaEnabled =
+    linkMediaAllowed && services.linkMedia.autoRehostEnabled && mediaUrls.length > 0;
+  const hasMediaUrl = linkMediaEnabled;
+  // Link rehosting is an independent per-chat feature: disabling conversation storage must not
+  // disable the interceptor. Messages with neither an address nor a rehostable URL can stop here.
+  if (!tracking && !addressed && !linkMediaEnabled) return;
   // Passive inference is an explicit per-chat opt-in. Without it, unaddressed traffic is stored
   // only as context and costs neither a model request nor a group quota turn.
   const autoengageEnabled =
     !addressed && tracking && (await services.storage.chats.getAutoengage(context.chatId));
-  const mediaUrls = message.messageText
-    ? extractUrls(message.messageText, services.config.linkMedia.maxUrlsPerMessage)
-    : [];
-  const linkMediaEnabled =
-    services.linkMedia.enabled &&
-    mediaUrls.length > 0 &&
-    (await services.storage.chats.getLinkMedia(context.chatId));
-  const hasMediaUrl = linkMediaEnabled;
 
   // terms gate
   if (await services.terms.hasDeclined(person.userHandle)) return;
@@ -112,6 +114,8 @@ export async function handleMessage(
     }
     return;
   }
+
+  const bypassGroupPlan = services.bypassesGroupPlan(person, context);
 
   // Passive group traffic is retained as lightweight conversation context unless this specific
   // chat has opted into autoengage. That keeps background traffic free by default.
@@ -198,13 +202,23 @@ export async function handleMessage(
   // Link-media rehost: if the message has media URLs, download and re-upload them as Telegram
   // attachments. Unaddressed -> rehost and stop; addressed -> rehost + feed media context to the AI.
   // Honors the per-chat /linkmedia toggle (on by default).
+  let initialLinkMedia: LinkMediaResult | undefined;
+  let initialFailureNoticeMessageId: number | undefined;
   if (linkMediaEnabled && message.messageText) {
-    const linkMedia = await services.linkMedia
-      .handleMessage({ ctx, person, context, text: message.messageText, addressed })
+    initialLinkMedia = await services.linkMedia
+      .handleMessage({
+        ctx,
+        person,
+        context,
+        text: message.messageText,
+        addressed,
+        quotaBypass: bypassGroupPlan,
+      })
       .catch((err) => {
         log.warn({ err }, 'link media handler failed');
         return { handled: false, reason: 'handler_error' } as LinkMediaResult;
       });
+    const linkMedia = initialLinkMedia;
 
     if (!linkMedia.handled && linkMedia.reason && linkMedia.reason !== 'no_supported_url') {
       log.info(
@@ -213,22 +227,31 @@ export async function handleMessage(
       );
     }
 
+    if ((linkMedia.failedUrls?.length ?? 0) > 0) {
+      const notice = await localizeResponse(services, context.chatId, {
+        text: 'media_rehost_auto_failed',
+      });
+      initialFailureNoticeMessageId = (await sendResponse(ctx, notice))?.message_id;
+    }
+
     if (linkMedia.injectedText) {
       message.messageText = `${message.messageText ? `${message.messageText}\n` : ''}[media context]: ${linkMedia.injectedText}`;
     }
 
     if (linkMedia.handled && !addressed) {
-      await services.conversation.addUserMessage(
-        context.chatId,
-        person.userHandle,
-        {
-          messageText: message.messageText || null,
-          timestamp: message.timestamp,
-          imageDescription: linkMedia.injectedText ?? null,
-          voiceDescription: null,
-        },
-        metaOf(person, context),
-      );
+      if (tracking) {
+        await services.conversation.addUserMessage(
+          context.chatId,
+          person.userHandle,
+          {
+            messageText: message.messageText || null,
+            timestamp: message.timestamp,
+            imageDescription: linkMedia.injectedText ?? null,
+            voiceDescription: null,
+          },
+          metaOf(person, context),
+        );
+      }
       return;
     }
   }
@@ -252,7 +275,6 @@ export async function handleMessage(
     return;
   }
 
-  const bypassGroupPlan = services.bypassesGroupPlan(person, context);
   if (!addressed && !bypassGroupPlan && !(await services.quota.canPassiveReply(context.chatId))) {
     if (tracking) {
       await services.conversation.addUserMessage(
@@ -378,6 +400,7 @@ export async function handleMessage(
       recentBotReplies: recentReplies,
       quotaBypass: bypassGroupPlan,
       passive: !addressed,
+      allowLinkMedia: linkMediaAllowed,
       allowCapabilityInstall: services.permissions.isBotAdmin(person.userHandle),
     });
     const meteredUsage = currentLlmUsage();
@@ -443,6 +466,9 @@ export async function handleMessage(
       if (!botMessageIds.includes(messageId)) botMessageIds.push(messageId);
       botMessageId ??= messageId;
     };
+    for (const messageId of initialLinkMedia?.messageIds ?? []) rememberBotMessage(messageId);
+    if (initialFailureNoticeMessageId !== undefined)
+      rememberBotMessage(initialFailureNoticeMessageId);
     if (finalText.trim().length > 0) {
       log.info(
         {
@@ -532,12 +558,19 @@ export async function handleMessage(
         });
       if (sent) rememberBotMessage(sent.message_id);
     }
-    if (outcome.linkMediaUrl) {
+    const alreadyRehosted =
+      outcome.linkMediaUrl !== undefined &&
+      (initialLinkMedia?.handledUrls ?? []).some((url) => sameUrl(url, outcome.linkMediaUrl!));
+    const alreadyAttempted =
+      outcome.linkMediaUrl !== undefined &&
+      (initialLinkMedia?.attemptedUrls ?? []).some((url) => sameUrl(url, outcome.linkMediaUrl!));
+    if (outcome.linkMediaUrl && !alreadyAttempted) {
       const sent = await services.linkMedia.rehostUrl({
         ctx,
         context,
         url: outcome.linkMediaUrl,
         addressed: true,
+        quotaBypass: bypassGroupPlan,
       });
       for (const messageId of sent.messageIds ?? []) rememberBotMessage(messageId);
       if (!sent.handled) {
@@ -548,6 +581,18 @@ export async function handleMessage(
         );
         rememberBotMessage(fallback.message_id);
       }
+    } else if (
+      outcome.linkMediaUrl &&
+      alreadyAttempted &&
+      !alreadyRehosted &&
+      initialFailureNoticeMessageId === undefined
+    ) {
+      const fallback = await ctx.reply(
+        services.localizer.t('media_rehost_failed', { url: outcome.linkMediaUrl }, language) ??
+          outcome.linkMediaUrl,
+        replyOpts,
+      );
+      rememberBotMessage(fallback.message_id);
     }
     if (outcome.audioBuffer) {
       const sent = await ctx
@@ -718,4 +763,10 @@ export async function handleMessage(
     });
     await sendResponse(ctx, localized).catch(() => undefined);
   }
+}
+
+function sameUrl(left: string, right: string): boolean {
+  const a = mediaUrlKey(left);
+  const b = mediaUrlKey(right);
+  return a && b ? a === b : left === right;
 }

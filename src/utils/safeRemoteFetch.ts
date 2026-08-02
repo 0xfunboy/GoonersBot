@@ -56,6 +56,8 @@ export interface SafeRemoteFetchOptions {
    */
   allowedContentTypes?: readonly string[];
   maxRedirects?: number;
+  /** Optional caller policy, re-applied to the initial URL and every redirect target. */
+  validateUrl?: ((url: URL) => void | Promise<void>) | undefined;
 }
 
 export interface SafeRemoteFetchResult {
@@ -271,6 +273,7 @@ async function openSafeResponse(
   signal: AbortSignal,
 ): Promise<OpenedResponse> {
   let current = await assertSafeRemoteUrl(rawUrl, signal);
+  await opts.validateUrl?.(new URL(current));
   let headers = sanitizedHeaders(opts.headers);
   const maxRedirects = opts.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
 
@@ -306,6 +309,7 @@ async function openSafeResponse(
       throw new Error('invalid remote redirect');
     }
     next = await assertSafeRemoteUrl(next, signal);
+    await opts.validateUrl?.(new URL(next));
     if (next.origin !== current.origin) {
       headers = new Headers(headers);
       for (const name of SENSITIVE_REDIRECT_HEADERS) headers.delete(name);

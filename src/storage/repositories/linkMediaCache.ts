@@ -7,6 +7,10 @@ export interface LinkMediaCacheDoc {
   canonicalUrl: string;
   contentId?: string;
   platform: string;
+  /** Final extracted media host, retained so policy changes are enforced on cache hits. */
+  mediaHost?: string;
+  /** True when either the source or extracted media host is in the configured NSFW registry. */
+  nsfw?: boolean;
   kind: 'video' | 'image' | 'gif' | 'audio' | 'document';
   telegramFileId: string;
   caption?: string;
@@ -42,6 +46,10 @@ export class LinkMediaCacheRepo {
 
   async touch(key: string): Promise<void> {
     await this.col.updateOne({ key }, { $set: { lastUsedAt: new Date() } });
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.col.deleteOne({ key });
   }
 
   async upsert(doc: LinkMediaCacheDoc): Promise<void> {

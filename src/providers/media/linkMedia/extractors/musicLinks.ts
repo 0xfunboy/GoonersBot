@@ -20,6 +20,7 @@ export const musicLinksExtractor: LinkExtractor = {
       maxBytes: 3 * 1024 * 1024,
       userAgent: ctx.userAgent,
       signal: ctx.signal,
+      validateUrl: ctx.validateUrl,
     });
     const $ = cheerio.load(html);
     const title = $('meta[property="og:title"]').attr('content') || $('title').text().trim();
