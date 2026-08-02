@@ -217,6 +217,68 @@ describe('dynamic capability commands', () => {
     const response = await learnCommand.handle(input({ capabilities: {} }));
     expect(response?.text).toBe('learn_usage');
   });
+
+  it('/learn status reports readiness without invoking the planner', async () => {
+    const planForTurn = vi.fn();
+    const response = await learnCommand.handle(
+      input(
+        {
+          getLanguage: vi.fn().mockResolvedValue('italian'),
+          planForTurn,
+          capabilities: {
+            status: () => ({
+              enabled: true,
+              chatModelReady: true,
+              webGroundingReady: false,
+              autoInstallResearch: true,
+              installed: 2,
+            }),
+          },
+        },
+        ['stato'],
+      ),
+    );
+
+    expect(response?.rawText).toContain('<strong>Stato Capability Forge</strong>');
+    expect(response?.rawText).toContain('Web grounding: <code>non disponibile</code>');
+    expect(response?.rawText).toContain('Capacità installate: <code>2</code>');
+    expect(planForTurn).not.toHaveBeenCalled();
+  });
+
+  it('/learn distinguishes a verified install from a dependency-blocked existing command', async () => {
+    const acquire = vi.fn().mockResolvedValue({
+      handled: false,
+      text: '/papers è installato, ma il grounding web non è configurato.',
+      status: 'blocked_dependency',
+      installed: true,
+      command: 'papers',
+      diagnostic: {
+        code: 'web_grounding_unavailable',
+        requirements: ['WEB_SEARCH_ENABLED', 'SEARXNG_URL'],
+        requirementsVerified: true,
+        retryable: false,
+      },
+      usage: { inputTokens: 0, outputTokens: 0, estimated: true },
+      model: null,
+      sources: [],
+    });
+    const response = await learnCommand.handle(
+      input(
+        {
+          getLanguage: vi.fn().mockResolvedValue('italian'),
+          planForTurn: vi.fn().mockResolvedValue({ id: 'free' }),
+          modelForPlan: vi.fn().mockReturnValue(undefined),
+          bypassesGroupPlan: vi.fn().mockReturnValue(true),
+          capabilities: { acquire },
+        },
+        ['cerca', 'paper'],
+      ),
+    );
+
+    expect(response?.rawText).toContain('Stato: <code>blocked_dependency</code>');
+    expect(response?.rawText).toContain('<code>WEB_SEARCH_ENABLED</code>');
+    expect(response?.rawText).not.toContain('✅');
+  });
 });
 
 describe('privacy-safe social observability commands', () => {

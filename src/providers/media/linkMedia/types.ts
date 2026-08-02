@@ -60,9 +60,16 @@ export interface ExtractedMediaItem {
 /** Engagement metrics for social posts (shown as context, not as media). */
 export interface PostStats {
   likes?: number;
+  /** Platform-native repost/retweet count. */
   reposts?: number;
+  /** Generic share count when the platform does not call them reposts. */
+  shares?: number;
+  /** Thread replies, kept distinct in the model but rendered with comments. */
   replies?: number;
+  comments?: number;
   views?: number;
+  /** Reddit-style vote score (not mislabeled as a like count). */
+  score?: number;
 }
 
 export interface ExtractedMediaPost {
@@ -71,7 +78,10 @@ export interface ExtractedMediaPost {
   canonicalUrl: string;
   contentId?: string;
   title?: string;
+  /** Human-authored post/video description, kept separate from the media title. */
+  description?: string;
   author?: string;
+  authorHandle?: string;
   /** rich, ready-to-show context line (post text + handle); preferred over title for the caption */
   caption?: string;
   stats?: PostStats;

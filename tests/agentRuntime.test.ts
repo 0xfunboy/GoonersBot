@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AgentRuntime } from '../src/services/agentRuntime.js';
+import { AgentRuntime, type AgentRuntimeInput } from '../src/services/agentRuntime.js';
+import type { ToolExecutionContext, ToolExecutionOutput } from '../src/agent/types.js';
 
 describe('AgentRuntime live provider bridge', () => {
   it('budgets the image tool for visual-QA corrective render rounds', () => {
@@ -45,6 +46,90 @@ describe('AgentRuntime live provider bridge', () => {
       800_000,
     );
   });
+
+  it.each(['blocked_dependency', 'proposal_saved', 'validation_failed'] as const)(
+    'does not verify or announce a persistent command for %s capability outcomes',
+    async (status) => {
+      const acquire = vi.fn().mockResolvedValue({
+        handled: false,
+        text: `Lifecycle outcome: ${status}`,
+        status,
+        // Adversarial legacy fields: neither is proof that this acquisition succeeded.
+        installed: true,
+        capabilityId: 'existing_manifest',
+        command: 'existingcmd',
+        usage: { inputTokens: 0, outputTokens: 0, estimated: true },
+        model: null,
+        sources: [],
+      });
+      const runtime = new AgentRuntime({
+        config: {
+          env: { REPETITION_SIMILARITY_THRESHOLD: 0.78 },
+          brain: { cortex: { model: 'test' }, replyModel: 'test' },
+          linkMedia: { enabled: false },
+        } as never,
+        llm: { capabilities: { chat: true } } as never,
+        media: { canGenerateImage: false } as never,
+        music: { enabled: false } as never,
+        video: { enabled: false } as never,
+        tts: { enabled: false } as never,
+        grounding: { enabled: false } as never,
+        knowledge: { enabled: false } as never,
+        imageFinder: {} as never,
+        imagePrompts: {} as never,
+        videoPrompts: {} as never,
+        quota: {} as never,
+        capabilities: { enabled: true, acquire } as never,
+      });
+      const input: AgentRuntimeInput = {
+        request: 'impara questa capacità',
+        language: 'italian',
+        person: { telegramId: 1, userHandle: '@alice' },
+        context: {
+          chatId: -100,
+          isGroup: true,
+          isBotMentioned: true,
+          isGroupAdmin: false,
+          isReplyToBot: false,
+        },
+        recentMessages: [],
+        quotaBypass: true,
+        allowCapabilityInstall: true,
+      };
+      const registry = (
+        runtime as unknown as {
+          registry(value: AgentRuntimeInput): {
+            capability_forge?: (context: ToolExecutionContext) => Promise<ToolExecutionOutput>;
+          };
+        }
+      ).registry(input);
+      const handler = registry.capability_forge;
+      expect(handler).toBeDefined();
+      const output = await handler!({
+        request: input.request,
+        action: {
+          id: 'learn',
+          tool: 'capability_forge',
+          purpose: 'learn a capability',
+          query: input.request,
+          args: {},
+          dependsOn: [],
+          optional: false,
+          timeoutMs: 5_000,
+          acceptance: { requireOutput: true, minEvidence: 0, requiredArtifactKinds: [] },
+        },
+        dependencies: new Map(),
+        signal: new AbortController().signal,
+        metadata: {},
+      });
+
+      expect(output.verified).toBe(false);
+      expect(output.summary).not.toMatch(
+        /persistent command|installed and verified|executed successfully/i,
+      );
+      expect(output.data).toMatchObject({ kind: 'capability', status, installed: false });
+    },
+  );
 
   it('executes a translation and feeds its verified output into TTS in the same turn', async () => {
     const jsonCompletion = vi

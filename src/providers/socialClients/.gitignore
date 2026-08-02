@@ -1,0 +1,8 @@
+# Authentication/session material must be mounted from outside this source directory.
+*.cookies
+*.cookies.txt
+*.session
+*.token
+*.secrets.*
+storage-state*.json
+cookie-jars/

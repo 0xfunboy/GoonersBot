@@ -464,6 +464,13 @@ shares and explicitly bounded playlist URLs run as one yt-dlp batch and deliver 
 `LINK_MEDIA_MAX_MEDIA_PER_URL` ordered video entries; Reels, Shorts and normal clip URLs stay
 single-item jobs.
 
+This deterministic pipeline runs before GoonersBot's conversational brain. It is the only authority
+on whether a Telegram media artifact was actually delivered: resolving a page URL is never reported
+as a successful download. For an unaddressed link, `/autoengage` off means rehost + caption only;
+with `/autoengage` on, the normal passive-reply gate may add a separate comment after successful
+delivery. A recognized download that fails stops at the deterministic failure notice instead of
+being handed to an agent that could mistake the original link for an artifact.
+
 ### Two paths, on purpose
 
 The bot picks the right kind of media per link:
@@ -475,10 +482,11 @@ The bot picks the right kind of media per link:
   prefers H.264/AAC for Telegram. The registry is intentionally narrower than yt-dlp's full extractor
   list: arbitrary pages are never handed to an unrestricted subprocess. Operators can add a
   reviewed domain with `LINK_MEDIA_EXTRA_YTDLP_HOSTS`.
-- **Social photos -> image(s) + context.** A photo tweet (via the fxtwitter API) and Bluesky posts
-  are sent as the image(s) with a caption carrying the context: the post text, the author, and the
-  engagement counts (likes, reposts, replies, views). That context is also fed to the brain when the
-  bot is tagged, so it can comment on what the post says, not just show it.
+- **Social media -> attachment(s) + deterministic context.** Native X, Reddit and Bluesky APIs,
+  OpenGraph/JSON-LD metadata and yt-dlp sidecars retain the available post description, author and
+  engagement counts (likes, reposts/shares, comments/replies and views). This covers videos as well
+  as photo galleries and does not require an LLM. Platforms omit some counters; absent values are
+  not guessed. The context is also available to the brain only after successful delivery.
 - **Live streams / unbounded video -> a single snapshot.** When a link is a live stream (or a video
   we cannot download within the caps), the bot grabs one frame with ffmpeg and posts that still
   instead, optionally with a vision description.
@@ -503,6 +511,8 @@ Never commit the jar or paste it into logs/chat. Site-specific `LINK_MEDIA_COOKI
 the shared jar and retain raw Cookie-header compatibility. Every yt-dlp job works on its own mode-600
 copy; graceful shutdown and a dead-process/age-guarded startup sweep remove scratch copies. Missing
 access, quota exhaustion and bounded fallback failure are reported in chat instead of being silent.
+For separate platform jars and future social clients, the guarded importer and exact environment
+references are documented in `src/providers/socialClients/README.md`.
 
 Social extractors change frequently. Keep the official standalone binary current; stable is the
 default, while yt-dlp recommends trying nightly when a currently supported site breaks:
@@ -638,13 +648,26 @@ apply.
 
 `/learn <goal>` lets a bot admin turn a missing, read-only research workflow into a persistent
 declarative recipe. An installed recipe becomes a stable slash command, survives restart and uses
-grounded search plus constrained synthesis; `/capabilities` lists what is currently available.
+grounded search plus constrained synthesis; installation is published only after a live
+search-and-synthesis smoke test succeeds. `/capabilities` lists what is currently available and
+`/learn status` (or `/learn stato`) reports whether the forge, chat model, web grounding and
+automatic installation are configured.
+
+Explicit, clearly read-only research requests have a conservative local planning fallback, so a
+malformed response or transient timeout from the capability-planning model does not lose an
+otherwise safe `/learn`. The fallback rejects downloads, credentials, account access, external
+writes and machine execution and still has to pass the same live smoke test before persistence.
 
 Requests that need credentials, authenticated APIs, package installation, compilation, shell access,
 local-machine control or external writes are saved as explicit setup proposals. Even when source code
 is attached, the bot may inspect it to design the proposal but never executes it merely because it
 arrived from Telegram. This keeps “learn while talking” useful without turning a message or a
 prompt-injected document into remote code execution.
+
+The command reports a structured lifecycle outcome (`installed`, `reused`, `proposal_saved`,
+`blocked_dependency`, `validation_failed`, and so on). A proposal is a durable design artifact, not
+an installed feature. Verified missing runtime configuration is named separately from work that
+requires reviewed implementation; transient search/model failures are explicitly marked retryable.
 
 ---
 

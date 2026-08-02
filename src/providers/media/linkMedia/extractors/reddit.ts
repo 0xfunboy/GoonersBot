@@ -1,5 +1,6 @@
 import { fetchText } from '../http.js';
-import type { LinkExtractor, ExtractedMediaItem, LinkMediaKind } from '../types.js';
+import { buildSocialCaption } from '../socialMetadata.js';
+import type { LinkExtractor, ExtractedMediaItem, LinkMediaKind, PostStats } from '../types.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export const redditExtractor: LinkExtractor = {
@@ -58,13 +59,25 @@ export const redditExtractor: LinkExtractor = {
 
     if (items.length === 0) return null;
 
+    const title = typeof post.title === 'string' ? post.title.trim() : undefined;
+    const description = typeof post.selftext === 'string' ? post.selftext.trim() : undefined;
+    const author = typeof post.author === 'string' ? `u/${post.author}` : undefined;
+    const stats: PostStats = {};
+    if (typeof post.score === 'number') stats.score = post.score;
+    if (typeof post.num_comments === 'number') stats.comments = post.num_comments;
+    if (typeof post.num_crossposts === 'number') stats.reposts = post.num_crossposts;
+    const caption = buildSocialCaption({ title, description, author, stats });
+
     return {
       platform: 'reddit',
       originalUrl: url.toString(),
       canonicalUrl: `https://reddit.com${post.permalink}`,
       contentId: String(post.id),
-      ...(post.title ? { title: String(post.title) } : {}),
-      ...(post.author ? { author: String(post.author) } : {}),
+      ...(title ? { title } : {}),
+      ...(description ? { description } : {}),
+      ...(author ? { author } : {}),
+      ...(caption ? { caption } : {}),
+      ...(Object.keys(stats).length > 0 ? { stats } : {}),
       items: items.slice(0, ctx.maxMediaPerUrl),
     };
   },

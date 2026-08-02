@@ -5,6 +5,8 @@ import { childLogger } from '../../../utils/logger.js';
 import { runProcessChecked } from '../../../utils/process.js';
 import { startSafeEgressProxy } from '../../../utils/safeEgressProxy.js';
 import { assertSafeUrl, downloadToFile } from './http.js';
+import { cleanSocialText } from './socialMetadata.js';
+import type { PostStats } from './types.js';
 
 const log = childLogger('link-media-ytdlp');
 
@@ -165,6 +167,10 @@ async function cookieArgs(
 export interface YtdlpResult {
   file: string;
   title?: string;
+  description?: string;
+  author?: string;
+  authorHandle?: string;
+  stats?: PostStats;
   durationSec?: number;
 }
 
@@ -338,6 +344,71 @@ function isFinalVideoPath(workdir: string, candidate: string): boolean {
   return VIDEO_EXTENSIONS.has(extname(local).toLowerCase());
 }
 
+type YtdlpInfoMetadata = Omit<YtdlpResult, 'file'>;
+
+function metadataCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : undefined;
+}
+
+function infoText(
+  info: Record<string, unknown>,
+  fields: readonly string[],
+  maxLength: number,
+): string | undefined {
+  for (const field of fields) {
+    const text = cleanSocialText(info[field], maxLength);
+    if (text) return text;
+  }
+  return undefined;
+}
+
+function plausibleAuthorHandle(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const stripped = value.replace(/^@/, '');
+  // YouTube's opaque UC... channel id is not a human-readable handle. Other common extractor IDs
+  // (X/TikTok/Instagram usernames) are useful attribution even if yt-dlp omits the leading @.
+  if (/^UC[A-Za-z0-9_-]{20,}$/.test(stripped)) return undefined;
+  return /^[A-Za-z0-9_.-]{1,100}$/.test(stripped) ? stripped : undefined;
+}
+
+/** Convert the stable public yt-dlp info fields into platform-neutral social metadata. */
+export function socialMetadataFromYtdlpInfo(info: Record<string, unknown>): YtdlpInfoMetadata {
+  const title = infoText(info, ['title', 'fulltitle'], 2_000);
+  const description = infoText(info, ['description'], 20_000);
+  const author = infoText(info, ['uploader', 'channel', 'creator', 'artist'], 300);
+  const authorHandle = plausibleAuthorHandle(
+    infoText(info, ['uploader_id', 'channel_id', 'creator_id'], 200),
+  );
+  const durationSec =
+    typeof info.duration === 'number' && Number.isFinite(info.duration) && info.duration >= 0
+      ? info.duration
+      : undefined;
+  const stats: PostStats = {};
+  const likes = metadataCount(info.like_count);
+  const reposts = metadataCount(info.repost_count);
+  const shares = metadataCount(info.share_count);
+  const replies = metadataCount(info.reply_count);
+  const comments = metadataCount(info.comment_count);
+  const views = metadataCount(info.view_count);
+  if (likes !== undefined) stats.likes = likes;
+  if (reposts !== undefined) stats.reposts = reposts;
+  if (shares !== undefined) stats.shares = shares;
+  if (replies !== undefined) stats.replies = replies;
+  if (comments !== undefined) stats.comments = comments;
+  if (views !== undefined) stats.views = views;
+
+  return {
+    ...(title ? { title } : {}),
+    ...(description ? { description } : {}),
+    ...(author ? { author } : {}),
+    ...(authorHandle ? { authorHandle } : {}),
+    ...(Object.keys(stats).length > 0 ? { stats } : {}),
+    ...(durationSec !== undefined ? { durationSec } : {}),
+  };
+}
+
 /**
  * Resolve yt-dlp's actual post-processed path, falling back to the deterministic output template.
  * Manifest paths are constrained to the work directory before any filesystem access.
@@ -381,8 +452,7 @@ export async function discoverYtdlpResult(
       string,
       unknown
     >;
-    if (typeof json.title === 'string') result.title = json.title;
-    if (typeof json.duration === 'number') result.durationSec = json.duration;
+    Object.assign(result, socialMetadataFromYtdlpInfo(json));
   } catch {
     // Metadata is optional; an unreadable sidecar must not discard a valid download.
   }
@@ -433,8 +503,7 @@ export async function discoverYtdlpResults(
     try {
       const sidecar = join(workdir, `item-${String(sequence).padStart(5, '0')}.info.json`);
       const json = JSON.parse(await readFile(sidecar, 'utf8')) as Record<string, unknown>;
-      if (typeof json.title === 'string') item.title = json.title;
-      if (typeof json.duration === 'number') item.durationSec = json.duration;
+      Object.assign(item, socialMetadataFromYtdlpInfo(json));
       if (typeof json.playlist_index === 'number') item.playlistIndex = json.playlist_index;
       const rawExpected = [json.n_entries, json.playlist_count]
         .filter(

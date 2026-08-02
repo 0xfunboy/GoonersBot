@@ -1,5 +1,6 @@
 import { fetchText } from '../http.js';
 import type { ExtractedMediaItem, LinkExtractor, PostStats } from '../types.js';
+import { buildSocialCaption, formatPostStats } from '../socialMetadata.js';
 
 interface FxTwitterMedia {
   url?: string;
@@ -68,9 +69,10 @@ export const twitterExtractor: LinkExtractor = {
     if (typeof tweet.replies === 'number') stats.replies = tweet.replies;
     if (typeof tweet.views === 'number') stats.views = tweet.views;
 
-    const author = tweet.author?.name;
-    const handle = tweet.author?.screen_name;
-    const caption = buildTweetCaption(tweet.text, author, handle, stats);
+    const author = tweet.author?.name?.trim();
+    const handle = tweet.author?.screen_name?.trim();
+    const description = tweet.text?.trim();
+    const caption = buildSocialCaption({ description, author, authorHandle: handle, stats });
 
     // If there is no image at all, still surface the text+stats as a context-only result is not
     // possible (nothing to send), so bail and let the brain see the raw link.
@@ -81,7 +83,9 @@ export const twitterExtractor: LinkExtractor = {
       originalUrl: url.toString(),
       canonicalUrl: `https://x.com/i/status/${id}`,
       contentId: id,
+      ...(description ? { description } : {}),
       ...(author ? { author } : {}),
+      ...(handle ? { authorHandle: handle } : {}),
       ...(caption ? { caption } : {}),
       stats,
       items,
@@ -89,33 +93,5 @@ export const twitterExtractor: LinkExtractor = {
   },
 };
 
-function buildTweetCaption(
-  text: string | undefined,
-  author: string | undefined,
-  handle: string | undefined,
-  stats: PostStats,
-): string | undefined {
-  const lines: string[] = [];
-  if (text) lines.push(text.trim());
-  const who = [author, handle ? `@${handle}` : null].filter(Boolean).join(' ');
-  if (who) lines.push(who);
-  const statLine = formatStats(stats);
-  if (statLine) lines.push(statLine);
-  const caption = lines.join('\n').trim();
-  return caption ? caption.slice(0, 1000) : undefined;
-}
-
-export function formatStats(stats: PostStats): string {
-  const parts: string[] = [];
-  if (typeof stats.likes === 'number') parts.push(`❤ ${compact(stats.likes)}`);
-  if (typeof stats.reposts === 'number') parts.push(`🔁 ${compact(stats.reposts)}`);
-  if (typeof stats.replies === 'number') parts.push(`💬 ${compact(stats.replies)}`);
-  if (typeof stats.views === 'number') parts.push(`👁 ${compact(stats.views)}`);
-  return parts.join('  ');
-}
-
-function compact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
-  return String(n);
-}
+/** Backwards-compatible export for the native social extractors. */
+export const formatStats = formatPostStats;

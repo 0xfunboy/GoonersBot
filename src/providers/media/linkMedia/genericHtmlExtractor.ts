@@ -1,16 +1,25 @@
 import * as cheerio from 'cheerio';
 import { fetchText } from './http.js';
+import { buildSocialCaption, cleanSocialText } from './socialMetadata.js';
 import type {
   LinkMediaKind,
   ExtractedMediaPost,
   LinkExtractor,
   LinkExtractorContext,
+  PostStats,
 } from './types.js';
 
 interface MediaCandidate {
   url: string;
   hintedKind?: LinkMediaKind;
   mime?: string;
+}
+
+interface PageSocialMetadata {
+  description?: string;
+  author?: string;
+  authorHandle?: string;
+  stats: PostStats;
 }
 
 const JSON_LD_MAX_NODES = 2_048;
@@ -112,10 +121,85 @@ function stringValues(value: unknown): string[] {
   return values.filter((entry): entry is string => typeof entry === 'string');
 }
 
+function countValue(value: unknown): number | undefined {
+  const number =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && /^\d+(?:\.\d+)?$/.test(value.trim())
+        ? Number(value)
+        : Number.NaN;
+  return Number.isFinite(number) && number >= 0 ? Math.floor(number) : undefined;
+}
+
+function authorMetadata(value: unknown): { author?: string; authorHandle?: string } {
+  const candidates = Array.isArray(value) ? value : [value];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string') {
+      const text = cleanSocialText(candidate, 300);
+      if (text && !/^https?:\/\//i.test(text)) return { author: text };
+      continue;
+    }
+    if (!candidate || typeof candidate !== 'object') continue;
+    const person = candidate as Record<string, unknown>;
+    const author = cleanSocialText(stringValues(person.name)[0], 300);
+    const authorHandle = cleanSocialText(stringValues(person.alternateName)[0], 200);
+    if (author || authorHandle) {
+      return {
+        ...(author ? { author } : {}),
+        ...(authorHandle ? { authorHandle } : {}),
+      };
+    }
+  }
+  return {};
+}
+
+function interactionType(value: unknown): string {
+  if (typeof value === 'string') return value.toLowerCase();
+  if (!value || typeof value !== 'object') return '';
+  return stringValues((value as Record<string, unknown>)['@type'])
+    .join(' ')
+    .toLowerCase();
+}
+
+function addJsonLdMetadata(
+  record: Record<string, unknown>,
+  types: readonly string[],
+  depth: number,
+  metadata: PageSocialMetadata,
+): void {
+  const isContentNode =
+    depth === 0 ||
+    types.some((type) =>
+      /^(?:article|blogposting|imageobject|newsarticle|socialmediaposting|videoobject|webpage)$/.test(
+        type,
+      ),
+    );
+  if (isContentNode) {
+    metadata.description ??= cleanSocialText(stringValues(record.description)[0]);
+    const author = authorMetadata(record.author);
+    metadata.author ??= author.author;
+    metadata.authorHandle ??= author.authorHandle;
+    const comments = countValue(record.commentCount);
+    if (comments !== undefined && metadata.stats.comments === undefined) {
+      metadata.stats.comments = comments;
+    }
+  }
+
+  if (!types.includes('interactioncounter')) return;
+  const count = countValue(record.userInteractionCount ?? record.interactionCount);
+  if (count === undefined) return;
+  const action = interactionType(record.interactionType);
+  if (/share|repost|retweet/.test(action)) metadata.stats.reposts ??= count;
+  else if (/comment|reply/.test(action)) metadata.stats.comments ??= count;
+  else if (/view|watch/.test(action)) metadata.stats.views ??= count;
+  else if (/like|favorite|reactaction/.test(action)) metadata.stats.likes ??= count;
+}
+
 function addJsonLdCandidates(
   root: unknown,
   base: URL,
   candidates: Map<string, MediaCandidate>,
+  metadata: PageSocialMetadata,
 ): void {
   const stack: Array<{ value: unknown; depth: number }> = [{ value: root, depth: 0 }];
   let visited = 0;
@@ -136,6 +220,7 @@ function addJsonLdCandidates(
 
     const record = current.value as Record<string, unknown>;
     const types = jsonLdTypes(record['@type']);
+    addJsonLdMetadata(record, types, current.depth, metadata);
     const hintedKind = types.includes('videoobject')
       ? 'video'
       : types.includes('imageobject')
@@ -176,6 +261,26 @@ export const genericHtmlExtractor: LinkExtractor = {
     const $ = cheerio.load(html);
     const title =
       $('meta[property="og:title"]').attr('content') || $('title').first().text().trim();
+    const rawDescription =
+      $('meta[property="og:description"]').first().attr('content') ||
+      $('meta[name="twitter:description"], meta[property="twitter:description"]')
+        .first()
+        .attr('content') ||
+      $('meta[name="description"]').first().attr('content');
+    const rawAuthor =
+      $('meta[name="author"]').first().attr('content') ||
+      $('meta[property="article:author"]').first().attr('content');
+    const rawCreator = $('meta[name="twitter:creator"], meta[property="twitter:creator"]')
+      .first()
+      .attr('content');
+    const metaDescription = cleanSocialText(rawDescription);
+    const metaAuthor = cleanSocialText(rawAuthor, 300);
+    const metaCreator = cleanSocialText(rawCreator, 200);
+    const metadata: PageSocialMetadata = { stats: {} };
+    if (metaDescription) metadata.description = metaDescription;
+    if (metaAuthor && !/^https?:\/\//i.test(metaAuthor)) metadata.author = metaAuthor;
+    if (metaCreator?.startsWith('@')) metadata.authorHandle = metaCreator;
+    else if (!metadata.author && metaCreator) metadata.author = metaCreator;
     const candidates = new Map<string, MediaCandidate>();
 
     const metaMime = {
@@ -245,7 +350,7 @@ export const genericHtmlExtractor: LinkExtractor = {
         .replace(/^\uFEFF/, '');
       if (!source) return;
       try {
-        addJsonLdCandidates(JSON.parse(source) as unknown, url, candidates);
+        addJsonLdCandidates(JSON.parse(source) as unknown, url, candidates, metadata);
       } catch {
         // Invalid analytics/JSON-LD blocks are common and must not hide otherwise valid metadata.
       }
@@ -269,11 +374,25 @@ export const genericHtmlExtractor: LinkExtractor = {
 
     if (items.length === 0) return null;
 
+    const stats = Object.keys(metadata.stats).length > 0 ? metadata.stats : undefined;
+    const caption = buildSocialCaption({
+      ...(title ? { title } : {}),
+      ...(metadata.description ? { description: metadata.description } : {}),
+      ...(metadata.author ? { author: metadata.author } : {}),
+      ...(metadata.authorHandle ? { authorHandle: metadata.authorHandle } : {}),
+      ...(stats ? { stats } : {}),
+    });
+
     return {
       platform: 'generic',
       originalUrl: url.toString(),
       canonicalUrl,
       ...(title ? { title } : {}),
+      ...(metadata.description ? { description: metadata.description } : {}),
+      ...(metadata.author ? { author: metadata.author } : {}),
+      ...(metadata.authorHandle ? { authorHandle: metadata.authorHandle } : {}),
+      ...(caption ? { caption } : {}),
+      ...(stats ? { stats } : {}),
       items,
     };
   },
