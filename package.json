@@ -11,6 +11,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
+    "start:x-frontend": "node dist/xFrontendMain.js",
     "dev": "tsx watch src/main.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --ext .ts",
@@ -29,6 +30,7 @@
     "pdf-parse": "^2.4.5",
     "pino": "^9.5.0",
     "pino-pretty": "^13.0.0",
+    "selenium-webdriver": "4.35.0",
     "undici": "^8.5.0",
     "zod": "^3.24.1",
     "zod-to-json-schema": "^3.24.6"
