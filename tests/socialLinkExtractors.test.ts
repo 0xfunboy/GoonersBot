@@ -52,7 +52,7 @@ describe('native social link metadata', () => {
       author: 'X Creator',
       authorHandle: 'xcreator',
       stats: { likes: 1500, reposts: 23, replies: 4, views: 9999 },
-      caption: 'The tweet text\n👤 X Creator (@xcreator)\n❤ 1.5K  🔁 23  💬 4  👁 10K',
+      caption: 'The tweet text\n👤 X Creator (social: xcreator)\n❤ 1.5K  🔁 23  💬 4  👁 10K',
       items: [{ kind: 'video', via: 'ytdlp' }],
     });
   });
@@ -123,7 +123,7 @@ describe('native social link metadata', () => {
       author: 'Sky Creator',
       authorHandle: 'sky.example',
       stats: { likes: 10, reposts: 2, replies: 1 },
-      caption: 'Sky post\n👤 Sky Creator (@sky.example)\n❤ 10  🔁 2  💬 1',
+      caption: 'Sky post\n👤 Sky Creator (social: sky.example)\n❤ 10  🔁 2  💬 1',
       items: [
         {
           kind: 'video',

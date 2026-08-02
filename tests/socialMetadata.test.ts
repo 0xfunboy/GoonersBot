@@ -16,8 +16,24 @@ describe('deterministic social metadata captions', () => {
     });
 
     expect(caption).toHaveLength(1000);
-    expect(caption).toContain('…\n👤 Creator (@creator)\n');
+    expect(caption).toContain('…\n👤 Creator (social: creator)\n');
     expect(caption?.endsWith('❤ 1.2K  🔁 30  💬 4  👁 5.6M')).toBe(true);
+  });
+
+  it('labels external social handles without creating Telegram @mentions', () => {
+    expect(buildSocialCaption({ authorHandle: '@external_user' })).toBe('👤 social: external_user');
+    expect(
+      buildSocialCaption({
+        author: '@external_user',
+        authorHandle: '@external_user',
+      }),
+    ).toBe('👤 social: external_user');
+    expect(
+      buildSocialCaption({
+        author: 'Brand @official',
+        authorHandle: 'person@social.example',
+      }),
+    ).toBe('👤 Brand ＠official (social: person＠social.example)');
   });
 
   it('renders zeroes, platform aliases and Reddit score without double-counting aliases', () => {

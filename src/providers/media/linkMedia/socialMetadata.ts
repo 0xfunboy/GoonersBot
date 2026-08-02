@@ -83,7 +83,7 @@ export function buildSocialCaption(
   const title = cleanSocialText(post.title, 2_000);
   const description = cleanSocialText(post.description);
   const legacyCaption = cleanSocialText(post.caption);
-  const author = cleanSocialText(post.author, 300);
+  const author = normalizeAuthor(post.author);
   const handle = normalizeHandle(post.authorHandle);
   const authorLine = formatAuthor(author, handle);
   const statsLine = formatPostStats(post.stats);
@@ -106,19 +106,36 @@ export function buildSocialCaption(
 function normalizeHandle(value: unknown): string | undefined {
   const handle = cleanSocialText(value, 200);
   if (!handle) return undefined;
-  return handle.startsWith('@') ? handle : `@${handle}`;
+  const withoutMarker = handle.replace(/^@+/, '').trim();
+  return withoutMarker ? neutralizeTelegramMentions(withoutMarker) : undefined;
+}
+
+function normalizeAuthor(value: unknown): string | undefined {
+  const author = cleanSocialText(value, 300);
+  if (!author) return undefined;
+  const externalHandle = author.replace(/^@+/, '').trim();
+  if (externalHandle !== author) {
+    return externalHandle ? `social: ${neutralizeTelegramMentions(externalHandle)}` : undefined;
+  }
+  return neutralizeTelegramMentions(author);
+}
+
+/** Telegram auto-links ASCII @names even when no parse mode is enabled. */
+function neutralizeTelegramMentions(value: string): string {
+  return value.replace(/@(?=[A-Za-z0-9_])/g, '＠');
 }
 
 function formatAuthor(author: string | undefined, handle: string | undefined): string {
   if (!author && !handle) return '';
-  if (!author) return `👤 ${handle}`;
+  if (!author) return `👤 social: ${handle}`;
   if (
     !handle ||
-    (author.startsWith('@') && author.toLowerCase().slice(1) === handle.toLowerCase().slice(1))
+    (author.toLowerCase().startsWith('social: ') &&
+      author.toLowerCase().slice('social: '.length) === handle.toLowerCase())
   ) {
     return `👤 ${author}`;
   }
-  return `👤 ${author} (${handle})`;
+  return `👤 ${author} (social: ${handle})`;
 }
 
 function substantiallyDuplicates(left: string, right: string): boolean {
