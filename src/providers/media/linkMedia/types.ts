@@ -16,6 +16,22 @@ export type LinkMediaPlatform =
   | 'vimeo'
   | 'streamable'
   | 'twitch'
+  | 'redgifs'
+  | 'snapchat'
+  | 'pinterest'
+  | 'tumblr'
+  | 'dailymotion'
+  | 'kick'
+  | 'rumble'
+  | 'bilibili'
+  | 'douyin'
+  | 'likee'
+  | 'linkedin'
+  | 'loom'
+  | 'medal'
+  | 'coub'
+  | 'vk'
+  | 'odysee'
   | 'spotify'
   | 'soundcloud'
   | 'bandcamp'
@@ -74,4 +90,9 @@ export interface LinkExtractor {
   platform: LinkMediaPlatform;
   match(url: URL): boolean;
   extract(url: URL, ctx: LinkExtractorContext): Promise<ExtractedMediaPost | null>;
+}
+
+/** Trusted yt-dlp hosts added by a deployment on top of the built-in curated allowlist. */
+export interface PickExtractorOptions {
+  extraYtdlpHosts?: readonly string[];
 }
