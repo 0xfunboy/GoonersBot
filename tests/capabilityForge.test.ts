@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CapabilityForge } from '../src/capabilities/forge.js';
 import type { GroundingService } from '../src/search/groundingService.js';
 import { fakeLLM } from './helpers.js';
@@ -56,6 +56,7 @@ describe('CapabilityForge', () => {
     expect(acquired).toMatchObject({
       handled: true,
       installed: true,
+      status: 'installed',
       command: 'pkgfresh',
       text: 'Versione corrente verificata.',
     });
@@ -76,6 +77,138 @@ describe('CapabilityForge', () => {
         language: 'italian',
       }),
     ).resolves.toMatchObject({ handled: true, text: 'Versione corrente verificata.' });
+  });
+
+  it('does not reuse a capability just because generic research words overlap', async () => {
+    const storePath = await mkdtemp(join(tmpdir(), 'gooner-cap-'));
+    tempDirs.push(storePath);
+    const plans = [
+      {
+        classification: 'research_recipe',
+        id: 'bitcoin_euro_price',
+        command: 'btcprice',
+        description: 'Check the current Bitcoin price in euros from public sources.',
+        searchQueryTemplate: 'official {input}',
+        answerInstruction: 'Report the sourced current price.',
+        requiredConfig: [],
+        reason: 'Reusable read-only price research.',
+      },
+      {
+        classification: 'research_recipe',
+        id: 'ethereum_euro_price',
+        command: 'ethprice',
+        description: 'Check the current Ethereum price in euros from public sources.',
+        searchQueryTemplate: 'official {input}',
+        answerInstruction: 'Report the sourced current price.',
+        requiredConfig: [],
+        reason: 'A different reusable read-only price research workflow.',
+      },
+    ];
+    let planIndex = 0;
+    const llm = fakeLLM({});
+    const jsonCompletion = vi.fn(async (request) => {
+      const value = plans[Math.min(planIndex, plans.length - 1)];
+      planIndex += 1;
+      const parsed = request.schema.safeParse(value);
+      return parsed.success ? parsed.data : null;
+    });
+    llm.jsonCompletion = jsonCompletion;
+    llm.chatCompletion = async () => ({
+      text: 'Prezzo verificato dalle fonti.',
+      usage: { inputTokens: 3, outputTokens: 3, estimated: false },
+      model: 'fake',
+    });
+    const forge = new CapabilityForge(
+      llm,
+      {
+        enabled: true,
+        groundWeb: async (query: string) => ({
+          kind: 'web',
+          block: `source for ${query}`,
+          query,
+          sources: ['https://example.test/price'],
+        }),
+      } as unknown as GroundingService,
+      { enabled: true, storePath, autoInstallResearch: true },
+    );
+
+    const first = await forge.acquire({
+      request: 'verifica il prezzo aggiornato di Bitcoin in euro',
+      language: 'italian',
+      allowInstall: true,
+    });
+    const second = await forge.acquire({
+      request: 'verifica il prezzo aggiornato di Ethereum in euro',
+      language: 'italian',
+      allowInstall: true,
+    });
+
+    expect(first).toMatchObject({ status: 'installed', command: 'btcprice' });
+    expect(second).toMatchObject({ status: 'installed', command: 'ethprice' });
+    expect(jsonCompletion).toHaveBeenCalledTimes(2);
+    expect(forge.list().map((manifest) => manifest.command)).toEqual(['btcprice', 'ethprice']);
+  });
+
+  it.each([
+    [
+      'Italian dependency refusal',
+      'Ho trovato come si fa, ma mi serve un token prima di continuare.',
+    ],
+    [
+      'English evidence refusal',
+      'The supplied sources contain insufficient evidence to answer this request.',
+    ],
+  ])('does not install after a non-empty %s synthesis', async (_caseName, synthesis) => {
+    const storePath = await mkdtemp(join(tmpdir(), 'gooner-cap-'));
+    tempDirs.push(storePath);
+    const llm = fakeLLM({
+      json: {
+        classification: 'research_recipe',
+        id: 'refusing_lookup',
+        command: 'refusinglookup',
+        description: 'Research current source-backed package release information.',
+        searchQueryTemplate: 'official {input}',
+        answerInstruction: 'Answer from the supplied current sources.',
+        requiredConfig: [],
+        reason: 'A reusable read-only current-information lookup.',
+      },
+    });
+    llm.chatCompletion = async () => ({
+      text: synthesis,
+      usage: { inputTokens: 4, outputTokens: 8, estimated: false },
+      model: 'fake',
+    });
+    const forge = new CapabilityForge(
+      llm,
+      {
+        enabled: true,
+        groundWeb: async (query: string) => ({
+          kind: 'web',
+          block: `source for ${query}`,
+          query,
+          sources: ['https://example.test/release'],
+        }),
+      } as unknown as GroundingService,
+      { enabled: true, storePath, autoInstallResearch: true },
+    );
+
+    const result = await forge.acquire({
+      request: 'verifica la release corrente di Refusinator',
+      language: 'italian',
+      allowInstall: true,
+    });
+
+    expect(result).toMatchObject({
+      handled: false,
+      status: 'validation_failed',
+      diagnostic: { code: 'smoke_test_failed' },
+    });
+    expect(result.text).toContain('non è riuscito');
+    expect(forge.list()).toEqual([]);
+    expect((await readdir(storePath)).filter((name) => name.endsWith('.json'))).toEqual([]);
+    expect(await readFile(join(storePath, 'proposals/refusing_lookup.json'), 'utf8')).toContain(
+      '"status": "validation_failed"',
+    );
   });
 
   it('saves external integrations as proposals without pretending to execute them', async () => {
@@ -103,10 +236,205 @@ describe('CapabilityForge', () => {
       allowInstall: true,
     });
     expect(result.handled).toBe(false);
-    expect(result.text).toContain('nessuna finta esecuzione');
+    expect(result.status).toBe('proposal_saved');
+    expect(result.diagnostic).toEqual({
+      code: 'external_integration_required',
+      requirements: ['CALENDAR_API_TOKEN'],
+      requirementsVerified: false,
+      retryable: false,
+    });
+    expect(result.text).toContain('NON è una capacità installata');
+    expect(result.text).toContain('non ancora verificata');
     expect(result.text).toContain('CALENDAR_API_TOKEN');
     expect(await readFile(join(storePath, 'proposals/calendar_writer.json'), 'utf8')).toContain(
       '"classification": "external_integration"',
+    );
+  });
+
+  it('installs and verifies an explicitly read-only research request when the planner returns null', async () => {
+    const storePath = await mkdtemp(join(tmpdir(), 'gooner-cap-'));
+    tempDirs.push(storePath);
+    const llm = fakeLLM({});
+    llm.chatCompletion = async () => ({
+      text: 'Release verificata con le fonti.',
+      usage: { inputTokens: 4, outputTokens: 4, estimated: false },
+      model: 'fake',
+    });
+    const forge = new CapabilityForge(
+      llm,
+      {
+        enabled: true,
+        groundWeb: async (query: string) => ({
+          kind: 'web',
+          block: `source for ${query}`,
+          query,
+          sources: ['https://example.test/release'],
+        }),
+      } as unknown as GroundingService,
+      { enabled: true, storePath, autoInstallResearch: true },
+    );
+
+    const result = await forge.acquire({
+      request: 'cerca e verifica la release corrente di Frobnicator',
+      language: 'italian',
+      allowInstall: true,
+    });
+
+    expect(result).toMatchObject({ handled: true, installed: true, status: 'installed' });
+    expect(result.command).toMatch(/^research_/);
+    expect(forge.hasCommand(result.command ?? '')).toBe(true);
+    expect((await readdir(storePath)).filter((name) => name.endsWith('.json'))).toHaveLength(1);
+  });
+
+  it('uses the safe research fallback after a transient planner exception', async () => {
+    const storePath = await mkdtemp(join(tmpdir(), 'gooner-cap-'));
+    tempDirs.push(storePath);
+    const llm = fakeLLM({});
+    llm.jsonCompletion = async () => {
+      throw new Error('planner timeout');
+    };
+    llm.chatCompletion = async () => ({
+      text: 'Risultato verificato.',
+      usage: { inputTokens: 2, outputTokens: 2, estimated: false },
+      model: 'fake',
+    });
+    const forge = new CapabilityForge(
+      llm,
+      {
+        enabled: true,
+        groundWeb: async (query: string) => ({
+          kind: 'web',
+          block: `source for ${query}`,
+          query,
+          sources: ['https://example.test/current'],
+        }),
+      } as unknown as GroundingService,
+      { enabled: true, storePath, autoInstallResearch: true },
+    );
+
+    await expect(
+      forge.acquire({
+        request: 'monitora le notizie aggiornate su Frobnicator',
+        language: 'italian',
+        allowInstall: true,
+      }),
+    ).resolves.toMatchObject({ handled: true, installed: true, status: 'installed' });
+  });
+
+  it('treats explicit reusable research as learnable even if the planner calls it normal reasoning', async () => {
+    const storePath = await mkdtemp(join(tmpdir(), 'gooner-cap-'));
+    tempDirs.push(storePath);
+    const llm = fakeLLM({
+      json: {
+        classification: 'not_a_capability_gap',
+        id: 'ordinary_answer',
+        command: 'ordinary',
+        description: 'Answer this as an ordinary conversational request.',
+        searchQueryTemplate: '{input}',
+        answerInstruction: 'Answer normally.',
+        requiredConfig: [],
+        reason: 'The base model could answer one example.',
+      },
+    });
+    llm.chatCompletion = async () => ({
+      text: 'Rassegna verificata.',
+      usage: { inputTokens: 2, outputTokens: 2, estimated: false },
+      model: 'fake',
+    });
+    const forge = new CapabilityForge(
+      llm,
+      {
+        enabled: true,
+        groundWeb: async (query: string) => ({
+          kind: 'web',
+          block: `source for ${query}`,
+          query,
+          sources: ['https://example.test/news'],
+        }),
+      } as unknown as GroundingService,
+      { enabled: true, storePath, autoInstallResearch: true },
+    );
+
+    await expect(
+      forge.acquire({
+        request: 'crea una rassegna delle notizie aggiornate su Frobnicator',
+        language: 'italian',
+        allowInstall: true,
+      }),
+    ).resolves.toMatchObject({ handled: true, installed: true, status: 'installed' });
+  });
+
+  it('never coerces a download or credential workflow into the local research fallback', async () => {
+    const storePath = await mkdtemp(join(tmpdir(), 'gooner-cap-'));
+    tempDirs.push(storePath);
+    const forge = new CapabilityForge(
+      fakeLLM({}),
+      {
+        enabled: true,
+        groundWeb: async (query: string) => ({
+          kind: 'web',
+          block: `source for ${query}`,
+          query,
+          sources: ['https://example.test/docs'],
+        }),
+      } as unknown as GroundingService,
+      { enabled: true, storePath, autoInstallResearch: true },
+    );
+
+    const result = await forge.acquire({
+      request: 'cerca come fare login e scarica i video usando password e cookie',
+      language: 'italian',
+      allowInstall: true,
+    });
+
+    expect(result).toMatchObject({
+      handled: false,
+      status: 'planning_failed',
+      diagnostic: { code: 'planner_unavailable', retryable: true },
+    });
+    expect(forge.list()).toEqual([]);
+    expect((await readdir(storePath)).filter((name) => name.endsWith('.json'))).toEqual([]);
+  });
+
+  it('reports the actual missing dependency and saves the research plan without publishing it', async () => {
+    const storePath = await mkdtemp(join(tmpdir(), 'gooner-cap-'));
+    tempDirs.push(storePath);
+    const forge = new CapabilityForge(
+      fakeLLM({
+        json: {
+          classification: 'research_recipe',
+          id: 'offline_research',
+          command: 'offlinecheck',
+          description: 'Research current package information from public sources.',
+          searchQueryTemplate: 'official {input}',
+          answerInstruction: 'Summarize only supplied source evidence.',
+          requiredConfig: [],
+          reason: 'A reusable read-only research workflow.',
+        },
+      }),
+      { enabled: false } as GroundingService,
+      { enabled: true, storePath, autoInstallResearch: true },
+    );
+
+    const result = await forge.acquire({
+      request: 'verifica la versione corrente del pacchetto',
+      language: 'italian',
+      allowInstall: true,
+    });
+
+    expect(result).toMatchObject({
+      handled: false,
+      status: 'blocked_dependency',
+      diagnostic: {
+        code: 'web_grounding_unavailable',
+        requirements: ['WEB_SEARCH_ENABLED', 'SEARXNG_URL'],
+        requirementsVerified: true,
+        retryable: false,
+      },
+    });
+    expect(forge.hasCommand('offlinecheck')).toBe(false);
+    expect(await readFile(join(storePath, 'proposals/offline_research.json'), 'utf8')).toContain(
+      '"status": "blocked_dependency"',
     );
   });
 
@@ -312,7 +640,7 @@ describe('CapabilityForge', () => {
     ]);
   });
 
-  it('does not publish or persist a recipe when its smoke execution fails', async () => {
+  it('does not publish a recipe and persists an actionable diagnostic when smoke fails', async () => {
     const storePath = await mkdtemp(join(tmpdir(), 'gooner-cap-'));
     tempDirs.push(storePath);
     const llm = fakeLLM({
@@ -344,16 +672,22 @@ describe('CapabilityForge', () => {
       { enabled: true, storePath, autoInstallResearch: true },
     );
 
-    await expect(
-      forge.acquire({
-        request: 'crea una ricerca che fallisce al collaudo',
-        language: 'italian',
-        allowInstall: true,
-      }),
-    ).rejects.toThrow('smoke execution exploded');
+    const result = await forge.acquire({
+      request: 'crea una ricerca che fallisce al collaudo',
+      language: 'italian',
+      allowInstall: true,
+    });
+    expect(result).toMatchObject({
+      handled: false,
+      status: 'validation_failed',
+      diagnostic: { code: 'smoke_test_failed', retryable: true },
+    });
     expect(forge.hasCommand('brokenlookup')).toBe(false);
     expect(forge.list()).toEqual([]);
     expect((await readdir(storePath)).filter((name) => name.endsWith('.json'))).toEqual([]);
+    expect(await readFile(join(storePath, 'proposals/broken_lookup.json'), 'utf8')).toContain(
+      '"status": "validation_failed"',
+    );
   });
 
   it('rolls back installation when the request is aborted during smoke execution', async () => {

@@ -42,7 +42,9 @@ import {
   downloadWithYtdlp,
   snapshotStream,
   type YtdlpDownloadConfig,
+  type YtdlpResult,
 } from '../providers/media/linkMedia/ytdlp.js';
+import { buildSocialCaption, mergePostStats } from '../providers/media/linkMedia/socialMetadata.js';
 import type {
   ExtractedMediaItem,
   ExtractedMediaPost,
@@ -599,7 +601,6 @@ export class LinkMediaService {
                 failed = true;
                 break;
               }
-              const previousTitle = post.title;
               try {
                 const probe = await probeVideo(this.cfg.ffmpegBin, dl.file, 15_000, signal);
                 const durationSec = dl.durationSec ?? probe.duration ?? item.durationSeconds;
@@ -607,7 +608,7 @@ export class LinkMediaService {
                   failed = true;
                   continue;
                 }
-                if (!post.title && dl.title) post.title = dl.title;
+                const deliveryPost = mergeYtdlpPostMetadata(post, dl);
                 const prepared = join(
                   workdir,
                   `prepared-${String(dl.sequence).padStart(5, '0')}.mp4`,
@@ -620,6 +621,7 @@ export class LinkMediaService {
                 }
                 const delivered = await this.deliverPreparedItem({
                   ...input,
+                  post: deliveryPost,
                   prepared,
                   workdir,
                   sendKind: 'video',
@@ -630,20 +632,17 @@ export class LinkMediaService {
                   assetSuffix: String(dl.sequence).padStart(5, '0'),
                 });
                 if (delivered.status === 'quota_denied') {
-                  post.title = previousTitle;
                   quotaDenied = true;
                   failed = true;
                   break;
                 }
                 if (delivered.status !== 'sent') {
-                  post.title = previousTitle;
                   failed = true;
                   continue;
                 }
                 messageIds.push(...delivered.messageIds);
                 contextTexts.push(...delivered.contextTexts);
               } catch (err) {
-                post.title = previousTitle;
                 failed = true;
                 log.warn(
                   { err, sequence: dl.sequence, platform: post.platform },
@@ -672,12 +671,13 @@ export class LinkMediaService {
         let prepared: string;
         let sendKind: LinkMediaKind;
         let durationSec = item.durationSeconds;
+        let deliveryPost = post;
         if (dl) {
           const downloadedProbe = await probeVideo(this.cfg.ffmpegBin, dl.file, 15_000, signal);
           durationSec = dl.durationSec ?? downloadedProbe.duration ?? durationSec;
           if (durationSec && durationSec > this.cfg.maxDurationSeconds)
             return { status: 'skipped' };
-          if (!post.title && dl.title) post.title = dl.title;
+          deliveryPost = mergeYtdlpPostMetadata(post, dl);
           sendKind = 'video';
           // A .mp4 extension alone does not make a Telegram-streamable file: VP9/AV1/Opus in an MP4
           // must be transcoded. Compatible H.264/AAC is only remuxed to move moov to the front.
@@ -698,6 +698,7 @@ export class LinkMediaService {
         }
         return await this.deliverPreparedItem({
           ...input,
+          post: deliveryPost,
           prepared,
           workdir,
           sendKind,
@@ -896,20 +897,32 @@ export class LinkMediaService {
   }
 
   private buildCaption(post: ExtractedMediaPost): string | undefined {
-    // Social extractors already bake the rich context (text + likes/reposts) into post.caption.
-    if (post.caption) return post.caption.slice(0, 1000);
-    const parts: string[] = [];
-    if (post.title) parts.push(post.title.slice(0, 200));
-    if (post.author) parts.push(`by ${post.author}`);
-    const caption = parts.join('\n').trim();
-    return caption ? caption.slice(0, 1000) : undefined;
+    return buildSocialCaption(post);
   }
 
   private cacheKey(value: string): string {
-    // v3 excludes pre-carousel entries that represented only the first yt-dlp playlist item.
+    // v4 invalidates pre-social-metadata captions; v3 excluded stale mono-carousel entries.
     const normalized = mediaUrlKey(value) ?? value;
-    return createHash('sha256').update('link-media:v3\0').update(normalized).digest('hex');
+    return createHash('sha256').update('link-media:v4\0').update(normalized).digest('hex');
   }
+}
+
+/** Native API metadata wins; yt-dlp fills fields unavailable before the bounded download. */
+function mergeYtdlpPostMetadata(
+  post: ExtractedMediaPost,
+  downloaded: Pick<YtdlpResult, 'title' | 'description' | 'author' | 'authorHandle' | 'stats'>,
+): ExtractedMediaPost {
+  const stats = mergePostStats(post.stats, downloaded.stats);
+  return {
+    ...post,
+    ...(!post.title && downloaded.title ? { title: downloaded.title } : {}),
+    ...(!post.description && downloaded.description ? { description: downloaded.description } : {}),
+    ...(!post.author && downloaded.author ? { author: downloaded.author } : {}),
+    ...(!post.authorHandle && downloaded.authorHandle
+      ? { authorHandle: downloaded.authorHandle }
+      : {}),
+    ...(stats ? { stats } : {}),
+  };
 }
 
 function safeUrl(value: string): URL | null {

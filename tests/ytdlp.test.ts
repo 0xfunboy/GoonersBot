@@ -10,6 +10,7 @@ import {
   discoverYtdlpResults,
   downloadManyWithYtdlp,
   downloadWithYtdlp,
+  socialMetadataFromYtdlpInfo,
   YTDLP_VIDEO_FORMAT,
   type YtdlpDownloadConfig,
 } from '../src/providers/media/linkMedia/ytdlp.js';
@@ -345,7 +346,19 @@ describe('yt-dlp final file discovery', () => {
     await writeFile(join(dir, 'video.mp4.part'), Buffer.alloc(32, 3));
     await writeFile(
       join(dir, 'video.info.json'),
-      JSON.stringify({ title: 'A reel', duration: 12.5 }),
+      JSON.stringify({
+        title: 'A reel',
+        description: 'The original post text',
+        duration: 12.5,
+        uploader: 'Creator Name',
+        uploader_id: '@creator',
+        like_count: 1234,
+        repost_count: 45,
+        share_count: 8,
+        reply_count: 9,
+        comment_count: 6,
+        view_count: 7890,
+      }),
     );
     await writeFile(
       join(dir, '.ytdlp-final-paths.txt'),
@@ -355,7 +368,38 @@ describe('yt-dlp final file discovery', () => {
     await expect(discoverYtdlpResult(dir, 1_024)).resolves.toEqual({
       file: video,
       title: 'A reel',
+      description: 'The original post text',
+      author: 'Creator Name',
+      authorHandle: 'creator',
+      stats: {
+        likes: 1234,
+        reposts: 45,
+        shares: 8,
+        replies: 9,
+        comments: 6,
+        views: 7890,
+      },
       durationSec: 12.5,
+    });
+  });
+
+  it('sanitizes yt-dlp social fields and ignores invalid metrics and opaque channel ids', () => {
+    expect(
+      socialMetadataFromYtdlpInfo({
+        title: '  Clip\u0000title  ',
+        description: 'line one\r\nline two',
+        uploader: 'Channel',
+        channel_id: 'UC1234567890123456789012',
+        like_count: -1,
+        comment_count: Number.NaN,
+        repost_count: 0,
+        view_count: 12.9,
+      }),
+    ).toEqual({
+      title: 'Clip title',
+      description: 'line one\nline two',
+      author: 'Channel',
+      stats: { reposts: 0, views: 12 },
     });
   });
 
@@ -393,7 +437,16 @@ describe('yt-dlp final file discovery', () => {
     await symlink(first, join(dir, 'item-00003.mp4'));
     await writeFile(
       join(dir, 'item-00001.info.json'),
-      JSON.stringify({ title: 'One', duration: 3, playlist_index: 1, n_entries: 3 }),
+      JSON.stringify({
+        title: 'One',
+        description: 'Carousel caption',
+        uploader: 'Poster',
+        like_count: 10,
+        comment_count: 2,
+        duration: 3,
+        playlist_index: 1,
+        n_entries: 3,
+      }),
     );
     await writeFile(
       join(dir, '.ytdlp-final-paths.txt'),
@@ -402,7 +455,16 @@ describe('yt-dlp final file discovery', () => {
 
     await expect(discoverYtdlpResults(dir, 1_024, 3)).resolves.toEqual({
       items: [
-        { file: first, sequence: 1, title: 'One', durationSec: 3, playlistIndex: 1 },
+        {
+          file: first,
+          sequence: 1,
+          title: 'One',
+          description: 'Carousel caption',
+          author: 'Poster',
+          stats: { likes: 10, comments: 2 },
+          durationSec: 3,
+          playlistIndex: 1,
+        },
         { file: second, sequence: 2 },
       ],
       isPlaylist: true,

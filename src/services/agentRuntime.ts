@@ -24,6 +24,12 @@ import type { GroupQuotaService } from './groupQuota.js';
 import type { ImagePromptService, PreparedImagePrompt } from './imagePrompt.js';
 import type { PreparedVideoPrompt, VideoPromptService } from './videoPrompt.js';
 import type { CapabilityForge } from '../capabilities/forge.js';
+import {
+  isNewCapabilityInstallation,
+  isVerifiedCapabilityExecution,
+  isVerifiedCapabilityReuse,
+  type CapabilityExecutionStatus,
+} from '../capabilities/types.js';
 import type { MediaPromptContext } from './mediaPromptContext.js';
 import { childLogger } from '../utils/logger.js';
 import {
@@ -59,6 +65,8 @@ type RuntimeData =
       text: string;
       capabilityId?: string;
       command?: string;
+      status: CapabilityExecutionStatus;
+      /** True only when this turn published a new manifest, not merely because one exists. */
       installed: boolean;
     };
 
@@ -712,9 +720,14 @@ export class AgentRuntime {
           ...(input.model ? { model: input.model } : {}),
           signal: toolCtx.signal,
         });
-        const installed =
-          Boolean(result.installed) && Boolean(result.command) && Boolean(result.capabilityId);
-        const commandLine = installed ? `\nPersistent command: /${result.command}` : '';
+        const installed = isNewCapabilityInstallation(result);
+        const reused = isVerifiedCapabilityReuse(result);
+        const verified = isVerifiedCapabilityExecution(result);
+        const commandLine = installed
+          ? `\nInstalled and verified command: /${result.command}`
+          : reused
+            ? `\nExisting command executed successfully: /${result.command}`
+            : '';
         return {
           summary: `${result.text}${commandLine}`.trim(),
           data: {
@@ -722,10 +735,11 @@ export class AgentRuntime {
             text: result.text,
             ...(result.capabilityId ? { capabilityId: result.capabilityId } : {}),
             ...(result.command ? { command: result.command } : {}),
+            status: result.status,
             installed,
           } satisfies RuntimeData,
           evidence: result.sources.map((source) => ({ source })),
-          verified: Boolean(result.text.trim()),
+          verified,
         };
       },
     });

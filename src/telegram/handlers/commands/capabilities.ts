@@ -44,6 +44,32 @@ export const learnCommand: CommandSpec = {
     const request = args.join(' ').trim();
     if (!request) return { text: 'learn_usage' };
     const language = await services.getLanguage(context.chatId);
+    if (/^(?:status|stato)$/i.test(request)) {
+      const state = services.capabilities.status();
+      const enabled = language === 'italian' ? 'attivo' : 'enabled';
+      const configured = language === 'italian' ? 'configurato' : 'configured';
+      const unavailable = language === 'italian' ? 'non disponibile' : 'unavailable';
+      const install = state.autoInstallResearch
+        ? language === 'italian'
+          ? 'automatico'
+          : 'automatic'
+        : language === 'italian'
+          ? 'solo proposta'
+          : 'proposal only';
+      return {
+        rawText: [
+          language === 'italian'
+            ? '<strong>Stato Capability Forge</strong>'
+            : '<strong>Capability Forge status</strong>',
+          `Forge: <code>${state.enabled ? enabled : unavailable}</code>`,
+          `Chat LLM: <code>${state.chatModelReady ? configured : unavailable}</code>`,
+          `Web grounding: <code>${state.webGroundingReady ? configured : unavailable}</code>`,
+          `Install: <code>${install}</code>`,
+          `${language === 'italian' ? 'Capacità installate' : 'Installed capabilities'}: <code>${state.installed}</code>`,
+        ].join('\n'),
+        textFormat: 'html',
+      };
+    }
     const plan = await services.planForTurn(person, context);
     const learned = await services.capabilities.acquire({
       request,
@@ -52,10 +78,29 @@ export const learnCommand: CommandSpec = {
       ...(services.bypassesGroupPlan(person, context) ? {} : { chatId: context.chatId }),
       ...(services.modelForPlan(plan) ? { model: services.modelForPlan(plan) } : {}),
     });
-    const installed =
-      learned.installed && learned.command
-        ? `\n\n✅ /<code>${escapeHtml(learned.command)}</code>`
-        : '';
+    const command = learned.command ? ` /<code>${escapeHtml(learned.command)}</code>` : '';
+    const outcome =
+      learned.status === 'installed'
+        ? `\n\n✅ ${language === 'italian' ? 'Installata e collaudata' : 'Installed and verified'}:${command}`
+        : learned.status === 'reused'
+          ? `\n\n♻️ ${language === 'italian' ? 'Già installata; esecuzione verificata' : 'Already installed; execution verified'}:${command}`
+          : `\n\n${language === 'italian' ? 'Stato' : 'Status'}: <code>${learned.status}</code>`;
+    const requirements = learned.diagnostic?.requirements.length
+      ? `\n${
+          learned.diagnostic.requirementsVerified
+            ? language === 'italian'
+              ? 'Requisiti verificati'
+              : 'Verified requirements'
+            : language === 'italian'
+              ? 'Requisiti proposti (non verificati)'
+              : 'Proposed requirements (unverified)'
+        }: ${learned.diagnostic.requirements
+          .map((requirement) => `<code>${escapeHtml(requirement)}</code>`)
+          .join(', ')}`
+      : '';
+    const retry = learned.diagnostic?.retryable
+      ? `\n${language === 'italian' ? 'Il blocco è temporaneo: puoi riprovare.' : 'The failure is temporary; you can retry.'}`
+      : '';
     const sources =
       learned.sources.length > 0
         ? `\n\n${learned.sources
@@ -64,7 +109,7 @@ export const learnCommand: CommandSpec = {
             .join('\n')}`
         : '';
     return {
-      rawText: `${escapeHtml(learned.text.slice(0, 3_200))}${installed}${sources}`,
+      rawText: `${escapeHtml(learned.text.slice(0, 3_000))}${outcome}${requirements}${retry}${sources}`,
       textFormat: 'html',
     };
   },

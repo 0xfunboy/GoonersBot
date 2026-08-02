@@ -8,8 +8,11 @@ import { throwIfAborted } from '../utils/abort.js';
 import {
   capabilityManifestSchema,
   capabilityPlanSchema,
+  isVerifiedCapabilityExecution,
+  type CapabilityDiagnostic,
   type CapabilityExecution,
   type CapabilityManifest,
+  type CapabilityPlan,
 } from './types.js';
 
 const log = childLogger('capability-forge');
@@ -18,6 +21,14 @@ export interface CapabilityForgeConfig {
   enabled: boolean;
   storePath: string;
   autoInstallResearch: boolean;
+}
+
+export interface CapabilityForgeStatus {
+  enabled: boolean;
+  chatModelReady: boolean;
+  webGroundingReady: boolean;
+  autoInstallResearch: boolean;
+  installed: number;
 }
 
 /**
@@ -105,6 +116,16 @@ export class CapabilityForge {
       .sort((a, b) => a.command.localeCompare(b.command));
   }
 
+  status(): CapabilityForgeStatus {
+    return {
+      enabled: this.enabled,
+      chatModelReady: this.llm.capabilities.chat,
+      webGroundingReady: this.grounding.enabled,
+      autoInstallResearch: this.cfg.autoInstallResearch,
+      installed: this.list().length,
+    };
+  }
+
   /** Static Telegram routes/aliases can never be shadowed by a generated capability. */
   reserveCommands(commands: Iterable<string>): void {
     for (const command of commands) {
@@ -138,7 +159,13 @@ export class CapabilityForge {
       params.chatId,
       params.model,
     );
-    return { ...result, capabilityId: manifest.id, command: manifest.command, installed: true };
+    return {
+      ...result,
+      status: result.handled ? 'executed' : result.status,
+      capabilityId: manifest.id,
+      command: manifest.command,
+      installed: true,
+    };
   }
 
   async acquire(params: {
@@ -150,7 +177,24 @@ export class CapabilityForge {
     signal?: AbortSignal;
   }): Promise<CapabilityExecution> {
     await this.initialize();
-    if (!this.enabled) return empty('Capability Forge is disabled.');
+    if (!this.enabled) {
+      return empty(
+        params.language === 'italian'
+          ? 'Capability Forge è disattivato: abilita CAPABILITY_FORGE_ENABLED.'
+          : 'Capability Forge is disabled: enable CAPABILITY_FORGE_ENABLED.',
+        'blocked_dependency',
+        diagnostic('forge_disabled', ['CAPABILITY_FORGE_ENABLED'], false),
+      );
+    }
+    if (!this.llm.capabilities.chat) {
+      return empty(
+        params.language === 'italian'
+          ? 'Non posso progettare la capacità: non è configurato un modello chat.'
+          : 'I cannot design the capability because no chat model is configured.',
+        'blocked_dependency',
+        diagnostic('chat_model_unavailable', ['LLM_MODEL'], false),
+      );
+    }
 
     const existing = this.findLikelyExisting(params.request);
     if (existing) {
@@ -164,6 +208,7 @@ export class CapabilityForge {
       );
       return {
         ...result,
+        status: result.handled ? 'reused' : result.status,
         capabilityId: existing.id,
         command: existing.command,
         installed: true,
@@ -184,32 +229,68 @@ export class CapabilityForge {
             return null;
           })
       : null;
-    const plan = await this.llm.jsonCompletion({
-      system: [
-        'You design persistent capabilities for a Telegram assistant. Output only schema JSON.',
-        'Classify honestly. research_recipe is ONLY for read-only requests solvable by web search',
-        'plus text synthesis. external_integration is for APIs/accounts/credentials or real-world',
-        'writes. local_automation is for filesystem, shell, compilation or machine control.',
-        'Never disguise an external write or code execution as a research recipe.',
-        'Create a short stable lowercase slash command. searchQueryTemplate must contain {input}.',
-      ].join('\n'),
-      prompt: [
-        `USER CAPABILITY GAP:\n${params.request}`,
-        docs ? `\nOFFICIAL-DOC RESEARCH CONTEXT:\n${docs.block}` : '',
-        '\nDesign the smallest reusable capability.',
-      ].join('\n'),
-      schema: capabilityPlanSchema,
-      temperature: 0.1,
-      ...(params.model ? { model: params.model } : {}),
-      maxTokens: 1200,
-      signal: params.signal,
-    });
+    const localResearchPlan = fallbackResearchPlan(params.request);
+    let plan: CapabilityPlan | null = null;
+    try {
+      const proposed = await this.llm.jsonCompletion({
+        system: [
+          'You design persistent capabilities for a Telegram assistant. Output only schema JSON.',
+          'The user explicitly invoked /learn. A reusable read-only web research workflow IS a',
+          'capability gap even when one example could be answered by ordinary reasoning.',
+          'Classify honestly. research_recipe is ONLY for read-only requests solvable by web search',
+          'plus text synthesis. external_integration is for APIs/accounts/credentials or real-world',
+          'writes. local_automation is for filesystem, shell, compilation or machine control.',
+          'Use not_a_capability_gap only for a one-off conversational request with no reusable',
+          'research workflow. Never disguise an external write or code execution as research.',
+          'Create a short stable lowercase slash command. searchQueryTemplate must contain {input}.',
+        ].join('\n'),
+        prompt: [
+          `USER CAPABILITY GAP:\n${params.request}`,
+          docs ? `\nOFFICIAL-DOC RESEARCH CONTEXT:\n${docs.block}` : '',
+          '\nDesign the smallest reusable capability.',
+        ].join('\n'),
+        schema: capabilityPlanSchema,
+        temperature: 0.1,
+        ...(params.model ? { model: params.model } : {}),
+        maxTokens: 1200,
+        signal: params.signal,
+      });
+      plan = proposed ? capabilityPlanSchema.parse(proposed) : null;
+    } catch (err) {
+      throwIfAborted(params.signal);
+      log.warn({ err, hasSafeFallback: Boolean(localResearchPlan) }, 'capability planning failed');
+      if (!localResearchPlan) {
+        return withSources(
+          empty(
+            params.language === 'italian'
+              ? 'Il pianificatore non è disponibile in questo momento; nessuna capacità è stata dichiarata installata.'
+              : 'The planner is unavailable right now; no capability was reported as installed.',
+            'planning_failed',
+            diagnostic('planner_unavailable', [], true),
+          ),
+          docs?.sources ?? [],
+        );
+      }
+    }
+    const plannerReturnedNoPlan = !plan;
     if (!plan || plan.classification === 'not_a_capability_gap') {
+      // `/learn` is explicit intent. If the model is unavailable or dismisses a clearly safe,
+      // reusable research request, use a narrow local recipe rather than losing the acquisition.
+      // Side effects, downloads, credentials and machine access never enter this fallback.
+      plan = localResearchPlan;
+    }
+    if (!plan) {
       return withSources(
         empty(
-          params.language === 'italian'
-            ? 'Non manca un plugin: questa richiesta va risolta dal normale ragionamento.'
-            : 'This is not a capability gap; normal reasoning should handle it.',
+          plannerReturnedNoPlan
+            ? params.language === 'italian'
+              ? 'Il pianificatore non ha prodotto un piano valido e la richiesta non rientra nel fallback sicuro di ricerca; nessuna capacità è stata installata.'
+              : 'The planner produced no valid plan and the request is outside the safe research fallback; no capability was installed.'
+            : params.language === 'italian'
+              ? 'Non manca un plugin: questa richiesta va risolta dal normale ragionamento.'
+              : 'This is not a capability gap; normal reasoning should handle it.',
+          plannerReturnedNoPlan ? 'planning_failed' : 'not_applicable',
+          plannerReturnedNoPlan ? diagnostic('planner_unavailable', [], true) : undefined,
         ),
         docs?.sources ?? [],
       );
@@ -222,18 +303,66 @@ export class CapabilityForge {
         id: uniqueId,
         command: this.availableCommand(plan.command),
         request: params.request,
+        status: 'requires_implementation',
+        diagnostic: diagnostic(
+          plan.classification === 'external_integration'
+            ? 'external_integration_required'
+            : 'local_automation_required',
+          plan.requiredConfig ?? [],
+          false,
+          false,
+        ),
         documentationSources: docs?.sources ?? [],
         createdAt: new Date(),
       }));
       const requiredConfig = plan.requiredConfig ?? [];
       const required = requiredConfig.length
-        ? ` Configurazione richiesta: ${requiredConfig.join(', ')}.`
+        ? params.language === 'italian'
+          ? ` Configurazione suggerita dal piano, non ancora verificata: ${requiredConfig.join(', ')}.`
+          : ` Planner-suggested configuration, not yet verified: ${requiredConfig.join(', ')}.`
         : '';
       return withSources(
         empty(
           params.language === 'italian'
-            ? `Ho progettato la proposta ${proposalId} per /${this.availableCommand(plan.command)}, ma richiede ${plan.classification === 'external_integration' ? "un'integrazione esterna" : 'automazione locale'}: non eseguo codice generato o azioni reali alla cieca.${required} Proposta salvata, nessuna finta esecuzione.`
-            : `I saved proposal ${proposalId} for /${this.availableCommand(plan.command)}, but it needs ${plan.classification.replace('_', ' ')}. I will not blindly execute generated code or real-world actions.${required} Nothing was falsely reported as done.`,
+            ? `Ho salvato il progetto ${proposalId} per /${this.availableCommand(plan.command)}, ma NON è una capacità installata: richiede ${plan.classification === 'external_integration' ? "un'integrazione esterna" : 'automazione locale'} sviluppata e revisionata. /learn non genera né esegue codice arbitrario.${required}`
+            : `I saved design ${proposalId} for /${this.availableCommand(plan.command)}, but it is NOT an installed capability: it needs reviewed ${plan.classification.replace('_', ' ')} implementation. /learn does not generate or execute arbitrary code.${required}`,
+          'proposal_saved',
+          diagnostic(
+            plan.classification === 'external_integration'
+              ? 'external_integration_required'
+              : 'local_automation_required',
+            requiredConfig,
+            false,
+            false,
+          ),
+        ),
+        docs?.sources ?? [],
+      );
+    }
+
+    if (!this.grounding.enabled) {
+      throwIfAborted(params.signal);
+      const proposalId = await this.persistProposal(plan.id, (uniqueId) => ({
+        ...plan,
+        id: uniqueId,
+        command: this.availableCommand(plan.command),
+        request: params.request,
+        status: 'blocked_dependency',
+        diagnostic: diagnostic(
+          'web_grounding_unavailable',
+          ['WEB_SEARCH_ENABLED', 'SEARXNG_URL'],
+          false,
+        ),
+        documentationSources: docs?.sources ?? [],
+        createdAt: new Date(),
+      }));
+      return withSources(
+        empty(
+          params.language === 'italian'
+            ? `La ricetta ${proposalId} è valida ma non installabile: il grounding web non è operativo. Configura WEB_SEARCH_ENABLED=true e SEARXNG_URL, poi rilancia /learn.`
+            : `Recipe ${proposalId} is valid but cannot be installed: web grounding is unavailable. Configure WEB_SEARCH_ENABLED=true and SEARXNG_URL, then run /learn again.`,
+          'blocked_dependency',
+          diagnostic('web_grounding_unavailable', ['WEB_SEARCH_ENABLED', 'SEARXNG_URL'], false),
         ),
         docs?.sources ?? [],
       );
@@ -246,6 +375,7 @@ export class CapabilityForge {
         id: uniqueId,
         command: this.availableCommand(plan.command),
         request: params.request,
+        status: 'awaiting_approval',
         documentationSources: docs?.sources ?? [],
         createdAt: new Date(),
       }));
@@ -254,6 +384,8 @@ export class CapabilityForge {
           params.language === 'italian'
             ? `Ricetta proposta come ${proposalId} e salvata in attesa di approvazione admin.`
             : `Recipe proposal ${proposalId} was saved for admin approval.`,
+          'awaiting_approval',
+          diagnostic('auto_install_disabled', ['CAPABILITY_AUTO_INSTALL_RESEARCH'], false),
         ),
         docs?.sources ?? [],
       );
@@ -276,6 +408,7 @@ export class CapabilityForge {
         );
         return {
           ...result,
+          status: result.handled ? 'reused' : result.status,
           capabilityId: installedWhileWaiting.id,
           command: installedWhileWaiting.command,
           installed: true,
@@ -309,16 +442,28 @@ export class CapabilityForge {
         params.signal,
       );
       throwIfAborted(params.signal);
-      if (!smoke.handled || !smoke.text.trim()) {
+      if (!isVerifiedCapabilityExecution(smoke) || !smoke.text.trim()) {
         log.warn(
           { id: draft.id, command: draft.command },
           'capability smoke execution failed; installation aborted',
         );
+        const proposalId = await this.persistProposal(plan.id, (uniqueId) => ({
+          ...plan,
+          id: uniqueId,
+          command: draft.command,
+          request: params.request,
+          status: 'validation_failed',
+          diagnostic: smoke.diagnostic ?? diagnostic('smoke_test_failed', [], true),
+          documentationSources: docs?.sources ?? [],
+          createdAt: new Date(),
+        }));
         return withSources(
           empty(
             params.language === 'italian'
-              ? `Il collaudo di /${draft.command} non ha prodotto una risposta valida: non ho installato né pubblicato il comando.`
-              : `The /${draft.command} smoke test did not produce a valid answer, so the command was not installed or published.`,
+              ? `Il collaudo di /${draft.command} non è riuscito (${proposalId} salvata per diagnosi): il comando non è stato pubblicato. Riprova se la ricerca o il modello erano temporaneamente indisponibili.`
+              : `The /${draft.command} smoke test failed (${proposalId} saved for diagnostics), so the command was not published. Retry if search or the model was temporarily unavailable.`,
+            'validation_failed',
+            smoke.diagnostic ?? diagnostic('smoke_test_failed', [], true),
           ),
           smoke.sources,
         );
@@ -347,6 +492,7 @@ export class CapabilityForge {
 
       return {
         ...smoke,
+        status: 'installed',
         capabilityId: persisted.manifest.id,
         command: persisted.manifest.command,
         installed: true,
@@ -355,21 +501,24 @@ export class CapabilityForge {
   }
 
   private findLikelyExisting(request: string): CapabilityManifest | undefined {
-    const terms = new Set(
-      request
-        .toLowerCase()
-        .split(/[^\p{L}\p{N}_]+/u)
-        .filter((x) => x.length > 3),
-    );
+    const normalizedRequest = normalizeMatchText(request);
+    if (!normalizedRequest) return undefined;
+
     return this.list()
       .map((manifest) => ({
         manifest,
-        score: [...terms].filter((term) =>
-          `${manifest.description} ${manifest.createdFrom}`.toLowerCase().includes(term),
-        ).length,
+        score: capabilityRequestMatchScore(
+          normalizedRequest,
+          normalizeMatchText(manifest.createdFrom),
+        ),
       }))
-      .sort((a, b) => b.score - a.score)
-      .find((item) => item.score >= 2)?.manifest;
+      .filter((item) => item.score > 0)
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          a.manifest.createdAt.localeCompare(b.manifest.createdAt) ||
+          a.manifest.id.localeCompare(b.manifest.id),
+      )[0]?.manifest;
   }
 
   private availableCommand(requested: string): string {
@@ -398,37 +547,90 @@ export class CapabilityForge {
         language === 'italian'
           ? `/${manifest.command} è installato, ma il grounding web non è configurato. Imposta WEB_SEARCH_ENABLED=true e SEARXNG_URL.`
           : `/${manifest.command} is installed, but web grounding is not configured. Set WEB_SEARCH_ENABLED=true and SEARXNG_URL.`,
+        'blocked_dependency',
+        diagnostic('web_grounding_unavailable', ['WEB_SEARCH_ENABLED', 'SEARXNG_URL'], false),
       );
     }
     const query = manifest.searchQueryTemplate.replaceAll('{input}', input).slice(0, 300);
-    const grounded = await this.grounding.groundWeb(query, language, chatId, signal);
+    let grounded: Awaited<ReturnType<GroundingService['groundWeb']>>;
+    try {
+      grounded = await this.grounding.groundWeb(query, language, chatId, signal);
+    } catch (err) {
+      throwIfAborted(signal);
+      log.warn({ err, id: manifest.id, command: manifest.command }, 'capability grounding failed');
+      return empty(
+        language === 'italian'
+          ? `/${manifest.command} non può interrogare le fonti in questo momento. Riprova più tardi.`
+          : `/${manifest.command} cannot query sources right now. Try again later.`,
+        'validation_failed',
+        diagnostic('web_grounding_no_results', [], true),
+      );
+    }
     if (!grounded) {
       return empty(
         language === 'italian'
           ? `/${manifest.command} non ha trovato fonti sufficienti o ha esaurito la quota di ricerca.`
           : `/${manifest.command} found no sufficient sources or exhausted its search quota.`,
+        'validation_failed',
+        diagnostic('web_grounding_no_results', [], true),
       );
     }
-    const completion = await this.llm.chatCompletion({
-      system: [
-        'Execute a read-only research capability. Use only the supplied source context for current',
-        'claims. Never claim external actions. If evidence is missing, say so precisely.',
-        `Reply in ${language}. ${manifest.answerInstruction}`,
-      ].join('\n'),
-      messages: [
-        {
-          role: 'user',
-          content: `REQUEST:\n${input}\n\nSOURCE CONTEXT:\n${grounded.block}`,
-        },
-      ],
-      ...(model ? { model } : {}),
-      temperature: 0.25,
-      maxTokens: 1800,
-      signal,
-    });
+    let completion: Awaited<ReturnType<LLMProvider['chatCompletion']>>;
+    try {
+      completion = await this.llm.chatCompletion({
+        system: [
+          'Execute a read-only research capability. Use only the supplied source context for current',
+          'claims. Never claim external actions. If evidence is missing, say so precisely.',
+          `Reply in ${language}. ${manifest.answerInstruction}`,
+        ].join('\n'),
+        messages: [
+          {
+            role: 'user',
+            content: `REQUEST:\n${input}\n\nSOURCE CONTEXT:\n${grounded.block}`,
+          },
+        ],
+        ...(model ? { model } : {}),
+        temperature: 0.25,
+        maxTokens: 1800,
+        signal,
+      });
+    } catch (err) {
+      throwIfAborted(signal);
+      log.warn({ err, id: manifest.id, command: manifest.command }, 'capability synthesis failed');
+      return empty(
+        language === 'italian'
+          ? `/${manifest.command} ha trovato le fonti, ma il modello non ha completato la sintesi. Riprova più tardi.`
+          : `/${manifest.command} found sources, but the model did not complete synthesis. Try again later.`,
+        'validation_failed',
+        diagnostic('smoke_test_failed', [], true),
+      );
+    }
+    const text = completion.text.trim();
+    if (!text) {
+      return empty(
+        language === 'italian'
+          ? `/${manifest.command} ha ricevuto una sintesi vuota dal modello. Riprova più tardi.`
+          : `/${manifest.command} received an empty synthesis from the model. Try again later.`,
+        'validation_failed',
+        diagnostic('smoke_test_failed', [], true),
+      );
+    }
+    if (isCapabilitySynthesisRefusal(text)) {
+      return withSources(
+        empty(
+          language === 'italian'
+            ? `/${manifest.command} non ha prodotto una risposta verificabile dalle fonti: il risultato segnala un rifiuto, dati insufficienti o una dipendenza mancante.`
+            : `/${manifest.command} did not produce a source-verifiable answer: the result reports a refusal, insufficient evidence, or a missing dependency.`,
+          'validation_failed',
+          diagnostic('smoke_test_failed', [], true),
+        ),
+        grounded.sources,
+      );
+    }
     return {
       handled: true,
-      text: completion.text.trim(),
+      text,
+      status: 'executed',
       usage: {
         inputTokens: completion.usage.inputTokens ?? 0,
         outputTokens: completion.usage.outputTokens ?? 0,
@@ -533,10 +735,16 @@ function isAlreadyExists(err: unknown): boolean {
   return err instanceof Error && 'code' in err && err.code === 'EEXIST';
 }
 
-function empty(text: string): CapabilityExecution {
+function empty(
+  text: string,
+  status: CapabilityExecution['status'],
+  reason?: CapabilityDiagnostic,
+): CapabilityExecution {
   return {
     handled: false,
     text,
+    status,
+    ...(reason ? { diagnostic: reason } : {}),
     usage: { inputTokens: 0, outputTokens: 0, estimated: true },
     model: null,
     sources: [],
@@ -545,4 +753,183 @@ function empty(text: string): CapabilityExecution {
 
 function withSources(result: CapabilityExecution, sources: string[]): CapabilityExecution {
   return { ...result, sources: [...new Set(sources)] };
+}
+
+function diagnostic(
+  code: CapabilityDiagnostic['code'],
+  requirements: string[],
+  retryable: boolean,
+  requirementsVerified = true,
+): CapabilityDiagnostic {
+  return {
+    code,
+    requirements: [...new Set(requirements)],
+    requirementsVerified,
+    retryable,
+  };
+}
+
+const CAPABILITY_MATCH_STOP_WORDS = new Set([
+  'about',
+  'aggiornata',
+  'aggiornate',
+  'aggiornati',
+  'aggiornato',
+  'attuale',
+  'attuali',
+  'capability',
+  'cerca',
+  'cercare',
+  'check',
+  'comando',
+  'controlla',
+  'controllare',
+  'corrente',
+  'correnti',
+  'crea',
+  'create',
+  'dalla',
+  'dalle',
+  'della',
+  'delle',
+  'dello',
+  'find',
+  'latest',
+  'oggi',
+  'prezzo',
+  'price',
+  'ricerca',
+  'research',
+  'search',
+  'stato',
+  'status',
+  'trova',
+  'trovare',
+  'verifica',
+  'verificare',
+  'with',
+]);
+
+function normalizeMatchText(value: string): string {
+  return (
+    value
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .match(/[a-z0-9]+/g)
+      ?.join(' ')
+      .trim() ?? ''
+  );
+}
+
+function capabilityRequestMatchScore(normalizedRequest: string, normalizedOrigin: string): number {
+  if (!normalizedOrigin) return 0;
+  // Exact requests (ignoring case, accents and punctuation) are safe to reuse, including very
+  // short topic names. Paraphrases have to agree on nearly all distinctive terms.
+  if (normalizedRequest === normalizedOrigin) return 1;
+
+  const requestTerms = significantCapabilityTerms(normalizedRequest);
+  const originTerms = significantCapabilityTerms(normalizedOrigin);
+  if (requestTerms.size < 2 || originTerms.size < 2) return 0;
+  const shared = [...requestTerms].filter((term) => originTerms.has(term)).length;
+  if (shared < 2) return 0;
+  const requestCoverage = shared / requestTerms.size;
+  const originCoverage = shared / originTerms.size;
+  if (requestCoverage < 0.8 || originCoverage < 0.8) return 0;
+  return (requestCoverage + originCoverage) / 2;
+}
+
+function significantCapabilityTerms(normalized: string): Set<string> {
+  return new Set(
+    normalized
+      .split(' ')
+      .filter((term) => term.length >= 3 && !CAPABILITY_MATCH_STOP_WORDS.has(term)),
+  );
+}
+
+const CAPABILITY_SYNTHESIS_REFUSAL_PATTERNS = [
+  /\b(?:as an ai|as a language model)\b/u,
+  /\b(?:i cannot|i can t|i am unable|i m unable|i do not have access|i don t have access)\b/u,
+  /\b(?:non posso|non riesco|non sono in grado|non ho accesso|non dispongo)\b/u,
+  /\b(?:missing|requires?|needs?)\s+(?:an?\s+|the\s+)?(?:api key|token|credentials?|configuration|dependency|authentication)\b/u,
+  /\b(?:manca(?:no)?|serve|servono|richiede)\s+(?:una?\s+|le?\s+)?(?:chiave api|api key|token|credenzial\w*|configurazion\w*|dipendenz\w*|autenticazion\w*)\b/u,
+  /\b(?:insufficient|not enough|no sufficient|missing)\s+(?:source|sources|evidence|information|data)\b/u,
+  /\b(?:source|sources|evidence|information|data)\s+(?:is|are|was|were)?\s*(?:insufficient|missing|unavailable)\b/u,
+  /\b(?:source|sources|evidence|information|data)(?:\s+\w+){0,4}\s+(?:insufficient|missing|unavailable)\b/u,
+  /\b(?:fonti|evidenze|informazioni|dati)\s+(?:non\s+sono\s+|sono\s+)?(?:insufficienti|mancanti|assenti|indisponibili)\b/u,
+  /\bnon (?:ci sono|ho) (?:abbastanza|sufficienti) (?:fonti|evidenze|informazioni|dati)\b/u,
+];
+
+/** Reject a non-empty synthesis that is only a refusal or a missing-dependency/no-evidence note. */
+function isCapabilitySynthesisRefusal(text: string): boolean {
+  const normalized = normalizeMatchText(text);
+  return CAPABILITY_SYNTHESIS_REFUSAL_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+const RESEARCH_INTENT_RE =
+  /\b(ricerc|cerca|trov|verific|controll|monitor|confront|riassum|rassegna|notizi|aggiorn|documentaz|paper|release|prezz|quotaz|meteo|research|search|find|check|verify|monitor|compare|summari[sz]|news|documentation|weather|price)\w*/iu;
+const NON_RESEARCH_ACTION_RE =
+  /\b(scaric|download|caric|upload|pubblic|post(?:a|are|ing)?|invi|send|scriv|write|modific|edit|elimin|delete|compra|buy|vend|sell|prenot|book|login|acced|autentic|credential|password|cookie|token|api\s*key|shell|terminale|filesystem|file\s+system|compil|install|esegu|execute|run\s+(?:a\s+)?command|deploy|wallet|transaz|bonific|payment|pagament|scrap(?:e|ing)|crawler)\w*/iu;
+const GENERATED_AUTOMATION_RE =
+  /\b(crea|costruisc|svilupp|implement|create|build|develop)\w*(?:\s+\w+){0,5}\s+(bot|script|client|plugin|app)\b/iu;
+const FALLBACK_STOP_WORDS = new Set([
+  'aggiornato',
+  'attuale',
+  'cerca',
+  'cercare',
+  'check',
+  'controlla',
+  'confronta',
+  'della',
+  'delle',
+  'dello',
+  'documentazione',
+  'find',
+  'latest',
+  'monitorare',
+  'notizie',
+  'official',
+  'ricerca',
+  'search',
+  'trova',
+  'verifica',
+  'with',
+]);
+
+/**
+ * Last-resort planner for an explicit, obviously read-only research workflow. It deliberately
+ * refuses anything that resembles credentials, downloads, side effects or machine execution.
+ * The resulting recipe still has to pass the normal live grounding+synthesis smoke test.
+ */
+function fallbackResearchPlan(request: string): CapabilityPlan | null {
+  const normalized = request.trim();
+  if (
+    normalized.length < 8 ||
+    !RESEARCH_INTENT_RE.test(normalized) ||
+    NON_RESEARCH_ACTION_RE.test(normalized) ||
+    GENERATED_AUTOMATION_RE.test(normalized)
+  ) {
+    return null;
+  }
+
+  const words = normalized
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .match(/[a-z0-9]+/g)
+    ?.filter((word) => word.length >= 3 && !FALLBACK_STOP_WORDS.has(word))
+    .slice(0, 3);
+  const topic = words?.join('_').slice(0, 23) || 'web';
+  const command = normalizeCommand(`research_${topic}`).slice(0, 31);
+  return capabilityPlanSchema.parse({
+    classification: 'research_recipe',
+    id: `${command}_recipe`.slice(0, 49),
+    command,
+    description: `Ricerca web verificata e riutilizzabile: ${normalized}`.slice(0, 240),
+    searchQueryTemplate: '{input}',
+    answerInstruction:
+      'Answer only from the supplied current sources, distinguish facts from uncertainty, and include the source URLs.',
+    requiredConfig: [],
+    reason: 'Explicit reusable read-only research request; deterministic safe fallback.',
+  });
 }

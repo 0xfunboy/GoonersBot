@@ -158,6 +158,44 @@ describe('genericHtmlExtractor', () => {
     expect(post?.canonicalUrl).toBe('https://1.1.1.1/clean-page');
   });
 
+  it('extracts post text, author and engagement counts from OpenGraph and JSON-LD', async () => {
+    respondWithHtml(`
+      <html>
+        <head>
+          <meta property="og:title" content="A social video">
+          <meta property="og:description" content="Original caption from the post">
+          <meta name="twitter:creator" content="@creator_handle">
+          <meta property="og:video" content="https://media.example.test/video.mp4">
+          <script type="application/ld+json">
+            {
+              "@type": "VideoObject",
+              "description": "lower-priority JSON-LD description",
+              "author": {"@type": "Person", "name": "Creator Name"},
+              "interactionStatistic": [
+                {"@type":"InteractionCounter","interactionType":"https://schema.org/LikeAction","userInteractionCount":1250},
+                {"@type":"InteractionCounter","interactionType":{"@type":"ShareAction"},"userInteractionCount":"12"},
+                {"@type":"InteractionCounter","interactionType":"CommentAction","userInteractionCount":3},
+                {"@type":"InteractionCounter","interactionType":"WatchAction","userInteractionCount":4200}
+              ]
+            }
+          </script>
+        </head>
+      </html>
+    `);
+
+    const post = await genericHtmlExtractor.extract(new URL('https://1.1.1.1/post/1'), context);
+
+    expect(post).toMatchObject({
+      title: 'A social video',
+      description: 'Original caption from the post',
+      author: 'Creator Name',
+      authorHandle: '@creator_handle',
+      stats: { likes: 1250, reposts: 12, comments: 3, views: 4200 },
+      caption:
+        'A social video\nOriginal caption from the post\n👤 Creator Name (@creator_handle)\n❤ 1.3K  🔁 12  💬 3  👁 4.2K',
+    });
+  });
+
   it('retains the SSRF-safe fetch guard for the source page', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);

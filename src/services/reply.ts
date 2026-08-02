@@ -30,6 +30,7 @@ import type { GroupQuotaService } from './groupQuota.js';
 import type { ConversationThreadTracker, ConversationThreadState } from './threadTracker.js';
 import type { DocumentProcessor } from '../documents/documentProcessor.js';
 import type { CapabilityForge } from '../capabilities/forge.js';
+import { isNewCapabilityInstallation, isVerifiedCapabilityReuse } from '../capabilities/types.js';
 import type { AgentRuntime } from './agentRuntime.js';
 import {
   renderSocialContext,
@@ -928,15 +929,25 @@ export class ReplyService {
         ...(ctx.quotaBypass ? {} : { chatId: ctx.context.chatId }),
         ...(generationModel ? { model: generationModel } : {}),
       });
-      const learned =
-        acquired.installed && acquired.command
+      const newlyInstalled = isNewCapabilityInstallation(acquired);
+      const reused = isVerifiedCapabilityReuse(acquired);
+      const learned = newlyInstalled
+        ? ctx.language === 'italian'
+          ? `\n\nNuova capacità permanente: /${acquired.command}`
+          : `\n\nNew permanent capability: /${acquired.command}`
+        : reused
           ? ctx.language === 'italian'
-            ? `\n\nNuova capacità permanente: /${acquired.command}`
-            : `\n\nNew permanent capability: /${acquired.command}`
+            ? `\n\nCapacità esistente eseguita: /${acquired.command}`
+            : `\n\nExisting capability executed: /${acquired.command}`
           : '';
       return immediateOutcome({
         text: `${acquired.text}${learned}`.trim(),
-        styleVariant: acquired.installed ? 'capability_installed' : 'capability_proposal',
+        styleVariant:
+          newlyInstalled || reused
+            ? 'capability_installed'
+            : acquired.status === 'proposal_saved' || acquired.status === 'awaiting_approval'
+              ? 'capability_proposal'
+              : 'capability_failed',
         providerBundle: { sources: acquired.sources },
         usage: acquired.usage,
         model: acquired.model,

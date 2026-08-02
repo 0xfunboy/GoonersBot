@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   }),
   sendPrepared: vi.fn(),
   sendCached: vi.fn(),
+  ytdlpDownload: vi.fn(),
   ytdlpMany: vi.fn(),
   ytdlpSnapshot: vi.fn(),
   recognized: false,
@@ -67,7 +68,7 @@ vi.mock('../src/providers/media/linkMedia/telegramSender.js', () => ({
 
 vi.mock('../src/providers/media/linkMedia/ytdlp.js', () => ({
   downloadManyWithYtdlp: mocks.ytdlpMany,
-  downloadWithYtdlp: vi.fn(),
+  downloadWithYtdlp: mocks.ytdlpDownload,
   snapshotStream: mocks.ytdlpSnapshot,
 }));
 
@@ -95,6 +96,7 @@ beforeEach(async () => {
   });
   mocks.sendPrepared.mockReset();
   mocks.sendCached.mockReset();
+  mocks.ytdlpDownload.mockReset();
   mocks.ytdlpMany.mockReset();
   mocks.ytdlpSnapshot.mockReset();
   mocks.recognized = false;
@@ -323,8 +325,22 @@ describe('LinkMediaService', () => {
       await writeFile(second, Buffer.from('video-two'));
       return {
         items: [
-          { file: first, sequence: 1, title: 'First failed title' },
-          { file: second, sequence: 2, title: 'Second delivered title' },
+          {
+            file: first,
+            sequence: 1,
+            title: 'First failed title',
+            description: 'Metadata which must not leak',
+            stats: { likes: 999 },
+          },
+          {
+            file: second,
+            sequence: 2,
+            title: 'Second delivered title',
+            description: 'The delivered description',
+            author: 'Actual Author',
+            authorHandle: 'actual',
+            stats: { likes: 1200, reposts: 3, comments: 4, views: 5000 },
+          },
         ],
         isPlaylist: true,
         partial: false,
@@ -343,8 +359,94 @@ describe('LinkMediaService', () => {
       }),
     ).resolves.toMatchObject({ handled: true, messageIds: [101] });
     expect(mocks.sendPrepared.mock.calls[1]?.[0]).toMatchObject({
-      caption: 'Second delivered title',
+      caption:
+        'Second delivered title\nThe delivered description\n👤 Actual Author (@actual)\n❤ 1.2K  🔁 3  💬 4  👁 5K',
     });
+  });
+
+  it('adds yt-dlp post metadata to the media caption without enabling AI comments', async () => {
+    mocks.extract.mockResolvedValue({
+      ...post([
+        {
+          kind: 'video',
+          url: 'https://x.com/creator/status/123',
+          via: 'ytdlp',
+        },
+      ]),
+      platform: 'twitter',
+      caption: undefined,
+    });
+    mocks.ytdlpDownload.mockImplementation(async (_url: string, workdir: string) => {
+      const file = join(workdir, 'video.mp4');
+      await writeFile(file, Buffer.from('video'));
+      return {
+        file,
+        title: 'A clip',
+        description: 'Original post text',
+        author: 'Creator',
+        authorHandle: 'creator',
+        stats: { likes: 1500, reposts: 20, comments: 7, views: 9000 },
+      };
+    });
+    const { service, upsert } = harness({ cfg: { ytdlpAvailable: true } });
+
+    const result = await service.handleMessage({
+      ctx: {} as GrammyContext,
+      person,
+      context,
+      text: 'https://x.com/creator/status/123',
+      addressed: false,
+    });
+
+    expect(result.handled).toBe(true);
+    const expected =
+      'A clip\nOriginal post text\n👤 Creator (@creator)\n❤ 1.5K  🔁 20  💬 7  👁 9K';
+    expect(mocks.sendPrepared).toHaveBeenCalledWith(expect.objectContaining({ caption: expected }));
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ caption: expected }));
+  });
+
+  it('keeps native extractor metadata ahead of weaker yt-dlp fallback fields', async () => {
+    mocks.extract.mockResolvedValue({
+      ...post([
+        {
+          kind: 'video',
+          url: 'https://x.com/native/status/456',
+          via: 'ytdlp',
+        },
+      ]),
+      platform: 'twitter',
+      caption: undefined,
+      title: undefined,
+      description: 'Native API text',
+      author: 'Native Author',
+      authorHandle: 'native',
+      stats: { likes: 10, comments: 2 },
+    });
+    mocks.ytdlpDownload.mockImplementation(async (_url: string, workdir: string) => {
+      const file = join(workdir, 'video.mp4');
+      await writeFile(file, Buffer.from('video'));
+      return {
+        file,
+        description: 'Fallback text',
+        author: 'Fallback Author',
+        stats: { likes: 999, reposts: 4, comments: 999, views: 100 },
+      };
+    });
+    const { service } = harness({ cfg: { ytdlpAvailable: true } });
+
+    await service.handleMessage({
+      ctx: {} as GrammyContext,
+      person,
+      context,
+      text: 'https://x.com/native/status/456',
+      addressed: false,
+    });
+
+    expect(mocks.sendPrepared).toHaveBeenCalledWith(
+      expect.objectContaining({
+        caption: 'Native API text\n👤 Native Author (@native)\n❤ 10  🔁 4  💬 2  👁 100',
+      }),
+    );
   });
 
   it('continues after one gallery item fails and keeps the caption on the first delivery', async () => {

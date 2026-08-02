@@ -32,6 +32,40 @@ export interface MessageDeps {
   botUsername: string;
 }
 
+/**
+ * The deterministic link pipeline owns download success/failure. Conversation inference may run
+ * only after a successful rehost (when addressed or passive replies are enabled); otherwise an
+ * agent could mistake a merely resolved URL for a delivered Telegram media artifact.
+ */
+export function shouldStopAfterDeterministicLinkMedia(input: {
+  handled: boolean;
+  failedUrlCount: number;
+  /** URLs found before entering the handler; remains trustworthy if the handler itself throws. */
+  detectedUrlCount?: number;
+  reason?: string;
+  addressed: boolean;
+  autoengageEnabled: boolean;
+}): boolean {
+  if (!input.handled && input.failedUrlCount > 0) return true;
+  // A thrown handler cannot report its own attempted/failed URLs reliably. The caller still knows
+  // whether it invoked the handler for a detected URL, so fail closed instead of letting an agent
+  // describe a media artifact that was never delivered.
+  if (!input.handled && input.reason === 'handler_error' && (input.detectedUrlCount ?? 0) > 0) {
+    return true;
+  }
+  return input.handled && !input.addressed && !input.autoengageEnabled;
+}
+
+/** Preserve deterministic ownership of every detected URL when the rehost handler itself fails. */
+export function linkMediaHandlerErrorResult(urls: readonly URL[]): LinkMediaResult {
+  const attemptedUrls = [...new Set(urls.map(String))];
+  return {
+    handled: false,
+    reason: 'handler_error',
+    ...(attemptedUrls.length > 0 ? { attemptedUrls, failedUrls: attemptedUrls } : {}),
+  };
+}
+
 /** Build message-storage metadata from the platform context. */
 function metaOf(person: Person, context: ChatContext): AddMessageMeta {
   const meta: AddMessageMeta = {
@@ -216,7 +250,7 @@ export async function handleMessage(
       })
       .catch((err) => {
         log.warn({ err }, 'link media handler failed');
-        return { handled: false, reason: 'handler_error' } as LinkMediaResult;
+        return linkMediaHandlerErrorResult(mediaUrls);
       });
     const linkMedia = initialLinkMedia;
 
@@ -238,7 +272,16 @@ export async function handleMessage(
       message.messageText = `${message.messageText ? `${message.messageText}\n` : ''}[media context]: ${linkMedia.injectedText}`;
     }
 
-    if (linkMedia.handled && !addressed) {
+    if (
+      shouldStopAfterDeterministicLinkMedia({
+        handled: linkMedia.handled,
+        failedUrlCount: linkMedia.failedUrls?.length ?? 0,
+        detectedUrlCount: mediaUrls.length,
+        reason: linkMedia.reason,
+        addressed,
+        autoengageEnabled,
+      })
+    ) {
       if (tracking) {
         await services.conversation.addUserMessage(
           context.chatId,
