@@ -1,0 +1,31 @@
+[Unit]
+Description=GoonerBot interactive X frontend (local noVNC)
+Documentation=file:///home/funboy/goonerbot/docs/x-frontend.md
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=/home/funboy/goonerbot
+Environment=HOME=/home/funboy
+Environment=NODE_ENV=production
+Environment=PATH=/home/funboy/.nvm/versions/node/v23.3.0/bin:/home/funboy/.local/share/pnpm:/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=/home/funboy/goonerbot/data/x-frontend.env
+ExecStart=/home/funboy/.nvm/versions/node/v23.3.0/bin/node /home/funboy/goonerbot/dist/xFrontendMain.js
+
+# The Node supervisor closes WebDriver; KillMode also covers Xvfb, x11vnc and websockify.
+KillMode=mixed
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+# Session/profile material created by the service must not be group/world readable.
+UMask=0077
+# Firefox and geckodriver are Snap packages on this host. Snap confinement needs the shared
+# mount namespace and snap-confine privileges, so PrivateTmp/NoNewPrivileges cannot be enabled.
+LimitNOFILE=65536
+
+[Install]
+WantedBy=default.target
