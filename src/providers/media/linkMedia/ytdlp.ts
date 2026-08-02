@@ -80,13 +80,23 @@ server.listen(Number(portText), '127.0.0.1', () => {
 `;
 
 // Prefer a Telegram-friendly H.264/AAC pair, then progressively relax the codec/container
-// constraints. The `?` belongs after the comparison operator in yt-dlp syntax and admits formats
-// whose extractor does not report height, while still rejecting known resolutions above 720p.
+// constraints. Landscape formats are bounded by height and portrait formats by width: limiting
+// height alone rejects perfectly valid 720x1280 Reels. The `?` admits formats whose extractor does
+// not report the compared dimension.
 export const YTDLP_VIDEO_FORMAT =
   'bestvideo[height<=?720][ext=mp4][vcodec^=avc]+bestaudio[ext=m4a][acodec^=mp4a]/' +
+  'bestvideo[width<=?720][ext=mp4][vcodec^=avc]+bestaudio[ext=m4a][acodec^=mp4a]/' +
   'bestvideo[height<=?720][ext=mp4]+bestaudio[ext=m4a]/' +
+  'bestvideo[width<=?720][ext=mp4]+bestaudio[ext=m4a]/' +
   'bestvideo[height<=?720]+bestaudio/' +
-  'best[height<=?720][ext=mp4]/best[height<=?720]';
+  'bestvideo[width<=?720]+bestaudio/' +
+  'best[height<=?720][ext=mp4]/best[width<=?720][ext=mp4]/' +
+  'best[height<=?720]/best[width<=?720]';
+
+// Some extractors expose incomplete dimensions or unusual format layouts. A single bounded retry
+// lets yt-dlp choose a valid pair; the byte/duration caps still apply and the normalizer enforces
+// Telegram-compatible dimensions and codecs afterwards.
+export const YTDLP_RELAXED_VIDEO_FORMAT = 'bestvideo+bestaudio/best';
 
 const VIDEO_EXTENSIONS = new Set([
   '.3g2',
@@ -224,6 +234,24 @@ function shouldRetryWithImpersonation(
   } catch {
     return false;
   }
+}
+
+function isRequestedFormatError(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    err.message.startsWith('yt-dlp exited ') &&
+    /requested format|format is not available/i.test(err.message)
+  );
+}
+
+function replaceYtdlpFormat(args: string[], format: string): string[] {
+  const index = args.indexOf('-f');
+  if (index < 0 || index + 1 >= args.length) {
+    throw new Error('yt-dlp format policy is missing');
+  }
+  const updated = [...args];
+  updated[index + 1] = format;
+  return updated;
 }
 
 function socketTimeoutSeconds(timeoutMs: number): string {
@@ -562,25 +590,37 @@ export async function downloadWithYtdlp(
   } catch {
     return null;
   }
-  const args = await buildYtdlpDownloadArgs(pageUrl, workdir, cfg);
 
-  try {
-    await runYtdlp(cfg, args, workdir);
-  } catch (err) {
-    log.debug({ err, url: safeUrlForLog(pageUrl) }, 'yt-dlp download failed');
-    if (!shouldRetryWithImpersonation(pageUrl, cfg, err)) throw err;
+  let attemptCfg = cfg;
+  let relaxedFormat = false;
+  // At most three subprocesses: normal, one relaxed-format retry, and one site-scoped browser
+  // impersonation retry. Either failure can occur first, so retain the successful fallback choice.
+  for (;;) {
+    const standardArgs = await buildYtdlpDownloadArgs(pageUrl, workdir, attemptCfg);
+    const args = relaxedFormat
+      ? replaceYtdlpFormat(standardArgs, YTDLP_RELAXED_VIDEO_FORMAT)
+      : standardArgs;
 
-    // curl_cffi is bundled by the official executable. Some anti-bot frontends need its Chrome
-    // fingerprint, but forcing it globally is harmful, so retry once only for these social hosts.
-    log.debug(
-      { url: safeUrlForLog(pageUrl) },
-      'retrying yt-dlp with site-scoped Chrome impersonation',
-    );
-    const fallbackArgs = await buildYtdlpDownloadArgs(pageUrl, workdir, {
-      ...cfg,
-      impersonate: 'chrome',
-    });
-    await runYtdlp(cfg, fallbackArgs, workdir);
+    try {
+      await runYtdlp(attemptCfg, args, workdir);
+      break;
+    } catch (err) {
+      log.debug({ err, url: safeUrlForLog(pageUrl) }, 'yt-dlp download failed');
+      if (!relaxedFormat && isRequestedFormatError(err)) {
+        relaxedFormat = true;
+        log.debug({ url: safeUrlForLog(pageUrl) }, 'retrying yt-dlp with relaxed format selection');
+        continue;
+      }
+      if (!shouldRetryWithImpersonation(pageUrl, attemptCfg, err)) throw err;
+
+      // curl_cffi is bundled by the official executable. Some anti-bot frontends need its Chrome
+      // fingerprint, but forcing it globally is harmful, so retry once only for these social hosts.
+      log.debug(
+        { url: safeUrlForLog(pageUrl) },
+        'retrying yt-dlp with site-scoped Chrome impersonation',
+      );
+      attemptCfg = { ...attemptCfg, impersonate: 'chrome' };
+    }
   }
 
   return discoverYtdlpResult(workdir, cfg.maxDownloadBytes);

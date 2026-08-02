@@ -192,7 +192,7 @@ describe('genericHtmlExtractor', () => {
       authorHandle: '@creator_handle',
       stats: { likes: 1250, reposts: 12, comments: 3, views: 4200 },
       caption:
-        'A social video\nOriginal caption from the post\n👤 Creator Name (@creator_handle)\n❤ 1.3K  🔁 12  💬 3  👁 4.2K',
+        'A social video\nOriginal caption from the post\n👤 Creator Name (social: creator_handle)\n❤ 1.3K  🔁 12  💬 3  👁 4.2K',
     });
   });
 

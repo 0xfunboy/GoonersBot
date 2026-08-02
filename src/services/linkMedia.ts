@@ -901,9 +901,10 @@ export class LinkMediaService {
   }
 
   private cacheKey(value: string): string {
-    // v4 invalidates pre-social-metadata captions; v3 excluded stale mono-carousel entries.
+    // v5 invalidates captions whose external @handles could become unrelated Telegram mentions;
+    // v4 invalidated pre-social-metadata captions and v3 excluded stale mono-carousel entries.
     const normalized = mediaUrlKey(value) ?? value;
-    return createHash('sha256').update('link-media:v4\0').update(normalized).digest('hex');
+    return createHash('sha256').update('link-media:v5\0').update(normalized).digest('hex');
   }
 }
 

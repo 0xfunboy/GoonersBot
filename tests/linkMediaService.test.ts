@@ -360,7 +360,7 @@ describe('LinkMediaService', () => {
     ).resolves.toMatchObject({ handled: true, messageIds: [101] });
     expect(mocks.sendPrepared.mock.calls[1]?.[0]).toMatchObject({
       caption:
-        'Second delivered title\nThe delivered description\n👤 Actual Author (@actual)\n❤ 1.2K  🔁 3  💬 4  👁 5K',
+        'Second delivered title\nThe delivered description\n👤 Actual Author (social: actual)\n❤ 1.2K  🔁 3  💬 4  👁 5K',
     });
   });
 
@@ -400,7 +400,7 @@ describe('LinkMediaService', () => {
 
     expect(result.handled).toBe(true);
     const expected =
-      'A clip\nOriginal post text\n👤 Creator (@creator)\n❤ 1.5K  🔁 20  💬 7  👁 9K';
+      'A clip\nOriginal post text\n👤 Creator (social: creator)\n❤ 1.5K  🔁 20  💬 7  👁 9K';
     expect(mocks.sendPrepared).toHaveBeenCalledWith(expect.objectContaining({ caption: expected }));
     expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ caption: expected }));
   });
@@ -444,7 +444,7 @@ describe('LinkMediaService', () => {
 
     expect(mocks.sendPrepared).toHaveBeenCalledWith(
       expect.objectContaining({
-        caption: 'Native API text\n👤 Native Author (@native)\n❤ 10  🔁 4  💬 2  👁 100',
+        caption: 'Native API text\n👤 Native Author (social: native)\n❤ 10  🔁 4  💬 2  👁 100',
       }),
     );
   });

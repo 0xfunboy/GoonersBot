@@ -595,4 +595,167 @@ describe('AgentRuntime live provider bridge', () => {
     expect(result?.text).toContain('40%');
     expect(chatCompletion).toHaveBeenCalledOnce();
   });
+
+  it('keeps a pure link-media plan silent until Telegram attempts the rehost', async () => {
+    const mediaUrl = 'https://www.instagram.com/reel/example/';
+    const jsonCompletion = vi
+      .fn()
+      .mockResolvedValueOnce({
+        goal: 'rehost the supplied reel',
+        actions: [
+          {
+            id: 'link_media_1',
+            tool: 'link_media',
+            purpose: 'prepare the reel for rehosting',
+            query: mediaUrl,
+            args: { url: mediaUrl },
+            dependsOn: [],
+            optional: false,
+            timeoutMs: 5_000,
+            acceptance: { requireOutput: true, minEvidence: 0, requiredArtifactKinds: [] },
+          },
+        ],
+        finalResponse: {
+          language: 'Italian',
+          format: 'text',
+          mustInclude: [],
+          tone: 'direct',
+        },
+      })
+      // Even an overconfident composer cannot announce success before the Telegram transport runs.
+      .mockResolvedValueOnce({
+        message: 'Il reel e pronto e recuperato.',
+        usedActionIds: ['link_media_1'],
+        uncertainties: [],
+      });
+    const runtime = new AgentRuntime({
+      config: {
+        brain: { cortex: { model: 'test' }, replyModel: 'test' },
+        env: { REPETITION_SIMILARITY_THRESHOLD: 0.78 },
+        linkMedia: { enabled: true },
+      } as never,
+      llm: { capabilities: { chat: true }, jsonCompletion } as never,
+      media: { canGenerateImage: false } as never,
+      music: { enabled: false } as never,
+      video: { enabled: false } as never,
+      tts: { enabled: false } as never,
+      grounding: { enabled: false } as never,
+      knowledge: { enabled: false } as never,
+      imageFinder: {} as never,
+      imagePrompts: {} as never,
+      videoPrompts: {} as never,
+      quota: {} as never,
+      capabilities: { enabled: false } as never,
+    });
+
+    const result = await runtime.run({
+      request: mediaUrl,
+      language: 'italian',
+      person: { telegramId: 1, userHandle: '@alice' },
+      context: {
+        chatId: -100,
+        isGroup: true,
+        isBotMentioned: true,
+        isGroupAdmin: false,
+        isReplyToBot: false,
+      },
+      requestedActions: [
+        {
+          tool: 'link_media',
+          query: mediaUrl,
+          args: { url: mediaUrl },
+          reason: 'rehost the supplied reel',
+        },
+      ],
+      recentMessages: [],
+      quotaBypass: true,
+    });
+
+    expect(result?.status).toBe('complete');
+    expect(result?.linkMediaUrl).toBe(mediaUrl);
+    expect(result?.text).toBe('');
+    const compositionPrompt = (jsonCompletion.mock.calls[1]?.[0] as { prompt?: string } | undefined)
+      ?.prompt;
+    expect(compositionPrompt).toContain('Telegram rehost is still pending');
+    expect(compositionPrompt).not.toContain('Resolved media for Telegram delivery');
+  });
+
+  it('keeps a pure link-media resolution failure visible', async () => {
+    const jsonCompletion = vi
+      .fn()
+      .mockResolvedValueOnce({
+        goal: 'find and rehost a missing reel',
+        actions: [
+          {
+            id: 'link_media_1',
+            tool: 'link_media',
+            purpose: 'find the requested reel',
+            query: 'a reel that cannot be found',
+            args: {},
+            dependsOn: [],
+            optional: false,
+            timeoutMs: 5_000,
+            acceptance: { requireOutput: true, minEvidence: 0, requiredArtifactKinds: [] },
+          },
+        ],
+        finalResponse: {
+          language: 'Italian',
+          format: 'text',
+          mustInclude: [],
+          tone: 'direct',
+        },
+      })
+      .mockResolvedValueOnce({
+        message: 'Non ho trovato un contenuto scaricabile per questa richiesta.',
+        usedActionIds: [],
+        uncertainties: ['media URL not found'],
+      });
+    const findMediaUrl = vi.fn().mockResolvedValue(null);
+    const runtime = new AgentRuntime({
+      config: {
+        brain: { cortex: { model: 'test' }, replyModel: 'test' },
+        env: { REPETITION_SIMILARITY_THRESHOLD: 0.78 },
+        linkMedia: { enabled: true },
+      } as never,
+      llm: { capabilities: { chat: true }, jsonCompletion } as never,
+      media: { canGenerateImage: false } as never,
+      music: { enabled: false } as never,
+      video: { enabled: false } as never,
+      tts: { enabled: false } as never,
+      grounding: { enabled: true, findMediaUrl } as never,
+      knowledge: { enabled: false } as never,
+      imageFinder: {} as never,
+      imagePrompts: {} as never,
+      videoPrompts: {} as never,
+      quota: {} as never,
+      capabilities: { enabled: false } as never,
+    });
+
+    const result = await runtime.run({
+      request: 'trovami e scaricami quel reel introvabile',
+      language: 'italian',
+      person: { telegramId: 1, userHandle: '@alice' },
+      context: {
+        chatId: -100,
+        isGroup: true,
+        isBotMentioned: true,
+        isGroupAdmin: false,
+        isReplyToBot: false,
+      },
+      requestedActions: [
+        {
+          tool: 'link_media',
+          query: 'a reel that cannot be found',
+          reason: 'find the requested reel',
+        },
+      ],
+      recentMessages: [],
+      quotaBypass: true,
+    });
+
+    expect(findMediaUrl).toHaveBeenCalledOnce();
+    expect(result?.status).toBe('failed');
+    expect(result?.linkMediaUrl).toBeUndefined();
+    expect(result?.text).toContain('Non ho trovato');
+  });
 });

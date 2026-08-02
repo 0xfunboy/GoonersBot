@@ -179,7 +179,19 @@ export class AgentRuntime {
       { signal: input.signal },
     );
     if (result.plan.actions.length === 0) return null;
-    const guardedText = await this.guardFinalAnswer(result.answer.message, result, input);
+    // Resolving a source URL is only preparation for the Telegram transport performed by the
+    // message handler. A pure link-media turn must stay silent until that handler has either
+    // received real Telegram message ids or emitted its deterministic failure notice.
+    const hasResolvedLinkMedia = result.execution.results.some((run) => {
+      if (run.status !== 'succeeded') return false;
+      const data = asRuntimeData(run.output?.data);
+      return data?.kind === 'link_media' && Boolean(data.url);
+    });
+    const pureResolvedLinkMediaPlan =
+      hasResolvedLinkMedia && result.plan.actions.every((action) => action.tool === 'link_media');
+    const guardedText = pureResolvedLinkMediaPlan
+      ? ''
+      : await this.guardFinalAnswer(result.answer.message, result, input);
 
     const output: AgentRuntimeResult = {
       text: guardedText,
@@ -702,7 +714,7 @@ export class AgentRuntime {
           ));
         if (!url) return failedOutput('No downloadable media URL was found.');
         return {
-          summary: `Resolved media for Telegram delivery: ${url}`,
+          summary: `Resolved a media source candidate; Telegram rehost is still pending: ${url}`,
           data: { kind: 'link_media', url } satisfies RuntimeData,
           evidence: [{ source: url }],
           artifacts: [{ kind: 'link', id: url }],

@@ -11,6 +11,7 @@ import {
   downloadManyWithYtdlp,
   downloadWithYtdlp,
   socialMetadataFromYtdlpInfo,
+  YTDLP_RELAXED_VIDEO_FORMAT,
   YTDLP_VIDEO_FORMAT,
   type YtdlpDownloadConfig,
 } from '../src/providers/media/linkMedia/ytdlp.js';
@@ -59,7 +60,11 @@ describe('yt-dlp argument hardening', () => {
     expect(YTDLP_VIDEO_FORMAT).toContain(
       'bestvideo[height<=?720][ext=mp4][vcodec^=avc]+bestaudio[ext=m4a][acodec^=mp4a]',
     );
+    expect(YTDLP_VIDEO_FORMAT).toContain(
+      'bestvideo[width<=?720][ext=mp4][vcodec^=avc]+bestaudio[ext=m4a][acodec^=mp4a]',
+    );
     expect(YTDLP_VIDEO_FORMAT).toContain('bestvideo[height<=?720]+bestaudio');
+    expect(YTDLP_VIDEO_FORMAT).toContain('bestvideo[width<=?720]+bestaudio');
     expect(YTDLP_VIDEO_FORMAT.endsWith('/best')).toBe(false);
     expect(optionValue(args, '--merge-output-format')).toBe('mp4');
     expect(optionValue(args, '--playlist-items')).toBe('1');
@@ -239,6 +244,50 @@ describe('yt-dlp argument hardening', () => {
     expect(optionValue(fallbackArgs, '--impersonate')).toBe('chrome');
   });
 
+  it('retries a missing Instagram portrait format once with the relaxed selector', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'goonerbot-ytdlp-'));
+    workdirs.push(dir);
+    const video = join(dir, 'video.mp4');
+    await writeFile(video, Buffer.alloc(64, 1));
+    vi.mocked(runProcessChecked)
+      .mockRejectedValueOnce(new Error('yt-dlp exited 1: Requested format is not available'))
+      .mockResolvedValueOnce({ code: 0, stdout: Buffer.alloc(0), stderr: '' });
+
+    await expect(
+      downloadWithYtdlp('https://www.instagram.com/reel/portrait/', dir, config()),
+    ).resolves.toEqual({ file: video });
+
+    expect(runProcessChecked).toHaveBeenCalledTimes(2);
+    const firstArgs = vi.mocked(runProcessChecked).mock.calls[0]?.[1] ?? [];
+    const fallbackArgs = vi.mocked(runProcessChecked).mock.calls[1]?.[1] ?? [];
+    expect(optionValue(firstArgs, '-f')).toBe(YTDLP_VIDEO_FORMAT);
+    expect(optionValue(fallbackArgs, '-f')).toBe(YTDLP_RELAXED_VIDEO_FORMAT);
+    const expectedFallbackArgs = [...firstArgs];
+    expectedFallbackArgs[expectedFallbackArgs.indexOf('-f') + 1] = YTDLP_RELAXED_VIDEO_FORMAT;
+    expect(fallbackArgs).toEqual(expectedFallbackArgs);
+  });
+
+  it('stops after one relaxed retry when the requested format is still unavailable', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'goonerbot-ytdlp-'));
+    workdirs.push(dir);
+    const firstFailure = new Error('yt-dlp exited 1: requested format is not available');
+    const fallbackFailure = new Error(
+      'yt-dlp exited 1: requested format is not available after relaxed selection',
+    );
+    vi.mocked(runProcessChecked)
+      .mockRejectedValueOnce(firstFailure)
+      .mockRejectedValueOnce(fallbackFailure);
+
+    await expect(
+      downloadWithYtdlp('https://www.instagram.com/reel/portrait/', dir, config()),
+    ).rejects.toBe(fallbackFailure);
+
+    expect(runProcessChecked).toHaveBeenCalledTimes(2);
+    const fallbackArgs = vi.mocked(runProcessChecked).mock.calls[1]?.[1] ?? [];
+    expect(optionValue(fallbackArgs, '-f')).toBe(YTDLP_RELAXED_VIDEO_FORMAT);
+    expect(fallbackArgs).not.toContain('--impersonate');
+  });
+
   it('does not add another fallback when impersonation was explicitly configured', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'goonerbot-ytdlp-'));
     workdirs.push(dir);
@@ -255,9 +304,8 @@ describe('yt-dlp argument hardening', () => {
     expect(runProcessChecked).toHaveBeenCalledTimes(1);
   });
 
-  it('does not impersonation-retry deterministic format/auth/tooling errors', async () => {
+  it('does not retry deterministic auth/tooling errors', async () => {
     for (const message of [
-      'yt-dlp exited 1: requested format is not available',
       'yt-dlp exited 1: login required; use cookies',
       'yt-dlp exited 1: ffmpeg not found',
     ]) {
@@ -270,7 +318,7 @@ describe('yt-dlp argument hardening', () => {
         downloadWithYtdlp('https://www.instagram.com/reel/example/', dir, config()),
       ).rejects.toBe(failure);
     }
-    expect(runProcessChecked).toHaveBeenCalledTimes(3);
+    expect(runProcessChecked).toHaveBeenCalledTimes(2);
   });
 
   it('returns null after a successful filtered/no-file run so live media can use snapshot', async () => {
