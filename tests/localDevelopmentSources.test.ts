@@ -38,6 +38,10 @@ describe('LocalDevelopmentSources', () => {
 
   it('combines exact paths, fixed-string search matches and bounded new files', async () => {
     const root = await repository();
+    await writeFile(
+      join(root, 'tests/sensitive.test.ts'),
+      "const mediaLimit = 'API_KEY=abcdefghijklmnop';\n",
+    );
     const sources = new LocalDevelopmentSources(root);
 
     const candidates = await sources.candidates({

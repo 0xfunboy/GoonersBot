@@ -4,6 +4,7 @@ import { childLogger } from '../utils/logger.js';
 import { containsSensitive, redactSecrets } from '../utils/secrets.js';
 import {
   LocalDevelopmentModel,
+  LocalDevelopmentModelError,
   type LocalDevelopmentCandidateFile,
   type LocalDevelopmentDraft,
 } from './localDevelopmentModel.js';
@@ -578,7 +579,7 @@ function safeResultCode(error: unknown): string {
   if (error instanceof LocalDevelopmentServiceError) return error.code;
   if (error instanceof LocalDevelopmentJobStoreError) return `store_${error.code}`;
   if (error instanceof LocalDevelopmentPolicyError) return 'policy_rejected';
-  if (error instanceof Error && error.name === 'LocalDevelopmentModelError') return 'model_failed';
+  if (error instanceof LocalDevelopmentModelError) return `model_${error.code}`;
   return 'operation_failed';
 }
 
