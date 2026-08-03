@@ -10,7 +10,10 @@ import {
   type LocalDevelopmentActor,
 } from '../src/capabilities/localDevelopmentService.js';
 import type { LocalDevelopmentSources } from '../src/capabilities/localDevelopmentSources.js';
-import type { LocalDevelopmentWorkspace } from '../src/capabilities/localDevelopmentWorkspace.js';
+import {
+  LocalDevelopmentFormattingError,
+  type LocalDevelopmentWorkspace,
+} from '../src/capabilities/localDevelopmentWorkspace.js';
 
 const roots: string[] = [];
 const services: LocalDevelopmentService[] = [];
@@ -31,6 +34,7 @@ async function fixture(
   options: {
     clean?: boolean;
     review?: 'approved' | 'rejected';
+    verificationReady?: boolean;
     preloadStale?: boolean;
   } = {},
 ) {
@@ -58,12 +62,17 @@ async function fixture(
       files: ['src/example.ts'],
     }),
     verify: vi.fn().mockResolvedValue({
-      ready: true,
-      status: 'ready',
-      artifactHash,
-      artifactFiles: ['src/example.ts'],
+      ready: options.verificationReady ?? true,
+      status: options.verificationReady === false ? 'verification_failed' : 'ready',
+      ...(options.verificationReady === false
+        ? { diagnostics: 'typecheck verification failed' }
+        : { artifactHash, artifactFiles: ['src/example.ts'] }),
       checks: [
-        { name: 'typecheck', status: 'passed', exitCode: 0 },
+        {
+          name: 'typecheck',
+          status: options.verificationReady === false ? 'failed' : 'passed',
+          exitCode: options.verificationReady === false ? 2 : 0,
+        },
         { name: 'lint', status: 'passed', exitCode: 0 },
         { name: 'test', status: 'passed', exitCode: 0 },
         { name: 'build', status: 'passed', exitCode: 0 },
@@ -122,7 +131,7 @@ async function fixture(
       plannerModel: 'planner',
       coderModel: 'coder',
       reviewModel: 'reviewer',
-      maxAttempts: options.review === 'rejected' ? 1 : 2,
+      maxAttempts: options.review === 'rejected' || options.verificationReady === false ? 1 : 2,
       jobTimeoutMs: 60_000,
     },
     { jobs, workspace, model, sources },
@@ -223,6 +232,53 @@ describe('LocalDevelopmentService', () => {
     const failed = await waitForState(service, 'failed');
     expect(failed?.resultCode).toBe('review_rejected');
     expect(workspace.verify).not.toHaveBeenCalled();
+  });
+
+  it('preserves an approved independent review when deterministic verification fails', async () => {
+    const { service } = await fixture({ verificationReady: false });
+    await service.enqueue(actor, 'introduci una modifica che deve superare i controlli');
+
+    const failed = await waitForState(service, 'failed');
+    expect(failed?.resultCode).toBe('verification_failed');
+    expect(failed?.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'typecheck', status: 'failed' }),
+        expect.objectContaining({
+          id: 'independent_review',
+          status: 'passed',
+          code: 'approved',
+        }),
+      ]),
+    );
+  });
+
+  it('returns a formatter parse failure to the coder and uses the remaining attempt', async () => {
+    const { service, workspace, model } = await fixture();
+    vi.mocked(workspace.writeProposal)
+      .mockRejectedValueOnce(
+        new LocalDevelopmentFormattingError('SyntaxError: expected expression'),
+      )
+      .mockResolvedValue({} as never);
+
+    await service.enqueue(actor, 'aggiungi TypeScript valido e formattato con i relativi test');
+
+    const ready = await waitForState(service, 'ready');
+    expect(ready?.state).toBe('ready');
+    expect(model.propose).toHaveBeenCalledTimes(2);
+    expect(model.propose).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        feedback: ['SyntaxError: expected expression'],
+        files: [
+          {
+            path: 'src/example.ts',
+            kind: 'regular',
+            content: 'export const value = "new";\n',
+          },
+        ],
+      }),
+    );
+    expect(workspace.writeProposal).toHaveBeenCalledTimes(2);
+    expect(workspace.readWorkspaceFile).not.toHaveBeenCalled();
   });
 
   it('resets and regenerates an interrupted stale workspace from its pinned base', async () => {
