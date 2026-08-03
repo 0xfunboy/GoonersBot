@@ -115,7 +115,7 @@ function hybridRunner(
   const runner = async (
     request: LocalDevelopmentProcessRequest,
   ): Promise<LocalDevelopmentProcessResult> => {
-    if (request.command === '/usr/bin/prlimit') {
+    if (request.command === '/usr/bin/systemd-run') {
       requests.push(structuredClone(request));
       invocations += 1;
       return sandbox(request, invocations) ?? { code: 0, stdout: '', stderr: '' };
@@ -323,15 +323,39 @@ describe('LocalDevelopmentWorkspace', () => {
       expect(request.args).toContain('--clearenv');
       expect(request.args).toContain('--ro-bind');
       expect(request.args).toContain('--nproc=1024');
-      expect(request.args).toContain('--as=4294967296');
+      expect(request.args).toContain('--as=34359738368');
+      expect(request.args).toContain('MemoryMax=4294967296');
+      expect(request.args).toContain('MemorySwapMax=0');
+      expect(request.args).toContain('TasksMax=128');
+      expect(request.args).toContain('CPUQuota=200%');
+      expect(request.args).toContain('OOMPolicy=kill');
+      expect(request.args).toContain('/usr/bin/prlimit');
+      expect(request.args).toContain('NODE_OPTIONS');
+      expect(request.args).toContain('--max-old-space-size=1024');
       expect(request.args).not.toContain(f.repo);
       expect(request.env).toEqual({
         PATH: '/usr/bin:/bin',
         HOME: '/tmp',
         LANG: 'C.UTF-8',
         LC_ALL: 'C.UTF-8',
+        XDG_RUNTIME_DIR: `/run/user/${process.getuid?.()}`,
+        DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${process.getuid?.()}/bus`,
       });
     }
+    const testRequest = runner.requests.find((request) => request.args.includes('vitest'));
+    expect(testRequest?.args).toEqual(
+      expect.arrayContaining(['run', '--maxWorkers=2', '--minWorkers=1', '--no-cache']),
+    );
+    const sandboxHosts = join(f.workspaceRoot, 'sandbox', 'hosts');
+    const sandboxNsswitch = join(f.workspaceRoot, 'sandbox', 'nsswitch.conf');
+    await expect(readFile(sandboxHosts, 'utf8')).resolves.toBe(
+      '127.0.0.1 localhost\n::1 localhost\n',
+    );
+    await expect(readFile(sandboxNsswitch, 'utf8')).resolves.toBe('hosts: files\n');
+    expect((await lstat(sandboxHosts)).mode & 0o777).toBe(0o600);
+    expect((await lstat(sandboxNsswitch)).mode & 0o777).toBe(0o600);
+    expect(testRequest?.args).toContain('/etc/hosts');
+    expect(testRequest?.args).toContain('/etc/nsswitch.conf');
     const diff = await manager.diff('job006');
     expect(diff.files).toEqual(['src/value.ts']);
     expect(diff.hash).toBe(createHash('sha256').update(diff.text).digest('hex'));

@@ -24,6 +24,15 @@ const METADATA_VERSION = 1 as const;
 // RLIMIT_NPROC is counted across every thread owned by the Unix user, not just this child tree.
 // Keep bounded headroom above the bot/browser baseline so bubblewrap can still create its namespace.
 const SANDBOX_UID_TASK_LIMIT = 1_024;
+// RLIMIT_AS measures virtual address space. V8/Wasm reserves tens of GiB without committing
+// equivalent RAM; resident JS heaps remain separately capped through NODE_OPTIONS below.
+const SANDBOX_VIRTUAL_MEMORY_LIMIT_BYTES = 32 * 1024 * 1024 * 1024;
+const SANDBOX_NODE_HEAP_LIMIT_MIB = 1_024;
+const SANDBOX_CGROUP_MEMORY_LIMIT_BYTES = 4 * 1024 * 1024 * 1024;
+const SANDBOX_CGROUP_TASK_LIMIT = 128;
+const SANDBOX_CGROUP_CPU_QUOTA = '200%';
+const SANDBOX_HOSTS = '127.0.0.1 localhost\n::1 localhost\n';
+const SANDBOX_NSSWITCH = 'hosts: files\n';
 const JOB_STATUSES = new Set<LocalDevelopmentJobStatus>([
   'workspace_ready',
   'proposal_written',
@@ -127,7 +136,11 @@ const CHECKS: ReadonlyArray<{
   },
   { name: 'typecheck', args: () => ['typecheck'], timeoutMs: 240_000 },
   { name: 'lint', args: () => ['lint'], timeoutMs: 240_000 },
-  { name: 'test', args: () => ['test'], timeoutMs: 900_000 },
+  {
+    name: 'test',
+    args: () => ['exec', 'vitest', 'run', '--maxWorkers=2', '--minWorkers=1', '--no-cache'],
+    timeoutMs: 900_000,
+  },
   { name: 'build', args: () => ['build'], timeoutMs: 300_000 },
 ];
 
@@ -250,6 +263,7 @@ export interface LocalDevelopmentWorkspaceOptions {
   nodeBin?: string;
   bubblewrapBin?: string;
   resourceLimitBin?: string;
+  resourceGroupBin?: string;
   nodeModulesPath?: string;
   limits?: Partial<LocalDevelopmentLimits>;
   processRunner?: LocalDevelopmentProcessRunner;
@@ -290,6 +304,7 @@ export class LocalDevelopmentWorkspace {
   private readonly nodeBin: string;
   private readonly bubblewrapBin: string;
   private readonly resourceLimitBin: string;
+  private readonly resourceGroupBin: string;
   private readonly nodeModulesPath: string;
   private readonly runner: LocalDevelopmentProcessRunner;
   private readonly now: () => Date;
@@ -302,6 +317,7 @@ export class LocalDevelopmentWorkspace {
     this.nodeBin = options.nodeBin ?? process.execPath;
     this.bubblewrapBin = options.bubblewrapBin ?? '/usr/bin/bwrap';
     this.resourceLimitBin = options.resourceLimitBin ?? '/usr/bin/prlimit';
+    this.resourceGroupBin = options.resourceGroupBin ?? '/usr/bin/systemd-run';
     this.nodeModulesPath = resolve(options.nodeModulesPath ?? join(this.repoRoot, 'node_modules'));
     this.limits = { ...DEFAULT_LIMITS, ...options.limits };
     this.runner = options.processRunner ?? runBoundedProcess;
@@ -1142,9 +1158,16 @@ export class LocalDevelopmentWorkspace {
   }> {
     const bubblewrap = await resolveExecutable(this.bubblewrapBin);
     const limiter = await resolveExecutable(this.resourceLimitBin);
+    const resourceGroup = await resolveExecutable(this.resourceGroupBin);
     const pnpm = await resolveExecutable(this.pnpmBin);
     const node = await resolveExecutable(this.nodeBin);
+    const uid = process.getuid?.();
+    if (!Number.isSafeInteger(uid) || uid === undefined || uid < 0) {
+      throw new LocalDevelopmentPolicyError('sandbox requires a local Unix user manager');
+    }
+    const userRuntimeDirectory = `/run/user/${uid}`;
     const modules = await realpath(this.nodeModulesPath);
+    const nameService = await this.ensureSandboxNameServiceFiles();
     const moduleInfo = await stat(modules);
     if (!moduleInfo.isDirectory()) {
       throw new LocalDevelopmentPolicyError('verified dependencies are unavailable');
@@ -1173,6 +1196,14 @@ export class LocalDevelopmentWorkspace {
       '/dev',
       '--tmpfs',
       '/tmp',
+      '--dir',
+      '/etc',
+      '--ro-bind',
+      nameService.hosts,
+      '/etc/hosts',
+      '--ro-bind',
+      nameService.nsswitch,
+      '/etc/nsswitch.conf',
       '--dir',
       '/tool',
       '--ro-bind',
@@ -1205,6 +1236,12 @@ export class LocalDevelopmentWorkspace {
       'CI',
       '1',
       '--setenv',
+      'NODE_OPTIONS',
+      `--max-old-space-size=${SANDBOX_NODE_HEAP_LIMIT_MIB}`,
+      '--setenv',
+      'LOG_LEVEL',
+      'silent',
+      '--setenv',
       'NO_COLOR',
       '1',
       '--setenv',
@@ -1217,10 +1254,25 @@ export class LocalDevelopmentWorkspace {
       '/workspace',
     ];
     return {
-      launcher: limiter,
+      launcher: resourceGroup,
       pnpm: '/tool/pnpm',
       args: [
-        '--as=4294967296',
+        '--user',
+        '--scope',
+        '--quiet',
+        '-p',
+        `MemoryMax=${SANDBOX_CGROUP_MEMORY_LIMIT_BYTES}`,
+        '-p',
+        'MemorySwapMax=0',
+        '-p',
+        `TasksMax=${SANDBOX_CGROUP_TASK_LIMIT}`,
+        '-p',
+        `CPUQuota=${SANDBOX_CGROUP_CPU_QUOTA}`,
+        '-p',
+        'OOMPolicy=kill',
+        '--',
+        limiter,
+        `--as=${SANDBOX_VIRTUAL_MEMORY_LIMIT_BYTES}`,
         `--nproc=${SANDBOX_UID_TASK_LIMIT}`,
         '--fsize=268435456',
         '--nofile=2048',
@@ -1235,8 +1287,22 @@ export class LocalDevelopmentWorkspace {
         HOME: '/tmp',
         LANG: 'C.UTF-8',
         LC_ALL: 'C.UTF-8',
+        XDG_RUNTIME_DIR: userRuntimeDirectory,
+        DBUS_SESSION_BUS_ADDRESS: `unix:path=${userRuntimeDirectory}/bus`,
       },
     };
+  }
+
+  private async ensureSandboxNameServiceFiles(): Promise<{
+    hosts: string;
+    nsswitch: string;
+  }> {
+    const root = join(this.workspaceRoot, 'sandbox');
+    const hosts = join(root, 'hosts');
+    const nsswitch = join(root, 'nsswitch.conf');
+    await atomicPrivateWrite(hosts, SANDBOX_HOSTS);
+    await atomicPrivateWrite(nsswitch, SANDBOX_NSSWITCH);
+    return { hosts, nsswitch };
   }
 
   private async formatSafeProposal(
@@ -1370,7 +1436,7 @@ export class LocalDevelopmentWorkspace {
         'workspace root must be outside and separate from the repository',
       );
     }
-    for (const directory of ['worktrees', 'jobs', 'artifacts', 'locks']) {
+    for (const directory of ['worktrees', 'jobs', 'artifacts', 'locks', 'sandbox']) {
       const path = join(root, directory);
       await mkdir(path, { recursive: true, mode: 0o700 });
       await chmod(path, 0o700);
