@@ -279,6 +279,51 @@ describe('dynamic capability commands', () => {
     expect(response?.rawText).toContain('<code>WEB_SEARCH_ENABLED</code>');
     expect(response?.rawText).not.toContain('✅');
   });
+
+  it('/learn includes relevant replied text and never renders sources for local automation', async () => {
+    const acquire = vi.fn().mockResolvedValue({
+      handled: false,
+      text: 'Proposta locale salvata per revisione.',
+      status: 'proposal_saved',
+      installed: false,
+      command: 'fix_download',
+      diagnostic: {
+        code: 'local_automation_required',
+        requirements: [],
+        requirementsVerified: false,
+        retryable: false,
+      },
+      usage: { inputTokens: 0, outputTokens: 0, estimated: true },
+      model: null,
+      sources: ['https://platform.openai.com/docs/irrelevant'],
+    });
+    const commandInput = input(
+      {
+        getLanguage: vi.fn().mockResolvedValue('italian'),
+        planForTurn: vi.fn().mockResolvedValue({ id: 'free' }),
+        modelForPlan: vi.fn().mockReturnValue(undefined),
+        bypassesGroupPlan: vi.fn().mockReturnValue(true),
+        capabilities: { acquire },
+      },
+      ['correggi', 'questo', 'bug'],
+    );
+    commandInput.context = {
+      ...context,
+      repliedToText: 'Il bot ignora i video oltre cinque minuti invece di estrarre tre frame.',
+    };
+
+    const response = await learnCommand.handle(commandInput);
+
+    expect(acquire).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request: expect.stringContaining('correggi questo bug'),
+      }),
+    );
+    const request = acquire.mock.calls[0]?.[0]?.request as string;
+    expect(request).toContain('REPLIED MESSAGE CONTEXT');
+    expect(request).toContain('Il bot ignora i video oltre cinque minuti');
+    expect(response?.rawText).not.toContain('platform.openai.com');
+  });
 });
 
 describe('privacy-safe social observability commands', () => {

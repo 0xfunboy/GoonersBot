@@ -42,6 +42,7 @@ import { ReplyService } from './reply.js';
 import { TermsService } from './terms.js';
 import { UsageService } from './usage.js';
 import { GroupQuotaService } from './groupQuota.js';
+import { SystemInfoService } from './systemInfo.js';
 import { QUOTA_PLANS, type QuotaPlan, type QuotaPlanId } from '../quota/plans.js';
 import { ConversationThreadTracker } from './threadTracker.js';
 import { DocumentProcessor } from '../documents/documentProcessor.js';
@@ -62,6 +63,7 @@ export * from './autoengage.js';
 export * from './reply.js';
 export * from './modelRouter.js';
 export * from './groupQuota.js';
+export * from './systemInfo.js';
 
 /**
  * Service container. Built once at boot and shared by all handlers. Holds every domain service
@@ -77,6 +79,7 @@ export class Services {
   readonly modes: ModeService;
   readonly usage: UsageService;
   readonly quota: GroupQuotaService;
+  readonly systemInfo: SystemInfoService;
   readonly threadTracker: ConversationThreadTracker;
   readonly conversation: ConversationService;
   readonly autoengage: AutoEngageScorer;
@@ -149,6 +152,7 @@ export class Services {
     );
     this.music = new MusicService(config.music);
     this.quota = new GroupQuotaService(storage);
+    this.systemInfo = new SystemInfoService(config, this.quota);
     this.linkMedia = new LinkMediaService(config.linkMedia, storage, this.media, this.quota);
     this.permissions = new PermissionService(storage, env.ALLOWED_HANDLES, env.ADMIN_HANDLES);
     this.access = new AccessService(

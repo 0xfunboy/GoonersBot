@@ -57,6 +57,17 @@ export class KnowledgeRetriever {
     const minScore = this.cfg.minScore ?? 0.3;
     const scored: RetrievedKnowledge[] = [];
     for (const e of entries) {
+      const explicitHits = [e.topic, ...e.aliases].filter((term) => matches(hay, term)).length;
+      if (e.retrievalPolicy === 'explicit_alias') {
+        if (explicitHits === 0) continue;
+        scored.push({
+          topic: e.topic,
+          text: e.text,
+          score: explicitHits + e.salience,
+          reason: 'explicit alias',
+        });
+        continue;
+      }
       const cosine =
         queryVec.length === embeddingDim && e.embedding?.length === embeddingDim
           ? cosineSimilarity(queryVec, e.embedding)
@@ -102,6 +113,8 @@ export class KnowledgeRetriever {
 
 function normalize(s: string): string {
   return s
+    .normalize('NFKD')
+    .replace(/\p{Diacritic}/gu, '')
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .replace(/\s+/g, ' ')

@@ -306,6 +306,80 @@ describe('LinkMediaService', () => {
     expect(upsert).not.toHaveBeenCalled();
   });
 
+  it('reports a proved yt-dlp duration limit without snapshotting or consuming media quota', async () => {
+    mocks.extract.mockResolvedValue(
+      post([
+        {
+          kind: 'video',
+          url: 'https://www.youtube.com/watch?v=_qDne3nQyNU',
+          via: 'ytdlp',
+        },
+      ]),
+    );
+    mocks.ytdlpDownload.mockRejectedValue(
+      Object.assign(new Error('video duration 1050s exceeds configured limit 300s'), {
+        name: 'YtdlpDurationLimitError',
+        code: 'duration_exceeded',
+        durationSeconds: 1_050,
+        maxDurationSeconds: 300,
+      }),
+    );
+    const { service, reserveMedia } = harness({
+      cfg: { ytdlpAvailable: true, maxDurationSeconds: 300 },
+    });
+
+    const result = await service.handleMessage({
+      ctx: {} as GrammyContext,
+      person,
+      context,
+      text: 'https://www.youtube.com/watch?v=_qDne3nQyNU',
+      addressed: true,
+    });
+
+    expect(result).toMatchObject({
+      handled: false,
+      reason: 'duration_exceeded',
+      durationLimit: { durationSeconds: 1_050, maxDurationSeconds: 300 },
+      failedUrls: ['https://www.youtube.com/watch?v=_qDne3nQyNU'],
+    });
+    expect(mocks.ytdlpSnapshot).not.toHaveBeenCalled();
+    expect(mocks.sendPrepared).not.toHaveBeenCalled();
+    expect(reserveMedia).not.toHaveBeenCalled();
+  });
+
+  it('rejects extractor-provided over-limit durations before invoking yt-dlp', async () => {
+    mocks.extract.mockResolvedValue(
+      post([
+        {
+          kind: 'video',
+          url: 'https://www.youtube.com/watch?v=_qDne3nQyNU',
+          via: 'ytdlp',
+          durationSeconds: 1_050,
+        },
+      ]),
+    );
+    const { service, reserveMedia } = harness({
+      cfg: { ytdlpAvailable: true, maxDurationSeconds: 300 },
+    });
+
+    const result = await service.handleMessage({
+      ctx: {} as GrammyContext,
+      person,
+      context,
+      text: 'https://www.youtube.com/watch?v=_qDne3nQyNU',
+      addressed: false,
+    });
+
+    expect(result).toMatchObject({
+      handled: false,
+      reason: 'duration_exceeded',
+      durationLimit: { durationSeconds: 1_050, maxDurationSeconds: 300 },
+    });
+    expect(mocks.ytdlpDownload).not.toHaveBeenCalled();
+    expect(mocks.ytdlpSnapshot).not.toHaveBeenCalled();
+    expect(reserveMedia).not.toHaveBeenCalled();
+  });
+
   it('uses the first successfully delivered carousel entry title for its caption', async () => {
     mocks.extract.mockResolvedValue({
       ...post([

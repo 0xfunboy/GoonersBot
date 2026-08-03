@@ -196,7 +196,12 @@ export class CapabilityForge {
       );
     }
 
-    const existing = this.findLikelyExisting(params.request);
+    // Protect local implementation requests before both planner grounding and reuse. A loosely
+    // matching research recipe must not turn a bot bug report into an unrelated web lookup.
+    const guardedLocalAutomationPlan = localBotAutomationPlan(params.request);
+    const existing = guardedLocalAutomationPlan
+      ? undefined
+      : this.findLikelyExisting(params.request);
     if (existing) {
       const result = await this.executeManifest(
         existing,
@@ -215,61 +220,50 @@ export class CapabilityForge {
       };
     }
 
-    const docs = this.grounding.enabled
-      ? await this.grounding
-          .groundWeb(
-            `official developer API documentation ${params.request}`.slice(0, 300),
-            params.language,
-            params.chatId,
-            params.signal,
-          )
-          .catch((err) => {
-            throwIfAborted(params.signal);
-            log.debug({ err }, 'capability documentation research failed');
-            return null;
-          })
-      : null;
+    // A request to change this bot's own behaviour is local implementation work, not a web-research
+    // recipe. Classify it before any grounding so a bug report cannot spend search quota or inherit
+    // unrelated API documentation merely because it was submitted through /learn.
     const localResearchPlan = fallbackResearchPlan(params.request);
-    let plan: CapabilityPlan | null = null;
-    try {
-      const proposed = await this.llm.jsonCompletion({
-        system: [
-          'You design persistent capabilities for a Telegram assistant. Output only schema JSON.',
-          'The user explicitly invoked /learn. A reusable read-only web research workflow IS a',
-          'capability gap even when one example could be answered by ordinary reasoning.',
-          'Classify honestly. research_recipe is ONLY for read-only requests solvable by web search',
-          'plus text synthesis. external_integration is for APIs/accounts/credentials or real-world',
-          'writes. local_automation is for filesystem, shell, compilation or machine control.',
-          'Use not_a_capability_gap only for a one-off conversational request with no reusable',
-          'research workflow. Never disguise an external write or code execution as research.',
-          'Create a short stable lowercase slash command. searchQueryTemplate must contain {input}.',
-        ].join('\n'),
-        prompt: [
-          `USER CAPABILITY GAP:\n${params.request}`,
-          docs ? `\nOFFICIAL-DOC RESEARCH CONTEXT:\n${docs.block}` : '',
-          '\nDesign the smallest reusable capability.',
-        ].join('\n'),
-        schema: capabilityPlanSchema,
-        temperature: 0.1,
-        ...(params.model ? { model: params.model } : {}),
-        maxTokens: 1200,
-        signal: params.signal,
-      });
-      plan = proposed ? capabilityPlanSchema.parse(proposed) : null;
-    } catch (err) {
-      throwIfAborted(params.signal);
-      log.warn({ err, hasSafeFallback: Boolean(localResearchPlan) }, 'capability planning failed');
-      if (!localResearchPlan) {
-        return withSources(
-          empty(
+    let plan: CapabilityPlan | null = guardedLocalAutomationPlan;
+    if (!plan) {
+      try {
+        const proposed = await this.llm.jsonCompletion({
+          system: [
+            'You design persistent capabilities for a Telegram assistant. Output only schema JSON.',
+            'The user explicitly invoked /learn. A reusable read-only web research workflow IS a',
+            'capability gap even when one example could be answered by ordinary reasoning.',
+            'Classify honestly. research_recipe is ONLY for read-only requests solvable by web search',
+            'plus text synthesis. external_integration is for APIs/accounts/credentials or real-world',
+            'writes. local_automation is for filesystem, shell, compilation or machine control.',
+            'A request to fix or change this bot, its handlers, limits or media pipeline is always',
+            'local_automation, never not_a_capability_gap, even if the current code partly supports it.',
+            'Use not_a_capability_gap only for a one-off conversational request with no reusable',
+            'research workflow. Never disguise an external write or code execution as research.',
+            'Create a short stable lowercase slash command. searchQueryTemplate must contain {input}.',
+          ].join('\n'),
+          prompt: `USER CAPABILITY GAP:\n${params.request}\n\nDesign the smallest reusable capability.`,
+          schema: capabilityPlanSchema,
+          temperature: 0.1,
+          ...(params.model ? { model: params.model } : {}),
+          maxTokens: 1200,
+          signal: params.signal,
+        });
+        plan = proposed ? capabilityPlanSchema.parse(proposed) : null;
+      } catch (err) {
+        throwIfAborted(params.signal);
+        log.warn(
+          { err, hasSafeFallback: Boolean(localResearchPlan) },
+          'capability planning failed',
+        );
+        if (!localResearchPlan) {
+          return empty(
             params.language === 'italian'
               ? 'Il pianificatore non è disponibile in questo momento; nessuna capacità è stata dichiarata installata.'
               : 'The planner is unavailable right now; no capability was reported as installed.',
             'planning_failed',
             diagnostic('planner_unavailable', [], true),
-          ),
-          docs?.sources ?? [],
-        );
+          );
+        }
       }
     }
     const plannerReturnedNoPlan = !plan;
@@ -280,24 +274,45 @@ export class CapabilityForge {
       plan = localResearchPlan;
     }
     if (!plan) {
-      return withSources(
-        empty(
-          plannerReturnedNoPlan
-            ? params.language === 'italian'
-              ? 'Il pianificatore non ha prodotto un piano valido e la richiesta non rientra nel fallback sicuro di ricerca; nessuna capacità è stata installata.'
-              : 'The planner produced no valid plan and the request is outside the safe research fallback; no capability was installed.'
-            : params.language === 'italian'
-              ? 'Non manca un plugin: questa richiesta va risolta dal normale ragionamento.'
-              : 'This is not a capability gap; normal reasoning should handle it.',
-          plannerReturnedNoPlan ? 'planning_failed' : 'not_applicable',
-          plannerReturnedNoPlan ? diagnostic('planner_unavailable', [], true) : undefined,
-        ),
-        docs?.sources ?? [],
+      return empty(
+        plannerReturnedNoPlan
+          ? params.language === 'italian'
+            ? 'Il pianificatore non ha prodotto un piano valido e la richiesta non rientra nel fallback sicuro di ricerca; nessuna capacità è stata installata.'
+            : 'The planner produced no valid plan and the request is outside the safe research fallback; no capability was installed.'
+          : params.language === 'italian'
+            ? 'Non manca un plugin: questa richiesta va risolta dal normale ragionamento.'
+            : 'This is not a capability gap; normal reasoning should handle it.',
+        plannerReturnedNoPlan ? 'planning_failed' : 'not_applicable',
+        plannerReturnedNoPlan ? diagnostic('planner_unavailable', [], true) : undefined,
       );
     }
 
+    // Documentation research is useful only after an external integration has been identified.
+    // Research recipes perform their own focused grounding during smoke execution; local changes
+    // and not-applicable requests must never acquire incidental web sources.
+    const docs =
+      plan.classification === 'external_integration' && this.grounding.enabled
+        ? await this.grounding
+            .groundWeb(
+              `official developer API documentation ${plan.description} ${params.request}`.slice(
+                0,
+                300,
+              ),
+              params.language,
+              params.chatId,
+              params.signal,
+            )
+            .catch((err) => {
+              throwIfAborted(params.signal);
+              log.debug({ err }, 'capability documentation research failed');
+              return null;
+            })
+        : null;
+
     if (plan.classification !== 'research_recipe') {
       throwIfAborted(params.signal);
+      const documentationSources =
+        plan.classification === 'external_integration' ? (docs?.sources ?? []) : [];
       const proposalId = await this.persistProposal(plan.id, (uniqueId) => ({
         ...plan,
         id: uniqueId,
@@ -312,7 +327,7 @@ export class CapabilityForge {
           false,
           false,
         ),
-        documentationSources: docs?.sources ?? [],
+        documentationSources,
         createdAt: new Date(),
       }));
       const requiredConfig = plan.requiredConfig ?? [];
@@ -336,7 +351,7 @@ export class CapabilityForge {
             false,
           ),
         ),
-        docs?.sources ?? [],
+        documentationSources,
       );
     }
 
@@ -872,6 +887,13 @@ const NON_RESEARCH_ACTION_RE =
   /\b(scaric|download|caric|upload|pubblic|post(?:a|are|ing)?|invi|send|scriv|write|modific|edit|elimin|delete|compra|buy|vend|sell|prenot|book|login|acced|autentic|credential|password|cookie|token|api\s*key|shell|terminale|filesystem|file\s+system|compil|install|esegu|execute|run\s+(?:a\s+)?command|deploy|wallet|transaz|bonific|payment|pagament|scrap(?:e|ing)|crawler)\w*/iu;
 const GENERATED_AUTOMATION_RE =
   /\b(crea|costruisc|svilupp|implement|create|build|develop)\w*(?:\s+\w+){0,5}\s+(bot|script|client|plugin|app)\b/iu;
+const BOT_CHANGE_ACTION_RE =
+  /\b(corregg|sistem|fix|modific|cambi|implement|aggiung|rimuov|gestisc|support|ignor|prend|usa|includ|fai\s+in\s+modo)\w*/iu;
+const BOT_SYSTEM_TARGET_RE =
+  /\b(bot|gooneurobot|goonersbot|pipeline|handler|extractor|downloader|rehost|link[ _-]?media)\w*/iu;
+const BOT_SELF_REFERENCE_RE = /\b(tu[oaie]|your|its)\b/iu;
+const BOT_PIPELINE_SIGNAL_RE =
+  /\b(download|quota|limit|limite|transcript|trascriz|contesto|context|frame|immagin|comment|video|reel)\w*/giu;
 const FALLBACK_STOP_WORDS = new Set([
   'aggiornato',
   'attuale',
@@ -895,6 +917,48 @@ const FALLBACK_STOP_WORDS = new Set([
   'verifica',
   'with',
 ]);
+
+/**
+ * Deterministic safety guard for explicit requests to modify this bot's local behaviour. These
+ * become reviewable proposals only: they never enter the research-recipe installer and never run
+ * generated code.
+ */
+function localBotAutomationPlan(request: string): CapabilityPlan | null {
+  const normalized = request.trim();
+  const pipelineSignals = new Set(
+    (normalized.match(BOT_PIPELINE_SIGNAL_RE) ?? []).map((signal) => signal.toLowerCase()),
+  );
+  const identifiesBotOrPipeline =
+    BOT_SYSTEM_TARGET_RE.test(normalized) ||
+    (BOT_SELF_REFERENCE_RE.test(normalized) && pipelineSignals.size > 0) ||
+    pipelineSignals.size > 1;
+  if (normalized.length < 8 || !BOT_CHANGE_ACTION_RE.test(normalized) || !identifiesBotOrPipeline) {
+    return null;
+  }
+
+  const target =
+    normalized
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .match(
+        /\b(quota|download|rehost|link[ _-]?media|transcript|context|contesto|frame|comment|video|reel|pipeline|handler|bot)\w*/,
+      )?.[0]
+      ?.replace(/[^a-z0-9]+/g, '_')
+      .slice(0, 20) ?? 'pipeline';
+  const command = `fix_${target}`.slice(0, 31);
+  return capabilityPlanSchema.parse({
+    classification: 'local_automation',
+    id: `${command}_automation`.slice(0, 49),
+    command,
+    description: `Reviewed local bot behaviour change: ${normalized}`.slice(0, 240),
+    searchQueryTemplate: '{input}',
+    answerInstruction: '',
+    requiredConfig: [],
+    reason:
+      'The request changes local bot or media-pipeline behaviour and requires a reviewed code change.',
+  });
+}
 
 /**
  * Last-resort planner for an explicit, obviously read-only research workflow. It deliberately

@@ -1,10 +1,25 @@
 import { describe, expect, it } from 'vitest';
+import { Localizer } from '../src/config/index.js';
 import {
+  formatMediaDuration,
   linkMediaHandlerErrorResult,
   shouldStopAfterDeterministicLinkMedia,
 } from '../src/telegram/handlers/message.js';
 
 describe('deterministic link-media conversation routing', () => {
+  it('formats the known duration and cap for a short deterministic notice', () => {
+    expect(formatMediaDuration(1_050)).toBe('17:30');
+    expect(formatMediaDuration(300)).toBe('5:00');
+    expect(formatMediaDuration(3_661)).toBe('1:01:01');
+    expect(
+      new Localizer('italian').t(
+        'media_rehost_duration_exceeded',
+        { duration: '17:30', limit: '5:00' },
+        'italian',
+      ),
+    ).toBe('Rehost disabilitato: video da 17:30, limite 5:00.');
+  });
+
   it('stays silent after a passive rehost when autoengage is disabled', () => {
     expect(
       shouldStopAfterDeterministicLinkMedia({

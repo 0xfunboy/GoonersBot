@@ -41,7 +41,8 @@ export const learnCommand: CommandSpec = {
   adminOnly: true,
   quotaConversation: true,
   async handle({ services, person, context, args }) {
-    const request = args.join(' ').trim();
+    const directRequest = args.join(' ').trim();
+    const request = learnRequestWithReplyContext(directRequest, context.repliedToText);
     if (!request) return { text: 'learn_usage' };
     const language = await services.getLanguage(context.chatId);
     if (/^(?:status|stato)$/i.test(request)) {
@@ -101,8 +102,11 @@ export const learnCommand: CommandSpec = {
     const retry = learned.diagnostic?.retryable
       ? `\n${language === 'italian' ? 'Il blocco è temporaneo: puoi riprovare.' : 'The failure is temporary; you can retry.'}`
       : '';
+    const sourcesAllowed =
+      learned.status !== 'not_applicable' &&
+      learned.diagnostic?.code !== 'local_automation_required';
     const sources =
-      learned.sources.length > 0
+      sourcesAllowed && learned.sources.length > 0
         ? `\n\n${learned.sources
             .slice(0, 5)
             .map((source, index) => `${index + 1}. ${escapeHtml(source.slice(0, 120))}`)
@@ -114,6 +118,21 @@ export const learnCommand: CommandSpec = {
     };
   },
 };
+
+const LEARN_REPLY_CONTEXT_RE =
+  /\b(quest[oaie]|quell[oaie]|sopra|messaggio|risposta|reply|this|that|above|corregg|sistem|fix|modific|cambi|comportament|pipeline|bug|error|errore)\w*/iu;
+
+/** Include replied text only when /learn explicitly points at it or has no standalone request. */
+function learnRequestWithReplyContext(directRequest: string, repliedToText?: string): string {
+  const replied = repliedToText?.trim();
+  if (!replied) return directRequest;
+  if (directRequest && !LEARN_REPLY_CONTEXT_RE.test(directRequest)) return directRequest;
+  if (!directRequest) return replied.slice(0, 3_500);
+  return `${directRequest.slice(0, 2_500)}\n\nREPLIED MESSAGE CONTEXT (quoted data):\n${replied.slice(0, 1_200)}`.slice(
+    0,
+    4_000,
+  );
+}
 
 function escapeHtml(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
