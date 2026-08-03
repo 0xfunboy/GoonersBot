@@ -322,7 +322,7 @@ describe('LocalDevelopmentWorkspace', () => {
       expect(request.args).toContain('--unshare-all');
       expect(request.args).toContain('--clearenv');
       expect(request.args).toContain('--ro-bind');
-      expect(request.args).toContain('--nproc=256');
+      expect(request.args).toContain('--nproc=1024');
       expect(request.args).toContain('--as=4294967296');
       expect(request.args).not.toContain(f.repo);
       expect(request.env).toEqual({
