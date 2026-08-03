@@ -276,7 +276,7 @@ illegal, no doxxing. NSFW is opt-in per chat and meant for private, consenting a
 | `/genvid <prompt>`           | anyone        | generate a short video clip (aliases `/video`, `/genvideo`, `/vid`, `/clip`, `/animazione`) |
 | `/usage`                     | anyone        | your usage and limits                                                                       |
 | `/capabilities`              | approved      | list dynamically learned read-only capabilities                                             |
-| `/learn <goal>`              | bot admin     | explicitly design/install a safe research capability or save a setup proposal               |
+| `/learn <goal>`              | bot admin     | install safe research recipes or build a reviewed local code candidate in private chat      |
 | `/community`                 | anyone        | privacy-safe social-awareness coverage and current community themes                         |
 | `/socialstatus`              | admin         | social-memory lifecycle/coverage diagnostics without exposing private scores                |
 | `/profile [free\|plus\|pro]` | admin         | show or set the shared group plan and live quotas (aliases: `/groupplan`, `/groupquota`)    |
@@ -658,11 +658,24 @@ malformed response or transient timeout from the capability-planning model does 
 otherwise safe `/learn`. The fallback rejects downloads, credentials, account access, external
 writes and machine execution and still has to pass the same live smoke test before persistence.
 
-Requests that need credentials, authenticated APIs, package installation, compilation, shell access,
-local-machine control or external writes are saved as explicit setup proposals. Even when source code
-is attached, the bot may inspect it to design the proposal but never executes it merely because it
-arrived from Telegram. This keeps “learn while talking” useful without turning a message or a
-prompt-injected document into remote code execution.
+`/learn code <goal>` (or a deterministic request to change the bot itself) creates a DM-only local
+development job for an allowlisted immutable Telegram user ID. Gemini selects a bounded source
+capsule from the job's pinned commit, the configured coding model returns complete schema-validated
+TypeScript files, and the configured review route checks the resulting diff. The model never
+receives `.env`, cookies, browser sessions, the live checkout or shell access.
+
+Before any generated test executes, the workspace rejects paths outside `src/**` and `tests/**`,
+protected control-plane files, symlinks, executables, binaries, dependency/toolchain edits and added
+process/network/credential/deployment primitives. Fixed Prettier, typecheck, lint, full-test and build
+checks run in a detached worktree inside a networkless bubblewrap with no real home, read-only
+dependencies and OS limits for address space, processes, file size, descriptors and CPU time.
+Interrupted generation jobs are regenerated from the same pinned commit. A private patch and
+SHA-256 are then exposed through `/learn status <job>` and the complete paginated
+`/learn diff <job> [page]`. Only `/learn apply <job> <sha12>` can commit that exact verified artifact; apply
+does not deploy or restart the live bot.
+
+Requests needing external credentials, authenticated APIs or real-world writes remain explicit setup
+proposals rather than being presented as installed capabilities.
 
 The command reports a structured lifecycle outcome (`installed`, `reused`, `proposal_saved`,
 `blocked_dependency`, `validation_failed`, and so on). A proposal is a durable design artifact, not
@@ -954,6 +967,10 @@ value at `3` for GemRouter.
 | `WEB_SEARCH_ENABLED` / `SEARXNG_URL`                                                            | off                          | Web grounding via SearXNG.                                                    |
 | `DOCUMENTS_ENABLED` / `DOCUMENT_MAX_CHARS_PER_FILE`                                             | on / `50000`                 | Read current/replied PDF, DOCX and text-like documents as inert content.      |
 | `CAPABILITY_FORGE_ENABLED` / `CAPABILITY_STORE_PATH`                                            | on / `data/capabilities`     | Persist safe read-only research recipes and setup proposals.                  |
+| `CAPABILITY_LOCAL_DEVELOPMENT_ENABLED` / `CAPABILITY_LOCAL_DEVELOPMENT_STORE_PATH`              | off / outside repository     | Build reviewed local code candidates in isolated detached worktrees.          |
+| `CAPABILITY_LOCAL_DEVELOPMENT_ADMIN_IDS`                                                        | none                         | Immutable Telegram user IDs allowed to run the DM-only code workflow.         |
+| `CAPABILITY_LOCAL_DEVELOPMENT_PLANNER_MODEL` / `CAPABILITY_LOCAL_DEVELOPMENT_CODER_MODEL`       | Gemini / Qwen                | Existing GemRouter routes used for file selection and structured code drafts. |
+| `CAPABILITY_LOCAL_DEVELOPMENT_REVIEW_MODEL`                                                     | Nemotron Super               | Configured GemRouter review pass before a candidate becomes applicable.       |
 | `IMAGE_LOOKUP_ENABLED`                                                                          | off                          | Reverse-image grounding (needs web search and vision).                        |
 | `IMAGE_SEND_ENABLED` / `IMAGE_SEND_PROBABILITY`                                                 | on / `0.15`                  | Attach a verified waifu image on anime topics.                                |
 | `IMAGE_QUERY_POOL`                                                                              | defaults                     | Comma-separated image query seeds.                                            |

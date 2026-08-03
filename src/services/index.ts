@@ -47,6 +47,7 @@ import { QUOTA_PLANS, type QuotaPlan, type QuotaPlanId } from '../quota/plans.js
 import { ConversationThreadTracker } from './threadTracker.js';
 import { DocumentProcessor } from '../documents/documentProcessor.js';
 import { CapabilityForge } from '../capabilities/forge.js';
+import { LocalDevelopmentService } from '../capabilities/localDevelopmentService.js';
 import {
   SocialLearningPipeline,
   SocialObservationMiner,
@@ -64,6 +65,7 @@ export * from './reply.js';
 export * from './modelRouter.js';
 export * from './groupQuota.js';
 export * from './systemInfo.js';
+export * from '../capabilities/localDevelopmentService.js';
 
 /**
  * Service container. Built once at boot and shared by all handlers. Holds every domain service
@@ -110,6 +112,7 @@ export class Services {
   readonly socialLearning: SocialLearningPipeline;
   readonly documents: DocumentProcessor;
   readonly capabilities: CapabilityForge;
+  readonly localDevelopment: LocalDevelopmentService;
   /** per-user, per-chat anti-spam cooldown for command invocations */
   readonly commandRateLimit: Cooldown;
 
@@ -154,7 +157,12 @@ export class Services {
     this.quota = new GroupQuotaService(storage);
     this.systemInfo = new SystemInfoService(config, this.quota);
     this.linkMedia = new LinkMediaService(config.linkMedia, storage, this.media, this.quota);
-    this.permissions = new PermissionService(storage, env.ALLOWED_HANDLES, env.ADMIN_HANDLES);
+    this.permissions = new PermissionService(
+      storage,
+      env.ALLOWED_HANDLES,
+      env.ADMIN_HANDLES,
+      env.CAPABILITY_LOCAL_DEVELOPMENT_ADMIN_IDS,
+    );
     this.access = new AccessService(
       env.APPROVED_STORE_PATH,
       env.APPROVED_CHATS,
@@ -238,6 +246,21 @@ export class Services {
       storePath: env.CAPABILITY_STORE_PATH,
       autoInstallResearch: env.CAPABILITY_AUTO_INSTALL_RESEARCH,
     });
+    this.localDevelopment = LocalDevelopmentService.create(
+      {
+        enabled: env.CAPABILITY_LOCAL_DEVELOPMENT_ENABLED,
+        repositoryPath: process.cwd(),
+        storePath: env.CAPABILITY_LOCAL_DEVELOPMENT_STORE_PATH,
+        adminTelegramIds: env.CAPABILITY_LOCAL_DEVELOPMENT_ADMIN_IDS,
+        plannerModel: env.CAPABILITY_LOCAL_DEVELOPMENT_PLANNER_MODEL,
+        coderModel: env.CAPABILITY_LOCAL_DEVELOPMENT_CODER_MODEL,
+        reviewModel: env.CAPABILITY_LOCAL_DEVELOPMENT_REVIEW_MODEL,
+        maxAttempts: env.CAPABILITY_LOCAL_DEVELOPMENT_MAX_ATTEMPTS,
+        jobTimeoutMs: env.CAPABILITY_LOCAL_DEVELOPMENT_JOB_TIMEOUT_MS,
+        bubblewrapBin: '/usr/bin/bwrap',
+      },
+      llm,
+    );
     this.imageFinder = new ImageFinder(searxng, this.media, config.auto.imageQueryPool);
     this.news = new NewsService(
       config.auto.rssFeeds,

@@ -923,7 +923,7 @@ const FALLBACK_STOP_WORDS = new Set([
  * become reviewable proposals only: they never enter the research-recipe installer and never run
  * generated code.
  */
-function localBotAutomationPlan(request: string): CapabilityPlan | null {
+export function localBotAutomationPlan(request: string): CapabilityPlan | null {
   const normalized = request.trim();
   const pipelineSignals = new Set(
     (normalized.match(BOT_PIPELINE_SIGNAL_RE) ?? []).map((signal) => signal.toLowerCase()),

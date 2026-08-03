@@ -553,6 +553,9 @@ function renderModels(
     ['Planner', config.brain?.plannerModel],
     ['Reply', config.brain?.replyModel],
     ['Ranker', config.brain?.rankerModel],
+    ['Learn planner', config.env?.CAPABILITY_LOCAL_DEVELOPMENT_PLANNER_MODEL],
+    ['Learn coder', config.env?.CAPABILITY_LOCAL_DEVELOPMENT_CODER_MODEL],
+    ['Learn reviewer', config.env?.CAPABILITY_LOCAL_DEVELOPMENT_REVIEW_MODEL],
   ];
   for (const [index, fallback] of (config.llm?.freeFallbacks ?? []).slice(0, 3).entries()) {
     models.push([`Fallback libero ${index + 1}`, fallback.model]);

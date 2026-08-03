@@ -157,6 +157,7 @@ async function main(): Promise<void> {
   // 4. Services.
   const services = new Services(config, storage, llm, miningLlm);
   await services.capabilities.initialize();
+  await services.localDevelopment.initialize();
   for (const chatId of await storage.chats.listStartedChatIds(services.access.list().chats)) {
     const members = await storage.chatMembers.listMembers(chatId);
     const totalMessagesByTelegramId = new Map<number, number>();
@@ -315,6 +316,11 @@ async function main(): Promise<void> {
       await services.linkMedia.shutdown();
     } catch (err) {
       log.warn({ err }, 'error stopping link-media jobs');
+    }
+    try {
+      await services.localDevelopment.shutdown();
+    } catch (err) {
+      log.warn({ err }, 'error stopping local-development jobs');
     }
     try {
       await storage.close();

@@ -31,6 +31,11 @@ describe('loadEnv', () => {
     expect(env.LINK_MEDIA_EXTRA_YTDLP_HOSTS).toBeUndefined();
     expect(env.LINK_MEDIA_YTDLP_NETWORK_ISOLATION).toBe(true);
     expect(env.LINK_MEDIA_BWRAP_BIN).toBe('/usr/bin/bwrap');
+    expect(env.CAPABILITY_LOCAL_DEVELOPMENT_ENABLED).toBe(false);
+    expect(env.CAPABILITY_LOCAL_DEVELOPMENT_ADMIN_IDS).toEqual([]);
+    expect(env.CAPABILITY_LOCAL_DEVELOPMENT_PLANNER_MODEL).toBe('gemini-3.6-flash');
+    expect(env.CAPABILITY_LOCAL_DEVELOPMENT_CODER_MODEL).toBe('qwen/qwen3.5-397b-a17b');
+    expect(env.CAPABILITY_LOCAL_DEVELOPMENT_REVIEW_MODEL).toBe('nvidia/nemotron-3-super-120b-a12b');
   });
 
   it('normalizes link-media cookie/runtime configuration', () => {
@@ -65,6 +70,29 @@ describe('loadEnv', () => {
     });
     expect(env.AUTOENGAGE_DEFAULT_ENABLED).toBe(true);
     expect(env.MAX_REPLIES_PER_CHAT_PER_HOUR).toBe(7);
+  });
+
+  it('parses immutable local-development admin ids and bounds worker settings', () => {
+    const env = loadEnv({
+      ...base,
+      CAPABILITY_LOCAL_DEVELOPMENT_ENABLED: 'true',
+      CAPABILITY_LOCAL_DEVELOPMENT_ADMIN_IDS: '123,456',
+      CAPABILITY_LOCAL_DEVELOPMENT_MAX_ATTEMPTS: '3',
+      CAPABILITY_LOCAL_DEVELOPMENT_JOB_TIMEOUT_MS: '60000',
+    });
+    expect(env.CAPABILITY_LOCAL_DEVELOPMENT_ENABLED).toBe(true);
+    expect(env.CAPABILITY_LOCAL_DEVELOPMENT_ADMIN_IDS).toEqual([123, 456]);
+    expect(env.CAPABILITY_LOCAL_DEVELOPMENT_MAX_ATTEMPTS).toBe(3);
+    expect(env.CAPABILITY_LOCAL_DEVELOPMENT_JOB_TIMEOUT_MS).toBe(60_000);
+
+    expect(() => loadEnv({ ...base, CAPABILITY_LOCAL_DEVELOPMENT_MAX_ATTEMPTS: '4' })).toThrow(
+      /CAPABILITY_LOCAL_DEVELOPMENT_MAX_ATTEMPTS/,
+    );
+    for (const malformed of ['123abc', '123.9', '1e3', '-123', '0']) {
+      expect(() => loadEnv({ ...base, CAPABILITY_LOCAL_DEVELOPMENT_ADMIN_IDS: malformed })).toThrow(
+        /Telegram ID/,
+      );
+    }
   });
 });
 
