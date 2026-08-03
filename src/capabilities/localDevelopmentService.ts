@@ -16,6 +16,7 @@ import {
 } from './localDevelopmentJobs.js';
 import { LocalDevelopmentSources } from './localDevelopmentSources.js';
 import {
+  LocalDevelopmentFormattingError,
   LocalDevelopmentPolicyError,
   LocalDevelopmentWorkspace,
   type LocalDevelopmentApplyResult,
@@ -391,7 +392,22 @@ export class LocalDevelopmentService {
           model: this.config.coderModel,
           signal: scope.signal,
         });
-        await this.writeExactProposal(job.id, proposal, candidates, attempt > 1);
+        try {
+          await this.writeExactProposal(job.id, proposal, candidates, attempt > 1, scope.signal);
+        } catch (error) {
+          if (!(error instanceof LocalDevelopmentFormattingError)) throw error;
+          feedback = [redactSecrets(error.feedback).slice(-300)];
+          if (attempt < this.config.maxAttempts) {
+            candidates = proposal.files.map((file) => ({
+              path: file.path,
+              kind: 'regular' as const,
+              content: file.content,
+            }));
+            continue;
+          }
+          await this.failJob(job.id, leaseToken, 'formatting_failed');
+          return;
+        }
         job = await this.dependencies.jobs.update(
           job.id,
           { state: job.state === 'generating' ? 'policy_check' : job.state },
@@ -444,7 +460,7 @@ export class LocalDevelopmentService {
           job.id,
           {
             state: 'failed',
-            checks: storedChecks(verified, false),
+            checks: storedChecks(verified, true),
             resultCode:
               verified.status === 'manual_review'
                 ? 'manual_review_required'
@@ -481,6 +497,7 @@ export class LocalDevelopmentService {
     draft: LocalDevelopmentDraft,
     candidates: readonly LocalDevelopmentCandidateFile[],
     retry: boolean,
+    signal: AbortSignal,
   ): Promise<void> {
     if (retry) {
       const expected = [...new Set(candidates.map((candidate) => candidate.path))].sort();
@@ -492,6 +509,7 @@ export class LocalDevelopmentService {
     await this.dependencies.workspace.writeProposal(
       jobId,
       draft.files.map((file) => ({ path: file.path, content: file.content })),
+      signal,
     );
   }
 

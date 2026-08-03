@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  LocalDevelopmentFormattingError,
   LocalDevelopmentPolicyError,
   LocalDevelopmentWorkspace,
   type LocalDevelopmentProcessRequest,
@@ -296,9 +297,14 @@ describe('LocalDevelopmentWorkspace', () => {
     const runner = hybridRunner();
     const manager = new LocalDevelopmentWorkspace(options(f, runner));
     await manager.createJob('job006', f.head);
-    await manager.writeProposal('job006', {
-      'src/value.ts': 'export const value = 2;\n',
-    });
+    const signal = new AbortController().signal;
+    await manager.writeProposal(
+      'job006',
+      {
+        'src/value.ts': 'export const value = 2;\n',
+      },
+      signal,
+    );
 
     const verified = await manager.verify('job006');
     expect(verified.ready).toBe(true);
@@ -309,7 +315,9 @@ describe('LocalDevelopmentWorkspace', () => {
       'test',
       'build',
     ]);
-    expect(runner.requests).toHaveLength(5);
+    expect(runner.requests).toHaveLength(6);
+    expect(runner.requests[0]?.signal).toBeDefined();
+    expect(runner.requests[0]?.args).toContain('--write');
     for (const request of runner.requests) {
       expect(request.args).toContain('--unshare-all');
       expect(request.args).toContain('--clearenv');
@@ -344,7 +352,7 @@ describe('LocalDevelopmentWorkspace', () => {
     const f = await fixture();
     let shouldFail = true;
     const runner = hybridRunner((_request, invocation) => {
-      if (shouldFail && invocation === 1) {
+      if (shouldFail && invocation === 2) {
         return {
           code: 1,
           stdout: '',
@@ -371,11 +379,38 @@ describe('LocalDevelopmentWorkspace', () => {
     await expect(manager.verify('job007')).resolves.toMatchObject({ ready: true, status: 'ready' });
   });
 
+  it('allows a safe rewrite after formatter parsing fails before scope persistence', async () => {
+    const f = await fixture();
+    let rejectFormatting = true;
+    const runner = hybridRunner(() =>
+      rejectFormatting
+        ? { code: 2, stdout: '', stderr: 'SyntaxError: expected expression' }
+        : undefined,
+    );
+    const manager = new LocalDevelopmentWorkspace(options(f, runner));
+    await manager.createJob('job019', f.head);
+
+    await expect(
+      manager.writeProposal('job019', { 'src/value.ts': 'export const value = ;\n' }),
+    ).rejects.toBeInstanceOf(LocalDevelopmentFormattingError);
+    await expect(manager.readWorkspaceFile('job019', 'src/value.ts')).rejects.toThrow(
+      /only proposed files/i,
+    );
+
+    rejectFormatting = false;
+    await expect(
+      manager.writeProposal('job019', { 'src/value.ts': 'export const value = 2;\n' }),
+    ).resolves.toMatchObject({
+      status: 'proposal_written',
+      changedFiles: ['src/value.ts'],
+    });
+  });
+
   it('fails closed if a check mutates proposed source behind the manager', async () => {
     const f = await fixture();
     let worktree = '';
     const runner = hybridRunner((_request, invocation) => {
-      if (invocation === 1) {
+      if (invocation === 2) {
         writeFileSync(join(worktree, 'src', 'value.ts'), 'export const value = 99;\n');
       }
     });
@@ -483,6 +518,30 @@ describe('LocalDevelopmentWorkspace', () => {
     expect((await stat(join(f.workspaceRoot, 'worktrees', 'job010', 'src', 'value.ts'))).size).toBe(
       'export const value = 1;\n'.length,
     );
+  });
+
+  it('reapplies aggregate line limits after trusted formatting', async () => {
+    const f = await fixture();
+    let worktree = '';
+    const runner = hybridRunner((_request, invocation) => {
+      if (invocation === 1) {
+        writeFileSync(join(worktree, 'src', 'value.ts'), 'one\ntwo\nthree\n');
+        writeFileSync(join(worktree, 'tests', 'value.test.ts'), 'one\ntwo\nthree\n');
+      }
+    });
+    const manager = new LocalDevelopmentWorkspace({
+      ...options(f, runner),
+      limits: { maxFileLines: 4, maxTotalLines: 5 },
+    });
+    const job = await manager.createJob('job018', f.head);
+    worktree = job.worktreePath;
+
+    await expect(
+      manager.writeProposal('job018', {
+        'src/value.ts': 'export const value = 2;\n',
+        'tests/value.test.ts': 'export const fixture = false;\n',
+      }),
+    ).rejects.toThrow(/total size limit/i);
   });
 
   it('refuses a workspace root that overlaps the repository', async () => {

@@ -260,6 +260,16 @@ export class LocalDevelopmentPolicyError extends Error {
   }
 }
 
+export class LocalDevelopmentFormattingError extends LocalDevelopmentPolicyError {
+  readonly feedback: string;
+
+  constructor(feedback: string) {
+    super(`trusted TypeScript formatting failed${feedback ? `: ${feedback}` : ''}`);
+    this.name = 'LocalDevelopmentFormattingError';
+    this.feedback = feedback || 'Prettier could not parse or format the generated TypeScript.';
+  }
+}
+
 /**
  * A deliberately narrow workspace for model-authored local changes.
  *
@@ -429,6 +439,7 @@ export class LocalDevelopmentWorkspace {
   async writeProposal(
     jobId: string,
     proposal: LocalDevelopmentProposal,
+    signal?: AbortSignal,
   ): Promise<LocalDevelopmentJob> {
     this.assertJobId(jobId);
     return this.withLock(`job-${jobId}`, async () => {
@@ -457,12 +468,21 @@ export class LocalDevelopmentWorkspace {
         await this.writeRegularFile(job, file);
       }
       await this.git(job.worktreePath, ['add', '--intent-to-add', '--', ...paths]);
-      const inspection = await this.inspectProposal(job, paths);
+      let inspection = await this.inspectProposal(job, paths);
       if (inspection.changedFiles.length === 0) {
         throw new LocalDevelopmentPolicyError('proposal does not change the pinned source tree');
       }
       if (!sameStrings(inspection.changedFiles, paths)) {
         throw new LocalDevelopmentPolicyError('proposal changed files outside its declared scope');
+      }
+      if (inspection.manualReviewReasons.length === 0) {
+        await this.formatSafeProposal(job, paths, signal);
+        inspection = await this.inspectProposal(job, paths, true);
+        if (!sameStrings(inspection.changedFiles, paths)) {
+          throw new LocalDevelopmentPolicyError(
+            'trusted formatting changed files outside the proposal scope',
+          );
+        }
       }
 
       job.changedFiles = inspection.changedFiles;
@@ -968,15 +988,26 @@ export class LocalDevelopmentWorkspace {
     }
 
     const hashes: Record<string, string> = {};
+    let totalBytes = 0;
+    let totalLines = 0;
     for (const path of changedFiles) {
       const target = join(job.worktreePath, path);
       await assertRegularNonExecutable(target);
       const data = await readFile(target);
-      if (data.byteLength > this.limits.maxFileBytes) {
+      const content = decodeUtf8(data, path);
+      const lines = countLines(content);
+      if (data.byteLength > this.limits.maxFileBytes || lines > this.limits.maxFileLines) {
         throw new LocalDevelopmentPolicyError(`${path}: per-file size limit exceeded`);
       }
-      decodeUtf8(data, path);
+      if (containsSecret(content)) {
+        throw new LocalDevelopmentPolicyError(`${path}: secret-like material is denied`);
+      }
+      totalBytes += data.byteLength;
+      totalLines += lines;
       hashes[path] = sha256(data);
+    }
+    if (totalBytes > this.limits.maxTotalBytes || totalLines > this.limits.maxTotalLines) {
+      throw new LocalDevelopmentPolicyError('proposal total size limit exceeded');
     }
     const diff = (
       await this.git(job.worktreePath, [
@@ -1203,6 +1234,27 @@ export class LocalDevelopmentWorkspace {
         LC_ALL: 'C.UTF-8',
       },
     };
+  }
+
+  private async formatSafeProposal(
+    job: LocalDevelopmentJob,
+    paths: string[],
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const sandbox = await this.sandboxConfiguration(job);
+    const result = await this.runner({
+      command: sandbox.launcher,
+      args: [...sandbox.args, sandbox.pnpm, 'exec', 'prettier', '--write', '--', ...paths],
+      cwd: job.worktreePath,
+      env: sandbox.hostEnv,
+      timeoutMs: 90_000,
+      maxOutputBytes: this.limits.maxDiagnosticBytes,
+      signal,
+    });
+    if (result.code !== 0 || result.timedOut) {
+      const diagnostic = this.redactDiagnostic(`${result.stdout}\n${result.stderr}`, job);
+      throw new LocalDevelopmentFormattingError(diagnostic);
+    }
   }
 
   private async removeGeneratedBuildOutput(job: LocalDevelopmentJob): Promise<void> {
