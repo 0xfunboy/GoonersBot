@@ -13,12 +13,22 @@ const ctx = (over: Partial<ChatContext> = {}): ChatContext => ({
   ...over,
 });
 
-function svc(opts: { allowed?: string[] | null; admins?: string[] | null; banned?: string[] }) {
+function svc(opts: {
+  allowed?: string[] | null;
+  admins?: string[] | null;
+  learnAdmins?: number[];
+  banned?: string[];
+}) {
   const bannedSet = new Set(opts.banned ?? []);
   const storage = fakeStorage({
     bans: { isBanned: async (h: string) => bannedSet.has(h) },
   });
-  return new PermissionService(storage, opts.allowed ?? null, opts.admins ?? null);
+  return new PermissionService(
+    storage,
+    opts.allowed ?? null,
+    opts.admins ?? null,
+    opts.learnAdmins ?? [],
+  );
 }
 
 describe('PermissionService', () => {
@@ -37,6 +47,13 @@ describe('PermissionService', () => {
   it('bot_admin requires the handle in ADMIN_HANDLES', async () => {
     expect(await svc({ admins: null }).check('bot_admin', person, ctx())).toBe(false);
     expect(await svc({ admins: ['@bob'] }).check('bot_admin', person, ctx())).toBe(true);
+  });
+  it('learn_admin accepts either the immutable Telegram ID or an existing bot-admin handle', async () => {
+    expect(
+      await svc({ learnAdmins: [person.telegramId] }).check('learn_admin', person, ctx()),
+    ).toBe(true);
+    expect(await svc({ admins: ['@bob'] }).check('learn_admin', person, ctx())).toBe(true);
+    expect(await svc({ learnAdmins: [999] }).check('learn_admin', person, ctx())).toBe(false);
   });
   it('admin passes for group admins OR bot admins', async () => {
     // group admin, not a bot admin

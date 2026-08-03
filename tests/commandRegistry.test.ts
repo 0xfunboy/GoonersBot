@@ -213,7 +213,7 @@ describe('dynamic capability commands', () => {
   });
 
   it('/learn is bot-admin-only and refuses an empty acquisition request', async () => {
-    expect(learnCommand.permissions).toContain('bot_admin');
+    expect(learnCommand.permissions).toContain('learn_admin');
     const response = await learnCommand.handle(input({ capabilities: {} }));
     expect(response?.text).toBe('learn_usage');
   });
@@ -323,6 +323,92 @@ describe('dynamic capability commands', () => {
     expect(request).toContain('REPLIED MESSAGE CONTEXT');
     expect(request).toContain('Il bot ignora i video oltre cinque minuti');
     expect(response?.rawText).not.toContain('platform.openai.com');
+  });
+
+  it('/learn code queues a private immutable-admin development job without invoking Forge', async () => {
+    const enqueue = vi.fn().mockResolvedValue({ id: '12345678-1234-1234-1234-123456789abc' });
+    const acquire = vi.fn();
+    const commandInput = input(
+      {
+        getLanguage: vi.fn().mockResolvedValue('italian'),
+        localDevelopment: { enabled: true, enqueue },
+        capabilities: { acquire },
+      },
+      ['code', 'aggiungi', 'un', 'comando', 'diagnostico', 'al', 'bot'],
+    );
+    commandInput.context = {
+      ...context,
+      chatId: person.telegramId,
+      isGroup: false,
+    };
+
+    const response = await learnCommand.handle(commandInput);
+
+    expect(enqueue).toHaveBeenCalledWith(
+      {
+        actorTelegramId: person.telegramId,
+        chatId: person.telegramId,
+        isGroup: false,
+      },
+      'aggiungi un comando diagnostico al bot',
+    );
+    expect(response?.rawText).toContain('Job <code>12345678</code> accodato');
+    expect(acquire).not.toHaveBeenCalled();
+  });
+
+  it('/learn status renders the hash-bound diff/apply instructions for a ready job', async () => {
+    const response = await learnCommand.handle(
+      input(
+        {
+          getLanguage: vi.fn().mockResolvedValue('italian'),
+          localDevelopment: {
+            enabled: true,
+            status: vi.fn().mockResolvedValue({
+              id: '12345678-1234-1234-1234-123456789abc',
+              state: 'ready',
+              goal: 'aggiungi un comando diagnostico',
+              artifactHash: 'a'.repeat(64),
+              artifactFiles: ['src/example.ts'],
+              resultCode: undefined,
+            }),
+          },
+          capabilities: { status: vi.fn() },
+        },
+        ['status', '12345678'],
+      ),
+    );
+
+    expect(response?.rawText).toContain('pronto per approvazione');
+    expect(response?.rawText).toContain('SHA-256: <code>aaaaaaaaaaaa</code>');
+    expect(response?.rawText).toContain('/learn apply 12345678 aaaaaaaaaaaa');
+  });
+
+  it('/learn diff exposes the complete artifact through deterministic pages', async () => {
+    const text = `${'A'.repeat(1_800)}${'B'.repeat(1_800)}${'C'.repeat(200)}`;
+    const response = await learnCommand.handle(
+      input(
+        {
+          getLanguage: vi.fn().mockResolvedValue('italian'),
+          localDevelopment: {
+            diff: vi.fn().mockResolvedValue({
+              job: { id: '12345678-1234-1234-1234-123456789abc' },
+              artifact: {
+                text,
+                hash: 'a'.repeat(64),
+                files: ['src/example.ts'],
+              },
+            }),
+          },
+        },
+        ['diff', '12345678', '2'],
+      ),
+    );
+
+    expect(response?.textFormat).toBe('plain');
+    expect(response?.rawText).toContain('pagina 2/3');
+    expect(response?.rawText).toContain('B'.repeat(100));
+    expect(response?.rawText).not.toContain('A'.repeat(100));
+    expect(response?.rawText).toContain('/learn diff 12345678 3');
   });
 });
 

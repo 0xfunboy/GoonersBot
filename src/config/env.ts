@@ -64,6 +64,29 @@ const csvNumbers = z
       .filter((n) => Number.isFinite(n)),
   );
 
+const strictCsvTelegramIds = z
+  .string()
+  .optional()
+  .transform((value) =>
+    (value ?? '')
+      .split(',')
+      .map((token) => token.trim())
+      .filter(Boolean),
+  )
+  .pipe(
+    z.array(
+      z
+        .string()
+        .regex(/^[1-9]\d*$/, 'Telegram IDs must contain digits only')
+        .transform((token) => Number(token))
+        .refine(
+          (value) => Number.isSafeInteger(value) && value > 0,
+          'Telegram ID must be a positive safe integer',
+        ),
+    ),
+  )
+  .transform((values) => [...new Set(values)]);
+
 /**
  * Provider enum kept open via `custom_openai_compatible` for arbitrary backends.
  */
@@ -332,6 +355,25 @@ const envSchema = z.object({
   CAPABILITY_FORGE_ENABLED: boolFromString(true),
   CAPABILITY_STORE_PATH: z.string().default('data/capabilities'),
   CAPABILITY_AUTO_INSTALL_RESEARCH: boolFromString(true),
+
+  // Reviewed local development jobs. Generated source is confined to a detached worktree and
+  // never becomes live code without a second, hash-bound admin action in a private chat.
+  CAPABILITY_LOCAL_DEVELOPMENT_ENABLED: boolFromString(false),
+  CAPABILITY_LOCAL_DEVELOPMENT_STORE_PATH: z.string().default('../.goonerbot-learn'),
+  CAPABILITY_LOCAL_DEVELOPMENT_ADMIN_IDS: strictCsvTelegramIds,
+  CAPABILITY_LOCAL_DEVELOPMENT_PLANNER_MODEL: z.string().default('gemini-3.6-flash'),
+  CAPABILITY_LOCAL_DEVELOPMENT_CODER_MODEL: z.string().default('qwen/qwen3.5-397b-a17b'),
+  CAPABILITY_LOCAL_DEVELOPMENT_REVIEW_MODEL: z
+    .string()
+    .default('nvidia/nemotron-3-super-120b-a12b'),
+  CAPABILITY_LOCAL_DEVELOPMENT_MAX_ATTEMPTS: intFromString(2).refine(
+    (value) => Number.isInteger(value) && value >= 1 && value <= 3,
+    'CAPABILITY_LOCAL_DEVELOPMENT_MAX_ATTEMPTS must be between 1 and 3',
+  ),
+  CAPABILITY_LOCAL_DEVELOPMENT_JOB_TIMEOUT_MS: intFromString(20 * 60_000).refine(
+    (value) => Number.isInteger(value) && value >= 60_000 && value <= 60 * 60_000,
+    'CAPABILITY_LOCAL_DEVELOPMENT_JOB_TIMEOUT_MS must be between 60000 and 3600000',
+  ),
 
   // Usage limits (points). Large default => effectively unlimited unless configured.
   DEFAULT_USAGE_LIMIT: intFromString(1_000_000_000),

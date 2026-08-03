@@ -224,8 +224,8 @@ export const translations: TranslationMap = {
     spanish: 'Lista las capacidades dinámicas instaladas',
   },
   learn_description: {
-    italian: 'Progetta una nuova capacità permanente (bot admin)',
-    english: 'Design a new persistent capability (bot admin)',
+    italian: 'Ricerca o sviluppa una capacità revisionabile (bot admin)',
+    english: 'Research or develop a reviewable capability (bot admin)',
     russian: 'Создать новую постоянную возможность (админ бота)',
     spanish: 'Diseña una nueva capacidad permanente (admin del bot)',
   },
@@ -1113,8 +1113,10 @@ export const translations: TranslationMap = {
     spanish: '<strong>Capacidades dinámicas</strong>\n{capabilities}',
   },
   learn_usage: {
-    italian: 'Uso: /learn &lt;cosa vuoi che impari a fare&gt;',
-    english: 'Usage: /learn &lt;what you want me to learn&gt;',
+    italian:
+      'Uso: /learn &lt;cosa imparare&gt; · /learn code &lt;modifica&gt; · /learn status [job]',
+    english:
+      'Usage: /learn &lt;what to learn&gt; · /learn code &lt;change&gt; · /learn status [job]',
     russian: 'Использование: /learn &lt;чему научиться&gt;',
     spanish: 'Uso: /learn &lt;qué quieres que aprenda&gt;',
   },
