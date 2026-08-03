@@ -9,6 +9,7 @@ import { fingerprint, escapeHtml } from '../../utils/text.js';
 import { Cooldown } from '../../utils/rateLimit.js';
 import { childLogger } from '../../utils/logger.js';
 import type { LinkMediaResult } from '../../services/linkMedia.js';
+import { classifyExplicitSystemInfoRequest } from '../../services/systemInfo.js';
 import { extractUrls, mediaUrlKey } from '../../providers/media/linkMedia/url.js';
 import { extractJokePremises } from '../../brain/repetitionGuard.js';
 import { currentLlmUsage } from '../../providers/llm/requestContext.js';
@@ -64,6 +65,41 @@ export function linkMediaHandlerErrorResult(urls: readonly URL[]): LinkMediaResu
     reason: 'handler_error',
     ...(attemptedUrls.length > 0 ? { attemptedUrls, failedUrls: attemptedUrls } : {}),
   };
+}
+
+/** Human-readable bounded-media durations without invoking the conversational model. */
+export function formatMediaDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remainingSeconds = total % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`
+    : `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
+}
+
+function durationLimitVars(result: LinkMediaResult): Record<string, string> | undefined {
+  if (result.reason !== 'duration_exceeded' || !result.durationLimit) return undefined;
+  return {
+    duration: formatMediaDuration(result.durationLimit.durationSeconds),
+    limit: formatMediaDuration(result.durationLimit.maxDurationSeconds),
+  };
+}
+
+function mediaRehostFailureText(
+  services: Services,
+  result: LinkMediaResult,
+  url: string,
+  language: string,
+): string {
+  const durationVars = durationLimitVars(result);
+  if (durationVars) {
+    return (
+      services.localizer.t('media_rehost_duration_exceeded', durationVars, language) ??
+      `Rehost disabled: video ${durationVars['duration']}, limit ${durationVars['limit']}.`
+    );
+  }
+  return services.localizer.t('media_rehost_failed', { url }, language) ?? url;
 }
 
 /** Build message-storage metadata from the platform context. */
@@ -150,6 +186,32 @@ export async function handleMessage(
   }
 
   const bypassGroupPlan = services.bypassesGroupPlan(person, context);
+
+  // Host/model/quota inspection is a deterministic, allowlisted action. It is available only when
+  // an approved user explicitly addresses the bot, and exits before history, RAG, LLM admission or
+  // media quota. Do not persist the live report into conversational context.
+  if (
+    mediaUrls.length === 0 &&
+    message.messageText &&
+    !message.imageBuffer &&
+    !message.audioBuffer
+  ) {
+    const systemRequest = classifyExplicitSystemInfoRequest(message.messageText, addressed);
+    if (systemRequest.explicit) {
+      const report = await services.systemInfo.report({
+        chatId: context.chatId,
+        scopes: systemRequest.scopes,
+        operatorSession: bypassGroupPlan,
+      });
+      const replyTo = ctx.message?.message_id;
+      await ctx.reply(report, replyTo ? { reply_parameters: { message_id: replyTo } } : {});
+      log.info(
+        { chatId: context.chatId, scopes: systemRequest.scopes },
+        'explicit system information action served',
+      );
+      return;
+    }
+  }
 
   // Passive group traffic is retained as lightweight conversation context unless this specific
   // chat has opted into autoengage. That keeps background traffic free by default.
@@ -262,8 +324,10 @@ export async function handleMessage(
     }
 
     if ((linkMedia.failedUrls?.length ?? 0) > 0) {
+      const durationVars = durationLimitVars(linkMedia);
       const notice = await localizeResponse(services, context.chatId, {
-        text: 'media_rehost_auto_failed',
+        text: durationVars ? 'media_rehost_duration_exceeded' : 'media_rehost_auto_failed',
+        ...(durationVars ? { vars: durationVars } : {}),
       });
       initialFailureNoticeMessageId = (await sendResponse(ctx, notice))?.message_id;
     }
@@ -618,8 +682,7 @@ export async function handleMessage(
       for (const messageId of sent.messageIds ?? []) rememberBotMessage(messageId);
       if (!sent.handled) {
         const fallback = await ctx.reply(
-          services.localizer.t('media_rehost_failed', { url: outcome.linkMediaUrl }, language) ??
-            outcome.linkMediaUrl,
+          mediaRehostFailureText(services, sent, outcome.linkMediaUrl, language),
           replyOpts,
         );
         rememberBotMessage(fallback.message_id);
@@ -631,8 +694,12 @@ export async function handleMessage(
       initialFailureNoticeMessageId === undefined
     ) {
       const fallback = await ctx.reply(
-        services.localizer.t('media_rehost_failed', { url: outcome.linkMediaUrl }, language) ??
+        mediaRehostFailureText(
+          services,
+          initialLinkMedia ?? { handled: false },
           outcome.linkMediaUrl,
+          language,
+        ),
         replyOpts,
       );
       rememberBotMessage(fallback.message_id);

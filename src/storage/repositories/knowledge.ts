@@ -13,6 +13,8 @@ export interface KnowledgeDoc {
   aliases: string[];
   text: string;
   tags: string[];
+  /** Semantic entries may match embeddings; explicit entries require a topic/alias keyword hit. */
+  retrievalPolicy?: 'semantic' | 'explicit_alias';
   embedding?: number[];
   /** 0..1 - baseline importance when keyword scores tie */
   salience: number;
@@ -54,6 +56,7 @@ export class KnowledgeRepo {
               aliases: e.aliases,
               text: e.text,
               tags: e.tags,
+              retrievalPolicy: e.retrievalPolicy ?? 'semantic',
               salience: e.salience,
               updatedAt: now,
             },

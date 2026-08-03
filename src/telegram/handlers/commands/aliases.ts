@@ -46,6 +46,10 @@ const languageAliases: Readonly<Record<string, readonly string[]>> = {
   learn: ['impara'],
   community: ['comunita'],
   socialstatus: ['statosociale'],
+  hardware: ['sistema'],
+  models: ['modelli'],
+  quota: ['quote'],
+  botinfo: ['infobot'],
 };
 
 /** English form to expose in Telegram's base command menu. */

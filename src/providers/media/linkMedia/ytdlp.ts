@@ -37,6 +37,7 @@ const DEFAULT_USER_AGENT =
 const RETRY_COUNT = '5';
 const RETRY_BACKOFF = 'exp=1:10';
 const FINAL_PATHS_FILE = '.ytdlp-final-paths.txt';
+const DURATION_FILE = '.ytdlp-duration-seconds.txt';
 const SANDBOX_PROXY_PORT = '39173';
 const SANDBOX_PROXY_URL = `http://127.0.0.1:${SANDBOX_PROXY_PORT}`;
 
@@ -184,6 +185,21 @@ export interface YtdlpResult {
   durationSec?: number;
 }
 
+/** Expected policy rejection: yt-dlp resolved a VOD whose duration exceeds the configured cap. */
+export class YtdlpDurationLimitError extends Error {
+  readonly code = 'duration_exceeded' as const;
+
+  constructor(
+    readonly durationSeconds: number,
+    readonly maxDurationSeconds: number,
+  ) {
+    super(
+      `yt-dlp media duration ${durationSeconds}s exceeds configured limit ${maxDurationSeconds}s`,
+    );
+    this.name = 'YtdlpDurationLimitError';
+  }
+}
+
 export interface YtdlpBatchItem extends YtdlpResult {
   sequence: number;
   playlistIndex?: number;
@@ -322,6 +338,11 @@ export async function buildYtdlpDownloadArgs(
     '--print-to-file',
     'after_move:filepath',
     join(workdir, FINAL_PATHS_FILE),
+    // `pre_process` runs after metadata extraction but before `--match-filter`, so an overlong VOD
+    // leaves a typed, workdir-confined reason even though yt-dlp exits successfully without a file.
+    '--print-to-file',
+    'pre_process:%(duration)s',
+    join(workdir, DURATION_FILE),
     '-o',
     join(workdir, 'video.%(ext)s'),
   ];
@@ -487,6 +508,29 @@ export async function discoverYtdlpResult(
   return result;
 }
 
+async function discoveredYtdlpDuration(workdir: string): Promise<number | undefined> {
+  const marker = join(workdir, DURATION_FILE);
+  const entry = await lstat(marker).catch(() => null);
+  if (!entry?.isFile() || entry.size < 1 || entry.size > 4_096) return undefined;
+  const values = (await readFile(marker, 'utf8').catch(() => ''))
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^(?:\d+(?:\.\d+)?|\.\d+)$/.test(line))
+    .map(Number)
+    .filter((value) => Number.isFinite(value) && value >= 0);
+  return values.length > 0 ? Math.max(...values) : undefined;
+}
+
+async function throwIfYtdlpDurationExceeded(
+  workdir: string,
+  maxDurationSeconds: number,
+): Promise<void> {
+  const durationSeconds = await discoveredYtdlpDuration(workdir);
+  if (durationSeconds !== undefined && durationSeconds > maxDurationSeconds) {
+    throw new YtdlpDurationLimitError(durationSeconds, maxDurationSeconds);
+  }
+}
+
 /** Discover ordered carousel outputs while rejecting escapes, links and intermediate files. */
 export async function discoverYtdlpResults(
   workdir: string,
@@ -623,7 +667,10 @@ export async function downloadWithYtdlp(
     }
   }
 
-  return discoverYtdlpResult(workdir, cfg.maxDownloadBytes);
+  const result = await discoverYtdlpResult(workdir, cfg.maxDownloadBytes);
+  if (result) return result;
+  await throwIfYtdlpDurationExceeded(workdir, cfg.maxDurationSeconds);
+  return null;
 }
 
 /** Download at most `maxEntries` videos belonging to one explicitly classified carousel URL. */
@@ -646,8 +693,10 @@ export async function downloadManyWithYtdlp(
     const args = await buildYtdlpBatchDownloadArgs(pageUrl, workdir, runCfg, maxEntries);
     try {
       await runYtdlp(runCfg, args, workdir);
+      const result = await discoverYtdlpResults(workdir, runCfg.maxDownloadBytes, maxEntries);
+      if (!result) await throwIfYtdlpDurationExceeded(workdir, runCfg.maxDurationSeconds);
       return {
-        result: await discoverYtdlpResults(workdir, runCfg.maxDownloadBytes, maxEntries),
+        result,
       };
     } catch (error) {
       const result = await discoverYtdlpResults(workdir, runCfg.maxDownloadBytes, maxEntries);

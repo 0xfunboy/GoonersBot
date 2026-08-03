@@ -251,6 +251,101 @@ describe('CapabilityForge', () => {
     );
   });
 
+  it('classifies bot media-pipeline fixes before planning or grounding and saves only a proposal', async () => {
+    const storePath = await mkdtemp(join(tmpdir(), 'gooner-cap-'));
+    tempDirs.push(storePath);
+    const llm = fakeLLM({
+      json: {
+        classification: 'not_a_capability_gap',
+        id: 'ordinary_answer',
+        command: 'ordinary',
+        description: 'Treat the request as an ordinary answer.',
+        searchQueryTemplate: '{input}',
+        answerInstruction: 'Answer normally.',
+        requiredConfig: [],
+        reason: 'No capability gap.',
+      },
+    });
+    const planner = vi.spyOn(llm, 'jsonCompletion');
+    const groundWeb = vi.fn(async (query: string) => ({
+      kind: 'web' as const,
+      block: `irrelevant documentation for ${query}`,
+      query,
+      sources: ['https://platform.openai.com/docs/irrelevant'],
+    }));
+    const forge = new CapabilityForge(
+      llm,
+      { enabled: true, groundWeb } as unknown as GroundingService,
+      { enabled: true, storePath, autoInstallResearch: true },
+    );
+    const request =
+      "Non è vero, l'unico problema è la lunghezza over quota 5 min che è il tuo limite di download: o li ignori e non dai risposta, oppure prendi 3 immagini al 20%, 50% e 70% e le aggiungi al contesto con transcript e commenti.";
+
+    const result = await forge.acquire({
+      request,
+      language: 'italian',
+      allowInstall: true,
+    });
+
+    expect(result).toMatchObject({
+      handled: false,
+      status: 'proposal_saved',
+      diagnostic: { code: 'local_automation_required' },
+      sources: [],
+    });
+    expect(planner).not.toHaveBeenCalled();
+    expect(groundWeb).not.toHaveBeenCalled();
+    expect(forge.list()).toEqual([]);
+
+    const proposals = await readdir(join(storePath, 'proposals'));
+    expect(proposals).toHaveLength(1);
+    const proposal = JSON.parse(
+      await readFile(join(storePath, 'proposals', proposals[0]!), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(proposal).toMatchObject({
+      classification: 'local_automation',
+      request,
+      status: 'requires_implementation',
+      documentationSources: [],
+    });
+  });
+
+  it('does not ground or attach incidental sources to a not-applicable request', async () => {
+    const storePath = await mkdtemp(join(tmpdir(), 'gooner-cap-'));
+    tempDirs.push(storePath);
+    const groundWeb = vi.fn(async (query: string) => ({
+      kind: 'web' as const,
+      block: `irrelevant documentation for ${query}`,
+      query,
+      sources: ['https://platform.openai.com/docs/irrelevant'],
+    }));
+    const forge = new CapabilityForge(
+      fakeLLM({
+        json: {
+          classification: 'not_a_capability_gap',
+          id: 'one_off_joke',
+          command: 'oneoffjoke',
+          description: 'Tell one joke in the current conversation.',
+          searchQueryTemplate: '{input}',
+          answerInstruction: 'Answer normally.',
+          requiredConfig: [],
+          reason: 'This is a one-off conversational request.',
+        },
+      }),
+      { enabled: true, groundWeb } as unknown as GroundingService,
+      { enabled: true, storePath, autoInstallResearch: true },
+    );
+
+    const result = await forge.acquire({
+      request: 'raccontami una barzelletta una volta sola',
+      language: 'italian',
+      allowInstall: true,
+    });
+
+    expect(result).toMatchObject({ handled: false, status: 'not_applicable', sources: [] });
+    expect(groundWeb).not.toHaveBeenCalled();
+  });
+
   it('installs and verifies an explicitly read-only research request when the planner returns null', async () => {
     const storePath = await mkdtemp(join(tmpdir(), 'gooner-cap-'));
     tempDirs.push(storePath);

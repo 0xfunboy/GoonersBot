@@ -42,6 +42,7 @@ import {
   downloadWithYtdlp,
   snapshotStream,
   type YtdlpDownloadConfig,
+  type YtdlpDurationLimitError,
   type YtdlpResult,
 } from '../providers/media/linkMedia/ytdlp.js';
 import { buildSocialCaption, mergePostStats } from '../providers/media/linkMedia/socialMetadata.js';
@@ -81,6 +82,13 @@ export interface LinkMediaResult {
   failedUrls?: string[];
   /** Safe operational reason for logs/debugging; never contains cookies or source internals. */
   reason?: string;
+  /** Present only when extraction proved that a bounded VOD exceeds the configured duration. */
+  durationLimit?: LinkMediaDurationLimit;
+}
+
+export interface LinkMediaDurationLimit {
+  durationSeconds: number;
+  maxDurationSeconds: number;
 }
 
 type ItemProcessingResult =
@@ -90,7 +98,8 @@ type ItemProcessingResult =
       messageIds: number[];
       partialFailure?: boolean;
     }
-  | { status: 'skipped' | 'quota_denied' };
+  | { status: 'skipped' | 'quota_denied' }
+  | ({ status: 'duration_exceeded' } & LinkMediaDurationLimit);
 
 interface ProcessedUrlResult {
   contextText?: string;
@@ -99,6 +108,7 @@ interface ProcessedUrlResult {
   mediaDetected?: boolean;
   /** At least one item in a multi-media post could not be delivered. */
   partialFailure?: boolean;
+  durationLimit?: LinkMediaDurationLimit;
 }
 
 export class LinkMediaService {
@@ -197,6 +207,7 @@ export class LinkMediaService {
     const handledUrls: string[] = [];
     const attemptedUrls: string[] = [];
     const failedUrls: string[] = [];
+    let durationLimit: LinkMediaDurationLimit | undefined;
     let sentAny = false;
 
     for (const url of urls) {
@@ -213,6 +224,7 @@ export class LinkMediaService {
         log.warn({ err, url: safeUrlForLog(url) }, 'link media processing failed');
         return null;
       });
+      if (result?.durationLimit) durationLimit ??= result.durationLimit;
       if (!result || result.messageIds.length === 0) {
         if (result?.mediaDetected || this.isRecognizedMediaUrl(url))
           failedUrls.push(url.toString());
@@ -232,8 +244,15 @@ export class LinkMediaService {
       ...(handledUrls.length ? { handledUrls } : {}),
       ...(attemptedUrls.length ? { attemptedUrls } : {}),
       ...(failedUrls.length ? { failedUrls } : {}),
+      ...(durationLimit ? { durationLimit } : {}),
     };
-    if (!sentAny) outcome.reason = failedUrls.length ? 'download_failed' : 'no_media_rehosted';
+    if (!sentAny) {
+      outcome.reason = durationLimit
+        ? 'duration_exceeded'
+        : failedUrls.length
+          ? 'download_failed'
+          : 'no_media_rehosted';
+    }
     return outcome;
   }
 
@@ -260,7 +279,16 @@ export class LinkMediaService {
       log.warn({ err, url: safeUrlForLog(url) }, 'explicit link media processing failed');
       return null;
     });
-    if (!result || result.messageIds.length === 0) return { handled: false };
+    if (!result || result.messageIds.length === 0) {
+      return {
+        handled: false,
+        attemptedUrls: [url.toString()],
+        failedUrls: [url.toString()],
+        ...(result?.durationLimit
+          ? { reason: 'duration_exceeded', durationLimit: result.durationLimit }
+          : { reason: 'download_failed' }),
+      };
+    }
     return {
       handled: true,
       ...(result.contextText ? { injectedText: result.contextText } : {}),
@@ -463,6 +491,7 @@ export class LinkMediaService {
     const contextTexts: string[] = [];
     const messageIds: number[] = [];
     let failedItems = 0;
+    let durationLimit: LinkMediaDurationLimit | undefined;
     for (const [index, item] of items.entries()) {
       const result = await this.processExtractedItem({
         ctx,
@@ -479,6 +508,20 @@ export class LinkMediaService {
         includeCaption: messageIds.length === 0,
         signal,
       }).catch((err) => {
+        const limit = ytdlpDurationLimit(err);
+        if (limit) {
+          log.info(
+            {
+              durationSeconds: limit.durationSeconds,
+              maxDurationSeconds: limit.maxDurationSeconds,
+              index,
+              platform: post.platform,
+              url: safeUrlForLog(url),
+            },
+            'link media duration limit enforced',
+          );
+          return { status: 'duration_exceeded', ...limit } as ItemProcessingResult;
+        }
         log.warn(
           { err, index, platform: post.platform, url: safeUrlForLog(url) },
           'link media item processing failed',
@@ -490,6 +533,14 @@ export class LinkMediaService {
         failedItems += items.length - index;
         break;
       }
+      if (result.status === 'duration_exceeded') {
+        durationLimit ??= {
+          durationSeconds: result.durationSeconds,
+          maxDurationSeconds: result.maxDurationSeconds,
+        };
+        failedItems += 1;
+        continue;
+      }
       if (result.status !== 'sent') {
         failedItems += 1;
         continue;
@@ -499,15 +550,26 @@ export class LinkMediaService {
       if (result.partialFailure) failedItems += 1;
     }
 
-    if (messageIds.length === 0) return { messageIds, mediaDetected: true };
+    if (messageIds.length === 0) {
+      return {
+        messageIds,
+        mediaDetected: true,
+        ...(durationLimit ? { durationLimit } : {}),
+      };
+    }
     const uniqueContext = [...new Set(contextTexts)];
     return uniqueContext.length > 0
       ? {
           contextText: uniqueContext.join('\n'),
           messageIds,
           ...(failedItems > 0 ? { partialFailure: true } : {}),
+          ...(durationLimit ? { durationLimit } : {}),
         }
-      : { messageIds, ...(failedItems > 0 ? { partialFailure: true } : {}) };
+      : {
+          messageIds,
+          ...(failedItems > 0 ? { partialFailure: true } : {}),
+          ...(durationLimit ? { durationLimit } : {}),
+        };
   }
 
   private async processExtractedItem(input: {
@@ -537,7 +599,11 @@ export class LinkMediaService {
       return { status: 'skipped' };
     }
     if (item.durationSeconds && item.durationSeconds > this.cfg.maxDurationSeconds) {
-      return { status: 'skipped' };
+      return {
+        status: 'duration_exceeded',
+        durationSeconds: item.durationSeconds,
+        maxDurationSeconds: this.cfg.maxDurationSeconds,
+      };
     }
     if (
       !input.quotaBypass &&
@@ -675,8 +741,13 @@ export class LinkMediaService {
         if (dl) {
           const downloadedProbe = await probeVideo(this.cfg.ffmpegBin, dl.file, 15_000, signal);
           durationSec = dl.durationSec ?? downloadedProbe.duration ?? durationSec;
-          if (durationSec && durationSec > this.cfg.maxDurationSeconds)
-            return { status: 'skipped' };
+          if (durationSec && durationSec > this.cfg.maxDurationSeconds) {
+            return {
+              status: 'duration_exceeded',
+              durationSeconds: durationSec,
+              maxDurationSeconds: this.cfg.maxDurationSeconds,
+            };
+          }
           deliveryPost = mergeYtdlpPostMetadata(post, dl);
           sendKind = 'video';
           // A .mp4 extension alone does not make a Telegram-streamable file: VP9/AV1/Opus in an MP4
@@ -924,6 +995,31 @@ function mergeYtdlpPostMetadata(
       : {}),
     ...(stats ? { stats } : {}),
   };
+}
+
+function ytdlpDurationLimit(error: unknown): LinkMediaDurationLimit | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  const candidate = error as Partial<YtdlpDurationLimitError> & {
+    name?: unknown;
+    code?: unknown;
+  };
+  if (candidate.name !== 'YtdlpDurationLimitError' && candidate.code !== 'duration_exceeded') {
+    return undefined;
+  }
+  const durationSeconds = candidate.durationSeconds;
+  const maxDurationSeconds = candidate.maxDurationSeconds;
+  if (
+    typeof durationSeconds !== 'number' ||
+    !Number.isFinite(durationSeconds) ||
+    durationSeconds < 0 ||
+    typeof maxDurationSeconds !== 'number' ||
+    !Number.isFinite(maxDurationSeconds) ||
+    maxDurationSeconds < 1 ||
+    durationSeconds <= maxDurationSeconds
+  ) {
+    return undefined;
+  }
+  return { durationSeconds, maxDurationSeconds };
 }
 
 function safeUrl(value: string): URL | null {

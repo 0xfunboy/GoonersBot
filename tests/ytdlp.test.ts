@@ -11,6 +11,7 @@ import {
   downloadManyWithYtdlp,
   downloadWithYtdlp,
   socialMetadataFromYtdlpInfo,
+  YtdlpDurationLimitError,
   YTDLP_RELAXED_VIDEO_FORMAT,
   YTDLP_VIDEO_FORMAT,
   type YtdlpDownloadConfig,
@@ -78,6 +79,10 @@ describe('yt-dlp argument hardening', () => {
     expect(args).toContain('fragment:exp=1:10');
     expect(optionValue(args, '--user-agent')).toMatch(/^Mozilla\/5\.0/);
     expect(optionValue(args, '--print-to-file')).toBe('after_move:filepath');
+    const durationTemplate = args.indexOf('pre_process:%(duration)s');
+    expect(durationTemplate).toBeGreaterThan(0);
+    expect(args[durationTemplate + 1]).toBe('/tmp/ytdlp-test/.ytdlp-duration-seconds.txt');
+    expect(args.filter((arg) => arg === '--print-to-file')).toHaveLength(2);
     expect(args).toContain('/tmp/ytdlp-test/.ytdlp-final-paths.txt');
     expect(args.at(-1)).toBe('https://www.youtube.com/shorts/example');
   });
@@ -324,6 +329,69 @@ describe('yt-dlp argument hardening', () => {
   it('returns null after a successful filtered/no-file run so live media can use snapshot', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'goonerbot-ytdlp-'));
     workdirs.push(dir);
+    vi.mocked(runProcessChecked).mockResolvedValueOnce({
+      code: 0,
+      stdout: Buffer.alloc(0),
+      stderr: '',
+    });
+
+    await expect(
+      downloadWithYtdlp('https://example.com/live-video', dir, config()),
+    ).resolves.toBeNull();
+  });
+
+  it('throws a typed duration-limit error when yt-dlp filters an overlong VOD', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'goonerbot-ytdlp-'));
+    workdirs.push(dir);
+    await writeFile(join(dir, '.ytdlp-duration-seconds.txt'), '635\n');
+    vi.mocked(runProcessChecked).mockResolvedValueOnce({
+      code: 0,
+      stdout: Buffer.alloc(0),
+      stderr: '',
+    });
+
+    const error = await downloadWithYtdlp(
+      'https://www.youtube.com/watch?v=overlong',
+      dir,
+      config(),
+    ).catch((value: unknown) => value);
+
+    expect(error).toBeInstanceOf(YtdlpDurationLimitError);
+    expect(error).toMatchObject({
+      name: 'YtdlpDurationLimitError',
+      code: 'duration_exceeded',
+      durationSeconds: 635,
+      maxDurationSeconds: 180,
+    });
+    expect(runProcessChecked).toHaveBeenCalledOnce();
+  });
+
+  it('reports the duration limit when every bounded playlist entry is overlong', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'goonerbot-ytdlp-'));
+    workdirs.push(dir);
+    await writeFile(join(dir, '.ytdlp-duration-seconds.txt'), '635\n720\n');
+    vi.mocked(runProcessChecked).mockResolvedValueOnce({
+      code: 0,
+      stdout: Buffer.alloc(0),
+      stderr: '',
+    });
+
+    await expect(
+      downloadManyWithYtdlp('https://www.youtube.com/playlist?list=overlong', dir, config(), 4),
+    ).rejects.toMatchObject({
+      name: 'YtdlpDurationLimitError',
+      code: 'duration_exceeded',
+      durationSeconds: 720,
+      maxDurationSeconds: 180,
+    });
+  });
+
+  it('ignores a linked duration marker instead of trusting a workdir path substitution', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'goonerbot-ytdlp-'));
+    workdirs.push(dir);
+    const external = join(dir, 'external-duration.txt');
+    await writeFile(external, '635\n');
+    await symlink(external, join(dir, '.ytdlp-duration-seconds.txt'));
     vi.mocked(runProcessChecked).mockResolvedValueOnce({
       code: 0,
       stdout: Buffer.alloc(0),

@@ -241,6 +241,30 @@ export const translations: TranslationMap = {
     russian: 'Проверить социальную память группы (админ)',
     spanish: 'Diagnostica la memoria social del grupo (admin)',
   },
+  hardware_description: {
+    italian: 'Mostra hardware, temperature, ventole e dischi consentiti',
+    english: 'Show allowlisted hardware, temperatures, fans, and disks',
+    russian: 'Показать разрешённые данные об оборудовании и датчиках',
+    spanish: 'Muestra hardware, temperaturas, ventiladores y discos permitidos',
+  },
+  models_description: {
+    italian: 'Mostra i nomi dei modelli configurati, senza endpoint o segreti',
+    english: 'Show configured model names without endpoints or secrets',
+    russian: 'Показать названия настроенных моделей без адресов и секретов',
+    spanish: 'Muestra los modelos configurados sin endpoints ni secretos',
+  },
+  quota_description: {
+    italian: 'Mostra quote e consumi interni correnti senza usare un turno LLM',
+    english: 'Show current internal quotas without spending an LLM turn',
+    russian: 'Показать внутренние квоты без расхода LLM-запроса',
+    spanish: 'Muestra cuotas internas sin gastar un turno LLM',
+  },
+  botinfo_description: {
+    italian: 'Mostra identità e tecnologia pubblica del bot',
+    english: 'Show the bot’s public identity and technology',
+    russian: 'Показать публичную информацию о боте и технологии',
+    spanish: 'Muestra la identidad y tecnología pública del bot',
+  },
   default_command_description: {
     italian: 'Un comando di GoonersBot',
     english: 'A GoonersBot command',
@@ -749,6 +773,12 @@ export const translations: TranslationMap = {
     russian: 'Не смог перезалить, но вот ссылка: {url}',
     spanish: 'No pude resubirlo, pero aquí tienes el enlace: {url}',
   },
+  media_rehost_duration_exceeded: {
+    italian: 'Rehost disabilitato: video da {duration}, limite {limit}.',
+    english: 'Rehost disabled: video is {duration}, limit is {limit}.',
+    russian: 'Перезагрузка отключена: видео {duration}, лимит {limit}.',
+    spanish: 'Rehost desactivado: vídeo de {duration}, límite {limit}.',
+  },
   media_rehost_auto_failed: {
     italian:
       'Non riesco a scaricare questo contenuto: può richiedere accesso/cookie, aver raggiunto il limite media oppure essere temporaneamente bloccato. Riprova tra poco.',
@@ -758,6 +788,16 @@ export const translations: TranslationMap = {
       'Не удалось скачать этот материал: могут требоваться доступ/cookie, мог быть исчерпан лимит медиа или действует временная блокировка. Попробуйте позже.',
     spanish:
       'No pude descargar este contenido: puede requerir acceso/cookies, haber alcanzado el límite de medios o estar bloqueado temporalmente. Inténtalo pronto.',
+  },
+  botinfo_text: {
+    italian:
+      'GoonersBot / GooNeuroBot — creato e mantenuto da funboy. È scritto in TypeScript strict per Node.js ESM. GemRouter è il gateway dei modelli gestito da funboy. Endpoint, credenziali e dettagli di rete non vengono esposti.',
+    english:
+      'GoonersBot / GooNeuroBot — created and maintained by funboy. It is written in strict TypeScript for Node.js ESM. GemRouter is the model gateway managed by funboy. Endpoints, credentials, and network details are not exposed.',
+    russian:
+      'GoonersBot / GooNeuroBot создан и поддерживается funboy. Он написан на строгом TypeScript для Node.js ESM. GemRouter — шлюз моделей под управлением funboy. Адреса, учётные данные и сетевые сведения не раскрываются.',
+    spanish:
+      'GoonersBot / GooNeuroBot fue creado y es mantenido por funboy. Está escrito en TypeScript estricto para Node.js ESM. GemRouter es la puerta de enlace de modelos gestionada por funboy. No se exponen endpoints, credenciales ni datos de red.',
   },
   generated_image_autopost: {
     italian: 'Originale appena sfornata. Non fate i critici d’arte per finta.',

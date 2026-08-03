@@ -8,6 +8,36 @@ type Seed = Omit<KnowledgeDoc, 'updatedAt'>;
  * ONLY when the topic comes up - the character stays complex, never monothematic. Extend freely.
  */
 export const KNOWLEDGE_SEED: Seed[] = [
+  // ---- project self-knowledge (exact-topic retrieval only) ----
+  {
+    key: 'goonerbot-project-identity',
+    topic: 'GoonersBot project identity',
+    aliases: [
+      'goonersbot',
+      'gooneurobot',
+      'chi ti ha creato',
+      'chi ti ha programmato',
+      'chi è il tuo creatore',
+      'who created you',
+      'who built you',
+      'in che linguaggio sei scritto',
+      'goonerbot typescript',
+      'sei scritto in typescript',
+    ],
+    text: 'GoonersBot, presente su Telegram come GooNeuroBot, è stato creato e viene mantenuto da funboy. L’applicazione è scritta in TypeScript strict per Node.js ESM e usa MongoDB per la persistenza. Queste informazioni vanno usate solo quando qualcuno chiede esplicitamente del bot o del progetto.',
+    tags: ['goonerbot', 'project', 'identity'],
+    retrievalPolicy: 'explicit_alias',
+    salience: 1,
+  },
+  {
+    key: 'goonerbot-gemrouter',
+    topic: 'GemRouter in GoonersBot',
+    aliases: ['gemrouter', 'gem router', 'router di funboy', 'gateway llm di funboy'],
+    text: 'GemRouter è il gateway di modelli gestito da funboy usato da GoonersBot per raggiungere i modelli configurati tramite un’interfaccia compatibile OpenAI. Il bot può indicare i nomi dei modelli configurati su richiesta, ma non deve esporre endpoint, credenziali, indirizzi o dettagli di rete.',
+    tags: ['goonerbot', 'gemrouter', 'llm gateway'],
+    retrievalPolicy: 'explicit_alias',
+    salience: 1,
+  },
   // ---- anime / manga staples ----
   {
     key: 'anime-shonen-big3',

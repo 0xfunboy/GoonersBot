@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { KnowledgeRetriever } from '../src/knowledge/knowledgeRetriever.js';
 import type { Storage } from '../src/storage/index.js';
 import type { KnowledgeDoc } from '../src/storage/repositories/knowledge.js';
+import type { Embedder } from '../src/rag/embedder.js';
 
 const docs: KnowledgeDoc[] = [
   {
@@ -45,6 +46,37 @@ describe('KnowledgeRetriever', () => {
   it('returns nothing on an unrelated message (no prompt weight)', async () => {
     const r = new KnowledgeRetriever(storage(docs), { enabled: true, maxItems: 2 });
     expect(await r.retrieve('che tempo fa oggi a milano', '')).toEqual([]);
+  });
+
+  it('requires an exact topic or alias for explicit project knowledge even with a high embedding score', async () => {
+    const explicit: KnowledgeDoc = {
+      key: 'project-identity',
+      topic: 'GoonersBot project identity',
+      aliases: ['goonersbot', 'chi ti ha creato', 'chi è il tuo creatore'],
+      text: 'Created by funboy and written in TypeScript.',
+      tags: ['project'],
+      retrievalPolicy: 'explicit_alias',
+      embedding: [1, 0],
+      salience: 1,
+      updatedAt: new Date(),
+    };
+    const embedder: Embedder = {
+      enabled: true,
+      embed: async () => [[1, 0]],
+    };
+    const r = new KnowledgeRetriever(
+      storage([explicit]),
+      { enabled: true, maxItems: 2, embeddingDim: 2, minScore: 0.3 },
+      embedder,
+    );
+
+    await expect(r.retrieve('parliamo di una cosa completamente diversa')).resolves.toEqual([]);
+    await expect(r.retrieve('chi ti ha creato?')).resolves.toMatchObject([
+      { topic: 'GoonersBot project identity', reason: 'explicit alias' },
+    ]);
+    await expect(r.retrieve('chi e il tuo creatore?')).resolves.toMatchObject([
+      { topic: 'GoonersBot project identity', reason: 'explicit alias' },
+    ]);
   });
 
   it('is disabled when configured off', async () => {
