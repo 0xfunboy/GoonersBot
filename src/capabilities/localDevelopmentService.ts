@@ -7,6 +7,7 @@ import {
   LocalDevelopmentModelError,
   type LocalDevelopmentCandidateFile,
   type LocalDevelopmentDraft,
+  type LocalDevelopmentModelErrorCode,
 } from './localDevelopmentModel.js';
 import {
   LocalDevelopmentJobStore,
@@ -375,23 +376,27 @@ export class LocalDevelopmentService {
       });
       const pinnedSources = this.dependencies.sources.scoped(workspaceJob.worktreePath);
       const catalog = await pinnedSources.catalog();
-      const selection = await this.dependencies.model.selectFiles({
-        goal: job.goal,
-        catalog,
-        model: this.config.plannerModel,
-        signal: scope.signal,
-      });
+      const selection = await this.retryModelPhase('selection_failed', () =>
+        this.dependencies.model.selectFiles({
+          goal: job.goal,
+          catalog,
+          model: this.config.plannerModel,
+          signal: scope.signal,
+        }),
+      );
       let candidates = await pinnedSources.candidates(selection);
       let feedback: string[] = [];
 
       for (let attempt = 1; attempt <= this.config.maxAttempts; attempt += 1) {
-        const proposal = await this.dependencies.model.propose({
-          goal: job.goal,
-          files: candidates,
-          feedback,
-          model: this.config.coderModel,
-          signal: scope.signal,
-        });
+        const proposal = await this.retryModelPhase('generation_failed', () =>
+          this.dependencies.model.propose({
+            goal: job.goal,
+            files: candidates,
+            feedback,
+            model: this.config.coderModel,
+            signal: scope.signal,
+          }),
+        );
         try {
           await this.writeExactProposal(job.id, proposal, candidates, attempt > 1, scope.signal);
         } catch (error) {
@@ -415,12 +420,14 @@ export class LocalDevelopmentService {
         );
 
         const artifact = await this.dependencies.workspace.diff(job.id);
-        const review = await this.dependencies.model.review({
-          goal: job.goal,
-          diff: artifact.text,
-          model: this.config.reviewModel,
-          signal: scope.signal,
-        });
+        const review = await this.retryModelPhase('review_failed', () =>
+          this.dependencies.model.review({
+            goal: job.goal,
+            diff: artifact.text,
+            model: this.config.reviewModel,
+            signal: scope.signal,
+          }),
+        );
         if (review.verdict !== 'approved') {
           feedback = review.issues.map((issue) => `${issue.path ?? 'diff'}: ${issue.message}`);
           if (attempt < this.config.maxAttempts) {
@@ -511,6 +518,22 @@ export class LocalDevelopmentService {
       draft.files.map((file) => ({ path: file.path, content: file.content })),
       signal,
     );
+  }
+
+  private async retryModelPhase<T>(
+    code: LocalDevelopmentModelErrorCode,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    let lastError: LocalDevelopmentModelError | undefined;
+    for (let attempt = 1; attempt <= this.config.maxAttempts; attempt += 1) {
+      try {
+        return await operation();
+      } catch (error) {
+        if (!(error instanceof LocalDevelopmentModelError) || error.code !== code) throw error;
+        lastError = error;
+      }
+    }
+    throw lastError ?? new LocalDevelopmentModelError(code, 'Model phase failed safely.');
   }
 
   private async retryCandidates(

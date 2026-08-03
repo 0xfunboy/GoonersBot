@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LocalDevelopmentJobStore } from '../src/capabilities/localDevelopmentJobs.js';
-import type { LocalDevelopmentModel } from '../src/capabilities/localDevelopmentModel.js';
+import {
+  LocalDevelopmentModelError,
+  type LocalDevelopmentModel,
+} from '../src/capabilities/localDevelopmentModel.js';
 import {
   LocalDevelopmentService,
   LocalDevelopmentServiceError,
@@ -279,6 +282,26 @@ describe('LocalDevelopmentService', () => {
     );
     expect(workspace.writeProposal).toHaveBeenCalledTimes(2);
     expect(workspace.readWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  it('retries transient structured-model failures in planning, coding and review', async () => {
+    const { service, model } = await fixture();
+    vi.mocked(model.selectFiles).mockRejectedValueOnce(
+      new LocalDevelopmentModelError('selection_failed', 'temporary planner failure'),
+    );
+    vi.mocked(model.propose).mockRejectedValueOnce(
+      new LocalDevelopmentModelError('generation_failed', 'temporary coder failure'),
+    );
+    vi.mocked(model.review).mockRejectedValueOnce(
+      new LocalDevelopmentModelError('review_failed', 'temporary reviewer failure'),
+    );
+
+    await service.enqueue(actor, 'aggiungi una modifica verificata nonostante errori transitori');
+
+    await expect(waitForState(service, 'ready')).resolves.toMatchObject({ state: 'ready' });
+    expect(model.selectFiles).toHaveBeenCalledTimes(2);
+    expect(model.propose).toHaveBeenCalledTimes(2);
+    expect(model.review).toHaveBeenCalledTimes(2);
   });
 
   it('resets and regenerates an interrupted stale workspace from its pinned base', async () => {
