@@ -6,6 +6,7 @@ import {
   isSafeLocalDevelopmentPath,
   type LocalDevelopmentCandidateFile,
 } from './localDevelopmentModel.js';
+import { containsSecret, redactSecrets } from '../utils/secrets.js';
 
 const MAX_SOURCE_BYTES = LOCAL_DEVELOPMENT_LIMITS.candidateFileChars;
 const MAX_SEARCH_SCAN_BYTES = 16 * 1024 * 1024;
@@ -74,6 +75,7 @@ export class LocalDevelopmentSources {
         if (selected.includes(path) || scannedBytes >= MAX_SEARCH_SCAN_BYTES) continue;
         const source = await this.readRegular(path);
         scannedBytes += Buffer.byteLength(source);
+        if (hasSecretMaterial(source)) continue;
         const normalized = source.toLowerCase();
         if (terms.some((term) => normalized.includes(term))) selected.push(path);
         if (selected.length >= LOCAL_DEVELOPMENT_LIMITS.candidateFiles - MAX_NEW_FILES) break;
@@ -87,15 +89,18 @@ export class LocalDevelopmentSources {
       }
     }
 
-    const existing = await Promise.all(
-      selected.slice(0, LOCAL_DEVELOPMENT_LIMITS.candidateFiles - newPaths.length).map(
-        async (path): Promise<LocalDevelopmentCandidateFile> => ({
-          path,
-          kind: 'regular',
-          content: await this.readRegular(path),
-        }),
-      ),
-    );
+    const existing: LocalDevelopmentCandidateFile[] = [];
+    for (const path of selected.slice(
+      0,
+      LOCAL_DEVELOPMENT_LIMITS.candidateFiles - newPaths.length,
+    )) {
+      const content = await this.readRegular(path);
+      // Committed source can legitimately contain test fixtures that resemble credentials. It is
+      // still excluded rather than redacted: a partial file would be misleading to the coder, and
+      // no secret-like bytes may leave the host for this workflow.
+      if (hasSecretMaterial(content)) continue;
+      existing.push({ path, kind: 'regular', content });
+    }
     const created: LocalDevelopmentCandidateFile[] = newPaths.map((path) => ({
       path,
       kind: 'new',
@@ -144,4 +149,8 @@ export class LocalDevelopmentSources {
       await handle.close();
     }
   }
+}
+
+function hasSecretMaterial(value: string): boolean {
+  return containsSecret(value) || redactSecrets(value) !== value;
 }
