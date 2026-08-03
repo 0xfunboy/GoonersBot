@@ -21,6 +21,9 @@ const SHA_RE = /^[0-9a-f]{40}$/;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const APPROVAL_PREFIX_LENGTH = 12;
 const METADATA_VERSION = 1 as const;
+// RLIMIT_NPROC is counted across every thread owned by the Unix user, not just this child tree.
+// Keep bounded headroom above the bot/browser baseline so bubblewrap can still create its namespace.
+const SANDBOX_UID_TASK_LIMIT = 1_024;
 const JOB_STATUSES = new Set<LocalDevelopmentJobStatus>([
   'workspace_ready',
   'proposal_written',
@@ -1218,7 +1221,7 @@ export class LocalDevelopmentWorkspace {
       pnpm: '/tool/pnpm',
       args: [
         '--as=4294967296',
-        '--nproc=256',
+        `--nproc=${SANDBOX_UID_TASK_LIMIT}`,
         '--fsize=268435456',
         '--nofile=2048',
         '--core=0',
