@@ -199,6 +199,8 @@ export interface ProviderBundle {
   socialContext?: string;
   groupContext?: string;
   knowledgeContext?: string;
+  /** Ambient recall: verified facts about whatever the chat is discussing right now. */
+  ambientContext?: string;
   webContext?: string;
   newsContext?: string;
   claimCheck?: string;

@@ -22,6 +22,7 @@ import type { GroundingService } from '../search/groundingService.js';
 import type { HeatService } from './heat.js';
 import type { KnowledgeRetriever } from '../knowledge/knowledgeRetriever.js';
 import type { AnimeKnowledgeService } from '../anime/knowledgeService.js';
+import type { AmbientRetriever } from '../ambient/retriever.js';
 import type { ImageFinder } from '../media/imageFinder.js';
 import type { NewsService } from '../news/newsService.js';
 import type { AutonomousPoster } from './autonomousPoster.js';
@@ -389,6 +390,7 @@ export class ReplyService {
     private readonly agentRuntime: AgentRuntime,
     private readonly social: SocialProfileEngine,
     private readonly anime: AnimeKnowledgeService,
+    private readonly ambient: AmbientRetriever,
   ) {
     this.evaluator = new TurnEvaluator(llm, {
       enabled: config.brain.evaluatorEnabled,
@@ -1406,7 +1408,7 @@ export class ReplyService {
       : wants('web_search', 'web_search')
         ? 'web'
         : null;
-    const [retrieved, grounding, knowledgeItems, heatValue] = await Promise.all([
+    const [retrieved, grounding, knowledgeItems, heatValue, ambientRecall] = await Promise.all([
       wantsGroupRag
         ? this.memoryRetriever.retrieve({
             chatId: ctx.context.chatId,
@@ -1438,19 +1440,34 @@ export class ReplyService {
             this.heat.deltaFromScene(scene, ctx.message.messageText),
           )
         : Promise.resolve(0),
+      // Ambient recall is unconditional: unlike every other provider here it is not gated on a
+      // classified intent, because its whole purpose is knowing things nobody thought to ask for.
+      this.ambient.recall({
+        message: ctx.message.messageText ?? '',
+        chatId: ctx.context.chatId,
+        nsfwAllowed: generationNsfwEnabled,
+      }),
     ]);
     const news = wants('news', 'news')
       ? await this.newsContext(ctx, history, retrieved, scene)
       : { sources: [] };
-    const sources = [...new Set([...(grounding?.sources ?? []), ...news.sources])];
+    const sources = [
+      ...new Set([...(grounding?.sources ?? []), ...news.sources, ...ambientRecall.sources]),
+    ];
     const providerBundle: ProviderBundle = { sources };
     if (threadState.promptBlock) providerBundle.threadContext = threadState.promptBlock;
     if (socialContext) providerBundle.socialContext = socialContext;
     const groupContext = formatGroupContext(retrieved);
-    const knowledgeBlock = formatKnowledge(knowledgeItems);
+    // Curated culture and ambient facts share one prompt slot on purpose: its framing already
+    // says "background you happen to know, use only if it fits", which is exactly the contract
+    // that keeps recall from dragging every conversation onto the same subject.
+    const knowledgeBlock = [formatKnowledge(knowledgeItems), ambientRecall.block]
+      .filter(Boolean)
+      .join('\n\n');
     const claimCheck = formatClaimCheck(evaluation, sources);
     if (groupContext) providerBundle.groupContext = groupContext;
     if (knowledgeBlock) providerBundle.knowledgeContext = knowledgeBlock;
+    if (ambientRecall.block) providerBundle.ambientContext = ambientRecall.block;
     if (grounding?.block) providerBundle.webContext = grounding.block;
     if (news.block) providerBundle.newsContext = news.block;
     if (claimCheck) providerBundle.claimCheck = claimCheck;
