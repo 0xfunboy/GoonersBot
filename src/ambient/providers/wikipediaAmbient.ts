@@ -52,8 +52,14 @@ export class WikipediaAmbientProvider implements AmbientProvider {
     const domain = bestDomainFor(request.classification, this.domains, 'science');
 
     const facts: AmbientFact[] = [];
+    const resolved: string[] = [];
     for (const subject of subjects) {
       if (facts.length >= request.limit) break;
+      // Subjects arrive most specific first and overlap by design: "dissonanza cognitiva" also
+      // yields the bare "dissonanza", which resolves to an article on musical dissonance and would
+      // sit beside the psychology one as an equally confident fact. Once the specific phrase has
+      // matched, anything contained in it is that same subject, less precisely stated.
+      if (resolved.some((hit) => hit.toLowerCase().includes(subject.toLowerCase()))) continue;
 
       const cached = await this.storage.ambientCache.get('wikipedia', cacheKey(subject));
       if (cached) {
@@ -61,6 +67,7 @@ export class WikipediaAmbientProvider implements AmbientProvider {
         // re-fetched on every single message that happens to contain it.
         if (cached.miss) continue;
         facts.push(toFact(domain, cached.subject, cached.text, cached.url ?? '', true));
+        resolved.push(subject);
         continue;
       }
       if (request.budget !== 'network') continue;
@@ -76,7 +83,10 @@ export class WikipediaAmbientProvider implements AmbientProvider {
           this.cfg.cacheTtlHours,
         )
         .catch((error: unknown) => log.debug({ error }, 'ambient cache write failed'));
-      if (summary) facts.push(toFact(domain, summary.title, summary.extract, summary.url, false));
+      if (summary) {
+        facts.push(toFact(domain, summary.title, summary.extract, summary.url, false));
+        resolved.push(subject);
+      }
     }
     return facts;
   }
