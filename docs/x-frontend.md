@@ -60,7 +60,7 @@ If authentication later needs attention, noVNC remains available for a manual lo
 
 The runtime expects these programs on `PATH`:
 
-- Node.js 23.3.0 at `/home/funboy/.nvm/versions/node/v23.3.0/bin/node`;
+- Node.js 24.18.0 at `/home/funboy/.nvm/versions/node/v24.18.0/bin/node`;
 - `Xvfb`, `x11vnc`, `websockify`, `firefox` and `geckodriver`;
 - noVNC static files at `/usr/share/novnc`.
 

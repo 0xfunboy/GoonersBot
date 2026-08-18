@@ -11,9 +11,9 @@ Type=simple
 WorkingDirectory=/home/funboy/goonerbot
 Environment=HOME=/home/funboy
 Environment=NODE_ENV=production
-Environment=PATH=/home/funboy/.nvm/versions/node/v23.3.0/bin:/home/funboy/.local/share/pnpm:/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PATH=/home/funboy/.nvm/versions/node/v24.18.0/bin:/home/funboy/.local/share/pnpm:/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EnvironmentFile=/home/funboy/goonerbot/data/x-frontend.env
-ExecStart=/home/funboy/.nvm/versions/node/v23.3.0/bin/node /home/funboy/goonerbot/dist/xFrontendMain.js
+ExecStart=/home/funboy/.nvm/versions/node/v24.18.0/bin/node /home/funboy/goonerbot/dist/xFrontendMain.js
 
 # The Node supervisor closes WebDriver; KillMode also covers Xvfb, x11vnc and websockify.
 KillMode=mixed

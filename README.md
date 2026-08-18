@@ -87,11 +87,11 @@ notes.
 
 ## Quick start (no Docker)
 
-> Requirements: Node.js 23.3 (see `.nvmrc`) or a recent LTS, pnpm, and a running MongoDB.
+> Requirements: Node.js 24.18.0 exactly (see `.nvmrc`), pnpm, and a running MongoDB.
 
 ```bash
 # 1. Node
-nvm use                      # picks up .nvmrc (23.3.0); or: nvm install 23.3.0
+nvm use                      # picks up .nvmrc (24.18.0); or: nvm install 24.18.0
 
 # 2. Install
 pnpm install
