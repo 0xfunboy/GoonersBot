@@ -134,6 +134,34 @@ export function describeLatestRelease(series: AnimeSeries): string {
   return `${header}\n\nVerdetto: l'ultimo episodio uscito è il ${series.latestEpisode}.`;
 }
 
+/**
+ * The subset of the catalog that actually answers a release question.
+ *
+ * `describeSeries` carries genres, studio and score, which are dead weight in a prompt injected on
+ * every matching turn: they cost tokens the model then has to ignore. Ambient recall uses this.
+ */
+export function describeSeriesCompact(series: AnimeSeries): string {
+  const parts = [`${series.title} (${statusLabel(series.status)})`];
+  if (series.latestEpisode !== undefined) {
+    parts.push(
+      series.episodeCount !== undefined
+        ? `ultimo uscito ep. ${series.latestEpisode}/${series.episodeCount}`
+        : `ultimo uscito ep. ${series.latestEpisode}`,
+    );
+  }
+  if (series.nextEpisode) {
+    const when = isoDate(series.nextEpisode.airingAt);
+    const weekday = weekdayLabel(series.airingWeekday);
+    parts.push(
+      `prossimo ep. ${series.nextEpisode.episode}${when ? ` il ${when}` : ''}${weekday ? ` (${weekday})` : ''}`,
+    );
+  }
+  const legal = series.streamingLinks[0];
+  if (legal) parts.push(`su ${legal.site}: ${legal.url}`);
+  parts.push(series.url);
+  return parts.join(' · ');
+}
+
 /** Ranked shortlist shown instead of guessing when a title stays ambiguous. */
 export function describeCandidates(candidates: readonly AnimeSeries[]): string {
   return candidates.map((series, index) => `${index + 1}. ${summarizeSeries(series)}`).join('\n');
