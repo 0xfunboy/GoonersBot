@@ -42,6 +42,8 @@ notes.
 - [Capability Forge](#capability-forge)
 - [Per-user heat](#per-user-heat)
 - [Knowledge base](#knowledge-base)
+- [Ambient recall](#ambient-recall)
+- [Anime releases and follows](#anime-releases-and-follows)
 - [Images and autonomous posting](#images-and-autonomous-posting)
 - [Brain and memory](#brain-and-memory)
 - [Configuration](#configuration)
@@ -674,6 +676,14 @@ SHA-256 are then exposed through `/learn status <job>` and the complete paginate
 `/learn diff <job> [page]`. Only `/learn apply <job> <sha12>` can commit that exact verified artifact; apply
 does not deploy or restart the live bot.
 
+**You do not have to poll.** A build takes minutes and used to finish silently, so the only way to
+find out was to keep typing `/learn status`. The scheduler now announces every job that reaches a
+terminal state (`ready`, `failed`, `conflict`, `applied`, `stale`) in the DM it was started from,
+together with the single command worth running next — `/learn diff <job>` for a job that is ready,
+`/learn status <job>` for one that failed. The announcement is claimed in Mongo before it is sent,
+so a restarted scheduler re-reading the same finished job cannot announce it twice, and a failed
+send releases the claim for the next tick.
+
 Requests needing external credentials, authenticated APIs or real-world writes remain explicit setup
 proposals rather than being presented as installed capabilities.
 
@@ -703,6 +713,259 @@ the top `KNOWLEDGE_MAX_ITEMS` entries as a short, clearly optional context block
 nothing, so it adds no prompt weight and never makes the character monothematic. Seeded on boot from
 `src/knowledge/seed.ts` (`KNOWLEDGE_SEED_ON_BOOT`, idempotent); retrieval in
 `src/knowledge/knowledgeRetriever.ts`. Extend the seed freely.
+
+---
+
+## Ambient recall
+
+What the bot *happens to know* about whatever is being discussed, without anyone asking.
+
+Every other knowledge surface in the bot is **pulled**: Cortex classifies an intent, then a tool
+runs. Ambient recall is **pushed** - it runs on every turn, works out which topic domains the
+message belongs to, and injects a short block of verified facts into the prompt. The difference is
+between the bot answering "e uscito l'ultimo episodio?" and the bot already knowing, mid-banter,
+that the episode dropped on Wednesday.
+
+### Domains and the volatility axis
+
+The useful question is not *what subject* but *how fast the answer changes*, which is the split
+the bot already makes between `web_search` and `knowledge_rag`:
+
+| Volatility | Domains | Source | Cache |
+| --- | --- | --- | --- |
+| `live` | `anime`, `current_events` | AniList catalog, RSS news | already-persisted data |
+| `slow` | `film_tv`, `technology`, `gaming`, `music` | curated knowledge, Wikipedia | long |
+| `stable` | `science`, `psychology`, `philosophy`, `history` | Wikipedia | a month |
+
+A recency marker ("l'ultimo", "esce oggi", "appena uscito") promotes a `slow` domain to `live`, so
+`che film mi consigli` and `che film esce questa settimana` route differently. It can never
+promote a `stable` one: a recency word does not make Kant a moving target.
+
+### Classification is deterministic
+
+No LLM call. Domain detection is a lexicon pass (Italian + English) over a normalized message, and
+a multi-word phrase outscores a bare word, so `guerra fredda` reads as history while `guerra`
+alone barely registers. Spending a model call per turn is exactly what would make ambient recall
+too expensive to always run - which is what makes it ambient.
+
+Two properties matter more than accuracy:
+
+- **Silence is the common case.** `ahahah muoio` classifies to nothing and costs one regex pass.
+- **Cross-domain stays cross-domain.** `può un'IA avere coscienza?` is technology *and* philosophy;
+  both are kept rather than collapsed into a guess.
+
+Subjects to look up are extracted deterministically too, from three orthogonal signals: quotation
+(`"La Haine"`), capitalised runs (`ho visto Frieren`), and prepositional attachment
+(`parlami di dissonanza cognitiva`).
+
+### Providers
+
+| Provider | Domains | Key required |
+| --- | --- | --- |
+| AniList catalog | `anime` | no |
+| Wikipedia REST | `philosophy`, `psychology`, `science`, `history`, `film_tv` | no |
+| RSS news | `current_events` | no |
+
+Providers never own a data source - they re-expose the ones the bot already has.
+
+The curated knowledge base is deliberately **not** an ambient provider even though
+`CuratedAmbientProvider` exists: `knowledge_rag` already retrieves it and the reply pipeline joins
+both into the same prompt slot, so registering it would pay for a second embedding pass and print
+every matching entry twice in one reply. It is kept for an operator who wires a different pipeline.
+
+### Cost control
+
+The reply path is **local-first**: providers get a `local` budget and answer from Mongo or memory,
+so recall adds no network latency to a reply. On top of that the whole step runs under a hard
+`AMBIENT_DEADLINE_MS` deadline, raced rather than merely passed to providers — a source that
+ignores its abort signal loses its results, it does not get to hold up the reply. A `network` budget is granted at most once per chat per
+`AMBIENT_NETWORK_COOLDOWN_SECONDS` — the cooldown, not volatility, is what bounds the cost.
+Volatility decides how long an answer stays true, not whether it may be fetched: the stable
+domains are precisely the ones with nothing cached yet, and a reference summary fetched once is
+good for a month. Wikipedia results are cached persistently, including negative results —
+otherwise a subject nobody has an article for would be re-fetched every time a chatty group
+mentions it.
+
+### Not becoming monothematic
+
+The README promises the knowledge base "never makes the character monothematic", and ambient
+recall is the feature most likely to break that promise. Three guards:
+
+- facts land in the same prompt slot as curated knowledge, whose framing already says *use only if
+  it fits naturally, never force the topic, never info-dump*;
+- `AMBIENT_MAX_FACTS` caps how much can enter one reply;
+- a message with no domain evidence contributes nothing at all.
+
+### Adult content
+
+Adult results follow the chat's **existing** NSFW policy rather than a second, conflicting rule.
+Providers mark a fact adult (for AniList, from the published `Hentai`/`Ecchi` genre), and the
+retriever drops those facts when the turn's NSFW policy is off.
+
+### Configuration
+
+```bash
+AMBIENT_RECALL_ENABLED=true
+AMBIENT_MIN_DOMAIN_SCORE=1              # lexicon evidence needed before a domain counts
+AMBIENT_MAX_DOMAINS=2
+AMBIENT_MAX_FACTS=3
+AMBIENT_MAX_FACTS_PER_PROVIDER=2
+AMBIENT_ALLOW_NETWORK=true
+AMBIENT_NETWORK_COOLDOWN_SECONDS=90
+AMBIENT_DEADLINE_MS=2500                # hard ceiling on the whole recall step
+AMBIENT_AUTOENGAGE_BONUS=0.1            # confidence rebate on a known topic (0 disables)
+AMBIENT_WIKIPEDIA_ENABLED=true
+AMBIENT_WIKIPEDIA_LANGUAGE=it
+AMBIENT_CACHE_TTL_HOURS=720
+```
+
+Adding a domain means adding a lexicon entry in `src/ambient/domains.ts`; adding a source means
+implementing `AmbientProvider` in `src/ambient/providers/`. Neither touches the reply pipeline.
+
+### What recall feeds
+
+Recall is not a separate feature bolted on the side: once the bot knows what is being discussed,
+several existing surfaces stop guessing.
+
+| Surface | Before | With ambient recall |
+| --- | --- | --- |
+| Reply prompt | curated culture only | plus verified facts about the live subject |
+| Unprompted image | generic waifu search | art of the series the group is actually discussing |
+| Passive engagement | fixed confidence bar | bar lowered when the bot genuinely has something to add |
+| Autonomous post | generic taste + recent chatter | biased by the chat's durable interests |
+| Referents | "quando esce il prossimo?" resolved nothing | subject tracked as a conversation entity |
+
+**Group taste** (`topic_affinity`) is a plain counter, not a mined memory: "questo gruppo parla di
+Frieren" is an observation the bot can make without a model call, and counting it is cheaper and
+more honest than asking an LLM to summarise a group's personality. Distinct handles are tracked
+too, so a subject only becomes an "interest" when the *group* keeps returning to it rather than
+one member monologuing. Only established interests reach the proactive surfaces.
+
+Observation is fire-and-forget: learning what the group likes is a side effect of a conversation
+that already happened and never adds latency to answering it.
+
+### Troubleshooting
+
+| Symptom | Likely cause |
+| --- | --- |
+| The bot never brings up known facts | `AMBIENT_RECALL_ENABLED=false`, or the message has no lexicon hit |
+| It chimes in more than it used to | that is `AMBIENT_AUTOENGAGE_BONUS`; set it to `0` to restore the old bar |
+| Unprompted images stay generic | the chat has no established interest yet (needs repeat mentions by more than one person) |
+| A topic is classified wrongly | inspect `matched` on the domain signal; it lists the lexicon entries that fired |
+| Wikipedia facts never appear | `AMBIENT_ALLOW_NETWORK=false`, or the per-chat cooldown has not elapsed since the last lookup |
+| The bot drags anime into everything | lower `AMBIENT_MAX_FACTS`, or trim the `anime` lexicon |
+| Adult facts leak | check the turn's NSFW policy; the gate is the chat's existing one |
+
+---
+
+## Anime releases and follows
+
+Grounded answers about anime release schedules, plus per-chat subscriptions that announce a new
+episode exactly once.
+
+This feature covers **release metadata only** - titles, status, episode counts, airing schedule and
+the legal streaming links the source publishes. It does not download, stream or rehost episodes.
+
+### What it answers
+
+Asked in natural language, no command needed:
+
+```
+e uscito l'ultimo episodio di Tanya the Evil?
+quanti episodi sono usciti di Frieren?
+quando esce il prossimo episodio di X?
+che anime stanno uscendo?
+segui Frieren
+smetti di seguire Frieren
+che serie stiamo seguendo?
+```
+
+Cortex maps the message onto the `anime_knowledge` tool with an explicit intent
+(`lookup`, `follow`, `unfollow`, `list_follows`, `airing`); the answer's facts come from the
+catalog service, never from the model.
+
+### Data sources
+
+| Source | Role | Key required |
+| --- | --- | --- |
+| [AniList](https://anilist.co) GraphQL | primary catalog: titles, aliases, status, episodes, airing schedule, streaming links | no |
+| [Jikan](https://jikan.moe) (MyAnimeList) | optional gap-filling: broadcast weekday, score, episode count | no |
+| SearXNG | last-resort title discovery, only when AniList cannot resolve the title | no (self-hosted) |
+
+Enrichment is strictly secondary: if Jikan is down, the catalog, the answers and the follows all
+keep working.
+
+### Title resolution
+
+Resolution is deterministic and never spends an LLM call comparing strings. The ladder is
+cheapest-first, so a known title never depends on an external search engine:
+
+1. persisted catalog, exact canonical key;
+2. persisted catalog, normalized key;
+3. persisted catalog, deterministic fuzzy ranking (bigram Dice + token coverage);
+4. AniList search;
+5. SearXNG discovery - only an AniList id parsed out of a genuine `anilist.co/anime/<id>` **path**
+   is trusted; result titles and snippets are never treated as catalog data.
+
+Normalization folds case, Unicode, accents, punctuation, apostrophes, roman sequel numerals
+(`Overlord IV` = `Overlord 4`) and source noise such as `ITA` / `SUB`, without ever emptying a
+legitimate title. When two entries stay genuinely tied, the bot shows a short ranked shortlist
+instead of asserting a guess.
+
+### Follows and notifications
+
+`segui X` stores a per-chat subscription **seeded at the episode already aired**, so following
+mid-season never backfills episodes 1..N as "new". The scheduler polls followed series every
+`ANIME_FOLLOW_POLL_MINUTES` and, on a new episode, claims the notification with a conditional
+watermark update *before* sending. That claim is the deduplication: concurrent ticks and restarted
+schedulers cannot produce a second notification, and a failed send releases the claim so the next
+tick retries. Notifications are delivered to the same chat and forum topic the follow was created
+in.
+
+### Configuration
+
+```bash
+ANIME_KNOWLEDGE_ENABLED=true            # catalog + agent tool
+ANILIST_API_URL=https://graphql.anilist.co
+ANIME_ENRICHMENT_ENABLED=true           # Jikan/MAL gap-filling
+JIKAN_API_URL=https://api.jikan.moe/v4
+ANIME_KNOWLEDGE_TIMEOUT_MS=10000
+ANIME_KNOWLEDGE_MAX_RESPONSE_BYTES=524288
+ANIME_KNOWLEDGE_REFRESH_MINUTES=180     # staleness threshold for a cached series
+ANIME_KNOWLEDGE_MAX_CANDIDATES=5        # shortlist size for an ambiguous title
+ANIME_KNOWLEDGE_SEARCH_FALLBACK=true    # needs WEB_SEARCH_ENABLED + SEARXNG_URL
+ANIME_FOLLOWS_ENABLED=true
+ANIME_FOLLOW_POLL_MINUTES=30
+ANIME_MAX_FOLLOWS_PER_CHAT=50
+ANIME_FOLLOW_BATCH_SIZE=20              # series polled per tick
+```
+
+### Storage
+
+Two Mongo collections in the existing database:
+
+- `anime_series` - the catalog, keyed by `source` + `sourceId`. Refresh is an upsert, so repeated
+  crawls update in place and never duplicate a title; `createdAt` survives every refresh.
+- `anime_follows` - subscriptions, keyed by `chatId` + `source` + `sourceId`, carrying the
+  `lastNotifiedEpisode` watermark.
+
+### Network safety
+
+Both providers go through `fetchSafeRemoteBuffer`, so the catalog inherits the project's SSRF
+guards unchanged: private/loopback/link-local/metadata destinations are rejected before a socket is
+opened, responses are size-bounded and content-type checked, and a non-GET request refuses to
+follow redirects at all rather than replaying its body against an unvalidated origin.
+
+### Troubleshooting
+
+| Symptom | Likely cause |
+| --- | --- |
+| "Il catalogo anime non e abilitato" | `ANIME_KNOWLEDGE_ENABLED=false` |
+| Every title comes back ambiguous | two catalog entries share a title; the shortlist is the correct answer |
+| A known title is not found | AniList rate limit hit (client-side cap is 45 req/min); retry shortly |
+| No release notifications | `ANIME_FOLLOWS_ENABLED=false`, or the series has no published next episode |
+| Notifications stopped after a restart | expected only if the episode was already announced; the watermark is persisted |
+| Weekday missing for an airing series | AniList published no `nextAiringEpisode`; enable `ANIME_ENRICHMENT_ENABLED` for the MAL broadcast day |
 
 ---
 

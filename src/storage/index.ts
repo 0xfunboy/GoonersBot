@@ -24,6 +24,11 @@ import { ChatQuotaRepo } from './repositories/chatQuota.js';
 import { ConversationThreadsRepo } from './repositories/conversationThreads.js';
 import { ConversationEntitiesRepo } from './repositories/conversationEntities.js';
 import { ChatMembershipEventsRepo } from './repositories/chatMembershipEvents.js';
+import { AnimeCatalogRepo } from './repositories/animeCatalog.js';
+import { AnimeFollowsRepo } from './repositories/animeFollows.js';
+import { AmbientCacheRepo } from './repositories/ambientCache.js';
+import { JobNotificationsRepo } from './repositories/jobNotifications.js';
+import { TopicAffinityRepo } from './repositories/topicAffinity.js';
 import { MongoSocialProfileStore } from '../social/mongoStore.js';
 
 const log = childLogger('storage');
@@ -55,6 +60,11 @@ export class Storage {
   readonly conversationThreads: ConversationThreadsRepo;
   readonly conversationEntities: ConversationEntitiesRepo;
   readonly chatMembershipEvents: ChatMembershipEventsRepo;
+  readonly animeCatalog: AnimeCatalogRepo;
+  readonly animeFollows: AnimeFollowsRepo;
+  readonly ambientCache: AmbientCacheRepo;
+  readonly jobNotifications: JobNotificationsRepo;
+  readonly topicAffinity: TopicAffinityRepo;
   readonly socialProfiles: MongoSocialProfileStore;
 
   private constructor(
@@ -88,6 +98,11 @@ export class Storage {
     this.conversationThreads = new ConversationThreadsRepo(db);
     this.conversationEntities = new ConversationEntitiesRepo(db);
     this.chatMembershipEvents = new ChatMembershipEventsRepo(db);
+    this.animeCatalog = new AnimeCatalogRepo(db);
+    this.animeFollows = new AnimeFollowsRepo(db);
+    this.ambientCache = new AmbientCacheRepo(db);
+    this.jobNotifications = new JobNotificationsRepo(db);
+    this.topicAffinity = new TopicAffinityRepo(db);
     this.socialProfiles = new MongoSocialProfileStore(db);
   }
 
@@ -119,6 +134,11 @@ export class Storage {
     await ConversationThreadsRepo.ensureIndexes(this.db);
     await ConversationEntitiesRepo.ensureIndexes(this.db);
     await ChatMembershipEventsRepo.ensureIndexes(this.db);
+    await AnimeCatalogRepo.ensureIndexes(this.db);
+    await AnimeFollowsRepo.ensureIndexes(this.db);
+    await AmbientCacheRepo.ensureIndexes(this.db);
+    await JobNotificationsRepo.ensureIndexes(this.db);
+    await TopicAffinityRepo.ensureIndexes(this.db);
     await MongoSocialProfileStore.ensureIndexes(this.db);
     log.info('indexes ensured');
   }

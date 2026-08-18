@@ -20,6 +20,15 @@ import { VectorMemoryRetriever } from '../memory/vectorRetriever.js';
 import { createEmbedder, type Embedder } from '../rag/embedder.js';
 import { SceneAnalyzer } from '../brain/sceneAnalyzer.js';
 import { SearxngProvider } from '../search/searxng.js';
+import { AnilistProvider } from '../anime/providers/anilist.js';
+import { JikanEnricher } from '../anime/providers/jikan.js';
+import { AnimeCatalogService } from '../anime/catalogService.js';
+import { AnimeFollowService } from '../anime/followService.js';
+import { AnimeKnowledgeService } from '../anime/knowledgeService.js';
+import { AmbientRetriever } from '../ambient/retriever.js';
+import { AnimeAmbientProvider } from '../ambient/providers/animeAmbient.js';
+import { WikipediaAmbientProvider } from '../ambient/providers/wikipediaAmbient.js';
+import { NewsAmbientProvider } from '../ambient/providers/curatedAmbient.js';
 import { GroundingService } from '../search/groundingService.js';
 import { PageScanner } from '../search/pageScanner.js';
 import { HeatService } from './heat.js';
@@ -65,6 +74,8 @@ export * from './reply.js';
 export * from './modelRouter.js';
 export * from './groupQuota.js';
 export * from './systemInfo.js';
+export * from '../anime/index.js';
+export * from '../ambient/index.js';
 export * from '../capabilities/localDevelopmentService.js';
 
 /**
@@ -101,6 +112,10 @@ export class Services {
   readonly grounding: GroundingService;
   readonly heat: HeatService;
   readonly knowledge: KnowledgeRetriever;
+  readonly animeCatalog: AnimeCatalogService;
+  readonly animeFollows: AnimeFollowService;
+  readonly anime: AnimeKnowledgeService;
+  readonly ambient: AmbientRetriever;
   readonly imageFinder: ImageFinder;
   readonly news: NewsService;
   readonly autonomousPoster: AutonomousPoster;
@@ -180,6 +195,7 @@ export class Services {
       model: env.AUTOENGAGE_MODEL,
       maxTokens: env.AUTOENGAGE_MAX_TOKENS,
       minConfidence: env.AUTOENGAGE_MIN_CONFIDENCE,
+      knownTopicBonus: config.ambient.autoengageBonus,
     });
     this.modelRouter = new ModelRouter({
       defaultModel: config.llm.model,
@@ -313,6 +329,38 @@ export class Services {
       },
       this.embedder,
     );
+    this.animeCatalog = new AnimeCatalogService(config.anime, {
+      storage,
+      provider: new AnilistProvider({
+        enabled: config.anime.enabled,
+        apiUrl: config.anime.anilistUrl,
+        timeoutMs: config.anime.timeoutMs,
+        maxResponseBytes: config.anime.maxResponseBytes,
+      }),
+      enricher: new JikanEnricher({
+        enabled: config.anime.enabled && config.anime.enrichmentEnabled,
+        apiUrl: config.anime.jikanUrl,
+        timeoutMs: config.anime.timeoutMs,
+        maxResponseBytes: config.anime.maxResponseBytes,
+      }),
+      search: searxng,
+    });
+    this.animeFollows = new AnimeFollowService(config.anime, storage, this.animeCatalog);
+    this.anime = new AnimeKnowledgeService(config.anime, this.animeCatalog, this.animeFollows);
+    // Ambient recall sits after the services it wraps: it never owns a data source, it only asks
+    // the existing ones whether they recognise what is being discussed.
+    // The curated knowledge base is deliberately absent: `knowledge_rag` already retrieves it and
+    // `reply.ts` joins both into the same prompt slot, so registering it here would pay for a
+    // second embedding pass and print every matching entry twice inside one reply.
+    this.ambient = new AmbientRetriever(
+      config.ambient,
+      [
+        new AnimeAmbientProvider(this.animeCatalog),
+        new WikipediaAmbientProvider(storage, config.ambient.wikipedia),
+        new NewsAmbientProvider(this.news),
+      ],
+      storage,
+    );
     this.agentRuntime = new AgentRuntime({
       config,
       llm,
@@ -327,6 +375,7 @@ export class Services {
       videoPrompts: this.videoPrompts,
       quota: this.quota,
       capabilities: this.capabilities,
+      anime: this.anime,
     });
     this.reply = new ReplyService(
       llm,
@@ -353,6 +402,8 @@ export class Services {
       this.videoPrompts,
       this.agentRuntime,
       this.social,
+      this.anime,
+      this.ambient,
     );
   }
 

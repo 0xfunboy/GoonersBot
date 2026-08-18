@@ -18,6 +18,8 @@ export interface CortexCapabilities {
   imageLookup: boolean;
   news: boolean;
   knowledge: boolean;
+  /** Anime release catalog (AniList) + per-chat follows. */
+  anime: boolean;
   music: boolean;
   linkMedia: boolean;
   imageGeneration: boolean;
@@ -127,6 +129,7 @@ export function availableToolsFor(capabilities: CortexCapabilities): CortexTool[
   if (capabilities.news) tools.push('news');
   if (capabilities.imageLookup) tools.push('image_lookup');
   if (capabilities.knowledge) tools.push('knowledge_rag');
+  if (capabilities.anime) tools.push('anime_knowledge');
   tools.push('group_rag');
   if (capabilities.music) tools.push('music');
   if (capabilities.linkMedia) tools.push('link_media');

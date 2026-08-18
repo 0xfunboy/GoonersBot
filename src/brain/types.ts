@@ -124,6 +124,7 @@ export type TurnAction =
 export type ProviderRequest =
   | 'group_rag'
   | 'knowledge_rag'
+  | 'anime_knowledge'
   | 'web_search'
   | 'news'
   | 'image_lookup'
@@ -198,6 +199,8 @@ export interface ProviderBundle {
   socialContext?: string;
   groupContext?: string;
   knowledgeContext?: string;
+  /** Ambient recall: verified facts about whatever the chat is discussing right now. */
+  ambientContext?: string;
   webContext?: string;
   newsContext?: string;
   claimCheck?: string;

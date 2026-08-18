@@ -34,6 +34,7 @@ describe('AgentRuntime live provider bridge', () => {
       videoPrompts: {} as never,
       quota: {} as never,
       capabilities: { enabled: false } as never,
+      anime: { enabled: false } as never,
     });
 
     const definitions = (
@@ -80,6 +81,7 @@ describe('AgentRuntime live provider bridge', () => {
         videoPrompts: {} as never,
         quota: {} as never,
         capabilities: { enabled: true, acquire } as never,
+        anime: { enabled: false } as never,
       });
       const input: AgentRuntimeInput = {
         request: 'impara questa capacità',
@@ -206,6 +208,7 @@ describe('AgentRuntime live provider bridge', () => {
       videoPrompts: {} as never,
       quota: {} as never,
       capabilities: { enabled: false } as never,
+      anime: { enabled: false } as never,
     });
 
     const result = await runtime.run({
@@ -297,6 +300,7 @@ describe('AgentRuntime live provider bridge', () => {
       videoPrompts: {} as never,
       quota: { reserve } as never,
       capabilities: { enabled: false } as never,
+      anime: { enabled: false } as never,
     });
 
     const result = await runtime.run({
@@ -416,6 +420,7 @@ describe('AgentRuntime live provider bridge', () => {
       videoPrompts: {} as never,
       quota: {} as never,
       capabilities: { enabled: false } as never,
+      anime: { enabled: false } as never,
     });
 
     const result = await runtime.run({
@@ -501,6 +506,7 @@ describe('AgentRuntime live provider bridge', () => {
       videoPrompts: {} as never,
       quota: {} as never,
       capabilities: { enabled: false } as never,
+      anime: { enabled: false } as never,
     });
 
     const result = await runtime.run({
@@ -565,6 +571,7 @@ describe('AgentRuntime live provider bridge', () => {
       videoPrompts: {} as never,
       quota: {} as never,
       capabilities: { enabled: false } as never,
+      anime: { enabled: false } as never,
     });
 
     const result = await runtime.run({
@@ -646,6 +653,7 @@ describe('AgentRuntime live provider bridge', () => {
       videoPrompts: {} as never,
       quota: {} as never,
       capabilities: { enabled: false } as never,
+      anime: { enabled: false } as never,
     });
 
     const result = await runtime.run({
@@ -729,6 +737,7 @@ describe('AgentRuntime live provider bridge', () => {
       videoPrompts: {} as never,
       quota: {} as never,
       capabilities: { enabled: false } as never,
+      anime: { enabled: false } as never,
     });
 
     const result = await runtime.run({

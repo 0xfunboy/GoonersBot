@@ -5,6 +5,8 @@ import { Storage } from './storage/index.js';
 import { Services } from './services/index.js';
 import { createBot } from './telegram/bot.js';
 import { Scheduler } from './jobs/scheduler.js';
+import { runAnimeReleaseJob } from './jobs/animeReleaseJob.js';
+import { runLearnNotifyJob } from './jobs/learnNotifyJob.js';
 import { buildMiningWindows, withContinuousMiningLock } from './jobs/memoryMiningJob.js';
 import { KNOWLEDGE_SEED } from './knowledge/seed.js';
 import { getLogger } from './utils/logger.js';
@@ -266,6 +268,66 @@ async function main(): Promise<void> {
       }
     }
   };
+  /**
+   * Announce newly aired episodes to the chats that follow them.
+   *
+   * The job claims each notification before this callback runs, so returning false (delivery
+   * failed) is what releases the claim and lets the next tick retry - never a duplicate send.
+   */
+  const animeReleaseTick = async (): Promise<void> => {
+    await runAnimeReleaseJob(config.anime, storage, services.animeCatalog, async (notification) => {
+      const { series, episode } = notification;
+      const lines = [`Nuovo episodio di *${series.title}*: episodio ${episode}.`, series.url];
+      const legal = series.streamingLinks[0];
+      if (legal) lines.push(`Disponibile su ${legal.site}: ${legal.url}`);
+      const rendered = renderTelegramText(lines.join('\n'), 'markdown');
+      try {
+        await goonerBot.bot.api.sendMessage(notification.chatId, rendered.text, {
+          parse_mode: rendered.parseMode,
+          ...(notification.threadId ? { message_thread_id: notification.threadId } : {}),
+        });
+        return true;
+      } catch (err) {
+        log.warn(
+          { err, chatId: notification.chatId, sourceId: series.sourceId, episode },
+          'anime release notification send failed',
+        );
+        return false;
+      }
+    });
+  };
+  /** Tell the admin a /learn job finished, with the one command they need next. */
+  const learnNotifyTick = async (): Promise<void> => {
+    await runLearnNotifyJob(
+      services.localDevelopment,
+      storage,
+      async ({ chatId, job, nextCommand }) => {
+        const headline =
+          job.state === 'ready'
+            ? `\u2705 Job \`${job.id.slice(0, 8)}\` pronto: diff verificata, nulla \u00e8 stato applicato.`
+            : job.state === 'applied'
+              ? `\u2705 Job \`${job.id.slice(0, 8)}\` applicato al repository.`
+              : job.state === 'cancelled'
+                ? `Job \`${job.id.slice(0, 8)}\` annullato.`
+                : `\u26a0\ufe0f Job \`${job.id.slice(0, 8)}\` terminato: \`${job.state}\`${job.resultCode ? ` (${job.resultCode})` : ''}.`;
+        const rendered = renderTelegramText(
+          [headline, nextCommand ? `Prossimo passo: \`${nextCommand}\`` : '']
+            .filter(Boolean)
+            .join('\n'),
+          'markdown',
+        );
+        try {
+          await goonerBot.bot.api.sendMessage(chatId, rendered.text, {
+            parse_mode: rendered.parseMode,
+          });
+          return true;
+        } catch (err) {
+          log.warn({ err, chatId, jobId: job.id }, 'learn notification send failed');
+          return false;
+        }
+      },
+    );
+  };
   const scheduler = new Scheduler(
     config,
     storage,
@@ -274,6 +336,8 @@ async function main(): Promise<void> {
     generatedImageTick,
     services.socialLearning,
     () => services.access.list().chats,
+    animeReleaseTick,
+    learnNotifyTick,
   );
   scheduler.start();
 

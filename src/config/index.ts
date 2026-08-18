@@ -378,6 +378,92 @@ export function resolveSearchConfig(env: Env): SearchConfig {
   };
 }
 
+export interface AmbientConfig {
+  enabled: boolean;
+  minDomainScore: number;
+  maxDomains: number;
+  maxFacts: number;
+  maxFactsPerProvider: number;
+  /** Whether any ambient provider may perform a network lookup at all. */
+  allowNetwork: boolean;
+  /** Per-chat gate on that network path, in seconds. */
+  networkCooldownSeconds: number;
+  /** Confidence rebate for the passive engagement gate on a domain the bot knows. */
+  autoengageBonus: number;
+  /** Hard ceiling on the whole recall step, so a slow source can never stall a reply. */
+  deadlineMs: number;
+  wikipedia: {
+    enabled: boolean;
+    language: string;
+    timeoutMs: number;
+    maxResponseBytes: number;
+    cacheTtlHours: number;
+  };
+}
+
+export function resolveAmbientConfig(env: Env): AmbientConfig {
+  return {
+    enabled: env.AMBIENT_RECALL_ENABLED,
+    minDomainScore: Math.max(0.5, env.AMBIENT_MIN_DOMAIN_SCORE),
+    maxDomains: Math.min(4, Math.max(1, env.AMBIENT_MAX_DOMAINS)),
+    maxFacts: Math.min(6, Math.max(1, env.AMBIENT_MAX_FACTS)),
+    maxFactsPerProvider: Math.min(4, Math.max(1, env.AMBIENT_MAX_FACTS_PER_PROVIDER)),
+    allowNetwork: env.AMBIENT_ALLOW_NETWORK,
+    networkCooldownSeconds: Math.max(10, env.AMBIENT_NETWORK_COOLDOWN_SECONDS),
+    autoengageBonus: Math.min(0.4, Math.max(0, env.AMBIENT_AUTOENGAGE_BONUS)),
+    deadlineMs: Math.max(250, env.AMBIENT_DEADLINE_MS),
+    wikipedia: {
+      enabled: env.AMBIENT_RECALL_ENABLED && env.AMBIENT_WIKIPEDIA_ENABLED,
+      language: env.AMBIENT_WIKIPEDIA_LANGUAGE,
+      timeoutMs: Math.max(1_000, env.AMBIENT_WIKIPEDIA_TIMEOUT_MS),
+      maxResponseBytes: Math.max(16 * 1024, env.AMBIENT_WIKIPEDIA_MAX_RESPONSE_BYTES),
+      cacheTtlHours: Math.max(1, env.AMBIENT_CACHE_TTL_HOURS),
+    },
+  };
+}
+
+export interface AnimeConfig {
+  /** Catalog answers (release status, latest episode, airing schedule) are available. */
+  enabled: boolean;
+  anilistUrl: string;
+  /** Secondary MAL enrichment; the catalog stays fully functional when it is off or failing. */
+  enrichmentEnabled: boolean;
+  jikanUrl: string;
+  timeoutMs: number;
+  maxResponseBytes: number;
+  refreshMinutes: number;
+  maxCandidates: number;
+  /** Consult SearXNG only when the source catalog itself could not resolve a title. */
+  searchFallbackEnabled: boolean;
+  follows: {
+    enabled: boolean;
+    pollMinutes: number;
+    maxPerChat: number;
+    batchSize: number;
+  };
+}
+
+export function resolveAnimeConfig(env: Env): AnimeConfig {
+  return {
+    enabled: env.ANIME_KNOWLEDGE_ENABLED,
+    anilistUrl: env.ANILIST_API_URL,
+    enrichmentEnabled: env.ANIME_ENRICHMENT_ENABLED,
+    jikanUrl: env.JIKAN_API_URL,
+    timeoutMs: Math.max(1_000, env.ANIME_KNOWLEDGE_TIMEOUT_MS),
+    maxResponseBytes: Math.max(16 * 1024, env.ANIME_KNOWLEDGE_MAX_RESPONSE_BYTES),
+    refreshMinutes: Math.max(5, env.ANIME_KNOWLEDGE_REFRESH_MINUTES),
+    maxCandidates: Math.min(10, Math.max(1, env.ANIME_KNOWLEDGE_MAX_CANDIDATES)),
+    searchFallbackEnabled:
+      env.ANIME_KNOWLEDGE_SEARCH_FALLBACK && env.WEB_SEARCH_ENABLED && Boolean(env.SEARXNG_URL),
+    follows: {
+      enabled: env.ANIME_KNOWLEDGE_ENABLED && env.ANIME_FOLLOWS_ENABLED,
+      pollMinutes: Math.max(5, env.ANIME_FOLLOW_POLL_MINUTES),
+      maxPerChat: Math.max(1, env.ANIME_MAX_FOLLOWS_PER_CHAT),
+      batchSize: Math.max(1, Math.min(100, env.ANIME_FOLLOW_BATCH_SIZE)),
+    },
+  };
+}
+
 /** Image-sending + autonomous-posting (news/waifu) config. */
 export interface AutoConfig {
   imageSendEnabled: boolean;
@@ -685,6 +771,8 @@ export interface AppConfig {
   agnes: AgnesConfig;
   music: MusicConfig;
   linkMedia: LinkMediaConfig;
+  anime: AnimeConfig;
+  ambient: AmbientConfig;
 }
 
 export function loadConfig(): AppConfig {
@@ -703,5 +791,7 @@ export function loadConfig(): AppConfig {
     agnes: resolveAgnesConfig(env),
     music: resolveMusicConfig(env),
     linkMedia: resolveLinkMediaConfig(env),
+    anime: resolveAnimeConfig(env),
+    ambient: resolveAmbientConfig(env),
   };
 }
