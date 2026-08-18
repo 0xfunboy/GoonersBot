@@ -3,7 +3,13 @@ import type { Storage } from '../storage/index.js';
 import type { AnimeSeriesDoc } from '../storage/repositories/animeCatalog.js';
 import type { WebSearchProvider } from '../search/types.js';
 import { childLogger } from '../utils/logger.js';
-import { canonicalTitleKey, isDecisiveMatch, normalizeTitle, rankByTitle } from './titles.js';
+import {
+  EXACT_MATCH_SCORE,
+  canonicalTitleKey,
+  isDecisiveMatch,
+  normalizeTitle,
+  rankByTitle,
+} from './titles.js';
 import type { AnimeCatalogProvider, AnimeLookupResult, AnimeMatch, AnimeSeries } from './types.js';
 import { applyEnrichment, type JikanEnricher } from './providers/jikan.js';
 
@@ -80,13 +86,16 @@ export class AnimeCatalogService {
     this.preferOngoing = opts.preferOngoing ?? false;
 
     const local = await this.lookupLocal(trimmed);
-    // A partially crawled franchise is the trap here: with only one of four Tanya entries cached,
-    // that lone candidate looks unambiguous and short-circuits the remote lookup that would have
-    // surfaced the airing season. So a concluded local match is not trusted for a question about
-    // what comes next - the very case where a finished entry is the wrong answer.
+    // The cache is a partial view of the source, so a lone local candidate looks unambiguous
+    // simply because its rivals were never crawled. Two real failures came from trusting it: one
+    // of four Tanya entries answered a question about the airing season with the 2017 one, and a
+    // leftover "Yani Neko Mini" answered for "Chainsmoker Cat". So only an exact title hit is
+    // authoritative offline; anything fuzzier is checked against the source first, and a
+    // concluded entry is never trusted for a question about what comes next.
+    const localIsExact = (local.match?.score ?? 0) >= EXACT_MATCH_SCORE;
     const localLooksWrong =
       this.preferOngoing && local.match !== undefined && local.match.series.status !== 'ongoing';
-    if (local.match && !localLooksWrong) {
+    if (local.match && localIsExact && !localLooksWrong) {
       const refreshed = await this.refreshIfStale(local.match.series, signal);
       return {
         match: { ...local.match, series: refreshed },

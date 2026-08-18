@@ -82,6 +82,14 @@ export interface AgentRuntimeInput {
   socialContext?: string;
   groupContext?: string;
   documentContext?: string | null;
+  /**
+   * Verified facts about what is being discussed, recalled before any tool ran.
+   *
+   * The agent must see these: when the planner picks the wrong tool for a question the catalog
+   * could already answer, this is the difference between a grounded reply and a verification
+   * failure shown to the user.
+   */
+  ambientContext?: string;
   /** Trusted intent already selected by Cortex; preserves composite requests if planner JSON fails. */
   requestedActions?: AgentPlanningContext['requestedActions'];
   /** Deterministic social floor shared with the ordinary conversational pipeline. */
@@ -171,7 +179,10 @@ export class AgentRuntime {
         request: input.request,
         language: input.language,
         currentHandle: input.person.userHandle,
-        chatSummary: compactContext(input.socialContext, input.groupContext),
+        chatSummary: compactContext(
+          input.socialContext,
+          [input.groupContext, input.ambientContext].filter(Boolean).join('\n\n') || undefined,
+        ),
         recentMessages: input.recentMessages.slice(-10),
         relevantPeople: socialPeople(input.socialContext),
         availableTools: definitions,
@@ -255,10 +266,14 @@ export class AgentRuntime {
     const sociallyUnsafe = violatesSocialFloor(original, input.socialSignal);
     if (!sociallyUnsafe && (check?.allowed ?? true)) return original;
 
-    const verifiedSummaries = coordinated.execution.results
-      .filter((run) => run.status === 'succeeded' && run.output?.verified !== false)
-      .map((run) => run.output?.summary.trim())
-      .filter((summary): summary is string => Boolean(summary));
+    const verifiedSummaries = [
+      // Recalled facts were verified before the plan even ran; they survive a tool that failed.
+      ...(input.ambientContext ? [input.ambientContext] : []),
+      ...coordinated.execution.results
+        .filter((run) => run.status === 'succeeded' && run.output?.verified !== false)
+        .map((run) => run.output?.summary.trim())
+        .filter((summary): summary is string => Boolean(summary)),
+    ];
     const deterministic = verifiedSummaries.join('\n\n').trim() || deterministicAgentFailure(input);
     try {
       const rewrite = await this.deps.llm.chatCompletion({

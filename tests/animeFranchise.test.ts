@@ -193,7 +193,9 @@ describe('a partially cached franchise does not short-circuit the right answer',
     expect(result.match?.series.nextEpisode?.episode).toBe(7);
   });
 
-  it('keeps trusting a cached concluded entry when the question is not about the timeline', async () => {
+  it('verifies a fuzzy cached hit against the source even without a timeline question', async () => {
+    // "Tanya the Evil" is not the cached entry's exact title ("Saga of Tanya the Evil"), so the
+    // lone local candidate is a guess produced by a partial crawl, not an answer.
     const onlyS1 = FRANCHISE.filter((s) => s.sourceId === '21613');
     const search = vi.fn(async () => FRANCHISE);
     const catalog = new AnimeCatalogService(config, {
@@ -203,8 +205,9 @@ describe('a partially cached franchise does not short-circuit the right answer',
 
     const result = await catalog.lookup('Tanya the Evil');
 
-    expect(result.match?.series.sourceId).toBe('21613');
-    expect(search).not.toHaveBeenCalled();
+    expect(search).toHaveBeenCalled();
+    // With all four visible and nothing to disambiguate them, a shortlist is the honest answer.
+    expect(result.candidates.length).toBeGreaterThan(1);
   });
 
   it('falls back to the concluded local match when the source is unreachable', async () => {
@@ -217,6 +220,107 @@ describe('a partially cached franchise does not short-circuit the right answer',
     // Setting the local match aside must not turn into "never heard of it".
     const result = await catalog.lookup('Tanya the Evil', undefined, { preferOngoing: true });
     expect(result.match?.series.sourceId).toBe('21613');
+  });
+});
+
+describe('an exact title match outranks a near-identical alias', () => {
+  /**
+   * Real AniList data: a *different* series carries the alias "Chainsmoker Cat Minis", which
+   * scores 0.9559 against a query of "chainsmoker cat" - close enough to drag the perfect 1.0000
+   * hit below the ambiguity threshold and answer about the wrong show.
+   */
+  const NEIGHBOURS: AnimeSeries[] = [
+    series('207141', 'Chainsmoker Cat', 'ongoing', {
+      latestEpisode: 7,
+      nextEpisode: { episode: 8, airingAt: new Date('2026-08-20T00:00:00Z') },
+    }),
+    { ...series('208105', 'Yani Neko Mini', 'ongoing'), aliases: ['Chainsmoker Cat Minis'] },
+  ];
+
+  it('resolves to the exactly-named series, not the one with the similar alias', async () => {
+    const withAliasKeys = NEIGHBOURS.map((s) => ({
+      ...s,
+      titleKeys: titleKeys([s.title, ...s.aliases]),
+    }));
+    const catalog = new AnimeCatalogService(config, {
+      storage: emptyStorage,
+      provider: provider(withAliasKeys),
+    });
+
+    const result = await catalog.lookup('chainsmoker cat');
+    expect(result.match?.series.sourceId).toBe('207141');
+  });
+
+  it('stays ambiguous when two entries match the title exactly', async () => {
+    const twins = [
+      series('1', 'Fate/stay night', 'finished'),
+      series('2', 'Fate/stay night', 'finished'),
+    ];
+    const catalog = new AnimeCatalogService(config, {
+      storage: emptyStorage,
+      provider: provider(twins),
+    });
+
+    const result = await catalog.lookup('fate stay night');
+    expect(result.match).toBeUndefined();
+    expect(result.candidates).toHaveLength(2);
+  });
+});
+
+describe('a fuzzy local hit is verified against the source', () => {
+  function cacheWith(seed: AnimeSeries[]): Storage {
+    const docs = new Map(
+      seed.map((e) => [
+        `${e.source}:${e.sourceId}`,
+        { ...e, crawledAt: new Date(), revision: 1, createdAt: new Date(), updatedAt: new Date() },
+      ]),
+    );
+    return {
+      animeCatalog: {
+        get: async (so: string, id: string) => docs.get(`${so}:${id}`) ?? null,
+        findByTitleKey: async (k: string) =>
+          [...docs.values()].filter((d) => d.titleKeys.includes(k)),
+        findFuzzyCandidates: async (tokens: string[]) => {
+          const usable = tokens.filter((t) => t.length >= 3);
+          return [...docs.values()].filter((d) =>
+            d.titleKeys.some((k: string) => usable.some((t) => k.includes(t))),
+          );
+        },
+        upsertMany: async () => undefined,
+        listAiring: async () => [],
+      },
+    } as unknown as Storage;
+  }
+
+  it('does not answer from a leftover neighbour that was never the subject', async () => {
+    // Only the *other* series is cached, so offline it is the sole candidate and looks decisive.
+    const leftover = {
+      ...series('208105', 'Yani Neko Mini', 'ongoing'),
+      aliases: ['Chainsmoker Cat Minis'],
+    };
+    leftover.titleKeys = titleKeys([leftover.title, ...leftover.aliases]);
+    const real = series('207141', 'Chainsmoker Cat', 'ongoing', { latestEpisode: 7 });
+
+    const catalog = new AnimeCatalogService(config, {
+      storage: cacheWith([leftover]),
+      provider: provider([real, leftover]),
+    });
+
+    const result = await catalog.lookup('chainsmoker cat');
+    expect(result.match?.series.sourceId).toBe('207141');
+  });
+
+  it('answers offline when the cached entry matches the title exactly', async () => {
+    const exact = series('207141', 'Chainsmoker Cat', 'ongoing', { latestEpisode: 7 });
+    const search = vi.fn(async () => []);
+    const catalog = new AnimeCatalogService(config, {
+      storage: cacheWith([exact]),
+      provider: { ...provider([]), search } as AnimeCatalogProvider,
+    });
+
+    const result = await catalog.lookup('chainsmoker cat');
+    expect(result.match?.series.sourceId).toBe('207141');
+    expect(search).not.toHaveBeenCalled();
   });
 });
 
