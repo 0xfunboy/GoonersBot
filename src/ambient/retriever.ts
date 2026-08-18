@@ -116,11 +116,12 @@ export class AmbientRetriever {
     const facts: AmbientFact[] = [];
     for (const [index, outcome] of settled.entries()) {
       if (outcome.status === 'rejected') {
-        // One broken provider must never cost the user a reply.
-        log.warn(
-          { provider: selected[index]?.name, error: outcome.reason },
-          'ambient provider failed',
-        );
+        // One broken provider must never cost the user a reply. A deadline abort is expected
+        // behaviour rather than a fault, so it must not fill the logs of a busy chat.
+        const aborted = signal.aborted || isAbortError(outcome.reason);
+        const entry = { provider: selected[index]?.name, error: outcome.reason };
+        if (aborted) log.debug(entry, 'ambient provider aborted at the deadline');
+        else log.warn(entry, 'ambient provider failed');
         continue;
       }
       for (const fact of outcome.value) {
@@ -159,6 +160,15 @@ export class AmbientRetriever {
     }
     return { classification, facts: kept, block: renderBlock(kept), sources, budget };
   }
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    (error.name === 'AbortError' || error.name === 'TimeoutError')
+  );
 }
 
 /**
