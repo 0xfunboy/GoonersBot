@@ -764,22 +764,27 @@ Subjects to look up are extracted deterministically too, from three orthogonal s
 | --- | --- | --- |
 | AniList catalog | `anime` | no |
 | Wikipedia REST | `philosophy`, `psychology`, `science`, `history`, `film_tv` | no |
-| Curated knowledge base | `technology`, `gaming`, `music`, `science`, `film_tv`, `anime` | no |
 | RSS news | `current_events` | no |
 
-Providers never own a data source - they re-expose the ones the bot already has, so the seed file
-stays the single place where curated culture lives and the two paths cannot disagree.
+Providers never own a data source - they re-expose the ones the bot already has.
+
+The curated knowledge base is deliberately **not** an ambient provider even though
+`CuratedAmbientProvider` exists: `knowledge_rag` already retrieves it and the reply pipeline joins
+both into the same prompt slot, so registering it would pay for a second embedding pass and print
+every matching entry twice in one reply. It is kept for an operator who wires a different pipeline.
 
 ### Cost control
 
 The reply path is **local-first**: providers get a `local` budget and answer from Mongo or memory,
 so recall adds no network latency to a reply. On top of that the whole step runs under a hard
 `AMBIENT_DEADLINE_MS` deadline, raced rather than merely passed to providers — a source that
-ignores its abort signal loses its results, it does not get to hold up the reply. A `network` budget is granted only when a `live`
-domain was detected *and* the per-chat cooldown allows it, at most once per
-`AMBIENT_NETWORK_COOLDOWN_SECONDS`. Wikipedia results are cached persistently, including negative
-results - otherwise a subject nobody has an article for would be re-fetched every time a chatty
-group mentions it.
+ignores its abort signal loses its results, it does not get to hold up the reply. A `network` budget is granted at most once per chat per
+`AMBIENT_NETWORK_COOLDOWN_SECONDS` — the cooldown, not volatility, is what bounds the cost.
+Volatility decides how long an answer stays true, not whether it may be fetched: the stable
+domains are precisely the ones with nothing cached yet, and a reference summary fetched once is
+good for a month. Wikipedia results are cached persistently, including negative results —
+otherwise a subject nobody has an article for would be re-fetched every time a chatty group
+mentions it.
 
 ### Not becoming monothematic
 
@@ -847,7 +852,7 @@ that already happened and never adds latency to answering it.
 | It chimes in more than it used to | that is `AMBIENT_AUTOENGAGE_BONUS`; set it to `0` to restore the old bar |
 | Unprompted images stay generic | the chat has no established interest yet (needs repeat mentions by more than one person) |
 | A topic is classified wrongly | inspect `matched` on the domain signal; it lists the lexicon entries that fired |
-| Wikipedia facts never appear | the first mention of a subject is a cache miss on a `stable` domain, which never gets a network budget - it warms on a later `live` turn |
+| Wikipedia facts never appear | `AMBIENT_ALLOW_NETWORK=false`, or the per-chat cooldown has not elapsed since the last lookup |
 | The bot drags anime into everything | lower `AMBIENT_MAX_FACTS`, or trim the `anime` lexicon |
 | Adult facts leak | check the turn's NSFW policy; the gate is the chat's existing one |
 

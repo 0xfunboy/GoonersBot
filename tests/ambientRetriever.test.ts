@@ -209,7 +209,11 @@ describe('network budget', () => {
     expect(budgets).toEqual(['network', 'local']);
   });
 
-  it('never grants a network budget for a stable domain', async () => {
+  it('grants a network budget for a stable domain too', async () => {
+    // This used to assert 'local', which was the bug: stable domains are exactly the ones with
+    // nothing cached yet, and nothing else seeds ambient_cache, so denying them the network made
+    // philosophy/psychology/science/history permanently unanswerable. The per-chat cooldown -
+    // not volatility - is what bounds the cost.
     const { provider, budgets } = captureBudget();
     const retriever = new AmbientRetriever(config(), [provider]);
 
@@ -218,7 +222,7 @@ describe('network budget', () => {
       chatId: -100,
       nsfwAllowed: false,
     });
-    expect(budgets).toEqual(['local']);
+    expect(budgets).toEqual(['network']);
   });
 
   it('stays local when network access is switched off', async () => {

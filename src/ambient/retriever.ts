@@ -83,13 +83,15 @@ export class AmbientRetriever {
     );
     if (selected.length === 0) return { classification, ...EMPTY };
 
-    // A live-volatility signal is the only thing worth a network round-trip, and even then only
-    // once per chat per cooldown window.
-    const wantsNetwork =
-      this.cfg.allowNetwork &&
-      classification.domains.some((signal) => signal.volatility === 'live');
+    // The per-chat cooldown is the cost control, not volatility. Gating the network budget on a
+    // `live` domain had it exactly backwards: live domains (anime, news) already hold local data,
+    // while the stable ones are precisely the sources with nothing cached yet - and a reference
+    // summary fetched once stays true for a month. Restricting it to `live` made every stable
+    // domain permanently unreachable, because nothing else ever seeds their cache.
     const budget: AmbientBudget =
-      wantsNetwork && this.networkCooldown.tryAcquire(String(input.chatId)) ? 'network' : 'local';
+      this.cfg.allowNetwork && this.networkCooldown.tryAcquire(String(input.chatId))
+        ? 'network'
+        : 'local';
 
     // One deadline for the whole step, combined with any caller-supplied signal. Providers get it
     // so their own HTTP work aborts too, and the race below guarantees the reply proceeds even if

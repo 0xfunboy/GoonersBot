@@ -214,11 +214,12 @@ export class LocalDevelopmentService {
    * unbounded query would both pin the notifier to an arbitrary fixed page once enough jobs exist
    * and dump the entire historical backlog into the admin's DM on first deploy.
    */
-  async listTerminal(withinMs = 6 * 3_600_000, limit = 200): Promise<StoredJob[]> {
+  async listTerminal(options: { withinMs?: number; limit?: number } = {}): Promise<StoredJob[]> {
     if (!this.config.enabled) return [];
+    const withinMs = options.withinMs ?? 6 * 3_600_000;
     const jobs = await this.dependencies.jobs.list({
       states: ['ready', 'failed', 'conflict', 'applied'],
-      limit,
+      limit: options.limit ?? 200,
     });
     const cutoff = Date.now() - withinMs;
     return jobs.filter((job) => {

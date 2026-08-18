@@ -37,7 +37,7 @@ export async function runLearnNotifyJob(
   const result: LearnNotifyResult = { inspected: 0, notified: 0 };
   if (!localDevelopment.enabled) return result;
 
-  const jobs = await localDevelopment.listTerminal(50).catch((error: unknown) => {
+  const jobs = await localDevelopment.listTerminal({ limit: 50 }).catch((error: unknown) => {
     log.warn({ error }, 'listing terminal local development jobs failed');
     return [] as LocalDevelopmentJob[];
   });
