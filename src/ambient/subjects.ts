@@ -246,7 +246,11 @@ export function extractSubjects(message: string, opts: ExtractSubjectsOptions = 
   const words = text.split(' ').filter(Boolean);
   if (out.length === 0 && words.length <= 4 && text.length <= 60) push(text);
 
-  return out.slice(0, limit);
+  // Most specific first. Overlapping candidates are all kept on purpose: length is a decent proxy
+  // for specificity but a bad judge of quality ("Nietzsche è frainteso" is longer than
+  // "Nietzsche" and worthless), so the caller resolves in this order and lets the source decide,
+  // discarding the rest only once something has actually matched.
+  return [...out].sort((a, b) => b.length - a.length).slice(0, limit);
 }
 
 /** Drop trailing filler so "di Tanya the Evil che è" becomes "Tanya the Evil". */
