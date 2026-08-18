@@ -25,6 +25,13 @@ import { JikanEnricher } from '../anime/providers/jikan.js';
 import { AnimeCatalogService } from '../anime/catalogService.js';
 import { AnimeFollowService } from '../anime/followService.js';
 import { AnimeKnowledgeService } from '../anime/knowledgeService.js';
+import { AmbientRetriever } from '../ambient/retriever.js';
+import { AnimeAmbientProvider } from '../ambient/providers/animeAmbient.js';
+import { WikipediaAmbientProvider } from '../ambient/providers/wikipediaAmbient.js';
+import {
+  CuratedAmbientProvider,
+  NewsAmbientProvider,
+} from '../ambient/providers/curatedAmbient.js';
 import { GroundingService } from '../search/groundingService.js';
 import { PageScanner } from '../search/pageScanner.js';
 import { HeatService } from './heat.js';
@@ -71,6 +78,7 @@ export * from './modelRouter.js';
 export * from './groupQuota.js';
 export * from './systemInfo.js';
 export * from '../anime/index.js';
+export * from '../ambient/index.js';
 export * from '../capabilities/localDevelopmentService.js';
 
 /**
@@ -110,6 +118,7 @@ export class Services {
   readonly animeCatalog: AnimeCatalogService;
   readonly animeFollows: AnimeFollowService;
   readonly anime: AnimeKnowledgeService;
+  readonly ambient: AmbientRetriever;
   readonly imageFinder: ImageFinder;
   readonly news: NewsService;
   readonly autonomousPoster: AutonomousPoster;
@@ -340,6 +349,14 @@ export class Services {
     });
     this.animeFollows = new AnimeFollowService(config.anime, storage, this.animeCatalog);
     this.anime = new AnimeKnowledgeService(config.anime, this.animeCatalog, this.animeFollows);
+    // Ambient recall sits after the services it wraps: it never owns a data source, it only asks
+    // the existing ones whether they recognise what is being discussed.
+    this.ambient = new AmbientRetriever(config.ambient, [
+      new AnimeAmbientProvider(this.animeCatalog),
+      new WikipediaAmbientProvider(storage, config.ambient.wikipedia),
+      new CuratedAmbientProvider(this.knowledge),
+      new NewsAmbientProvider(this.news),
+    ]);
     this.agentRuntime = new AgentRuntime({
       config,
       llm,
@@ -382,6 +399,7 @@ export class Services {
       this.agentRuntime,
       this.social,
       this.anime,
+      this.ambient,
     );
   }
 

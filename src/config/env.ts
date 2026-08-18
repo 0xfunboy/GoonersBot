@@ -327,6 +327,30 @@ const envSchema = z.object({
   /** Series polled per tick; keeps the public API usage well inside its rate limit. */
   ANIME_FOLLOW_BATCH_SIZE: intFromString(20),
 
+  // ---- Ambient recall (what the bot happens to know about the current topic) ----
+  // Runs on every turn, classifies the message into topic domains deterministically and injects a
+  // short factual block. Local-first: the reply path does not wait on the network.
+  AMBIENT_RECALL_ENABLED: boolFromString(true),
+  /** Minimum lexicon evidence before a domain counts as detected. */
+  AMBIENT_MIN_DOMAIN_SCORE: floatFromString(1),
+  /** Domains considered per message; more than a couple turns recall into a research report. */
+  AMBIENT_MAX_DOMAINS: intFromString(2),
+  AMBIENT_MAX_FACTS: intFromString(3),
+  AMBIENT_MAX_FACTS_PER_PROVIDER: intFromString(2),
+  /** Allow at most one network-backed ambient lookup per chat per cooldown window. */
+  AMBIENT_ALLOW_NETWORK: boolFromString(true),
+  AMBIENT_NETWORK_COOLDOWN_SECONDS: intFromString(90),
+  // Wikipedia provider (reference knowledge for the stable domains; no API key)
+  AMBIENT_WIKIPEDIA_ENABLED: boolFromString(true),
+  AMBIENT_WIKIPEDIA_LANGUAGE: z
+    .string()
+    .optional()
+    .transform((v) => (v && /^[a-z]{2,3}$/i.test(v.trim()) ? v.trim().toLowerCase() : 'it')),
+  AMBIENT_WIKIPEDIA_TIMEOUT_MS: intFromString(6_000),
+  AMBIENT_WIKIPEDIA_MAX_RESPONSE_BYTES: intFromString(256 * 1024),
+  /** Reference knowledge barely moves, so a long cache is both safe and courteous. */
+  AMBIENT_CACHE_TTL_HOURS: intFromString(720),
+
   // NSFW model routing (hybrid: mode flag > per-chat nsfw mode > lexicon > default model)
   LLM_NSFW_MODEL: z.string().optional(),
   // Optional separate endpoint for the NSFW model (e.g. amoral-gemma on a router) so adult turns

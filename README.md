@@ -42,6 +42,7 @@ notes.
 - [Capability Forge](#capability-forge)
 - [Per-user heat](#per-user-heat)
 - [Knowledge base](#knowledge-base)
+- [Ambient recall](#ambient-recall)
 - [Anime releases and follows](#anime-releases-and-follows)
 - [Images and autonomous posting](#images-and-autonomous-posting)
 - [Brain and memory](#brain-and-memory)
@@ -704,6 +705,115 @@ the top `KNOWLEDGE_MAX_ITEMS` entries as a short, clearly optional context block
 nothing, so it adds no prompt weight and never makes the character monothematic. Seeded on boot from
 `src/knowledge/seed.ts` (`KNOWLEDGE_SEED_ON_BOOT`, idempotent); retrieval in
 `src/knowledge/knowledgeRetriever.ts`. Extend the seed freely.
+
+---
+
+## Ambient recall
+
+What the bot *happens to know* about whatever is being discussed, without anyone asking.
+
+Every other knowledge surface in the bot is **pulled**: Cortex classifies an intent, then a tool
+runs. Ambient recall is **pushed** - it runs on every turn, works out which topic domains the
+message belongs to, and injects a short block of verified facts into the prompt. The difference is
+between the bot answering "e uscito l'ultimo episodio?" and the bot already knowing, mid-banter,
+that the episode dropped on Wednesday.
+
+### Domains and the volatility axis
+
+The useful question is not *what subject* but *how fast the answer changes*, which is the split
+the bot already makes between `web_search` and `knowledge_rag`:
+
+| Volatility | Domains | Source | Cache |
+| --- | --- | --- | --- |
+| `live` | `anime`, `current_events` | AniList catalog, RSS news | already-persisted data |
+| `slow` | `film_tv`, `technology`, `gaming`, `music` | curated knowledge, Wikipedia | long |
+| `stable` | `science`, `psychology`, `philosophy`, `history` | Wikipedia | a month |
+
+A recency marker ("l'ultimo", "esce oggi", "appena uscito") promotes a `slow` domain to `live`, so
+`che film mi consigli` and `che film esce questa settimana` route differently. It can never
+promote a `stable` one: a recency word does not make Kant a moving target.
+
+### Classification is deterministic
+
+No LLM call. Domain detection is a lexicon pass (Italian + English) over a normalized message, and
+a multi-word phrase outscores a bare word, so `guerra fredda` reads as history while `guerra`
+alone barely registers. Spending a model call per turn is exactly what would make ambient recall
+too expensive to always run - which is what makes it ambient.
+
+Two properties matter more than accuracy:
+
+- **Silence is the common case.** `ahahah muoio` classifies to nothing and costs one regex pass.
+- **Cross-domain stays cross-domain.** `può un'IA avere coscienza?` is technology *and* philosophy;
+  both are kept rather than collapsed into a guess.
+
+Subjects to look up are extracted deterministically too, from three orthogonal signals: quotation
+(`"La Haine"`), capitalised runs (`ho visto Frieren`), and prepositional attachment
+(`parlami di dissonanza cognitiva`).
+
+### Providers
+
+| Provider | Domains | Key required |
+| --- | --- | --- |
+| AniList catalog | `anime` | no |
+| Wikipedia REST | `philosophy`, `psychology`, `science`, `history`, `film_tv` | no |
+| Curated knowledge base | `technology`, `gaming`, `music`, `science`, `film_tv`, `anime` | no |
+| RSS news | `current_events` | no |
+
+Providers never own a data source - they re-expose the ones the bot already has, so the seed file
+stays the single place where curated culture lives and the two paths cannot disagree.
+
+### Cost control
+
+The reply path is **local-first**: providers get a `local` budget and answer from Mongo or memory,
+so recall adds no network latency to a reply. A `network` budget is granted only when a `live`
+domain was detected *and* the per-chat cooldown allows it, at most once per
+`AMBIENT_NETWORK_COOLDOWN_SECONDS`. Wikipedia results are cached persistently, including negative
+results - otherwise a subject nobody has an article for would be re-fetched every time a chatty
+group mentions it.
+
+### Not becoming monothematic
+
+The README promises the knowledge base "never makes the character monothematic", and ambient
+recall is the feature most likely to break that promise. Three guards:
+
+- facts land in the same prompt slot as curated knowledge, whose framing already says *use only if
+  it fits naturally, never force the topic, never info-dump*;
+- `AMBIENT_MAX_FACTS` caps how much can enter one reply;
+- a message with no domain evidence contributes nothing at all.
+
+### Adult content
+
+Adult results follow the chat's **existing** NSFW policy rather than a second, conflicting rule.
+Providers mark a fact adult (for AniList, from the published `Hentai`/`Ecchi` genre), and the
+retriever drops those facts when the turn's NSFW policy is off.
+
+### Configuration
+
+```bash
+AMBIENT_RECALL_ENABLED=true
+AMBIENT_MIN_DOMAIN_SCORE=1              # lexicon evidence needed before a domain counts
+AMBIENT_MAX_DOMAINS=2
+AMBIENT_MAX_FACTS=3
+AMBIENT_MAX_FACTS_PER_PROVIDER=2
+AMBIENT_ALLOW_NETWORK=true
+AMBIENT_NETWORK_COOLDOWN_SECONDS=90
+AMBIENT_WIKIPEDIA_ENABLED=true
+AMBIENT_WIKIPEDIA_LANGUAGE=it
+AMBIENT_CACHE_TTL_HOURS=720
+```
+
+Adding a domain means adding a lexicon entry in `src/ambient/domains.ts`; adding a source means
+implementing `AmbientProvider` in `src/ambient/providers/`. Neither touches the reply pipeline.
+
+### Troubleshooting
+
+| Symptom | Likely cause |
+| --- | --- |
+| The bot never brings up known facts | `AMBIENT_RECALL_ENABLED=false`, or the message has no lexicon hit |
+| A topic is classified wrongly | inspect `matched` on the domain signal; it lists the lexicon entries that fired |
+| Wikipedia facts never appear | the first mention of a subject is a cache miss on a `stable` domain, which never gets a network budget - it warms on a later `live` turn |
+| The bot drags anime into everything | lower `AMBIENT_MAX_FACTS`, or trim the `anime` lexicon |
+| Adult facts leak | check the turn's NSFW policy; the gate is the chat's existing one |
 
 ---
 
