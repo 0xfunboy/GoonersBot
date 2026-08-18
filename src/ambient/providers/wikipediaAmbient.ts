@@ -3,6 +3,7 @@ import { childLogger } from '../../utils/logger.js';
 import { SlidingWindowCounter } from '../../utils/rateLimit.js';
 import type { Storage } from '../../storage/index.js';
 import { extractSubjects } from '../subjects.js';
+import { bestDomainFor } from '../classifier.js';
 import type { AmbientDomain } from '../domains.js';
 import type { AmbientFact, AmbientProvider, AmbientRecallRequest } from '../types.js';
 
@@ -48,7 +49,7 @@ export class WikipediaAmbientProvider implements AmbientProvider {
   async recall(request: AmbientRecallRequest): Promise<AmbientFact[]> {
     const subjects = extractSubjects(request.message, { limit: 3 });
     if (subjects.length === 0) return [];
-    const domain = request.classification.domains[0]?.domain ?? 'science';
+    const domain = bestDomainFor(request.classification, this.domains, 'science');
 
     const facts: AmbientFact[] = [];
     for (const subject of subjects) {

@@ -1,5 +1,4 @@
 import type { Storage } from '../storage/index.js';
-import type { ConversationEntityDoc } from '../domain/entities.js';
 import { childLogger } from '../utils/logger.js';
 import type { AmbientFact } from './types.js';
 
@@ -64,7 +63,9 @@ async function trackEntity(
   entityId: string,
   now: Date,
 ): Promise<void> {
-  const doc: ConversationEntityDoc = {
+  // `touch`, not `upsert`: a later mention of the same subject outside any thread must not wipe
+  // the threads it was already discussed in, which is exactly what referent resolution reads.
+  await storage.conversationEntities.touch({
     chatId: input.chatId,
     entityId,
     type: 'topic',
@@ -80,6 +81,5 @@ async function trackEntity(
     createdAt: now,
     updatedAt: now,
     expiresAt: new Date(now.getTime() + ENTITY_TTL_HOURS * 3_600_000),
-  };
-  await storage.conversationEntities.upsert(doc);
+  });
 }

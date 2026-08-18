@@ -202,17 +202,28 @@ export class LocalDevelopmentService {
   }
 
   /**
-   * Jobs that have reached a terminal state.
+   * Jobs that have genuinely finished, recently.
    *
    * Exposed for the completion notifier: a build that takes minutes and then finishes silently
    * forces the admin to poll `/learn status`, which is the one part of this command that made it
    * feel broken rather than slow.
+   *
+   * `stale` is excluded on purpose - it is a RUNNABLE state that gets drained back into
+   * `generating`, so announcing it would report a job as finished and then announce it again for
+   * real. The recency window matters just as much: the store lists by opaque job id, so an
+   * unbounded query would both pin the notifier to an arbitrary fixed page once enough jobs exist
+   * and dump the entire historical backlog into the admin's DM on first deploy.
    */
-  async listTerminal(limit = 50): Promise<StoredJob[]> {
+  async listTerminal(withinMs = 6 * 3_600_000, limit = 200): Promise<StoredJob[]> {
     if (!this.config.enabled) return [];
-    return this.dependencies.jobs.list({
-      states: ['ready', 'failed', 'conflict', 'applied', 'stale'],
+    const jobs = await this.dependencies.jobs.list({
+      states: ['ready', 'failed', 'conflict', 'applied'],
       limit,
+    });
+    const cutoff = Date.now() - withinMs;
+    return jobs.filter((job) => {
+      const updatedAt = Date.parse(job.updatedAt);
+      return Number.isFinite(updatedAt) && updatedAt >= cutoff;
     });
   }
 

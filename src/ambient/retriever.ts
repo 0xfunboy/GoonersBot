@@ -91,17 +91,25 @@ export class AmbientRetriever {
     const budget: AmbientBudget =
       wantsNetwork && this.networkCooldown.tryAcquire(String(input.chatId)) ? 'network' : 'local';
 
+    // One deadline for the whole step, combined with any caller-supplied signal. Providers get it
+    // so their own HTTP work aborts too, and the race below guarantees the reply proceeds even if
+    // a provider ignores it entirely.
+    const deadline = AbortSignal.timeout(this.cfg.deadlineMs);
+    const signal = input.signal ? AbortSignal.any([input.signal, deadline]) : deadline;
     const settled = await Promise.allSettled(
       selected.map((provider) =>
-        provider.recall({
-          message: input.message,
-          classification,
-          budget,
-          chatId: input.chatId,
-          nsfwAllowed: input.nsfwAllowed,
-          signal: input.signal,
-          limit: this.cfg.maxFactsPerProvider,
-        }),
+        withDeadline(
+          provider.recall({
+            message: input.message,
+            classification,
+            budget,
+            chatId: input.chatId,
+            nsfwAllowed: input.nsfwAllowed,
+            signal,
+            limit: this.cfg.maxFactsPerProvider,
+          }),
+          signal,
+        ),
       ),
     );
 
@@ -151,6 +159,28 @@ export class AmbientRetriever {
     }
     return { classification, facts: kept, block: renderBlock(kept), sources, budget };
   }
+}
+
+/**
+ * Resolve with whatever a provider produced, or empty once the deadline fires.
+ *
+ * A provider that does not honour its `AbortSignal` would otherwise keep the whole reply waiting,
+ * so the timeout is enforced here rather than trusted to the provider.
+ */
+async function withDeadline(
+  work: Promise<AmbientFact[]>,
+  signal: AbortSignal,
+): Promise<AmbientFact[]> {
+  return Promise.race([
+    work,
+    new Promise<AmbientFact[]>((resolve) => {
+      if (signal.aborted) {
+        resolve([]);
+        return;
+      }
+      signal.addEventListener('abort', () => resolve([]), { once: true });
+    }),
+  ]);
 }
 
 /**

@@ -125,6 +125,22 @@ export function classifyMessage(
   return { domains: signals.slice(0, maxDomains), wantsCurrent, normalized };
 }
 
+/**
+ * The best classified domain that a given provider actually covers.
+ *
+ * Without this a provider stamps its facts with the message's top domain, so a curated entry
+ * about vim could be labelled `anime` on an anime-flavoured turn - which then feeds the image
+ * search and the group's taste model with a subject that has nothing to do with anime.
+ */
+export function bestDomainFor(
+  classification: AmbientClassification,
+  covered: readonly AmbientDomain[],
+  fallback: AmbientDomain,
+): AmbientDomain {
+  const supported = new Set(covered);
+  return classification.domains.find((signal) => supported.has(signal.domain))?.domain ?? fallback;
+}
+
 /** The single best domain, or null when the message is ordinary chatter. */
 export function primaryDomain(classification: AmbientClassification): AmbientDomain | null {
   return classification.domains[0]?.domain ?? null;

@@ -211,7 +211,9 @@ export function extractSubjects(message: string, opts: ExtractSubjectsOptions = 
     out.push(cleaned);
   };
 
-  for (const match of text.matchAll(/["“”'«»]([^"“”'«»]{3,80})["“”'«»]/gu)) {
+  // The apostrophe is deliberately NOT a quote delimiter: Italian elides constantly, so treating
+  // it as one turns "dell'anime? l'ho trovato" into the subject "anime? l".
+  for (const match of text.matchAll(/["“”«»]([^"“”«»]{3,80})["“”«»]/gu)) {
     const value = match[1];
     if (value) push(value);
   }

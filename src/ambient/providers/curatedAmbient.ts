@@ -1,5 +1,6 @@
 import type { KnowledgeRetriever } from '../../knowledge/knowledgeRetriever.js';
 import type { NewsService } from '../../news/newsService.js';
+import { bestDomainFor } from '../classifier.js';
 import type { AmbientDomain } from '../domains.js';
 import type { AmbientFact, AmbientProvider, AmbientRecallRequest } from '../types.js';
 
@@ -28,7 +29,7 @@ export class CuratedAmbientProvider implements AmbientProvider {
   }
 
   async recall(request: AmbientRecallRequest): Promise<AmbientFact[]> {
-    const domain = request.classification.domains[0]?.domain ?? 'technology';
+    const domain = bestDomainFor(request.classification, this.domains, 'technology');
     const items = await this.knowledge.retrieve(request.message);
     return items.slice(0, request.limit).map((item) => ({
       domain,
