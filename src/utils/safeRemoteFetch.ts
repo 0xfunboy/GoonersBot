@@ -58,6 +58,13 @@ export interface SafeRemoteFetchOptions {
   maxRedirects?: number;
   /** Optional caller policy, re-applied to the initial URL and every redirect target. */
   validateUrl?: ((url: URL) => void | Promise<void>) | undefined;
+  /**
+   * Non-GET verb for JSON/GraphQL endpoints. A body is only ever sent on the first hop: a
+   * redirected non-GET request is rejected rather than silently replayed against another origin.
+   */
+  method?: 'GET' | 'POST';
+  /** Request body for `method: 'POST'`. Already-encoded string only; no streams. */
+  body?: string;
 }
 
 export interface SafeRemoteFetchResult {
@@ -279,10 +286,12 @@ async function openSafeResponse(
 
   for (let hop = 0; ; hop += 1) {
     throwIfAborted(signal);
+    const method = opts.method ?? 'GET';
     const requestInit = {
-      method: 'GET',
+      method,
       redirect: 'manual' as const,
       signal,
+      ...(method !== 'GET' && opts.body !== undefined ? { body: opts.body } : {}),
     };
     // Unit tests replace the global transport to exercise redirects, limits and cancellation
     // without opening sockets. Production always uses the matching undici fetch+Agent pair so the
@@ -300,6 +309,9 @@ async function openSafeResponse(
     const location = response.headers.get('location');
     if (!location) return { response, finalUrl: current };
     await response.body?.cancel().catch(() => undefined);
+    // Replaying a request body against a redirect target is how an SSRF filter gets bypassed one
+    // hop late, so a non-GET request simply does not follow redirects.
+    if (method !== 'GET') throw new Error('remote redirect is not allowed for this method');
     if (hop >= maxRedirects) throw new Error('too many remote redirects');
 
     let next: URL;
