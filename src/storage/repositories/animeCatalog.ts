@@ -76,12 +76,10 @@ export class AnimeCatalogRepo {
   async upsert(series: AnimeSeriesUpsert, now: Date = new Date()): Promise<void> {
     await this.col.updateOne(
       { source: series.source, sourceId: series.sourceId },
+      writeFor(series, now),
       {
-        $set: { ...stripUndefined(series), crawledAt: now, updatedAt: now },
-        $inc: { revision: 1 },
-        $setOnInsert: { createdAt: now },
+        upsert: true,
       },
-      { upsert: true },
     );
   }
 
@@ -91,11 +89,7 @@ export class AnimeCatalogRepo {
       series.map((entry) => ({
         updateOne: {
           filter: { source: entry.source, sourceId: entry.sourceId },
-          update: {
-            $set: { ...stripUndefined(entry), crawledAt: now, updatedAt: now },
-            $inc: { revision: 1 },
-            $setOnInsert: { createdAt: now },
-          },
+          update: writeFor(entry, now),
           upsert: true,
         },
       })),
@@ -107,6 +101,45 @@ export class AnimeCatalogRepo {
   async listAiring(limit = 20): Promise<AnimeSeriesDoc[]> {
     return this.col.find({ status: 'ongoing' }).sort({ updatedAt: -1 }).limit(limit).toArray();
   }
+}
+
+/**
+ * Optional fields that the source can stop publishing.
+ *
+ * A finished series loses `nextAiringEpisode`, so without an explicit `$unset` the stored document
+ * would keep announcing "Prossimo episodio: 28" - with a date in the past - for a show that ended.
+ * A stale fact is worse than a missing one, because the composer states it with confidence.
+ */
+const CLEARABLE_FIELDS = [
+  'titleRomaji',
+  'titleEnglish',
+  'titleNative',
+  'coverUrl',
+  'description',
+  'format',
+  'episodeCount',
+  'latestEpisode',
+  'nextEpisode',
+  'airingWeekday',
+  'seasonYear',
+  'season',
+  'score',
+  'sourceUpdatedAt',
+] as const satisfies readonly (keyof AnimeSeries)[];
+
+/** Build the update document: set what the source published, clear what it no longer does. */
+function writeFor(series: AnimeSeriesUpsert, now: Date) {
+  const set = { ...stripUndefined(series), crawledAt: now, updatedAt: now };
+  const unset: Record<string, ''> = {};
+  for (const field of CLEARABLE_FIELDS) {
+    if (series[field] === undefined) unset[field] = '';
+  }
+  return {
+    $set: set,
+    ...(Object.keys(unset).length > 0 ? { $unset: unset } : {}),
+    $inc: { revision: 1 },
+    $setOnInsert: { createdAt: now },
+  };
 }
 
 /**

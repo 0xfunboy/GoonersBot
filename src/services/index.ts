@@ -28,10 +28,7 @@ import { AnimeKnowledgeService } from '../anime/knowledgeService.js';
 import { AmbientRetriever } from '../ambient/retriever.js';
 import { AnimeAmbientProvider } from '../ambient/providers/animeAmbient.js';
 import { WikipediaAmbientProvider } from '../ambient/providers/wikipediaAmbient.js';
-import {
-  CuratedAmbientProvider,
-  NewsAmbientProvider,
-} from '../ambient/providers/curatedAmbient.js';
+import { NewsAmbientProvider } from '../ambient/providers/curatedAmbient.js';
 import { GroundingService } from '../search/groundingService.js';
 import { PageScanner } from '../search/pageScanner.js';
 import { HeatService } from './heat.js';
@@ -352,12 +349,14 @@ export class Services {
     this.anime = new AnimeKnowledgeService(config.anime, this.animeCatalog, this.animeFollows);
     // Ambient recall sits after the services it wraps: it never owns a data source, it only asks
     // the existing ones whether they recognise what is being discussed.
+    // The curated knowledge base is deliberately absent: `knowledge_rag` already retrieves it and
+    // `reply.ts` joins both into the same prompt slot, so registering it here would pay for a
+    // second embedding pass and print every matching entry twice inside one reply.
     this.ambient = new AmbientRetriever(
       config.ambient,
       [
         new AnimeAmbientProvider(this.animeCatalog),
         new WikipediaAmbientProvider(storage, config.ambient.wikipedia),
-        new CuratedAmbientProvider(this.knowledge),
         new NewsAmbientProvider(this.news),
       ],
       storage,
