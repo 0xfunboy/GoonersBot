@@ -388,6 +388,8 @@ export interface AmbientConfig {
   allowNetwork: boolean;
   /** Per-chat gate on that network path, in seconds. */
   networkCooldownSeconds: number;
+  /** Confidence rebate for the passive engagement gate on a domain the bot knows. */
+  autoengageBonus: number;
   wikipedia: {
     enabled: boolean;
     language: string;
@@ -406,6 +408,7 @@ export function resolveAmbientConfig(env: Env): AmbientConfig {
     maxFactsPerProvider: Math.min(4, Math.max(1, env.AMBIENT_MAX_FACTS_PER_PROVIDER)),
     allowNetwork: env.AMBIENT_ALLOW_NETWORK,
     networkCooldownSeconds: Math.max(10, env.AMBIENT_NETWORK_COOLDOWN_SECONDS),
+    autoengageBonus: Math.min(0.4, Math.max(0, env.AMBIENT_AUTOENGAGE_BONUS)),
     wikipedia: {
       enabled: env.AMBIENT_RECALL_ENABLED && env.AMBIENT_WIKIPEDIA_ENABLED,
       language: env.AMBIENT_WIKIPEDIA_LANGUAGE,

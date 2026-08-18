@@ -6,6 +6,7 @@ import { Services } from './services/index.js';
 import { createBot } from './telegram/bot.js';
 import { Scheduler } from './jobs/scheduler.js';
 import { runAnimeReleaseJob } from './jobs/animeReleaseJob.js';
+import { runLearnNotifyJob } from './jobs/learnNotifyJob.js';
 import { buildMiningWindows, withContinuousMiningLock } from './jobs/memoryMiningJob.js';
 import { KNOWLEDGE_SEED } from './knowledge/seed.js';
 import { getLogger } from './utils/logger.js';
@@ -295,6 +296,38 @@ async function main(): Promise<void> {
       }
     });
   };
+  /** Tell the admin a /learn job finished, with the one command they need next. */
+  const learnNotifyTick = async (): Promise<void> => {
+    await runLearnNotifyJob(
+      services.localDevelopment,
+      storage,
+      async ({ chatId, job, nextCommand }) => {
+        const headline =
+          job.state === 'ready'
+            ? `\u2705 Job \`${job.id.slice(0, 8)}\` pronto: diff verificata, nulla \u00e8 stato applicato.`
+            : job.state === 'applied'
+              ? `\u2705 Job \`${job.id.slice(0, 8)}\` applicato al repository.`
+              : job.state === 'cancelled'
+                ? `Job \`${job.id.slice(0, 8)}\` annullato.`
+                : `\u26a0\ufe0f Job \`${job.id.slice(0, 8)}\` terminato: \`${job.state}\`${job.resultCode ? ` (${job.resultCode})` : ''}.`;
+        const rendered = renderTelegramText(
+          [headline, nextCommand ? `Prossimo passo: \`${nextCommand}\`` : '']
+            .filter(Boolean)
+            .join('\n'),
+          'markdown',
+        );
+        try {
+          await goonerBot.bot.api.sendMessage(chatId, rendered.text, {
+            parse_mode: rendered.parseMode,
+          });
+          return true;
+        } catch (err) {
+          log.warn({ err, chatId, jobId: job.id }, 'learn notification send failed');
+          return false;
+        }
+      },
+    );
+  };
   const scheduler = new Scheduler(
     config,
     storage,
@@ -304,6 +337,7 @@ async function main(): Promise<void> {
     services.socialLearning,
     () => services.access.list().chats,
     animeReleaseTick,
+    learnNotifyTick,
   );
   scheduler.start();
 

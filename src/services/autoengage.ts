@@ -15,6 +15,8 @@ export interface AutoEngageConfig {
   model?: string;
   maxTokens?: number;
   minConfidence: number;
+  /** Confidence rebate applied when the turn is about a domain the bot holds real facts for. */
+  knownTopicBonus?: number;
 }
 
 export interface AutoEngageInputs {
@@ -28,6 +30,13 @@ export interface AutoEngageInputs {
   groupFacts: Array<{ handle: string; fact: string }>;
   /** raise the bar after recent replies were criticized/landed badly */
   recentNegativeFeedback?: boolean;
+  /**
+   * True when ambient classification recognised the topic.
+   *
+   * This is the difference between the bot interrupting at random and interrupting because it
+   * genuinely has something to add, so it lowers the bar - it never removes it.
+   */
+  knownTopic?: boolean;
 }
 
 export interface AutoEngageDecision {
@@ -131,8 +140,14 @@ export class AutoEngageScorer {
       return no('scoring failed');
     }
 
-    // Be more conservative after bad feedback.
-    const minConfidence = this.cfg.minConfidence + (inputs.recentNegativeFeedback ? 0.15 : 0);
+    // Be more conservative after bad feedback, and slightly bolder when the bot actually knows
+    // the subject. Cooldowns and the hourly cap were already enforced above and are unaffected.
+    const minConfidence = Math.max(
+      0.05,
+      this.cfg.minConfidence +
+        (inputs.recentNegativeFeedback ? 0.15 : 0) -
+        (inputs.knownTopic ? (this.cfg.knownTopicBonus ?? 0) : 0),
+    );
     if (!score.shouldReply) return no(`model declined: ${score.reason}`, score);
     if (score.confidence < minConfidence) {
       return no(`confidence ${score.confidence.toFixed(2)} < ${minConfidence.toFixed(2)}`, score);

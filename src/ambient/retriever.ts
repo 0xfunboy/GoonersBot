@@ -3,6 +3,8 @@ import { Cooldown } from '../utils/rateLimit.js';
 import { childLogger } from '../utils/logger.js';
 import { classifyMessage, type AmbientClassification } from './classifier.js';
 import type { AmbientBudget, AmbientFact, AmbientProvider } from './types.js';
+import type { Storage } from '../storage/index.js';
+import { observeAmbientFacts } from './affinity.js';
 
 const log = childLogger('ambient');
 
@@ -11,6 +13,11 @@ export interface AmbientRecallInput {
   chatId: number;
   /** The chat's adult policy for this turn, as already resolved by the reply pipeline. */
   nsfwAllowed: boolean;
+  /** Who raised the subject; recorded so group taste is not one member's monologue. */
+  userHandle?: string | undefined;
+  /** Conversation thread, so a recalled subject stays resolvable as a later referent. */
+  threadId?: string | undefined;
+  messageId?: number | undefined;
   signal?: AbortSignal | undefined;
 }
 
@@ -51,6 +58,8 @@ export class AmbientRetriever {
   constructor(
     private readonly cfg: AmbientConfig,
     private readonly providers: readonly AmbientProvider[],
+    /** Optional: without it recall still works, it just stops learning what the chat is into. */
+    private readonly storage?: Storage,
   ) {
     this.networkCooldown = new Cooldown(cfg.networkCooldownSeconds * 1000);
   }
@@ -129,6 +138,17 @@ export class AmbientRetriever {
       },
       'ambient recall produced context',
     );
+    // Deliberately not awaited: learning what the group is into is a side effect of a
+    // conversation that already happened and must never add latency to answering it.
+    if (this.storage && input.userHandle) {
+      void observeAmbientFacts(this.storage, {
+        chatId: input.chatId,
+        userHandle: input.userHandle,
+        facts: kept,
+        threadId: input.threadId,
+        messageId: input.messageId,
+      }).catch(() => undefined);
+    }
     return { classification, facts: kept, block: renderBlock(kept), sources, budget };
   }
 }
