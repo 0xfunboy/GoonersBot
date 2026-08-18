@@ -378,6 +378,48 @@ export function resolveSearchConfig(env: Env): SearchConfig {
   };
 }
 
+export interface AnimeConfig {
+  /** Catalog answers (release status, latest episode, airing schedule) are available. */
+  enabled: boolean;
+  anilistUrl: string;
+  /** Secondary MAL enrichment; the catalog stays fully functional when it is off or failing. */
+  enrichmentEnabled: boolean;
+  jikanUrl: string;
+  timeoutMs: number;
+  maxResponseBytes: number;
+  refreshMinutes: number;
+  maxCandidates: number;
+  /** Consult SearXNG only when the source catalog itself could not resolve a title. */
+  searchFallbackEnabled: boolean;
+  follows: {
+    enabled: boolean;
+    pollMinutes: number;
+    maxPerChat: number;
+    batchSize: number;
+  };
+}
+
+export function resolveAnimeConfig(env: Env): AnimeConfig {
+  return {
+    enabled: env.ANIME_KNOWLEDGE_ENABLED,
+    anilistUrl: env.ANILIST_API_URL,
+    enrichmentEnabled: env.ANIME_ENRICHMENT_ENABLED,
+    jikanUrl: env.JIKAN_API_URL,
+    timeoutMs: Math.max(1_000, env.ANIME_KNOWLEDGE_TIMEOUT_MS),
+    maxResponseBytes: Math.max(16 * 1024, env.ANIME_KNOWLEDGE_MAX_RESPONSE_BYTES),
+    refreshMinutes: Math.max(5, env.ANIME_KNOWLEDGE_REFRESH_MINUTES),
+    maxCandidates: Math.min(10, Math.max(1, env.ANIME_KNOWLEDGE_MAX_CANDIDATES)),
+    searchFallbackEnabled:
+      env.ANIME_KNOWLEDGE_SEARCH_FALLBACK && env.WEB_SEARCH_ENABLED && Boolean(env.SEARXNG_URL),
+    follows: {
+      enabled: env.ANIME_KNOWLEDGE_ENABLED && env.ANIME_FOLLOWS_ENABLED,
+      pollMinutes: Math.max(5, env.ANIME_FOLLOW_POLL_MINUTES),
+      maxPerChat: Math.max(1, env.ANIME_MAX_FOLLOWS_PER_CHAT),
+      batchSize: Math.max(1, Math.min(100, env.ANIME_FOLLOW_BATCH_SIZE)),
+    },
+  };
+}
+
 /** Image-sending + autonomous-posting (news/waifu) config. */
 export interface AutoConfig {
   imageSendEnabled: boolean;
@@ -685,6 +727,7 @@ export interface AppConfig {
   agnes: AgnesConfig;
   music: MusicConfig;
   linkMedia: LinkMediaConfig;
+  anime: AnimeConfig;
 }
 
 export function loadConfig(): AppConfig {
@@ -703,5 +746,6 @@ export function loadConfig(): AppConfig {
     agnes: resolveAgnesConfig(env),
     music: resolveMusicConfig(env),
     linkMedia: resolveLinkMediaConfig(env),
+    anime: resolveAnimeConfig(env),
   };
 }

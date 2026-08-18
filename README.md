@@ -42,6 +42,7 @@ notes.
 - [Capability Forge](#capability-forge)
 - [Per-user heat](#per-user-heat)
 - [Knowledge base](#knowledge-base)
+- [Anime releases and follows](#anime-releases-and-follows)
 - [Images and autonomous posting](#images-and-autonomous-posting)
 - [Brain and memory](#brain-and-memory)
 - [Configuration](#configuration)
@@ -703,6 +704,117 @@ the top `KNOWLEDGE_MAX_ITEMS` entries as a short, clearly optional context block
 nothing, so it adds no prompt weight and never makes the character monothematic. Seeded on boot from
 `src/knowledge/seed.ts` (`KNOWLEDGE_SEED_ON_BOOT`, idempotent); retrieval in
 `src/knowledge/knowledgeRetriever.ts`. Extend the seed freely.
+
+---
+
+## Anime releases and follows
+
+Grounded answers about anime release schedules, plus per-chat subscriptions that announce a new
+episode exactly once.
+
+This feature covers **release metadata only** - titles, status, episode counts, airing schedule and
+the legal streaming links the source publishes. It does not download, stream or rehost episodes.
+
+### What it answers
+
+Asked in natural language, no command needed:
+
+```
+e uscito l'ultimo episodio di Tanya the Evil?
+quanti episodi sono usciti di Frieren?
+quando esce il prossimo episodio di X?
+che anime stanno uscendo?
+segui Frieren
+smetti di seguire Frieren
+che serie stiamo seguendo?
+```
+
+Cortex maps the message onto the `anime_knowledge` tool with an explicit intent
+(`lookup`, `follow`, `unfollow`, `list_follows`, `airing`); the answer's facts come from the
+catalog service, never from the model.
+
+### Data sources
+
+| Source | Role | Key required |
+| --- | --- | --- |
+| [AniList](https://anilist.co) GraphQL | primary catalog: titles, aliases, status, episodes, airing schedule, streaming links | no |
+| [Jikan](https://jikan.moe) (MyAnimeList) | optional gap-filling: broadcast weekday, score, episode count | no |
+| SearXNG | last-resort title discovery, only when AniList cannot resolve the title | no (self-hosted) |
+
+Enrichment is strictly secondary: if Jikan is down, the catalog, the answers and the follows all
+keep working.
+
+### Title resolution
+
+Resolution is deterministic and never spends an LLM call comparing strings. The ladder is
+cheapest-first, so a known title never depends on an external search engine:
+
+1. persisted catalog, exact canonical key;
+2. persisted catalog, normalized key;
+3. persisted catalog, deterministic fuzzy ranking (bigram Dice + token coverage);
+4. AniList search;
+5. SearXNG discovery - only an AniList id parsed out of a genuine `anilist.co/anime/<id>` **path**
+   is trusted; result titles and snippets are never treated as catalog data.
+
+Normalization folds case, Unicode, accents, punctuation, apostrophes, roman sequel numerals
+(`Overlord IV` = `Overlord 4`) and source noise such as `ITA` / `SUB`, without ever emptying a
+legitimate title. When two entries stay genuinely tied, the bot shows a short ranked shortlist
+instead of asserting a guess.
+
+### Follows and notifications
+
+`segui X` stores a per-chat subscription **seeded at the episode already aired**, so following
+mid-season never backfills episodes 1..N as "new". The scheduler polls followed series every
+`ANIME_FOLLOW_POLL_MINUTES` and, on a new episode, claims the notification with a conditional
+watermark update *before* sending. That claim is the deduplication: concurrent ticks and restarted
+schedulers cannot produce a second notification, and a failed send releases the claim so the next
+tick retries. Notifications are delivered to the same chat and forum topic the follow was created
+in.
+
+### Configuration
+
+```bash
+ANIME_KNOWLEDGE_ENABLED=true            # catalog + agent tool
+ANILIST_API_URL=https://graphql.anilist.co
+ANIME_ENRICHMENT_ENABLED=true           # Jikan/MAL gap-filling
+JIKAN_API_URL=https://api.jikan.moe/v4
+ANIME_KNOWLEDGE_TIMEOUT_MS=10000
+ANIME_KNOWLEDGE_MAX_RESPONSE_BYTES=524288
+ANIME_KNOWLEDGE_REFRESH_MINUTES=180     # staleness threshold for a cached series
+ANIME_KNOWLEDGE_MAX_CANDIDATES=5        # shortlist size for an ambiguous title
+ANIME_KNOWLEDGE_SEARCH_FALLBACK=true    # needs WEB_SEARCH_ENABLED + SEARXNG_URL
+ANIME_FOLLOWS_ENABLED=true
+ANIME_FOLLOW_POLL_MINUTES=30
+ANIME_MAX_FOLLOWS_PER_CHAT=50
+ANIME_FOLLOW_BATCH_SIZE=20              # series polled per tick
+```
+
+### Storage
+
+Two Mongo collections in the existing database:
+
+- `anime_series` - the catalog, keyed by `source` + `sourceId`. Refresh is an upsert, so repeated
+  crawls update in place and never duplicate a title; `createdAt` survives every refresh.
+- `anime_follows` - subscriptions, keyed by `chatId` + `source` + `sourceId`, carrying the
+  `lastNotifiedEpisode` watermark.
+
+### Network safety
+
+Both providers go through `fetchSafeRemoteBuffer`, so the catalog inherits the project's SSRF
+guards unchanged: private/loopback/link-local/metadata destinations are rejected before a socket is
+opened, responses are size-bounded and content-type checked, and a non-GET request refuses to
+follow redirects at all rather than replaying its body against an unvalidated origin.
+
+### Troubleshooting
+
+| Symptom | Likely cause |
+| --- | --- |
+| "Il catalogo anime non e abilitato" | `ANIME_KNOWLEDGE_ENABLED=false` |
+| Every title comes back ambiguous | two catalog entries share a title; the shortlist is the correct answer |
+| A known title is not found | AniList rate limit hit (client-side cap is 45 req/min); retry shortly |
+| No release notifications | `ANIME_FOLLOWS_ENABLED=false`, or the series has no published next episode |
+| Notifications stopped after a restart | expected only if the episode was already announced; the watermark is persisted |
+| Weekday missing for an airing series | AniList published no `nextAiringEpisode`; enable `ANIME_ENRICHMENT_ENABLED` for the MAL broadcast day |
 
 ---
 

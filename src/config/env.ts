@@ -295,6 +295,38 @@ const envSchema = z.object({
   // the vision model and searching it on SearXNG (needs WEB_SEARCH backend too). Lens-equivalent.
   IMAGE_LOOKUP_ENABLED: boolFromString(false),
 
+  // ---- Anime release knowledge (AniList catalog + per-chat follows) ----
+  // Structured release metadata only: titles, status, episode counts, airing schedule. No media.
+  ANIME_KNOWLEDGE_ENABLED: boolFromString(true),
+  /** AniList public GraphQL endpoint. Overridable so a mirror/proxy can be used. */
+  ANILIST_API_URL: z
+    .string()
+    .optional()
+    .transform((v) =>
+      v && v.trim() ? v.trim().replace(/\/+$/, '') : 'https://graphql.anilist.co',
+    ),
+  /** Jikan (unofficial MyAnimeList API) used only as secondary enrichment; failures are ignored. */
+  ANIME_ENRICHMENT_ENABLED: boolFromString(true),
+  JIKAN_API_URL: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() ? v.trim().replace(/\/+$/, '') : 'https://api.jikan.moe/v4')),
+  ANIME_KNOWLEDGE_TIMEOUT_MS: intFromString(10_000),
+  /** Hard ceiling on a single catalog HTTP response body. */
+  ANIME_KNOWLEDGE_MAX_RESPONSE_BYTES: intFromString(512 * 1024),
+  /** A cached series older than this is refreshed before being used to answer. */
+  ANIME_KNOWLEDGE_REFRESH_MINUTES: intFromString(180),
+  /** Ambiguous-title answers never list more than this many candidates. */
+  ANIME_KNOWLEDGE_MAX_CANDIDATES: intFromString(5),
+  /** SearXNG is only consulted when AniList itself could not resolve the title. */
+  ANIME_KNOWLEDGE_SEARCH_FALLBACK: boolFromString(true),
+  // Follows / release notifications
+  ANIME_FOLLOWS_ENABLED: boolFromString(true),
+  ANIME_FOLLOW_POLL_MINUTES: intFromString(30),
+  ANIME_MAX_FOLLOWS_PER_CHAT: intFromString(50),
+  /** Series polled per tick; keeps the public API usage well inside its rate limit. */
+  ANIME_FOLLOW_BATCH_SIZE: intFromString(20),
+
   // NSFW model routing (hybrid: mode flag > per-chat nsfw mode > lexicon > default model)
   LLM_NSFW_MODEL: z.string().optional(),
   // Optional separate endpoint for the NSFW model (e.g. amoral-gemma on a router) so adult turns

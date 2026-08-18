@@ -5,6 +5,7 @@ import { Storage } from './storage/index.js';
 import { Services } from './services/index.js';
 import { createBot } from './telegram/bot.js';
 import { Scheduler } from './jobs/scheduler.js';
+import { runAnimeReleaseJob } from './jobs/animeReleaseJob.js';
 import { buildMiningWindows, withContinuousMiningLock } from './jobs/memoryMiningJob.js';
 import { KNOWLEDGE_SEED } from './knowledge/seed.js';
 import { getLogger } from './utils/logger.js';
@@ -266,6 +267,34 @@ async function main(): Promise<void> {
       }
     }
   };
+  /**
+   * Announce newly aired episodes to the chats that follow them.
+   *
+   * The job claims each notification before this callback runs, so returning false (delivery
+   * failed) is what releases the claim and lets the next tick retry - never a duplicate send.
+   */
+  const animeReleaseTick = async (): Promise<void> => {
+    await runAnimeReleaseJob(config.anime, storage, services.animeCatalog, async (notification) => {
+      const { series, episode } = notification;
+      const lines = [`Nuovo episodio di *${series.title}*: episodio ${episode}.`, series.url];
+      const legal = series.streamingLinks[0];
+      if (legal) lines.push(`Disponibile su ${legal.site}: ${legal.url}`);
+      const rendered = renderTelegramText(lines.join('\n'), 'markdown');
+      try {
+        await goonerBot.bot.api.sendMessage(notification.chatId, rendered.text, {
+          parse_mode: rendered.parseMode,
+          ...(notification.threadId ? { message_thread_id: notification.threadId } : {}),
+        });
+        return true;
+      } catch (err) {
+        log.warn(
+          { err, chatId: notification.chatId, sourceId: series.sourceId, episode },
+          'anime release notification send failed',
+        );
+        return false;
+      }
+    });
+  };
   const scheduler = new Scheduler(
     config,
     storage,
@@ -274,6 +303,7 @@ async function main(): Promise<void> {
     generatedImageTick,
     services.socialLearning,
     () => services.access.list().chats,
+    animeReleaseTick,
   );
   scheduler.start();
 

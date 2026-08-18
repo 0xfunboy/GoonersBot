@@ -21,6 +21,7 @@ import type { SceneAnalyzer } from '../brain/sceneAnalyzer.js';
 import type { GroundingService } from '../search/groundingService.js';
 import type { HeatService } from './heat.js';
 import type { KnowledgeRetriever } from '../knowledge/knowledgeRetriever.js';
+import type { AnimeKnowledgeService } from '../anime/knowledgeService.js';
 import type { ImageFinder } from '../media/imageFinder.js';
 import type { NewsService } from '../news/newsService.js';
 import type { AutonomousPoster } from './autonomousPoster.js';
@@ -387,6 +388,7 @@ export class ReplyService {
     private readonly videoPrompts: VideoPromptService,
     private readonly agentRuntime: AgentRuntime,
     private readonly social: SocialProfileEngine,
+    private readonly anime: AnimeKnowledgeService,
   ) {
     this.evaluator = new TurnEvaluator(llm, {
       enabled: config.brain.evaluatorEnabled,
@@ -661,6 +663,7 @@ export class ReplyService {
       imageLookup: this.grounding.enabled && ctx.allowVision && Boolean(visual),
       news: this.news.enabled,
       knowledge: this.knowledge.enabled,
+      anime: this.anime.enabled,
       music: this.music.enabled,
       linkMedia: this.config.linkMedia.enabled && ctx.allowLinkMedia !== false,
       imageGeneration: this.media.canGenerateImage,
@@ -832,6 +835,7 @@ export class ReplyService {
 
     const terminalAgentTools = new Set<CortexTool>([
       'web_search',
+      'anime_knowledge',
       'image_lookup',
       'music',
       'link_media',
