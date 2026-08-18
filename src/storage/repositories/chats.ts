@@ -1,9 +1,5 @@
 import type { Collection, Db } from 'mongodb';
-import type {
-  ChatDoc,
-  NsfwMode,
-  TelegramMembershipStatus,
-} from '../../domain/entities.js';
+import type { ChatDoc, NsfwMode, TelegramMembershipStatus } from '../../domain/entities.js';
 
 export interface ChatDefaults {
   language: string;
@@ -113,10 +109,7 @@ export class ChatsRepo {
   }
 
   async getTelegramMembership(chatId: number): Promise<TelegramMembershipStatus | undefined> {
-    const doc = await this.col.findOne(
-      { chatId },
-      { projection: { telegramMembershipStatus: 1 } },
-    );
+    const doc = await this.col.findOne({ chatId }, { projection: { telegramMembershipStatus: 1 } });
     return doc?.telegramMembershipStatus;
   }
 
@@ -145,12 +138,8 @@ export class ChatsRepo {
         ...(doc?.chatName ? { chatName: doc.chatName } : {}),
         isStarted: doc?.isStarted ?? false,
         status: doc?.telegramMembershipStatus ?? 'unknown',
-        ...(doc?.telegramMembershipUpdatedAt
-          ? { updatedAt: doc.telegramMembershipUpdatedAt }
-          : {}),
-        ...(doc?.telegramMembershipAuditedAt
-          ? { auditedAt: doc.telegramMembershipAuditedAt }
-          : {}),
+        ...(doc?.telegramMembershipUpdatedAt ? { updatedAt: doc.telegramMembershipUpdatedAt } : {}),
+        ...(doc?.telegramMembershipAuditedAt ? { auditedAt: doc.telegramMembershipAuditedAt } : {}),
       };
     });
   }
