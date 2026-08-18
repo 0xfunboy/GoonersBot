@@ -1,0 +1,25 @@
+[Unit]
+Description=GoonerBot Telegram bot
+After=network-online.target
+Wants=network-online.target
+After=goonerbot-mongodb.service
+Wants=goonerbot-mongodb.service
+After=searxng.service
+Wants=searxng.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/home/funboy/goonerbot
+Environment=HOME=/home/funboy
+Environment=NODE_ENV=production
+Environment=PATH=/home/funboy/.deno/bin:/home/funboy/.nvm/versions/node/v24.18.0/bin:/home/funboy/.local/share/pnpm:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/funboy/.nvm/versions/node/v24.18.0/bin/node /home/funboy/goonerbot/dist/main.js
+Restart=always
+RestartSec=10
+KillMode=mixed
+TimeoutStopSec=30
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=default.target
