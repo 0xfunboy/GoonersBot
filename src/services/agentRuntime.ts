@@ -438,6 +438,8 @@ export class AgentRuntime {
         const answer = await this.deps.anime.handle({
           intent,
           title,
+          // The raw request decides which entry of a franchise the question is about.
+          question: input.request,
           chatId: input.context.chatId,
           threadId: input.context.threadId,
           userHandle: input.person.userHandle,

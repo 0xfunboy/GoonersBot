@@ -15,6 +15,13 @@ export interface AnimeKnowledgeRequest {
   intent: AnimeIntent;
   /** Series title for `lookup`, `follow` and `unfollow`. */
   title?: string | undefined;
+  /**
+   * The user's message as written.
+   *
+   * The title alone cannot say whether they asked "com'era" or "quando esce il prossimo", and
+   * that distinction is what resolves a franchise whose entries all share a name.
+   */
+  question?: string | undefined;
   chatId: number;
   threadId?: number | undefined;
   userHandle: string;
@@ -75,7 +82,9 @@ export class AnimeKnowledgeService {
     const title = request.title?.trim();
     if (!title) return empty('Nessun titolo indicato per la ricerca nel catalogo anime.');
 
-    const result = await this.catalog.lookup(title, request.signal);
+    const result = await this.catalog.lookup(title, request.signal, {
+      preferOngoing: asksAboutUpcoming(request.question ?? title),
+    });
     if (result.match) {
       const series = result.match.series;
       log.info(
@@ -97,9 +106,12 @@ export class AnimeKnowledgeService {
     }
     if (result.candidates.length > 0) {
       const candidates = result.candidates.map((candidate) => candidate.series);
+      // `resolved: true` on purpose. A shortlist is a real, verifiable answer backed by real
+      // catalog URLs; reporting it as a failure made the agent discard it and surface its own
+      // verification machinery to the user instead.
       return {
-        summary: `Il titolo "${title}" è ambiguo. Candidati dal catalogo:\n${describeCandidates(candidates)}`,
-        resolved: false,
+        summary: `Più titoli corrispondono a "${title}". Dati dal catalogo per ciascuno:\n${describeCandidates(candidates)}`,
+        resolved: true,
         candidates,
         sources: candidates.map((series) => series.url),
       };
@@ -209,6 +221,18 @@ export class AnimeKnowledgeService {
     }
     return { ...empty(`Nessuna serie trovata nel catalogo per "${title}".`), candidates };
   }
+}
+
+/**
+ * True when the question is about what is coming, not about the work in general.
+ *
+ * Deliberately narrow: only phrasings that ask about the release timeline count, because this
+ * decides which entry of a franchise the answer is about.
+ */
+export function asksAboutUpcoming(question: string): boolean {
+  return /\b(prossim\w*|quando|esce|escono|uscit\w*|nuovo|nuova|nuovi|ultim\w*|next|when|airs?|airing|latest|upcoming)\b/i.test(
+    question,
+  );
 }
 
 function empty(summary: string): AnimeKnowledgeAnswer {

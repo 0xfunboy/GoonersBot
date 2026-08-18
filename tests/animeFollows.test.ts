@@ -433,9 +433,13 @@ describe('AnimeKnowledgeService intents', () => {
       userHandle: '@u',
     });
 
-    expect(answer.resolved).toBe(false);
+    // Previously asserted `resolved: false`, which was the bug: the agent treated a real
+    // shortlist as a tool failure, discarded it, and printed its own verification error to the
+    // user. A shortlist backed by catalog URLs is a verifiable answer.
+    expect(answer.resolved).toBe(true);
     expect(answer.candidates).toHaveLength(2);
-    expect(answer.summary).toContain('ambiguo');
+    expect(answer.sources).toHaveLength(2);
+    expect(answer.summary).toContain('Fate/stay night');
   });
 
   it('reports a missing title rather than searching for nothing', async () => {
