@@ -5,9 +5,7 @@ import { childLogger } from '../utils/logger.js';
 
 const log = childLogger('telegram-membership');
 
-export function normalizeTelegramMembershipStatus(
-  status: string,
-): TelegramMembershipStatus | null {
+export function normalizeTelegramMembershipStatus(status: string): TelegramMembershipStatus | null {
   switch (status) {
     case 'creator':
     case 'administrator':
@@ -89,7 +87,10 @@ export async function auditApprovedChatMemberships(
       const member = await bot.api.getChatMember(chatId, botId);
       const status = normalizeTelegramMembershipStatus(member.status);
       if (!status) {
-        log.warn({ chatId, telegramStatus: member.status }, 'unsupported Telegram membership state');
+        log.warn(
+          { chatId, telegramStatus: member.status },
+          'unsupported Telegram membership state',
+        );
         continue;
       }
       await persistMembership({

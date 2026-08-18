@@ -21,10 +21,7 @@ import {
 } from './handlers/commands/dynamic.js';
 import { localizeResponse, sendResponse } from './render.js';
 import { renderTelegramText, splitTelegramMarkdown, telegramPlainText } from './format.js';
-import {
-  auditApprovedChatMemberships,
-  persistMyChatMemberUpdate,
-} from './membership.js';
+import { auditApprovedChatMemberships, persistMyChatMemberUpdate } from './membership.js';
 
 const log = childLogger('bot');
 

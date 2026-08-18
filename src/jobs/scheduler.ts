@@ -31,6 +31,10 @@ export class Scheduler {
     private readonly socialLearning?: SocialLearningPipeline,
     /** Runtime approval store; evaluated on every tick so revocations take effect immediately. */
     private readonly getApprovedChatIds: () => readonly number[] = () => [],
+    /** Polls followed anime series and announces new episodes; needs the bot's send API. */
+    private readonly animeReleaseTick?: () => Promise<void>,
+    /** Announces finished /learn development jobs so the admin never has to poll. */
+    private readonly learnNotifyTick?: () => Promise<void>,
   ) {}
 
   start(): void {
@@ -56,12 +60,7 @@ export class Scheduler {
     if (this.config.env.FEEDBACK_LEARNING_ENABLED) {
       this.every(90_000, 75_000, () =>
         this.safe('feedback', () =>
-          runFeedbackLearningJob(
-            this.storage,
-            this.lore,
-            this.config,
-            this.getApprovedChatIds(),
-          ),
+          runFeedbackLearningJob(this.storage, this.lore, this.config, this.getApprovedChatIds()),
         ),
       );
     }
@@ -71,6 +70,17 @@ export class Scheduler {
         this.safe('autopost', () => tick()),
       );
     }
+    if (this.config.anime.follows.enabled && this.animeReleaseTick) {
+      const tick = this.animeReleaseTick;
+      this.every(this.config.anime.follows.pollMinutes * 60_000, 90_000, () =>
+        this.safe('anime-releases', () => tick()),
+      );
+    }
+    if (this.learnNotifyTick) {
+      const tick = this.learnNotifyTick;
+      // A development job is worth checking often: the admin is usually waiting for it.
+      this.every(60_000, 45_000, () => this.safe('learn-notify', () => tick()));
+    }
     if (this.config.auto.generatedImageAutopostEnabled && this.generatedImageTick) {
       const tick = this.generatedImageTick;
       this.every(this.config.auto.generatedImageAutopostIntervalMinutes * 60_000, 150_000, () =>
@@ -78,8 +88,11 @@ export class Scheduler {
       );
     }
     log.info(
-      { generatedImageAutopostEnabled: this.config.auto.generatedImageAutopostEnabled },
-      'scheduler started (cleanup + mining + feedback + autopost)',
+      {
+        generatedImageAutopostEnabled: this.config.auto.generatedImageAutopostEnabled,
+        animeFollowsEnabled: this.config.anime.follows.enabled,
+      },
+      'scheduler started (cleanup + mining + feedback + autopost + anime releases)',
     );
   }
 

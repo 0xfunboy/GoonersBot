@@ -9,6 +9,7 @@ import { z } from 'zod';
 export const agentToolNameSchema = z.enum([
   'group_rag',
   'knowledge_rag',
+  'anime_knowledge',
   'web_search',
   'news',
   'page_scan',

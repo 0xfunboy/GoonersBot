@@ -84,7 +84,10 @@ export class AutonomousPoster {
     language: string,
     context?: { chatId?: number | undefined; chatName?: string | undefined },
   ): Promise<AutoPost | null> {
-    const img = await this.images.find();
+    // Post about what this group is actually into rather than the bot's generic taste. A chat
+    // that has been discussing one series for weeks gets art of that series.
+    const hint = await this.affinityImageHint(context?.chatId);
+    const img = (await this.images.find(hint)) ?? (hint ? await this.images.find() : null);
     if (!img || !(await this.reserve(context?.chatId, 'image', imageKey(img.buffer)))) return null;
     const comment = await this.styledLine(
       language,
@@ -190,14 +193,48 @@ export class AutonomousPoster {
           m.message.imageDescription ?? '',
           m.message.voiceDescription ?? '',
         ]);
+      // Durable interests outweigh a single loud hour of chat, so they are prepended rather than
+      // mixed in: what the group cares about is more stable than what it happened to type today.
+      const interests = await this.affinityTerms(context.chatId);
       return {
         chatName: context.chatName,
-        dynamicTerms,
+        dynamicTerms: [...interests, ...dynamicTerms],
         lore: lore.map((m) => m.text),
       };
     } catch (err) {
       log.debug({ err, chatId: context.chatId }, 'news profile fallback');
       return { chatName: context.chatName, dynamicTerms: [], lore: [] };
+    }
+  }
+
+  /**
+   * The chat's strongest established interest, as an image search hint.
+   *
+   * Only established interests qualify: one passing mention is not a taste, and turning it into
+   * an unprompted post would be the bot latching onto noise.
+   */
+  private async affinityImageHint(chatId?: number): Promise<string | undefined> {
+    if (chatId === undefined) return undefined;
+    try {
+      const interests = await this.storage.topicAffinity.establishedInterests(chatId, 'anime', {
+        limit: 3,
+      });
+      const pick = interests[Math.floor(Math.random() * interests.length)];
+      return pick ? `${pick.subject} anime` : undefined;
+    } catch (err) {
+      log.debug({ err, chatId }, 'affinity image hint unavailable');
+      return undefined;
+    }
+  }
+
+  /** Subjects this chat keeps coming back to, used to bias news ranking. */
+  private async affinityTerms(chatId: number): Promise<string[]> {
+    try {
+      const top = await this.storage.topicAffinity.top(chatId, 8);
+      return top.filter((entry) => entry.mentions >= 2).map((entry) => entry.subject);
+    } catch (err) {
+      log.debug({ err, chatId }, 'affinity terms unavailable');
+      return [];
     }
   }
 

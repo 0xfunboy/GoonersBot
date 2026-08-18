@@ -19,6 +19,8 @@ import type { TtsProvider } from '../providers/voice/tts.js';
 import { selectImageProfile, type ImageProfile } from '../providers/image/stableDiffusion.js';
 import type { GroundingService } from '../search/groundingService.js';
 import type { KnowledgeRetriever } from '../knowledge/knowledgeRetriever.js';
+import type { AnimeKnowledgeService } from '../anime/knowledgeService.js';
+import { parseAnimeIntent } from '../anime/knowledgeService.js';
 import type { ImageFinder } from '../media/imageFinder.js';
 import type { GroupQuotaService } from './groupQuota.js';
 import type { ImagePromptService, PreparedImagePrompt } from './imagePrompt.js';
@@ -125,6 +127,7 @@ export interface AgentRuntimeDependencies {
   videoPrompts: VideoPromptService;
   quota: GroupQuotaService;
   capabilities: CapabilityForge;
+  anime: AnimeKnowledgeService;
 }
 
 /**
@@ -319,6 +322,14 @@ export class AgentRuntime {
       add('group_rag', 'recall relevant community members, relationships and group lore', 'read');
     if (this.deps.knowledge.enabled)
       add('knowledge_rag', 'retrieve stable curated technical and cultural knowledge', 'read');
+    if (this.deps.anime.enabled)
+      add(
+        'anime_knowledge',
+        'look up anime release data (status, latest episode, airing day, where to watch legally) ' +
+          "and manage this chat's series follows",
+        'read',
+        { maxCalls: 2 },
+      );
     if (this.deps.grounding.enabled)
       add(
         'web_search',
@@ -417,6 +428,28 @@ export class AgentRuntime {
         const items = await this.deps.knowledge.retrieve(query);
         const text = items.map((item) => `${item.topic}: ${item.text}`).join('\n');
         return textOutput(text, text || 'No matching curated knowledge was found.');
+      },
+
+      anime_knowledge: async (toolCtx) => {
+        // The planner picks the intent and the title; everything the answer asserts comes from
+        // the deterministic catalog service, never from the model.
+        const intent = parseAnimeIntent(toolCtx.action.args['intent']) ?? 'lookup';
+        const title = stringArg(toolCtx, 'title') ?? toolCtx.action.query?.trim();
+        const answer = await this.deps.anime.handle({
+          intent,
+          title,
+          chatId: input.context.chatId,
+          threadId: input.context.threadId,
+          userHandle: input.person.userHandle,
+          signal: toolCtx.signal,
+        });
+        if (!answer.resolved) return failedOutput(answer.summary);
+        return {
+          summary: answer.summary.slice(0, 6_000),
+          data: { kind: 'text', text: answer.summary } satisfies RuntimeData,
+          evidence: answer.sources.slice(0, 5).map((source) => ({ source })),
+          verified: true,
+        };
       },
 
       web_search: async (toolCtx) => {

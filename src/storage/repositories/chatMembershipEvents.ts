@@ -1,8 +1,5 @@
 import type { Collection, Db } from 'mongodb';
-import type {
-  ChatMembershipEventDoc,
-  TelegramMembershipStatus,
-} from '../../domain/entities.js';
+import type { ChatMembershipEventDoc, TelegramMembershipStatus } from '../../domain/entities.js';
 
 export interface RecordMembershipEvent {
   chatId: number;

@@ -8,6 +8,7 @@ import { localizeResponse, sendResponse, scheduleDelete } from '../render.js';
 import { fingerprint, escapeHtml } from '../../utils/text.js';
 import { Cooldown } from '../../utils/rateLimit.js';
 import { childLogger } from '../../utils/logger.js';
+import { classifyMessage } from '../../ambient/classifier.js';
 import type { LinkMediaResult } from '../../services/linkMedia.js';
 import { classifyExplicitSystemInfoRequest } from '../../services/systemInfo.js';
 import { extractUrls, mediaUrlKey } from '../../providers/media/linkMedia/url.js';
@@ -411,6 +412,15 @@ export async function handleMessage(
       userFacts: [],
       groupFacts: [],
       recentNegativeFeedback,
+      // One regex pass: the bot is a little readier to jump in when it recognises the subject
+      // than when it would just be interrupting. Gated on the same config as recall itself, so
+      // disabling ambient recall also removes its influence on when the bot speaks.
+      knownTopic:
+        services.config.ambient.enabled &&
+        classifyMessage(message.messageText ?? '', {
+          minScore: services.config.ambient.minDomainScore,
+          maxDomains: services.config.ambient.maxDomains,
+        }).domains.length > 0,
     },
     addressed,
     autoengageEnabled,

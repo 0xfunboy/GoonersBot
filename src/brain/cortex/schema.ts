@@ -28,6 +28,7 @@ export const cortexToolEnum = z.enum([
   'image_lookup',
   'group_rag',
   'knowledge_rag',
+  'anime_knowledge',
   'music',
   'link_media',
   'image_gen',
