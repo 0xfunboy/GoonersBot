@@ -31,6 +31,7 @@ import { visionCommand } from './vision.js';
 import { capabilitiesCommand, learnCommand } from './capabilities.js';
 import { communityCommand, socialstatusCommand } from './community.js';
 import { botinfoCommand, hardwareCommand, modelsCommand, quotaCommand } from './systemInfo.js';
+import { animeCommand, followCommand, followingCommand, unfollowCommand } from './anime.js';
 import { registerCommandCatalog } from './aliases.js';
 
 /** All command handlers (original parity + voice/traduci extras). */
@@ -81,6 +82,10 @@ export const commandHandlers: CommandSpec[] = [
   modelsCommand,
   quotaCommand,
   botinfoCommand,
+  animeCommand,
+  followCommand,
+  unfollowCommand,
+  followingCommand,
 ];
 
 // Validate the complete command/alias surface once, then publish the same catalog to /help.

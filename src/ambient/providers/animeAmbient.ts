@@ -1,5 +1,5 @@
 import type { AnimeCatalogService } from '../../anime/catalogService.js';
-import { describeSeries } from '../../anime/answers.js';
+import { describeSeriesCompact } from '../../anime/answers.js';
 import type { AnimeSeries } from '../../anime/types.js';
 import { extractSubjects } from '../subjects.js';
 import type { AmbientDomain } from '../domains.js';
@@ -52,7 +52,7 @@ function toFact(series: AnimeSeries, score: number): AmbientFact {
   return {
     domain: 'anime',
     subject: series.title,
-    text: describeSeries(series).replace(/\n/g, ' | '),
+    text: describeSeriesCompact(series),
     url: series.url,
     confidence: score,
     fromCache: true,

@@ -36,6 +36,12 @@ const languageAliases: Readonly<Record<string, readonly string[]>> = {
   translate: ['traduci'],
   brain: ['cervello'],
   debuglast: ['debugultimo'],
+  // Only the alias the group actually types: /help renders every alias and already sits at the
+  // Telegram 4096-character ceiling, so each extra one costs room a real command may need.
+  follow: ['segui'],
+  unfollow: [],
+  following: [],
+  anime: [],
   help: ['aiuto'],
   approve: ['approva'],
   unapprove: ['disapprova'],

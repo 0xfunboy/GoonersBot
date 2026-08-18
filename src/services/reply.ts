@@ -700,6 +700,19 @@ export class ReplyService {
     );
     const generationModel = sceneForcesNsfw ? ctx.nsfwModel : ctx.model;
     const generationNsfwEnabled = ctx.nsfwEnabled || sceneForcesNsfw;
+    // Started now, awaited much later. Recall is independent of scene analysis and Cortex, so
+    // running it alongside them costs no wall-clock time on the turn.
+    const ambientRecallPromise = this.ambient.recall({
+      message: ctx.message.messageText ?? '',
+      chatId: ctx.context.chatId,
+      nsfwAllowed: generationNsfwEnabled,
+      userHandle: ctx.person.userHandle,
+      ...(threadState.currentThread?.threadId
+        ? { threadId: threadState.currentThread.threadId }
+        : {}),
+      ...(ctx.context.messageId === undefined ? {} : { messageId: ctx.context.messageId }),
+    });
+
     const addressed =
       !ctx.context.isGroup || ctx.context.isBotMentioned || ctx.context.isReplyToBot;
     const recentNegativeFeedback = ctx.recentBotReplies.some((r) => (r.feedbackScore ?? 0) < 0);
@@ -882,21 +895,11 @@ export class ReplyService {
     // artifact. Routing it here sent a release question through the agent composer, which
     // concatenated tool output and the raw web-context block into a 6k-character dump instead of
     // an answer. Like `knowledge_rag`, it now feeds the normal styled pipeline below.
-    // Recall runs BEFORE the agent branch and is reused below. The agent path returns early, so
-    // computing it later left the agent blind: a release question that Cortex routed to
-    // `web_search` instead of `anime_knowledge` produced a verification failure while the catalog
-    // held the answer the whole time. Knowing things nobody asked for is the entire point of
-    // ambient recall, and it cannot do that from behind an early return.
-    const ambientRecall = await this.ambient.recall({
-      message: ctx.message.messageText ?? '',
-      chatId: ctx.context.chatId,
-      nsfwAllowed: generationNsfwEnabled,
-      userHandle: ctx.person.userHandle,
-      ...(threadState.currentThread?.threadId
-        ? { threadId: threadState.currentThread.threadId }
-        : {}),
-      ...(ctx.context.messageId === undefined ? {} : { messageId: ctx.context.messageId }),
-    });
+    // Awaited here, started far earlier: recall must be ready before the agent branch (which
+    // returns early and would otherwise run blind), but blocking on it at this point would add
+    // its whole deadline to every single turn. Kicked off before the Cortex call instead, it
+    // overlaps with an LLM round-trip and is almost always already settled by now.
+    const ambientRecall = await ambientRecallPromise;
 
     const terminalAgentTools = new Set<CortexTool>([
       'web_search',
