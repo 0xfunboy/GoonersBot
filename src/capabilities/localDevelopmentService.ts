@@ -201,6 +201,21 @@ export class LocalDevelopmentService {
     return resolved;
   }
 
+  /**
+   * Jobs that have reached a terminal state.
+   *
+   * Exposed for the completion notifier: a build that takes minutes and then finishes silently
+   * forces the admin to poll `/learn status`, which is the one part of this command that made it
+   * feel broken rather than slow.
+   */
+  async listTerminal(limit = 50): Promise<StoredJob[]> {
+    if (!this.config.enabled) return [];
+    return this.dependencies.jobs.list({
+      states: ['ready', 'failed', 'conflict', 'applied', 'stale'],
+      limit,
+    });
+  }
+
   async diff(
     actor: LocalDevelopmentActor,
     reference: string,

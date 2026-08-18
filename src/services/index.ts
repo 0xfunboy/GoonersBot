@@ -198,6 +198,7 @@ export class Services {
       model: env.AUTOENGAGE_MODEL,
       maxTokens: env.AUTOENGAGE_MAX_TOKENS,
       minConfidence: env.AUTOENGAGE_MIN_CONFIDENCE,
+      knownTopicBonus: config.ambient.autoengageBonus,
     });
     this.modelRouter = new ModelRouter({
       defaultModel: config.llm.model,
@@ -351,12 +352,16 @@ export class Services {
     this.anime = new AnimeKnowledgeService(config.anime, this.animeCatalog, this.animeFollows);
     // Ambient recall sits after the services it wraps: it never owns a data source, it only asks
     // the existing ones whether they recognise what is being discussed.
-    this.ambient = new AmbientRetriever(config.ambient, [
-      new AnimeAmbientProvider(this.animeCatalog),
-      new WikipediaAmbientProvider(storage, config.ambient.wikipedia),
-      new CuratedAmbientProvider(this.knowledge),
-      new NewsAmbientProvider(this.news),
-    ]);
+    this.ambient = new AmbientRetriever(
+      config.ambient,
+      [
+        new AnimeAmbientProvider(this.animeCatalog),
+        new WikipediaAmbientProvider(storage, config.ambient.wikipedia),
+        new CuratedAmbientProvider(this.knowledge),
+        new NewsAmbientProvider(this.news),
+      ],
+      storage,
+    );
     this.agentRuntime = new AgentRuntime({
       config,
       llm,

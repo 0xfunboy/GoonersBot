@@ -350,6 +350,11 @@ const envSchema = z.object({
   AMBIENT_WIKIPEDIA_MAX_RESPONSE_BYTES: intFromString(256 * 1024),
   /** Reference knowledge barely moves, so a long cache is both safe and courteous. */
   AMBIENT_CACHE_TTL_HOURS: intFromString(720),
+  /**
+   * Confidence the passive autoengage gate gives back when the message is about a domain the bot
+   * actually holds facts for. Lowers the bar to speak up; never bypasses cooldowns or caps.
+   */
+  AMBIENT_AUTOENGAGE_BONUS: floatFromString(0.1),
 
   // NSFW model routing (hybrid: mode flag > per-chat nsfw mode > lexicon > default model)
   LLM_NSFW_MODEL: z.string().optional(),

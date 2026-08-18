@@ -676,6 +676,14 @@ SHA-256 are then exposed through `/learn status <job>` and the complete paginate
 `/learn diff <job> [page]`. Only `/learn apply <job> <sha12>` can commit that exact verified artifact; apply
 does not deploy or restart the live bot.
 
+**You do not have to poll.** A build takes minutes and used to finish silently, so the only way to
+find out was to keep typing `/learn status`. The scheduler now announces every job that reaches a
+terminal state (`ready`, `failed`, `conflict`, `applied`, `stale`) in the DM it was started from,
+together with the single command worth running next — `/learn diff <job>` for a job that is ready,
+`/learn status <job>` for one that failed. The announcement is claimed in Mongo before it is sent,
+so a restarted scheduler re-reading the same finished job cannot announce it twice, and a failed
+send releases the claim for the next tick.
+
 Requests needing external credentials, authenticated APIs or real-world writes remain explicit setup
 proposals rather than being presented as installed capabilities.
 
@@ -805,11 +813,35 @@ AMBIENT_CACHE_TTL_HOURS=720
 Adding a domain means adding a lexicon entry in `src/ambient/domains.ts`; adding a source means
 implementing `AmbientProvider` in `src/ambient/providers/`. Neither touches the reply pipeline.
 
+### What recall feeds
+
+Recall is not a separate feature bolted on the side: once the bot knows what is being discussed,
+several existing surfaces stop guessing.
+
+| Surface | Before | With ambient recall |
+| --- | --- | --- |
+| Reply prompt | curated culture only | plus verified facts about the live subject |
+| Unprompted image | generic waifu search | art of the series the group is actually discussing |
+| Passive engagement | fixed confidence bar | bar lowered when the bot genuinely has something to add |
+| Autonomous post | generic taste + recent chatter | biased by the chat's durable interests |
+| Referents | "quando esce il prossimo?" resolved nothing | subject tracked as a conversation entity |
+
+**Group taste** (`topic_affinity`) is a plain counter, not a mined memory: "questo gruppo parla di
+Frieren" is an observation the bot can make without a model call, and counting it is cheaper and
+more honest than asking an LLM to summarise a group's personality. Distinct handles are tracked
+too, so a subject only becomes an "interest" when the *group* keeps returning to it rather than
+one member monologuing. Only established interests reach the proactive surfaces.
+
+Observation is fire-and-forget: learning what the group likes is a side effect of a conversation
+that already happened and never adds latency to answering it.
+
 ### Troubleshooting
 
 | Symptom | Likely cause |
 | --- | --- |
 | The bot never brings up known facts | `AMBIENT_RECALL_ENABLED=false`, or the message has no lexicon hit |
+| It chimes in more than it used to | that is `AMBIENT_AUTOENGAGE_BONUS`; set it to `0` to restore the old bar |
+| Unprompted images stay generic | the chat has no established interest yet (needs repeat mentions by more than one person) |
 | A topic is classified wrongly | inspect `matched` on the domain signal; it lists the lexicon entries that fired |
 | Wikipedia facts never appear | the first mention of a subject is a cache miss on a `stable` domain, which never gets a network budget - it warms on a later `live` turn |
 | The bot drags anime into everything | lower `AMBIENT_MAX_FACTS`, or trim the `anime` lexicon |
