@@ -137,6 +137,9 @@ export function titleSimilarity(queryKey: string, candidateKey: string): number 
   return Math.min(0.99, Math.max(dice, coverage * 0.75 + dice * 0.25));
 }
 
+/** Score returned only when a query key equals a candidate key outright. */
+export const EXACT_MATCH_SCORE = 0.999;
+
 export interface TitleCandidate {
   /** Every known title/alias for this candidate. */
   titles: readonly (string | null | undefined)[];
@@ -190,9 +193,17 @@ export function rankByTitle<T extends TitleCandidate>(
 export function isDecisiveMatch(ranked: readonly RankedTitle<unknown>[]): boolean {
   const top = ranked[0];
   if (!top) return false;
+
+  // An exact key match is title equality, not similarity, so it outranks anything merely close -
+  // otherwise a *different* series carrying a near-identical alias ("Chainsmoker Cat Minis"
+  // against "Chainsmoker Cat") drags a perfect hit below the ambiguity threshold. Two exact hits
+  // stay ambiguous: that is genuinely two entries sharing one title.
+  const exact = ranked.filter((entry) => entry.score >= EXACT_MATCH_SCORE);
+  if (exact.length === 1) return true;
+  if (exact.length > 1) return false;
+
   const runnerUp = ranked[1];
   if (!runnerUp) return top.score >= 0.6;
-  // A tie at the top - two catalog entries sharing a title - is the ambiguous case, not a
-  // certainty, so the score gap is checked even when the leader matched exactly.
+  // A tie at the top is the ambiguous case, not a certainty.
   return top.score >= 0.6 && top.score - runnerUp.score >= 0.12;
 }

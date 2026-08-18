@@ -114,7 +114,9 @@ describe('AnimeCatalogService lookup ladder', () => {
       provider,
     });
 
-    const result = await service.lookup('tanya the evil');
+    // Exact title: only an exact cached hit is authoritative offline, because a fuzzy one may
+    // just be the nearest of the entries that happen to have been crawled so far.
+    const result = await service.lookup('Saga of Tanya the Evil');
     expect(result.match?.series.sourceId).toBe('21255');
     expect(result.fromCache).toBe(true);
     expect(provider.search).not.toHaveBeenCalled();
@@ -150,7 +152,7 @@ describe('AnimeCatalogService lookup ladder', () => {
       search,
     });
 
-    await service.lookup('tanya the evil');
+    await service.lookup('Saga of Tanya the Evil');
     expect(search.search).not.toHaveBeenCalled();
   });
 
@@ -254,7 +256,7 @@ describe('AnimeCatalogService persistence', () => {
       provider: fakeProvider({ getById }),
     });
 
-    const result = await service.lookup('tanya the evil');
+    const result = await service.lookup('Saga of Tanya the Evil');
     expect(getById).toHaveBeenCalledOnce();
     expect(result.match?.series.latestEpisode).toBe(9);
   });
@@ -266,7 +268,7 @@ describe('AnimeCatalogService persistence', () => {
       provider: fakeProvider({ getById: vi.fn(async () => null) }),
     });
 
-    expect((await service.lookup('tanya the evil')).match?.series.latestEpisode).toBe(6);
+    expect((await service.lookup('Saga of Tanya the Evil')).match?.series.latestEpisode).toBe(6);
   });
 
   it('still answers when persisting throws', async () => {

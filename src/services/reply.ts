@@ -882,6 +882,22 @@ export class ReplyService {
     // artifact. Routing it here sent a release question through the agent composer, which
     // concatenated tool output and the raw web-context block into a 6k-character dump instead of
     // an answer. Like `knowledge_rag`, it now feeds the normal styled pipeline below.
+    // Recall runs BEFORE the agent branch and is reused below. The agent path returns early, so
+    // computing it later left the agent blind: a release question that Cortex routed to
+    // `web_search` instead of `anime_knowledge` produced a verification failure while the catalog
+    // held the answer the whole time. Knowing things nobody asked for is the entire point of
+    // ambient recall, and it cannot do that from behind an early return.
+    const ambientRecall = await this.ambient.recall({
+      message: ctx.message.messageText ?? '',
+      chatId: ctx.context.chatId,
+      nsfwAllowed: generationNsfwEnabled,
+      userHandle: ctx.person.userHandle,
+      ...(threadState.currentThread?.threadId
+        ? { threadId: threadState.currentThread.threadId }
+        : {}),
+      ...(ctx.context.messageId === undefined ? {} : { messageId: ctx.context.messageId }),
+    });
+
     const terminalAgentTools = new Set<CortexTool>([
       'web_search',
       'image_lookup',
@@ -931,6 +947,7 @@ export class ReplyService {
             })),
           ...(socialContext ? { socialContext } : {}),
           ...(documentContext ? { documentContext } : {}),
+          ...(ambientRecall.block ? { ambientContext: ambientRecall.block } : {}),
           requestedActions,
           socialSignal: evaluation.socialSignal ?? scene.socialSignal,
           replyPlan: agentPlan,
@@ -1454,66 +1471,55 @@ export class ReplyService {
       : wants('web_search', 'web_search')
         ? 'web'
         : null;
-    const [retrieved, grounding, knowledgeItems, heatValue, animeAnswer, ambientRecall] =
-      await Promise.all([
-        wantsGroupRag
-          ? this.memoryRetriever.retrieve({
-              chatId: ctx.context.chatId,
-              currentMessage: ctx.message.messageText,
-              currentHandle: ctx.person.userHandle,
-              scene,
-              activeHandles,
-              mentionedHandles: mentioned,
-              repliedToHandle: ctx.context.repliedToUserHandle ?? null,
-              nsfwEnabled: generationNsfwEnabled,
-              recentMessages: history.slice(-3).map((m) => m.message.messageText ?? ''),
-            })
-          : Promise.resolve([]),
-        wantsGrounding
-          ? this.ground(
-              ctx,
-              visual,
-              groundForce,
-              callFor('web_search')?.query ?? evaluation.searchQuery,
-            )
-          : Promise.resolve(null),
-        wantsKnowledgeRag && this.knowledge.enabled
-          ? this.knowledge.retrieve(ctx.message.messageText, scene.currentTopic)
-          : Promise.resolve([]),
-        this.heat.enabled
-          ? this.heat.bump(
-              ctx.context.chatId,
-              ctx.person.userHandle,
-              this.heat.deltaFromScene(scene, ctx.message.messageText),
-            )
-          : Promise.resolve(0),
-        wants('anime_knowledge', 'anime_knowledge') && this.anime.enabled
-          ? this.anime.handle({
-              intent: parseAnimeIntent(callFor('anime_knowledge')?.args?.['intent']) ?? 'lookup',
-              title:
-                callFor('anime_knowledge')?.args?.['title'] ??
-                callFor('anime_knowledge')?.query ??
-                ctx.message.messageText ??
-                '',
-              question: ctx.message.messageText ?? '',
-              chatId: ctx.context.chatId,
-              threadId: ctx.context.threadId,
-              userHandle: ctx.person.userHandle,
-            })
-          : Promise.resolve(null),
-        // Ambient recall is unconditional: unlike every other provider here it is not gated on a
-        // classified intent, because its whole purpose is knowing things nobody thought to ask for.
-        this.ambient.recall({
-          message: ctx.message.messageText ?? '',
-          chatId: ctx.context.chatId,
-          nsfwAllowed: generationNsfwEnabled,
-          userHandle: ctx.person.userHandle,
-          ...(threadState.currentThread?.threadId
-            ? { threadId: threadState.currentThread.threadId }
-            : {}),
-          ...(ctx.context.messageId === undefined ? {} : { messageId: ctx.context.messageId }),
-        }),
-      ]);
+    const [retrieved, grounding, knowledgeItems, heatValue, animeAnswer] = await Promise.all([
+      wantsGroupRag
+        ? this.memoryRetriever.retrieve({
+            chatId: ctx.context.chatId,
+            currentMessage: ctx.message.messageText,
+            currentHandle: ctx.person.userHandle,
+            scene,
+            activeHandles,
+            mentionedHandles: mentioned,
+            repliedToHandle: ctx.context.repliedToUserHandle ?? null,
+            nsfwEnabled: generationNsfwEnabled,
+            recentMessages: history.slice(-3).map((m) => m.message.messageText ?? ''),
+          })
+        : Promise.resolve([]),
+      wantsGrounding
+        ? this.ground(
+            ctx,
+            visual,
+            groundForce,
+            callFor('web_search')?.query ?? evaluation.searchQuery,
+          )
+        : Promise.resolve(null),
+      wantsKnowledgeRag && this.knowledge.enabled
+        ? this.knowledge.retrieve(ctx.message.messageText, scene.currentTopic)
+        : Promise.resolve([]),
+      this.heat.enabled
+        ? this.heat.bump(
+            ctx.context.chatId,
+            ctx.person.userHandle,
+            this.heat.deltaFromScene(scene, ctx.message.messageText),
+          )
+        : Promise.resolve(0),
+      wants('anime_knowledge', 'anime_knowledge') && this.anime.enabled
+        ? this.anime.handle({
+            intent: parseAnimeIntent(callFor('anime_knowledge')?.args?.['intent']) ?? 'lookup',
+            title:
+              callFor('anime_knowledge')?.args?.['title'] ??
+              callFor('anime_knowledge')?.query ??
+              ctx.message.messageText ??
+              '',
+            question: ctx.message.messageText ?? '',
+            chatId: ctx.context.chatId,
+            threadId: ctx.context.threadId,
+            userHandle: ctx.person.userHandle,
+          })
+        : Promise.resolve(null),
+      // Ambient recall is unconditional: unlike every other provider here it is not gated on a
+      // classified intent, because its whole purpose is knowing things nobody thought to ask for.
+    ]);
     const news = wants('news', 'news')
       ? await this.newsContext(ctx, history, retrieved, scene)
       : { sources: [] };
