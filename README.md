@@ -773,7 +773,9 @@ stays the single place where curated culture lives and the two paths cannot disa
 ### Cost control
 
 The reply path is **local-first**: providers get a `local` budget and answer from Mongo or memory,
-so recall adds no network latency to a reply. A `network` budget is granted only when a `live`
+so recall adds no network latency to a reply. On top of that the whole step runs under a hard
+`AMBIENT_DEADLINE_MS` deadline, raced rather than merely passed to providers — a source that
+ignores its abort signal loses its results, it does not get to hold up the reply. A `network` budget is granted only when a `live`
 domain was detected *and* the per-chat cooldown allows it, at most once per
 `AMBIENT_NETWORK_COOLDOWN_SECONDS`. Wikipedia results are cached persistently, including negative
 results - otherwise a subject nobody has an article for would be re-fetched every time a chatty
@@ -805,6 +807,8 @@ AMBIENT_MAX_FACTS=3
 AMBIENT_MAX_FACTS_PER_PROVIDER=2
 AMBIENT_ALLOW_NETWORK=true
 AMBIENT_NETWORK_COOLDOWN_SECONDS=90
+AMBIENT_DEADLINE_MS=2500                # hard ceiling on the whole recall step
+AMBIENT_AUTOENGAGE_BONUS=0.1            # confidence rebate on a known topic (0 disables)
 AMBIENT_WIKIPEDIA_ENABLED=true
 AMBIENT_WIKIPEDIA_LANGUAGE=it
 AMBIENT_CACHE_TTL_HOURS=720

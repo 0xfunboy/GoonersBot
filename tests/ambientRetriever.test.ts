@@ -17,6 +17,8 @@ const config = (overrides: Partial<AmbientConfig> = {}): AmbientConfig => ({
   maxFactsPerProvider: 2,
   allowNetwork: true,
   networkCooldownSeconds: 90,
+  autoengageBonus: 0.1,
+  deadlineMs: 2_500,
   wikipedia: {
     enabled: true,
     language: 'it',

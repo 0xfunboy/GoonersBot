@@ -134,7 +134,8 @@ describe('ambient observation', () => {
           }),
         },
         conversationEntities: {
-          upsert: vi.fn(async (doc: unknown) => {
+          // `touch` merges; `upsert` would replace threadIds on every re-mention.
+          touch: vi.fn(async (doc: unknown) => {
             entities.push(doc);
           }),
         },
@@ -197,7 +198,7 @@ describe('ambient observation', () => {
           throw new Error('mongo down');
         },
       },
-      conversationEntities: { upsert: async () => undefined },
+      conversationEntities: { touch: async () => undefined },
     } as unknown as Storage;
     await expect(
       observeAmbientFacts(storage, { chatId: -100, userHandle: '@u', facts: [fact()] }),

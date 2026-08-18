@@ -413,8 +413,14 @@ export async function handleMessage(
       groupFacts: [],
       recentNegativeFeedback,
       // One regex pass: the bot is a little readier to jump in when it recognises the subject
-      // than when it would just be interrupting.
-      knownTopic: classifyMessage(message.messageText ?? '').domains.length > 0,
+      // than when it would just be interrupting. Gated on the same config as recall itself, so
+      // disabling ambient recall also removes its influence on when the bot speaks.
+      knownTopic:
+        services.config.ambient.enabled &&
+        classifyMessage(message.messageText ?? '', {
+          minScore: services.config.ambient.minDomainScore,
+          maxDomains: services.config.ambient.maxDomains,
+        }).domains.length > 0,
     },
     addressed,
     autoengageEnabled,

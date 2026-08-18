@@ -355,6 +355,11 @@ const envSchema = z.object({
    * actually holds facts for. Lowers the bar to speak up; never bypasses cooldowns or caps.
    */
   AMBIENT_AUTOENGAGE_BONUS: floatFromString(0.1),
+  /**
+   * Hard ceiling on the whole ambient recall step. A reply is never worth stalling: whatever has
+   * not been recalled by then is simply not recalled this turn.
+   */
+  AMBIENT_DEADLINE_MS: intFromString(2_500),
 
   // NSFW model routing (hybrid: mode flag > per-chat nsfw mode > lexicon > default model)
   LLM_NSFW_MODEL: z.string().optional(),

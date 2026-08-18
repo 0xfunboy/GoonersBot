@@ -390,6 +390,8 @@ export interface AmbientConfig {
   networkCooldownSeconds: number;
   /** Confidence rebate for the passive engagement gate on a domain the bot knows. */
   autoengageBonus: number;
+  /** Hard ceiling on the whole recall step, so a slow source can never stall a reply. */
+  deadlineMs: number;
   wikipedia: {
     enabled: boolean;
     language: string;
@@ -409,6 +411,7 @@ export function resolveAmbientConfig(env: Env): AmbientConfig {
     allowNetwork: env.AMBIENT_ALLOW_NETWORK,
     networkCooldownSeconds: Math.max(10, env.AMBIENT_NETWORK_COOLDOWN_SECONDS),
     autoengageBonus: Math.min(0.4, Math.max(0, env.AMBIENT_AUTOENGAGE_BONUS)),
+    deadlineMs: Math.max(250, env.AMBIENT_DEADLINE_MS),
     wikipedia: {
       enabled: env.AMBIENT_RECALL_ENABLED && env.AMBIENT_WIKIPEDIA_ENABLED,
       language: env.AMBIENT_WIKIPEDIA_LANGUAGE,
