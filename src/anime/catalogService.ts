@@ -50,6 +50,9 @@ export interface AnimeCatalogDeps {
  * on an external search engine, and no step ever consults an LLM to compare two strings.
  */
 export class AnimeCatalogService {
+  /** Set per lookup; consumed by `rank` to break a franchise tie the way the question implies. */
+  private preferOngoing = false;
+
   constructor(
     private readonly cfg: AnimeConfig,
     private readonly deps: AnimeCatalogDeps,
@@ -59,11 +62,22 @@ export class AnimeCatalogService {
     return this.cfg.enabled && this.deps.provider.enabled;
   }
 
-  /** Resolve a title, refreshing the persisted entry when it has gone stale. */
-  async lookup(query: string, signal?: AbortSignal): Promise<AnimeLookupResult> {
+  /**
+   * Resolve a title, refreshing the persisted entry when it has gone stale.
+   *
+   * `preferOngoing` reflects what the user asked, not what the strings look like: "quando esce il
+   * prossimo episodio" against a franchise of four entries is not genuinely ambiguous, because
+   * only one of them is still airing.
+   */
+  async lookup(
+    query: string,
+    signal?: AbortSignal,
+    opts: { preferOngoing?: boolean } = {},
+  ): Promise<AnimeLookupResult> {
     if (!this.enabled) return { candidates: [], fromCache: false };
     const trimmed = query.trim();
     if (!trimmed) return { candidates: [], fromCache: false };
+    this.preferOngoing = opts.preferOngoing ?? false;
 
     const local = await this.lookupLocal(trimmed);
     if (local.match) {
@@ -278,6 +292,15 @@ export class AnimeCatalogService {
       score: row.score,
       matchedKey: row.matchedKey,
     }));
+    // A franchise ties on title similarity by construction ("Saga of Tanya the Evil" vs the same
+    // name plus "Season 2"), so pure string distance can never separate them. When the question
+    // is about what airs next and exactly one candidate is actually airing, that is the answer -
+    // an explicit rule rather than a score nudge, so it either applies or it does not.
+    const airing = candidates.filter((candidate) => candidate.series.status === 'ongoing');
+    if (this.preferOngoing && airing.length === 1 && airing[0]) {
+      return { match: airing[0], candidates, fromCache };
+    }
+
     const decisive = isDecisiveMatch(ranked);
     const top = candidates[0];
     return {
