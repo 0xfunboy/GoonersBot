@@ -22,6 +22,7 @@ import type { GroundingService } from '../search/groundingService.js';
 import type { HeatService } from './heat.js';
 import type { KnowledgeRetriever } from '../knowledge/knowledgeRetriever.js';
 import type { AnimeKnowledgeService } from '../anime/knowledgeService.js';
+import { parseAnimeIntent } from '../anime/knowledgeService.js';
 import type { AmbientRecallResult, AmbientRetriever } from '../ambient/retriever.js';
 import type { ImageFinder } from '../media/imageFinder.js';
 import type { NewsService } from '../news/newsService.js';
@@ -157,6 +158,24 @@ function imageQueryFromMessage(message: string): string | undefined {
   subject = (subject ?? '').replace(/\s+/g, ' ').trim();
   if (subject.length < 2) return undefined;
   return ANIME_TOPIC_RE.test(subject) || NSFW_WANT_RE.test(subject) ? subject : `${subject} anime`;
+}
+
+/**
+ * Frame catalog data as source material, never as a draft reply.
+ *
+ * `describeSeries` renders one fact per line for machine consumption; echoed verbatim it reads
+ * like a database dump, which is exactly what the group complained about. Saying so explicitly
+ * is what turns it back into something the style engine rewrites in the bot's own voice.
+ */
+function formatAnimeAnswer(answer: { resolved: boolean; summary: string } | null): string {
+  if (!answer?.resolved || !answer.summary.trim()) return '';
+  return [
+    'ANIME RELEASE DATA (verified catalog facts answering the question just asked). These are ' +
+      'raw fields, NOT a reply: never paste them as-is, never print a field list. Answer in your ' +
+      'own voice, in a few lines, giving the numbers and dates that matter and the link only if ' +
+      'it is useful:',
+    answer.summary,
+  ].join('\n');
 }
 
 /** Format retrieved knowledge into a compact, clearly-optional context block (or '' if none). */
@@ -859,9 +878,12 @@ export class ReplyService {
       };
     }
 
+    // `anime_knowledge` is deliberately absent: it retrieves facts, it does not produce an
+    // artifact. Routing it here sent a release question through the agent composer, which
+    // concatenated tool output and the raw web-context block into a 6k-character dump instead of
+    // an answer. Like `knowledge_rag`, it now feeds the normal styled pipeline below.
     const terminalAgentTools = new Set<CortexTool>([
       'web_search',
-      'anime_knowledge',
       'image_lookup',
       'music',
       'link_media',
@@ -1432,56 +1454,76 @@ export class ReplyService {
       : wants('web_search', 'web_search')
         ? 'web'
         : null;
-    const [retrieved, grounding, knowledgeItems, heatValue, ambientRecall] = await Promise.all([
-      wantsGroupRag
-        ? this.memoryRetriever.retrieve({
-            chatId: ctx.context.chatId,
-            currentMessage: ctx.message.messageText,
-            currentHandle: ctx.person.userHandle,
-            scene,
-            activeHandles,
-            mentionedHandles: mentioned,
-            repliedToHandle: ctx.context.repliedToUserHandle ?? null,
-            nsfwEnabled: generationNsfwEnabled,
-            recentMessages: history.slice(-3).map((m) => m.message.messageText ?? ''),
-          })
-        : Promise.resolve([]),
-      wantsGrounding
-        ? this.ground(
-            ctx,
-            visual,
-            groundForce,
-            callFor('web_search')?.query ?? evaluation.searchQuery,
-          )
-        : Promise.resolve(null),
-      wantsKnowledgeRag && this.knowledge.enabled
-        ? this.knowledge.retrieve(ctx.message.messageText, scene.currentTopic)
-        : Promise.resolve([]),
-      this.heat.enabled
-        ? this.heat.bump(
-            ctx.context.chatId,
-            ctx.person.userHandle,
-            this.heat.deltaFromScene(scene, ctx.message.messageText),
-          )
-        : Promise.resolve(0),
-      // Ambient recall is unconditional: unlike every other provider here it is not gated on a
-      // classified intent, because its whole purpose is knowing things nobody thought to ask for.
-      this.ambient.recall({
-        message: ctx.message.messageText ?? '',
-        chatId: ctx.context.chatId,
-        nsfwAllowed: generationNsfwEnabled,
-        userHandle: ctx.person.userHandle,
-        ...(threadState.currentThread?.threadId
-          ? { threadId: threadState.currentThread.threadId }
-          : {}),
-        ...(ctx.context.messageId === undefined ? {} : { messageId: ctx.context.messageId }),
-      }),
-    ]);
+    const [retrieved, grounding, knowledgeItems, heatValue, animeAnswer, ambientRecall] =
+      await Promise.all([
+        wantsGroupRag
+          ? this.memoryRetriever.retrieve({
+              chatId: ctx.context.chatId,
+              currentMessage: ctx.message.messageText,
+              currentHandle: ctx.person.userHandle,
+              scene,
+              activeHandles,
+              mentionedHandles: mentioned,
+              repliedToHandle: ctx.context.repliedToUserHandle ?? null,
+              nsfwEnabled: generationNsfwEnabled,
+              recentMessages: history.slice(-3).map((m) => m.message.messageText ?? ''),
+            })
+          : Promise.resolve([]),
+        wantsGrounding
+          ? this.ground(
+              ctx,
+              visual,
+              groundForce,
+              callFor('web_search')?.query ?? evaluation.searchQuery,
+            )
+          : Promise.resolve(null),
+        wantsKnowledgeRag && this.knowledge.enabled
+          ? this.knowledge.retrieve(ctx.message.messageText, scene.currentTopic)
+          : Promise.resolve([]),
+        this.heat.enabled
+          ? this.heat.bump(
+              ctx.context.chatId,
+              ctx.person.userHandle,
+              this.heat.deltaFromScene(scene, ctx.message.messageText),
+            )
+          : Promise.resolve(0),
+        wants('anime_knowledge', 'anime_knowledge') && this.anime.enabled
+          ? this.anime.handle({
+              intent: parseAnimeIntent(callFor('anime_knowledge')?.args?.['intent']) ?? 'lookup',
+              title:
+                callFor('anime_knowledge')?.args?.['title'] ??
+                callFor('anime_knowledge')?.query ??
+                ctx.message.messageText ??
+                '',
+              question: ctx.message.messageText ?? '',
+              chatId: ctx.context.chatId,
+              threadId: ctx.context.threadId,
+              userHandle: ctx.person.userHandle,
+            })
+          : Promise.resolve(null),
+        // Ambient recall is unconditional: unlike every other provider here it is not gated on a
+        // classified intent, because its whole purpose is knowing things nobody thought to ask for.
+        this.ambient.recall({
+          message: ctx.message.messageText ?? '',
+          chatId: ctx.context.chatId,
+          nsfwAllowed: generationNsfwEnabled,
+          userHandle: ctx.person.userHandle,
+          ...(threadState.currentThread?.threadId
+            ? { threadId: threadState.currentThread.threadId }
+            : {}),
+          ...(ctx.context.messageId === undefined ? {} : { messageId: ctx.context.messageId }),
+        }),
+      ]);
     const news = wants('news', 'news')
       ? await this.newsContext(ctx, history, retrieved, scene)
       : { sources: [] };
     const sources = [
-      ...new Set([...(grounding?.sources ?? []), ...news.sources, ...ambientRecall.sources]),
+      ...new Set([
+        ...(grounding?.sources ?? []),
+        ...news.sources,
+        ...(animeAnswer?.sources ?? []),
+        ...ambientRecall.sources,
+      ]),
     ];
     const providerBundle: ProviderBundle = { sources };
     if (threadState.promptBlock) providerBundle.threadContext = threadState.promptBlock;
@@ -1490,7 +1532,11 @@ export class ReplyService {
     // Curated culture and ambient facts share one prompt slot on purpose: its framing already
     // says "background you happen to know, use only if it fits", which is exactly the contract
     // that keeps recall from dragging every conversation onto the same subject.
-    const knowledgeBlock = [formatKnowledge(knowledgeItems), ambientRecall.block]
+    const knowledgeBlock = [
+      formatKnowledge(knowledgeItems),
+      formatAnimeAnswer(animeAnswer),
+      ambientRecall.block,
+    ]
       .filter(Boolean)
       .join('\n\n');
     const claimCheck = formatClaimCheck(evaluation, sources);
