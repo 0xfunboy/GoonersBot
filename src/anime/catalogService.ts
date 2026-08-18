@@ -80,7 +80,13 @@ export class AnimeCatalogService {
     this.preferOngoing = opts.preferOngoing ?? false;
 
     const local = await this.lookupLocal(trimmed);
-    if (local.match) {
+    // A partially crawled franchise is the trap here: with only one of four Tanya entries cached,
+    // that lone candidate looks unambiguous and short-circuits the remote lookup that would have
+    // surfaced the airing season. So a concluded local match is not trusted for a question about
+    // what comes next - the very case where a finished entry is the wrong answer.
+    const localLooksWrong =
+      this.preferOngoing && local.match !== undefined && local.match.series.status !== 'ongoing';
+    if (local.match && !localLooksWrong) {
       const refreshed = await this.refreshIfStale(local.match.series, signal);
       return {
         match: { ...local.match, series: refreshed },
@@ -96,8 +102,8 @@ export class AnimeCatalogService {
     const viaSearch = await this.lookupViaWebSearch(trimmed, signal);
     if (viaSearch.match || viaSearch.candidates.length > 0) return viaSearch;
 
-    // Nothing new was learned, so an ambiguous local shortlist is still the best honest answer:
-    // dropping it here would turn "which of these two did you mean?" into "never heard of it".
+    // Nothing new was learned, so the local result is still the best honest answer - including a
+    // concluded match that was set aside above, which beats claiming to know nothing.
     return local;
   }
 

@@ -143,6 +143,83 @@ describe('a franchise question resolves to the entry that is actually airing', (
   });
 });
 
+describe('a partially cached franchise does not short-circuit the right answer', () => {
+  /** Cache holding a subset, which is the state a first lookup leaves behind. */
+  function partialStorage(seed: AnimeSeries[]): Storage {
+    const docs = new Map(
+      seed.map((e) => [
+        `${e.source}:${e.sourceId}`,
+        { ...e, crawledAt: new Date(), revision: 1, createdAt: new Date(), updatedAt: new Date() },
+      ]),
+    );
+    return {
+      animeCatalog: {
+        get: async (so: string, id: string) => docs.get(`${so}:${id}`) ?? null,
+        findByTitleKey: async (k: string) =>
+          [...docs.values()].filter((d) => d.titleKeys.includes(k)),
+        findFuzzyCandidates: async (tokens: string[]) => {
+          const usable = tokens.filter((t) => t.length >= 3);
+          return [...docs.values()].filter((d) =>
+            d.titleKeys.some((k: string) => usable.some((t) => k.includes(t))),
+          );
+        },
+        upsertMany: async (list: AnimeSeries[]) => {
+          for (const e of list) {
+            docs.set(`${e.source}:${e.sourceId}`, {
+              ...e,
+              crawledAt: new Date(),
+              revision: 1,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+          }
+        },
+        listAiring: async () => [],
+      },
+    } as unknown as Storage;
+  }
+
+  it('goes remote when the only cached entry is concluded and the question is about what is next', async () => {
+    // Exactly the production state: one entry cached, so it looks unambiguous and wins outright.
+    const onlyS1 = FRANCHISE.filter((s) => s.sourceId === '21613');
+    const catalog = new AnimeCatalogService(config, {
+      storage: partialStorage(onlyS1),
+      provider: provider(FRANCHISE),
+    });
+
+    const result = await catalog.lookup('Tanya the Evil', undefined, { preferOngoing: true });
+
+    expect(result.match?.series.sourceId).toBe('135865');
+    expect(result.match?.series.nextEpisode?.episode).toBe(7);
+  });
+
+  it('keeps trusting a cached concluded entry when the question is not about the timeline', async () => {
+    const onlyS1 = FRANCHISE.filter((s) => s.sourceId === '21613');
+    const search = vi.fn(async () => FRANCHISE);
+    const catalog = new AnimeCatalogService(config, {
+      storage: partialStorage(onlyS1),
+      provider: { ...provider(FRANCHISE), search } as AnimeCatalogProvider,
+    });
+
+    const result = await catalog.lookup('Tanya the Evil');
+
+    expect(result.match?.series.sourceId).toBe('21613');
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the concluded local match when the source is unreachable', async () => {
+    const onlyS1 = FRANCHISE.filter((s) => s.sourceId === '21613');
+    const catalog = new AnimeCatalogService(config, {
+      storage: partialStorage(onlyS1),
+      provider: provider([]),
+    });
+
+    // Setting the local match aside must not turn into "never heard of it".
+    const result = await catalog.lookup('Tanya the Evil', undefined, { preferOngoing: true });
+    expect(result.match?.series.sourceId).toBe('21613');
+  });
+});
+
 describe('an ambiguous answer is information, not a tool failure', () => {
   const knowledge = (results: AnimeSeries[]) =>
     new AnimeKnowledgeService(
