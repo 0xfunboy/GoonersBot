@@ -484,6 +484,8 @@ export interface AnimeArchiveConfig {
   bulkEnabled: boolean;
   maxDurationSeconds: number;
   maxDownloadBytes: number;
+  /** Hard per-file Telegram upload ceiling. Archive delivery is strictly one episode = one file. */
+  maxUploadBytes: number;
   /** Whole-series work is intentionally sequential to bound disk, network and Telegram pressure. */
   bulkConcurrency: 1;
   timeoutMs: number;
@@ -499,6 +501,7 @@ export function resolveAnimeArchiveConfig(env: Env): AnimeArchiveConfig {
     bulkEnabled: env.ANIME_ARCHIVE_ENABLED && env.ANIME_ARCHIVE_BULK_ENABLED,
     maxDurationSeconds: Math.min(6 * 60 * 60, Math.max(60, env.ANIME_ARCHIVE_MAX_DURATION_SECONDS)),
     maxDownloadBytes: Math.min(4_096, Math.max(1, env.ANIME_ARCHIVE_MAX_DOWNLOAD_MB)) * 1024 * 1024,
+    maxUploadBytes: Math.min(2_000, Math.max(1, env.ANIME_ARCHIVE_MAX_UPLOAD_MB)) * 1024 * 1024,
     // This rollout promises exactly one episode on disk/in flight at a time. Ignore unsafe higher
     // values instead of silently changing resource pressure after an environment edit.
     bulkConcurrency: 1,

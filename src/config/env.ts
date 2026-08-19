@@ -106,6 +106,8 @@ const envSchema = z.object({
 
   // Telegram
   TELEGRAM_BOT_TOKEN: z.string().min(1, 'TELEGRAM_BOT_TOKEN is required'),
+  /** Optional self-hosted Telegram Bot API root, e.g. http://127.0.0.1:8081. */
+  TELEGRAM_API_ROOT: optStr.pipe(z.string().url().optional()),
   BOT_USERNAME: z.string().default('GoonersBot'),
 
   // Access control (handles normalized to @handle; null => unrestricted)
@@ -335,6 +337,8 @@ const envSchema = z.object({
   ANIME_ARCHIVE_BULK_ENABLED: boolFromString(true),
   ANIME_ARCHIVE_MAX_DURATION_SECONDS: intFromString(7_200),
   ANIME_ARCHIVE_MAX_DOWNLOAD_MB: intFromString(2_048),
+  /** Per-file Telegram ceiling for archive uploads. Keep 45 on cloud Bot API; local Bot API can use up to 2000 MB. */
+  ANIME_ARCHIVE_MAX_UPLOAD_MB: intFromString(45),
   /** Kept explicit for deployment visibility; the worker enforces sequential execution. */
   ANIME_ARCHIVE_BULK_CONCURRENCY: intFromString(1),
   ANIME_ARCHIVE_TIMEOUT_MS: intFromString(1_800_000),

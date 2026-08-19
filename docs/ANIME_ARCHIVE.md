@@ -17,9 +17,10 @@ Supported public URL shapes are:
 
 A supported episode URL may be pasted by itself. After the ordinary approval and quota checks, the
 bot queues it and returns immediately; download and Telegram upload happen in the background in the
-same chat and forum topic. Archive media is never lossily re-encoded. If the source fits the current
-Bot API per-file ceiling it is uploaded byte-for-byte unchanged; if it is larger, ffmpeg performs
-only a stream-copy split at keyframes and Telegram receives ordered `qualità originale` parts.
+same chat and forum topic. Archive media is never lossily re-encoded and is never split: one source
+episode always maps to one Telegram file. If the source exceeds the configured per-file Telegram
+ceiling, the job fails closed before delivery instead of spamming the chat; large episodes require a
+Telegram Local Bot API (or another explicitly configured large-upload backend).
 
 A series URL never starts work immediately. A true group administrator (or a configured bot admin)
 receives a prompt naming the resolved series and the number of episodes currently available, with
@@ -54,10 +55,9 @@ Ordinary anime questions continue through `anime_knowledge`; after a catalog loo
 source enrichment may still add a relevant archive offer. Follow notifications are emitted only
 after the episode is observed on a supported archive source and include that canonical source URL.
 
-Long jobs keep one best-effort Telegram status message updated across download and upload. Oversized
-sources add a `divisione lossless per Telegram (qualità originale)` stage; there is no archive
-conversion/transcode stage. Status delivery is hard-time-bounded and cannot delay the worker, its
-lease, or the media upload itself.
+Long jobs keep one best-effort Telegram status message updated across download and upload. There is
+no archive split/conversion/transcode stage. Status delivery is hard-time-bounded and cannot delay
+the worker, its lease, or the media upload itself.
 
 HentaiSaturn remains governed by `LINK_MEDIA_NSFW_ALLOW`; the archive layer does not weaken the
 existing adult-host policy.
@@ -72,6 +72,7 @@ ANIME_ARCHIVE_ENABLED=true
 ANIME_ARCHIVE_BULK_ENABLED=true
 ANIME_ARCHIVE_MAX_DURATION_SECONDS=7200
 ANIME_ARCHIVE_MAX_DOWNLOAD_MB=2048
+ANIME_ARCHIVE_MAX_UPLOAD_MB=45
 ANIME_ARCHIVE_BULK_CONCURRENCY=1
 ANIME_ARCHIVE_TIMEOUT_MS=1800000
 ANIME_ARCHIVE_OFFER_TTL_MINUTES=15
@@ -79,15 +80,14 @@ ANIME_ARCHIVE_MAX_RETRIES=3
 ANIME_ARCHIVE_TMP_DIR=.tmp-anime-archive
 ```
 
-Every archive job preserves the downloaded AnimeUnity/HentaiSaturn encoded streams. The per-file
-upload ceiling is the existing `LINK_MEDIA_MAX_UPLOAD_MB` setting (45 MB by default, kept below the
-hosted Bot API's current 50 MB maximum). Files at or below that ceiling are uploaded unchanged even
-if Telegram ultimately chooses to display an unusual codec as a document. Larger files are split
-into MP4 parts with ffmpeg `-c copy`; segment duration is adjusted and retried if a keyframe-aligned
-part overshoots the ceiling. The worker never invokes CRF, bitrate limiting, scaling or audio
-re-encoding for archive sources. Multipart receipts store every emitted Telegram message id, and a
-failure after any accepted part is terminalized rather than automatically retried, preventing
-partial-delivery duplicates.
+Every archive job preserves the downloaded AnimeUnity/HentaiSaturn encoded streams. The archive
+per-file ceiling is `ANIME_ARCHIVE_MAX_UPLOAD_MB` (45 MB by default, suitable for the hosted Bot API).
+Files at or below that ceiling are uploaded unchanged even if Telegram ultimately chooses to display
+an unusual codec as a document. Larger files are not altered or divided: the worker fails before the
+delivery latch/quota reservation. Configure `TELEGRAM_API_ROOT` to a self-hosted Telegram Local Bot
+API and raise `ANIME_ARCHIVE_MAX_UPLOAD_MB` (for example to 1900) to deliver normal long-form episodes
+as one original MP4. The worker never invokes CRF, bitrate limiting, scaling, audio re-encoding or
+multipart splitting for archive sources.
 
 ## Persistence and resource bounds
 

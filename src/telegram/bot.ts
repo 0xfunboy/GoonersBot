@@ -33,12 +33,18 @@ export interface GoonersBot {
 }
 
 export async function createBot(config: AppConfig, services: Services): Promise<GoonersBot> {
-  const bot = new Bot(config.env.TELEGRAM_BOT_TOKEN);
+  const apiRoot = config.env.TELEGRAM_API_ROOT?.replace(/\/+$/u, '');
+  const bot = new Bot(config.env.TELEGRAM_BOT_TOKEN, {
+    ...(apiRoot ? { client: { apiRoot } } : {}),
+  });
 
   // Resolve the real bot username (used for mention detection) - env value is a default/hint.
   const me = await bot.api.getMe();
   const botUsername = me.username ?? config.env.BOT_USERNAME.replace(/^@/, '');
-  log.info({ botUsername, id: me.id }, 'authenticated with Telegram');
+  log.info(
+    { botUsername, id: me.id, telegramApi: apiRoot ? 'custom' : 'official-cloud' },
+    'authenticated with Telegram',
+  );
 
   const deps: DispatchDeps = { services, botUsername };
 
