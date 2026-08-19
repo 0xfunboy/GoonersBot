@@ -411,8 +411,13 @@ export type AnimeArchiveJobState =
 
 export interface AnimeArchiveTelegramReceipt {
   chatId: number;
+  /** Primary/last Telegram message for backwards compatibility with single-file deliveries. */
   messageId: number;
+  /** Every message emitted for a losslessly split episode, in playback order. */
+  messageIds?: number[] | undefined;
   fileId?: string | undefined;
+  /** File ids for multipart lossless deliveries, aligned with messageIds when available. */
+  fileIds?: string[] | undefined;
   fileUniqueId?: string | undefined;
   mediaKind?: 'video' | 'document' | undefined;
 }
@@ -1657,10 +1662,19 @@ function normalizeCanonicalUrl(value: string): string {
 }
 
 function normalizeReceipt(receipt: AnimeArchiveTelegramReceipt): AnimeArchiveTelegramReceipt {
+  const messageIds = receipt.messageIds
+    ?.filter((value) => Number.isSafeInteger(value) && value > 0)
+    .slice(0, 64);
+  const fileIds = receipt.fileIds
+    ?.filter((value) => Boolean(value?.trim()))
+    .slice(0, 64)
+    .map((value) => normalizeText(value, 'fileId', 512));
   return {
     chatId: receipt.chatId,
     messageId: receipt.messageId,
+    ...(messageIds?.length ? { messageIds } : {}),
     ...(receipt.fileId ? { fileId: normalizeText(receipt.fileId, 'fileId', 512) } : {}),
+    ...(fileIds?.length ? { fileIds } : {}),
     ...(receipt.fileUniqueId
       ? { fileUniqueId: normalizeText(receipt.fileUniqueId, 'fileUniqueId', 512) }
       : {}),

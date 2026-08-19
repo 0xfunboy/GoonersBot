@@ -1,5 +1,6 @@
 import { runProcess, runProcessChecked } from '../../../utils/process.js';
-import { stat, unlink } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat, unlink } from 'node:fs/promises';
+import { join } from 'node:path';
 
 const LOCAL_INPUT_PROTOCOLS = ['-protocol_whitelist', 'file,pipe'] as const;
 
@@ -36,6 +37,18 @@ export interface AnimeVideoNormalizationResult {
   sizeBytes: number;
   /** True when the final encode uses an explicit bitrate budget (directly or after CRF). */
   bitrateLimited: boolean;
+}
+
+export interface LosslessVideoPart {
+  path: string;
+  sizeBytes: number;
+}
+
+export interface LosslessVideoSplitResult {
+  parts: LosslessVideoPart[];
+  totalBytes: number;
+  /** Number of stream-copy segmentation passes needed to satisfy the per-file upload ceiling. */
+  attempts: number;
 }
 
 export class AnimeVideoOutputTooLargeError extends Error {
@@ -348,6 +361,128 @@ export async function normalizeAnimeVideo(
     throw new AnimeVideoOutputTooLargeError(finalSize, opts.maxUploadBytes);
   }
   return { action: 'transcode', sizeBytes: finalSize, bitrateLimited: true };
+}
+
+const LOSSLESS_SPLIT_TARGET_RATIO = 0.72;
+const LOSSLESS_SPLIT_MAX_ATTEMPTS = 6;
+const LOSSLESS_SPLIT_MAX_PARTS = 64;
+
+/**
+ * Split an oversized local video into Telegram-sized MP4 parts without re-encoding either stream.
+ *
+ * This exists for archive sources whose original episode is already good quality but exceeds the
+ * hosted Bot API's per-file ceiling. ffmpeg's segment muxer rewrites only container boundaries;
+ * `-c copy` preserves the encoded video/audio bitstreams byte-for-byte between cut points.
+ */
+export async function splitVideoLosslessly(
+  input: string,
+  outputDir: string,
+  opts: Pick<NormalizeOptions, 'ffmpegBin' | 'timeoutMs' | 'maxUploadBytes' | 'signal'>,
+  sourceProbe?: VideoProbe,
+): Promise<LosslessVideoSplitResult> {
+  if (!Number.isSafeInteger(opts.maxUploadBytes) || opts.maxUploadBytes <= 0) {
+    throw new TypeError('lossless split maxUploadBytes must be a positive integer');
+  }
+  const [inputBytes, probe] = await Promise.all([
+    fileSize(input),
+    sourceProbe
+      ? Promise.resolve(sourceProbe)
+      : probeVideo(opts.ffmpegBin, input, 15_000, opts.signal),
+  ]);
+  if (!Number.isFinite(inputBytes) || inputBytes <= 0) {
+    throw new AnimeVideoOutputTooLargeError(inputBytes, opts.maxUploadBytes);
+  }
+  if (inputBytes <= opts.maxUploadBytes) {
+    return { parts: [{ path: input, sizeBytes: inputBytes }], totalBytes: inputBytes, attempts: 0 };
+  }
+  const duration = probe.duration;
+  if (!duration || !Number.isFinite(duration) || duration <= 0) {
+    throw new AnimeVideoOutputTooLargeError(inputBytes, opts.maxUploadBytes);
+  }
+
+  await mkdir(outputDir, { recursive: true });
+  const targetBytes = Math.max(1, Math.floor(opts.maxUploadBytes * LOSSLESS_SPLIT_TARGET_RATIO));
+  let segmentSeconds = Math.max(1, (duration * targetBytes) / inputBytes);
+
+  for (let attempt = 1; attempt <= LOSSLESS_SPLIT_MAX_ATTEMPTS; attempt += 1) {
+    await clearLosslessParts(outputDir);
+    const pattern = join(outputDir, 'part-%03d.mp4');
+    await run(
+      opts.ffmpegBin,
+      [
+        '-y',
+        ...LOCAL_INPUT_PROTOCOLS,
+        '-i',
+        input,
+        '-map',
+        '0:v:0',
+        '-map',
+        '0:a:0?',
+        '-c',
+        'copy',
+        '-f',
+        'segment',
+        '-segment_time',
+        segmentSeconds.toFixed(3),
+        '-reset_timestamps',
+        '1',
+        '-segment_format',
+        'mp4',
+        '-segment_format_options',
+        'movflags=+faststart',
+        pattern,
+      ],
+      opts.timeoutMs,
+      opts.signal,
+    );
+    const paths = (await readdir(outputDir))
+      .filter((name) => /^part-\d+\.mp4$/u.test(name))
+      .sort()
+      .map((name) => join(outputDir, name));
+    if (paths.length === 0 || paths.length > LOSSLESS_SPLIT_MAX_PARTS) {
+      throw new AnimeVideoOutputTooLargeError(inputBytes, opts.maxUploadBytes);
+    }
+    const parts = await Promise.all(
+      paths.map(async (path) => ({ path, sizeBytes: await fileSize(path) })),
+    );
+    const largest = Math.max(...parts.map((part) => part.sizeBytes));
+    if (parts.every((part) => part.sizeBytes > 0 && part.sizeBytes <= opts.maxUploadBytes)) {
+      return {
+        parts,
+        totalBytes: parts.reduce((sum, part) => sum + part.sizeBytes, 0),
+        attempts: attempt,
+      };
+    }
+
+    // Segment boundaries land on nearby keyframes, so size is approximate. Scale the next segment
+    // duration from the observed worst part and keep extra headroom rather than ever transcoding.
+    const observedScale = largest > 0 ? (opts.maxUploadBytes / largest) * 0.82 : 0.5;
+    segmentSeconds = Math.max(1, segmentSeconds * Math.min(0.82, observedScale));
+  }
+
+  const leftovers = await losslessPartSizes(outputDir);
+  throw new AnimeVideoOutputTooLargeError(
+    leftovers.length ? Math.max(...leftovers) : inputBytes,
+    opts.maxUploadBytes,
+  );
+}
+
+async function clearLosslessParts(outputDir: string): Promise<void> {
+  const names = await readdir(outputDir).catch(() => [] as string[]);
+  await Promise.all(
+    names
+      .filter((name) => /^part-\d+\.mp4$/u.test(name))
+      .map((name) => rm(join(outputDir, name), { force: true })),
+  );
+}
+
+async function losslessPartSizes(outputDir: string): Promise<number[]> {
+  const names = await readdir(outputDir).catch(() => [] as string[]);
+  return Promise.all(
+    names
+      .filter((name) => /^part-\d+\.mp4$/u.test(name))
+      .map((name) => fileSize(join(outputDir, name))),
+  );
 }
 
 async function fileSize(path: string): Promise<number> {

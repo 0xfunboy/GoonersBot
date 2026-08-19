@@ -482,16 +482,11 @@ export function resolveAnimeConfig(env: Env): AnimeConfig {
 export interface AnimeArchiveConfig {
   enabled: boolean;
   bulkEnabled: boolean;
-  profile: 'mobile' | 'source';
   maxDurationSeconds: number;
   maxDownloadBytes: number;
   /** Whole-series work is intentionally sequential to bound disk, network and Telegram pressure. */
   bulkConcurrency: 1;
   timeoutMs: number;
-  maxHeight: number;
-  crf: number;
-  audioBitrateKbps: number;
-  ffmpegThreads: number;
   offerTtlMinutes: number;
   maxRetries: number;
   tmpDir: string;
@@ -502,17 +497,12 @@ export function resolveAnimeArchiveConfig(env: Env): AnimeArchiveConfig {
   return {
     enabled: env.ANIME_ARCHIVE_ENABLED,
     bulkEnabled: env.ANIME_ARCHIVE_ENABLED && env.ANIME_ARCHIVE_BULK_ENABLED,
-    profile: env.ANIME_ARCHIVE_PROFILE,
     maxDurationSeconds: Math.min(6 * 60 * 60, Math.max(60, env.ANIME_ARCHIVE_MAX_DURATION_SECONDS)),
     maxDownloadBytes: Math.min(4_096, Math.max(1, env.ANIME_ARCHIVE_MAX_DOWNLOAD_MB)) * 1024 * 1024,
     // This rollout promises exactly one episode on disk/in flight at a time. Ignore unsafe higher
     // values instead of silently changing resource pressure after an environment edit.
     bulkConcurrency: 1,
     timeoutMs: Math.min(2 * 60 * 60_000, Math.max(30_000, env.ANIME_ARCHIVE_TIMEOUT_MS)),
-    maxHeight: Math.min(1_080, Math.max(240, env.ANIME_ARCHIVE_MAX_HEIGHT)),
-    crf: Math.min(40, Math.max(18, env.ANIME_ARCHIVE_CRF)),
-    audioBitrateKbps: Math.min(192, Math.max(48, env.ANIME_ARCHIVE_AUDIO_BITRATE_KBPS)),
-    ffmpegThreads: Math.min(4, Math.max(1, env.ANIME_ARCHIVE_FFMPEG_THREADS)),
     offerTtlMinutes: Math.min(120, Math.max(1, env.ANIME_ARCHIVE_OFFER_TTL_MINUTES)),
     maxRetries: Math.min(5, Math.max(1, env.ANIME_ARCHIVE_MAX_RETRIES)),
     tmpDir: resolve(env.ANIME_ARCHIVE_TMP_DIR),

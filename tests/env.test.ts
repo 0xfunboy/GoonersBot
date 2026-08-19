@@ -37,9 +37,7 @@ describe('loadEnv', () => {
     expect(env.LINK_MEDIA_BWRAP_BIN).toBe('/usr/bin/bwrap');
     expect(env.ANIME_ARCHIVE_ENABLED).toBe(true);
     expect(env.ANIME_ARCHIVE_BULK_ENABLED).toBe(true);
-    expect(env.ANIME_ARCHIVE_PROFILE).toBe('source');
     expect(env.ANIME_ARCHIVE_BULK_CONCURRENCY).toBe(1);
-    expect(env.ANIME_ARCHIVE_FFMPEG_THREADS).toBe(1);
     expect(env.CAPABILITY_LOCAL_DEVELOPMENT_ENABLED).toBe(false);
     expect(env.CAPABILITY_LOCAL_DEVELOPMENT_ADMIN_IDS).toEqual([]);
     expect(env.CAPABILITY_LOCAL_DEVELOPMENT_PLANNER_MODEL).toBe('gemini-3.6-flash');
@@ -51,27 +49,17 @@ describe('loadEnv', () => {
     const cfg = resolveAnimeArchiveConfig(
       loadEnv({
         ...base,
-        ANIME_ARCHIVE_PROFILE: 'source',
         ANIME_ARCHIVE_MAX_DURATION_SECONDS: '9000',
         ANIME_ARCHIVE_MAX_DOWNLOAD_MB: '512',
         ANIME_ARCHIVE_BULK_CONCURRENCY: '9',
-        ANIME_ARCHIVE_MAX_HEIGHT: '900',
-        ANIME_ARCHIVE_CRF: '25',
-        ANIME_ARCHIVE_AUDIO_BITRATE_KBPS: '96',
-        ANIME_ARCHIVE_FFMPEG_THREADS: '3',
       }),
     );
     expect(cfg).toMatchObject({
       enabled: true,
       bulkEnabled: true,
-      profile: 'source',
       maxDurationSeconds: 9_000,
       maxDownloadBytes: 512 * 1024 * 1024,
       bulkConcurrency: 1,
-      maxHeight: 900,
-      crf: 25,
-      audioBitrateKbps: 96,
-      ffmpegThreads: 3,
     });
   });
 

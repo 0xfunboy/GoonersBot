@@ -1,12 +1,13 @@
-import { mkdtemp, rm, truncate, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AnimeVideoOutputTooLargeError,
   decideAnimeVideoPreparation,
   normalizeAnimeVideo,
   shouldStartWithBitrateLimitedAnimeEncode,
+  splitVideoLosslessly,
   type NormalizeAnimeVideoOptions,
   type VideoProbe,
 } from '../src/providers/media/linkMedia/normalizer.js';
@@ -152,6 +153,51 @@ describe('anime video normalizer', () => {
       normalizeAnimeVideo(input, output, opts(), { ...probe, duration: 5 }),
     ).rejects.toBeInstanceOf(AnimeVideoOutputTooLargeError);
     expect(runProcessChecked).toHaveBeenCalledTimes(2);
+  });
+
+  it('splits oversized archive media with stream-copy only and retries a keyframe overshoot', async () => {
+    await truncate(input, 200_000);
+    const splitDir = join(dirname(output), 'parts');
+    let attempt = 0;
+    vi.mocked(runProcessChecked).mockImplementation(async (_bin, args) => {
+      attempt += 1;
+      const pattern = args.at(-1)!;
+      const dir = dirname(pattern);
+      await mkdir(dir, { recursive: true });
+      if (attempt === 1) {
+        await writeFile(join(dir, 'part-000.mp4'), Buffer.alloc(120_000));
+        await writeFile(join(dir, 'part-001.mp4'), Buffer.alloc(70_000));
+      } else {
+        await writeFile(join(dir, 'part-000.mp4'), Buffer.alloc(70_000));
+        await writeFile(join(dir, 'part-001.mp4'), Buffer.alloc(70_000));
+        await writeFile(join(dir, 'part-002.mp4'), Buffer.alloc(60_000));
+      }
+      return processResult();
+    });
+
+    const result = await splitVideoLosslessly(
+      input,
+      splitDir,
+      {
+        ffmpegBin: '/opt/ffmpeg',
+        timeoutMs: 90_000,
+        maxUploadBytes: 100_000,
+      },
+      probe,
+    );
+
+    expect(result).toMatchObject({ attempts: 2, totalBytes: 200_000 });
+    expect(result.parts.map((part) => part.sizeBytes)).toEqual([70_000, 70_000, 60_000]);
+    expect(runProcessChecked).toHaveBeenCalledTimes(2);
+    for (const call of vi.mocked(runProcessChecked).mock.calls) {
+      const args = call[1] ?? [];
+      expect(args[args.indexOf('-c') + 1]).toBe('copy');
+      expect(args).toContain('-segment_time');
+      expect(args).toContain('movflags=+faststart');
+      expect(args).not.toContain('libx264');
+      expect(args).not.toContain('-crf');
+      expect(args).not.toContain('-b:v');
+    }
   });
 
   it('uses the bounded anime transcode if a source remux fails', async () => {
