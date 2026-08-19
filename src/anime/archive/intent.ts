@@ -4,10 +4,12 @@ export interface NaturalAnimeArchiveRequest {
   query: string;
   expectedEpisodeNumber?: string | undefined;
   preferredSource?: AnimeArchiveSource | undefined;
+  /** Desire/choice phrasing asks for the normal episode confirmation instead of enqueueing immediately. */
+  confirmationPreferred?: boolean | undefined;
 }
 
 const REHOST_COMMAND =
-  /\b(?:(?:fai|fa|fammi)\s+(?:il\s+)?(?:rehost|download)|rehost(?:a|ami|alo|ala)?|scarica(?:mi|melo|mela|lo|la|te)?|download(?:a|ami|alo|ala)?|(?:puoi|potresti|riesci\s+a)\s+(?:(?:mi|lo|la)\s+)?(?:rehostare|scaricare|downloadare))\b/iu;
+  /\b(?:(?:fai|fa|fammi)\s+(?:il\s+)?(?:rehost|download)|rehost(?:a|ami|alo|ala)?|scarica(?:mi|melo|mela|lo|la|te)?|download(?:a|ami|alo|ala)?|(?:puoi|potresti|riesci\s+a)\s+(?:(?:mi|lo|la)\s+)?(?:rehostare|scaricare|downloadare)|(?:voglio|vorrei)\s+(?:(?:vederlo|guardarlo|averlo|scaricarlo|downloadarlo|rehostarlo)|(?:scaricare|downloadare|rehostare)))\b/iu;
 const EPISODE_NUMBER = /\b(?:episodio|ep\.?|puntata)\s*#?\s*(\d+(?:[.,]\d+)?)/iu;
 
 /**
@@ -34,10 +36,12 @@ export function parseNaturalAnimeArchiveRequest(
   if (!query) return null;
 
   const preferredSource = sourceMention(text);
+  const confirmationPreferred = wantsArchiveChoice(normalizedIntent);
   return {
     query,
     ...(expectedEpisodeNumber ? { expectedEpisodeNumber } : {}),
     ...(preferredSource ? { preferredSource } : {}),
+    ...(confirmationPreferred ? { confirmationPreferred: true } : {}),
   };
 }
 
@@ -91,7 +95,26 @@ function extractCommandTitle(value: string): string | null {
   if (/^(?:l[' ]?)?(?:ultim\p{L}*\s+)?(?:episodio|ep\.?|puntata)\b/iu.test(tail)) {
     return null;
   }
-  return cleanTitle(tail);
+  const candidate = cleanTitle(tail);
+  return candidate && !isGenericArchiveActionTail(candidate) ? candidate : null;
+}
+
+function isGenericArchiveActionTail(value: string): boolean {
+  const normalized = normalizeForIntent(value);
+  return (
+    REHOST_COMMAND.test(normalized) ||
+    /(?:^|\s)(?:o\s+)?(?:dammi|mandami|passami|girami)\s+(?:il\s+)?link\b/iu.test(normalized) ||
+    /^(?:qui|qua|questo|questa|quello|quella|lo|la|lui|lei|subito|adesso)$/iu.test(normalized)
+  );
+}
+
+function wantsArchiveChoice(value: string): boolean {
+  return (
+    /\b(?:voglio|vorrei)\b[^.!?]{0,48}\b(?:scaric|download|rehost|guard|veder)/iu.test(value) ||
+    /\b(?:rehost|scaric\p{L}*|download\p{L}*)\b[^.!?]{0,48}\bo\s+(?:dammi|mandami|passami|girami)\s+(?:il\s+)?link\b/iu.test(
+      value,
+    )
+  );
 }
 
 function cleanTitle(value: string | undefined): string | null {

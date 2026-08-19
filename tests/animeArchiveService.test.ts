@@ -604,6 +604,66 @@ describe('AnimeArchiveService natural availability and textual confirmation', ()
     expect(hentaiSaturn.search).not.toHaveBeenCalled();
   });
 
+  it('retries conservative season-title variants before declaring a quoted episode unavailable', async () => {
+    const tanyaUrl = 'https://www.animeunity.so/anime/7615-saga-of-tanya-the-evil-2';
+    const tanyaHit: AnimeArchiveSearchResult = {
+      source: 'animeunity',
+      sourceId: '7615',
+      slug: 'saga-of-tanya-the-evil-2',
+      title: 'Youjo Senki 2',
+      canonicalUrl: tanyaUrl,
+      status: 'ongoing',
+      genres: [],
+      episodeCount: 7,
+      year: '2026',
+    };
+    const tanyaEpisodes = Array.from({ length: 7 }, (_, index) => {
+      const number = String(index + 1);
+      return {
+        ...animeUnityEpisode(`tanya-${number}`, number),
+        seriesId: '7615',
+        seriesSlug: 'saga-of-tanya-the-evil-2',
+        seriesTitle: 'Youjo Senki 2',
+        canonicalUrl: `${tanyaUrl}/tanya-${number}`,
+        canonicalSeriesUrl: tanyaUrl,
+      };
+    });
+    const { service, animeUnity } = harness();
+    animeUnity.search.mockImplementation(async (query: string) =>
+      query === 'Saga of Tanya the Evil 2' ? [tanyaHit] : [],
+    );
+    animeUnity.getSeries.mockResolvedValue(
+      animeUnitySeries({
+        sourceId: '7615',
+        slug: 'saga-of-tanya-the-evil-2',
+        title: 'Youjo Senki 2',
+        aliases: ['Saga of Tanya the Evil 2'],
+        canonicalUrl: tanyaUrl,
+        episodeCount: 7,
+        episodes: tanyaEpisodes,
+      }),
+    );
+
+    const prepared = await service.prepareNaturalEpisodeOffer({
+      query: 'Saga of Tanya the Evil Season 2',
+      expectedEpisodeNumber: 7,
+      preferredSource: 'animeunity',
+      chatId: -100,
+      threadId: 42,
+      requesterTelegramId: 123,
+    });
+
+    expect(prepared).toMatchObject({
+      status: 'confirmation_required',
+      series: { sourceId: '7615', title: 'Youjo Senki 2' },
+      episode: { number: '7' },
+    });
+    expect(animeUnity.search.mock.calls.map((call) => call[0])).toEqual([
+      'Saga of Tanya the Evil Season 2',
+      'Saga of Tanya the Evil 2',
+    ]);
+  });
+
   it('uses the requested episode to disambiguate the two live Chainsmoker editions', async () => {
     const itaUrl = 'https://www.animeunity.so/anime/7600-yani-neko-ita';
     const subUrl = 'https://www.animeunity.so/anime/7601-yani-neko';

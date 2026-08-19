@@ -517,13 +517,20 @@ export class AnimeArchiveService {
     expected: number | null,
     signal?: AbortSignal,
   ): Promise<Omit<AnimeArchiveAvailabilityResult, 'fromCache'>> {
-    let hits: AnimeArchiveSearchResult[];
-    try {
-      hits = dedupeSearchResults(await adapter.search!(query, limit, signal), limit);
-    } catch (error) {
-      signal?.throwIfAborted();
+    let hits: AnimeArchiveSearchResult[] = [];
+    let lastSearchError: unknown;
+    for (const searchQuery of archiveSearchQueryVariants(query)) {
+      try {
+        hits = dedupeSearchResults(await adapter.search!(searchQuery, limit, signal), limit);
+        if (hits.length > 0) break;
+      } catch (error) {
+        signal?.throwIfAborted();
+        lastSearchError = error;
+      }
+    }
+    if (hits.length === 0 && lastSearchError) {
       log.warn(
-        { source: adapter.source, error: safeError(error) },
+        { source: adapter.source, error: safeError(lastSearchError) },
         'anime archive source search failed',
       );
       return { candidates: [], failure: 'not_found' };
@@ -1119,6 +1126,18 @@ function availabilityMatch(resolved: ResolvedRankedArchiveHit): AnimeArchiveAvai
     series: resolved.series,
     episode: resolved.episode,
   };
+}
+
+function archiveSearchQueryVariants(query: string): string[] {
+  const base = query.trim().replace(/\s+/gu, ' ');
+  const variants = [base];
+  const compactSeason = base
+    .replace(/\b(?:season|stagione)\s*(\d+(?:[.,]\d+)?)\b/giu, '$1')
+    .replace(/\b(\d+)(?:st|nd|rd|th)\s+season\b/giu, '$1')
+    .replace(/\s+/gu, ' ')
+    .trim();
+  if (compactSeason && compactSeason !== base) variants.push(compactSeason);
+  return [...new Set(variants)];
 }
 
 function stableTargetKey(
