@@ -22,8 +22,10 @@ Bot API per-file ceiling it is uploaded byte-for-byte unchanged; if it is larger
 only a stream-copy split at keyframes and Telegram receives ordered `qualità originale` parts.
 
 A series URL never starts work immediately. A true group administrator (or a configured bot admin)
-receives `Vuoi scaricare e rehostare l'intero anime su telegram?` with `SI | NO` on one row. Private
-chat bulk requests are restricted to configured bot admins. The opaque confirmation expires, is
+receives a prompt naming the resolved series and the number of episodes currently available, with
+`SI | NO` on one row. `series` always means the current source snapshot: an ongoing 8/14 season can
+queue those 8 now and never waits for completion. Private chat bulk requests are restricted to
+configured bot admins. The opaque confirmation expires, is
 bound to its requester/chat/topic, re-checks admin status on `SI`, and is consumed atomically. Once
 consumed, the original prompt remains in chat as an audit trail and only its buttons are removed.
 Completed episodes carry Telegram receipts, so a restarted worker resumes at the first unfinished
@@ -40,11 +42,15 @@ before Cortex because their meaning is already explicit protocol state, not natu
 classification.
 
 `anime_archive` supports `availability`, `rehost` and `series`. Availability verifies the requested
-episode and creates `Vuoi che te lo scarichi e rehosti qui?`; an explicit rehost request queues the
-resolved episode; whole-series requests create the existing admin-only confirmation. The Cortex is
-given the replied-to Telegram text explicitly, so short follow-ups such as `scaricalo` can resolve
-pronouns and episode references semantically rather than through keyword/regex parsing. Ordinary
-anime questions continue through `anime_knowledge`; after a catalog lookup, the existing bounded
+episode and creates `Vuoi che te lo scarichi e rehosti qui?`; an explicit rehost request queues one
+resolved episode; `series` means every episode currently available for the resolved season/series
+and creates the existing admin-only confirmation even while the season is still airing. The Cortex
+is given the replied-to Telegram text explicitly, so short follow-ups such as `scaricalo` or
+`mi accontento degli episodi usciti finora` can resolve
+pronouns, season references and current-snapshot intent semantically rather than through
+keyword/regex parsing. The second action planner is forbidden from putting catalog/web reads in an
+`anime_archive` dependency chain: the archive tool resolves and verifies its own source identity.
+Ordinary anime questions continue through `anime_knowledge`; after a catalog lookup, the existing bounded
 source enrichment may still add a relevant archive offer. Follow notifications are emitted only
 after the episode is observed on a supported archive source and include that canonical source URL.
 

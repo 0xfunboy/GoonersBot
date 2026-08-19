@@ -134,6 +134,11 @@ describe('Cortex', () => {
     expect(prompt).toContain('ALWAYS wins even when the same sentence also says');
     expect(prompt).toContain('args.episode = "latest"');
     expect(prompt).toContain('cerca l ultimo episodio di Chainsaw Man e rehostalo');
+    expect(prompt).toContain('EVERY EPISODE CURRENTLY AVAILABLE');
+    expect(prompt).toContain(
+      'cerca la terza serie Mushoku Tensei e rehosta gli episodi disponibili',
+    );
+    expect(prompt).toContain('mi accontento degli episodi usciti fino ad ora');
     expect(prompt).toContain('after YOU have classified the intent');
     expect(prompt).not.toContain('official streaming links');
   });

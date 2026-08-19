@@ -28,6 +28,8 @@ const PLANNER_SYSTEM = [
   '- Do not add redundant calls merely to look busy. Zero actions is valid for a pure conversational',
   '  reply that needs no tool.',
   '- External-write actions require the host application to authorize them; planning is not success.',
+  '- anime_archive is self-resolving: never place anime_knowledge, web_search or another read action',
+  '  in its dependsOn chain. Cortex already selected the archive identity and the host verifies it.',
 ].join('\n');
 
 export interface MultiActionPlannerConfig {
@@ -166,7 +168,11 @@ function coversRequestedActions(plan: AgentActionPlan, context: AgentPlanningCon
       plannedArchive.some(
         (action) =>
           (action.query ?? '') === (requested.query ?? '') &&
-          JSON.stringify(action.args ?? {}) === JSON.stringify(requested.args ?? {}),
+          JSON.stringify(action.args ?? {}) === JSON.stringify(requested.args ?? {}) &&
+          // anime_archive resolves and verifies its own source identity. A second planner must not
+          // put catalog/web checks in front of it: a failed optional read would otherwise block a
+          // valid archive action, exactly the opposite of Cortex being the authority layer.
+          action.dependsOn.length === 0,
       ),
     );
     if (!sameArchiveAction) return false;
