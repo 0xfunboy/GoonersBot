@@ -44,6 +44,7 @@ notes.
 - [Knowledge base](#knowledge-base)
 - [Ambient recall](#ambient-recall)
 - [Anime releases and follows](#anime-releases-and-follows)
+- [Anime episode archive](#anime-episode-archive)
 - [Images and autonomous posting](#images-and-autonomous-posting)
 - [Brain and memory](#brain-and-memory)
 - [Configuration](#configuration)
@@ -863,8 +864,9 @@ that already happened and never adds latency to answering it.
 Grounded answers about anime release schedules, plus per-chat subscriptions that announce a new
 episode exactly once.
 
-This feature covers **release metadata only** - titles, status, episode counts, airing schedule and
-the legal streaming links the source publishes. It does not download, stream or rehost episodes.
+This catalog feature covers release metadata - titles, status, episode counts, airing schedule and
+the legal streaming links the source publishes. The separate archive layer below can rehost a
+currently available episode after the catalog has resolved what the conversation is about.
 
 ### What it answers
 
@@ -966,6 +968,17 @@ follow redirects at all rather than replaying its body against an unvalidated or
 | No release notifications | `ANIME_FOLLOWS_ENABLED=false`, or the series has no published next episode |
 | Notifications stopped after a restart | expected only if the episode was already announced; the watermark is persisted |
 | Weekday missing for an airing series | AniList published no `nextAiringEpisode`; enable `ANIME_ENRICHMENT_ENABLED` for the MAL broadcast day |
+
+---
+
+## Anime episode archive
+
+AnimeUnity and HentaiSaturn episode URLs use a long-form, disk-streamed background pipeline instead
+of the generic 180-second social-link path. Episode URLs queue directly under normal approval and
+media quota rules; full-series URLs require a true admin and an expiring `SI | NO` confirmation,
+then run sequentially with restart-safe receipts. Normal catalog answers and follow notifications
+can offer the same single-episode action naturally. Configuration, URL shapes and operational
+details are in [docs/ANIME_ARCHIVE.md](docs/ANIME_ARCHIVE.md).
 
 ---
 

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AnimeFollowService } from '../src/anime/followService.js';
 import { AnimeKnowledgeService, parseAnimeIntent } from '../src/anime/knowledgeService.js';
 import { runAnimeReleaseJob } from '../src/jobs/animeReleaseJob.js';
+import { createAnimeReleaseNotifier } from '../src/jobs/animeReleaseNotifier.js';
 import { titleKeys } from '../src/anime/titles.js';
 import { NEVER_NOTIFIED, type AnimeFollowDoc } from '../src/storage/repositories/animeFollows.js';
 import type { AnimeCatalogService } from '../src/anime/catalogService.js';
@@ -309,6 +310,41 @@ describe('runAnimeReleaseJob', () => {
 
     expect(notify).toHaveBeenCalledTimes(1);
     expect(second.notified).toBe(0);
+  });
+
+  it('keeps the claimed watermark when optional requester lookup fails after factual delivery', async () => {
+    const follows = fakeFollowsRepo([followDoc(-100, 8)]);
+    const releaseClaim = vi.spyOn(follows, 'releaseClaim');
+    const catalog = fakeCatalog({ refresh: vi.fn(async () => series('154587', 'Frieren', 9)) });
+    const sendMessage = vi.fn().mockResolvedValue({ message_id: 901 });
+    const getByHandle = vi.fn().mockRejectedValue(new Error('users lookup unavailable'));
+    const prepareNaturalEpisodeOffer = vi.fn();
+    const notifier = createAnimeReleaseNotifier({
+      api: {
+        sendMessage,
+        deleteMessage: vi.fn(),
+      } as never,
+      users: { getByHandle } as never,
+      animeArchive: {
+        enabled: true,
+        prepareNaturalEpisodeOffer,
+        invalidateOffer: vi.fn(),
+        replaceConfirmationMessage: vi.fn(),
+      } as never,
+      log: { warn: vi.fn(), debug: vi.fn() } as never,
+    });
+    const storage = storageWith(follows);
+
+    const first = await runAnimeReleaseJob(config(), storage, catalog, notifier);
+    const second = await runAnimeReleaseJob(config(), storage, catalog, notifier);
+
+    expect(first.notified).toBe(1);
+    expect(second.notified).toBe(0);
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(getByHandle).toHaveBeenCalledOnce();
+    expect(prepareNaturalEpisodeOffer).not.toHaveBeenCalled();
+    expect(releaseClaim).not.toHaveBeenCalled();
+    expect(follows.docs()[0]?.lastNotifiedEpisode).toBe(9);
   });
 
   it('survives a scheduler restart without duplicating a notification', async () => {

@@ -16,8 +16,10 @@ export function buildInlineKeyboard(keyboard: KeyboardResponse, pageIndex = 0): 
   const end = start + PAGE_SIZE;
   const pageItems = keyboard.options.slice(start, end);
 
-  for (const item of pageItems) {
-    kb.text(capitalize(item.label), `${keyboard.buttonAction}|${item.id}`).row();
+  const columns = Math.max(1, Math.min(8, Math.trunc(keyboard.columns ?? 1)));
+  for (const [index, item] of pageItems.entries()) {
+    if (index > 0 && index % columns === 0) kb.row();
+    kb.text(capitalize(item.label), `${keyboard.buttonAction}|${item.id}`);
   }
 
   const nav: Array<{ label: string; data: string }> = [];
@@ -34,8 +36,8 @@ export function buildInlineKeyboard(keyboard: KeyboardResponse, pageIndex = 0): 
     });
   }
   if (nav.length > 0) {
+    if (pageItems.length > 0) kb.row();
     for (const n of nav) kb.text(n.label, n.data);
-    kb.row();
   }
   return kb;
 }

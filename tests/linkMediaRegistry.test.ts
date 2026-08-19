@@ -127,6 +127,8 @@ describe('link-media shared host policy', () => {
     expect(isNsfwHost('media.redgifs.com')).toBe(true);
     expect(isKnownYtdlpHost('www.redgifs.com')).toBe(true);
     expect(YTDLP_ADULT_HOSTS.every((host) => isNsfwHost(host))).toBe(true);
+    expect(isNsfwHost('www.hentaisaturn.tv')).toBe(true);
+    expect(isNsfwHost('hentaisaturn.tv.attacker.test')).toBe(false);
   });
 
   it('uses domain boundaries and rejects URL-shaped host configuration values', () => {

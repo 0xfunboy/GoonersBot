@@ -99,6 +99,8 @@ export interface KeyboardResponse {
   buttonAction: string;
   /** zero-based page selected by a pagination callback */
   page?: number;
+  /** Buttons per row (defaults to one; confirmations use two for SI | NO). */
+  columns?: number;
 }
 
 /** Rendering contract used by the Telegram adapter for final response text. */

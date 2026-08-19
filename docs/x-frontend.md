@@ -47,6 +47,10 @@ SOCIAL_X_VNC_PORT=5908
 SOCIAL_X_DISPLAY=:98
 SOCIAL_X_COOKIE_JAR_FILE=/home/funboy/goonerbot/data/social-sessions/x.cookies.txt
 SOCIAL_X_BROWSER_PROFILE_DIR=/home/funboy/goonerbot/data/social-browser/x
+SOCIAL_X_BROWSER_MAX_RSS_MB=1536
+SOCIAL_X_BROWSER_MAX_CPU_PERCENT=300
+SOCIAL_X_BROWSER_MAX_SESSION_MINUTES=360
+SOCIAL_X_MEDIA_GUARD_INTERVAL_SECONDS=15
 ```
 
 `SOCIAL_X_COOKIE_JAR_FILE` and `SOCIAL_X_BROWSER_PROFILE_DIR` must be absolute paths. Keep the cookie
@@ -57,6 +61,25 @@ at a personal Firefox profile that is open elsewhere.
 The Netscape jar bootstraps an empty profile. Once Firefox has its own authenticated X cookies, the
 runtime preserves those newer browser cookies instead of overwriting them with the original jar.
 If authentication later needs attention, noVNC remains available for a manual login or challenge.
+
+This console deliberately cannot play timeline audio/video. Firefox receives its autoplay policy
+from the WebDriver options (not `user.js`, which geckodriver regenerates), and a DOM guard pauses
+media, detaches direct/nested/MediaSource inputs, calls `load()` to tear down an existing decoder,
+and watches later `src`, `preload` and `autoplay` changes.
+
+The resource guard is independent of WebDriver health commands: every five seconds it locates the
+exact dedicated-profile Firefox process tree through `/proc`, including the separate Snap transient
+scope. It measures proportional set size (PSS, with conservative RSS fallback), tolerates one
+ordinary over-limit sample, and immediately recycles at twice the ceiling. It also recycles after
+three consecutive aggregate CPU samples above `SOCIAL_X_BROWSER_MAX_CPU_PERCENT`; 100% means one
+fully occupied logical core. A missing exact-profile root is tolerated only for the short startup
+grace and then fails closed. WebDriver/DOM checks have their own hard timeout and cannot hold up the
+resource sampler.
+
+The in-process maximum age remains `SOCIAL_X_BROWSER_MAX_SESSION_MINUTES`. The committed systemd
+unit has an independent outer `RuntimeMaxSec=7h` fail-safe, so configuring a browser age above seven
+hours does not extend the deployed unit lifetime. The persistent profile and login survive either
+recycle.
 
 The runtime expects these programs on `PATH`:
 
@@ -104,9 +127,13 @@ The runtime must never log cookie values, browser storage, authorization headers
 the X page. If Firefox shows a login or challenge page, resolve it manually through noVNC. Do not add
 credentials to the environment file, command line or journal.
 
-On a clean stop, the supervisor closes WebDriver and Firefox, then terminates Xvfb, x11vnc and
-websockify. Snap places Firefox/geckodriver in its own transient scope, while the local display and
-proxy processes stay in the service cgroup. The profile remains on disk for the next session.
+On startup, the supervisor first reaps an orphaned Firefox tree carrying the exact dedicated profile
+(for example after a previous Node `SIGKILL`). On a clean stop it closes WebDriver and Firefox,
+reaps that same tree if WebDriver stalls, then terminates Xvfb, x11vnc and websockify. Cleanup binds
+each PID to its immutable Linux start time before both TERM and KILL, avoiding a later PID-reuse
+victim. Snap places Firefox/geckodriver in its own transient scope, so a `MemoryMax=` on this unit
+alone would not protect the host; the independent `/proc` guard is the process-level fallback. The
+profile remains on disk for the next session.
 
 ## Scope of the next phase
 

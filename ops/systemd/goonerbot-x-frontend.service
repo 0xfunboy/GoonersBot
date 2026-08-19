@@ -18,7 +18,12 @@ ExecStart=/home/funboy/.nvm/versions/node/v24.18.0/bin/node /home/funboy/goonerb
 # The Node supervisor closes WebDriver; KillMode also covers Xvfb, x11vnc and websockify.
 KillMode=mixed
 TimeoutStopSec=30
-Restart=on-failure
+# Outer fail-safe above the runtime's default six-hour recycle. The runtime normally exits first
+# and explicitly reaps the Snap-scoped Firefox tree.
+RuntimeMaxSec=7h
+# Normal max-age exits and resource-guard failures both need a fresh browser. An explicit
+# `systemctl --user stop` is still respected and does not restart an intentionally stopped unit.
+Restart=always
 RestartSec=5
 
 # Session/profile material created by the service must not be group/world readable.

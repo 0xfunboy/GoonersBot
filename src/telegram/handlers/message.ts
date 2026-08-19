@@ -1,5 +1,5 @@
 import { InputFile, type Context as GrammyContext } from 'grammy';
-import type { ChatContext, IncomingMessage, Person } from '../../domain/types.js';
+import type { ChatContext, CommandResponse, IncomingMessage, Person } from '../../domain/types.js';
 import type { Services } from '../../services/index.js';
 import type { Env } from '../../config/env.js';
 import type { AddMessageMeta } from '../../storage/repositories/messages.js';
@@ -15,11 +15,18 @@ import { extractUrls, mediaUrlKey } from '../../providers/media/linkMedia/url.js
 import { extractJokePremises } from '../../brain/repetitionGuard.js';
 import { currentLlmUsage } from '../../providers/llm/requestContext.js';
 import {
+  parseAnimeArchiveConfirmationDecision,
+  type AnimeArchiveConfirmationResult,
+  type AnimeArchivePreparationResult,
+  type AnimeArchiveServiceRejectReason,
+} from '../../anime/archive/service.js';
+import {
   renderTelegramText,
   splitTelegramMarkdown,
   splitTelegramText,
   telegramPlainText,
 } from '../format.js';
+import { buildInlineKeyboard } from '../keyboards.js';
 
 const log = childLogger('message');
 
@@ -144,14 +151,29 @@ export async function handleMessage(
   const mediaUrls = message.messageText
     ? extractUrls(message.messageText, services.config.linkMedia.maxUrlsPerMessage)
     : [];
+  // Keep lightweight diagnostic/test consumers that supply a partial Services facade inert.
+  // Production always wires this service through createServices().
+  const animeArchive = services.animeArchive;
+  const archiveMatches = message.messageText
+    ? (animeArchive?.classifyText(message.messageText) ?? [])
+    : [];
+  // Archive sources must never fall through to the generic short-form downloader. In mixed
+  // messages we pass only the unrelated URLs to LinkMediaService, whose limits remain unchanged.
+  const genericMediaUrls = mediaUrls.filter(
+    (url) => !animeArchive || animeArchive.classifyUrl(url) === null,
+  );
   const linkMediaAllowed =
     services.linkMedia.enabled && (await services.storage.chats.getLinkMedia(context.chatId));
   const linkMediaEnabled =
-    linkMediaAllowed && services.linkMedia.autoRehostEnabled && mediaUrls.length > 0;
+    linkMediaAllowed && services.linkMedia.autoRehostEnabled && genericMediaUrls.length > 0;
   const hasMediaUrl = linkMediaEnabled;
+  const hasArchiveInteraction =
+    Boolean(animeArchive) &&
+    (archiveMatches.length > 0 ||
+      parseAnimeArchiveConfirmationDecision(message.messageText ?? '') !== null);
   // Link rehosting is an independent per-chat feature: disabling conversation storage must not
   // disable the interceptor. Messages with neither an address nor a rehostable URL can stop here.
-  if (!tracking && !addressed && !linkMediaEnabled) return;
+  if (!tracking && !addressed && !linkMediaEnabled && !hasArchiveInteraction) return;
   // Passive inference is an explicit per-chat opt-in. Without it, unaddressed traffic is stored
   // only as context and costs neither a model request nor a group quota turn.
   const autoengageEnabled =
@@ -187,6 +209,31 @@ export async function handleMessage(
   }
 
   const bypassGroupPlan = services.bypassesGroupPlan(person, context);
+
+  // Anime source URLs and terse SI/NO confirmations are deterministic writes. They run before the
+  // generic 180-second link-media interceptor and before any conversational/LLM accounting.
+  if (message.messageText) {
+    const archiveHandled = await handleAnimeArchiveInteraction(
+      ctx,
+      person,
+      context,
+      message.messageText,
+      {
+        services,
+        archiveMatches,
+        quotaBypass: bypassGroupPlan,
+      },
+    ).catch(async (err) => {
+      log.warn({ err, chatId: context.chatId }, 'anime archive interaction failed');
+      await sendResponse(ctx, {
+        text: 'Non riesco ad avviare l’archivio in questo momento.',
+        textFormat: 'plain',
+      }).catch(() => undefined);
+      return true;
+    });
+    const hasNonArchiveUrl = genericMediaUrls.length > 0;
+    if (archiveHandled && !hasNonArchiveUrl) return;
+  }
 
   // Host/model/quota inspection is a deterministic, allowlisted action. It is available only when
   // an approved user explicitly addresses the bot, and exits before history, RAG, LLM admission or
@@ -307,13 +354,13 @@ export async function handleMessage(
         ctx,
         person,
         context,
-        text: message.messageText,
+        text: genericMediaUrls.map(String).join('\n'),
         addressed,
         quotaBypass: bypassGroupPlan,
       })
       .catch((err) => {
         log.warn({ err }, 'link media handler failed');
-        return linkMediaHandlerErrorResult(mediaUrls);
+        return linkMediaHandlerErrorResult(genericMediaUrls);
       });
     const linkMedia = initialLinkMedia;
 
@@ -341,7 +388,7 @@ export async function handleMessage(
       shouldStopAfterDeterministicLinkMedia({
         handled: linkMedia.handled,
         failedUrlCount: linkMedia.failedUrls?.length ?? 0,
-        detectedUrlCount: mediaUrls.length,
+        detectedUrlCount: genericMediaUrls.length,
         reason: linkMedia.reason,
         addressed,
         autoengageEnabled,
@@ -499,6 +546,7 @@ export async function handleMessage(
 
   await ctx.replyWithChatAction('typing').catch(() => undefined);
 
+  let pendingNaturalOfferId: string | undefined;
   try {
     const outcome = await services.reply.generateReply({
       person,
@@ -574,6 +622,44 @@ export async function handleMessage(
       return;
     }
 
+    let naturalArchiveOffer:
+      | Extract<AnimeArchivePreparationResult, { status: 'confirmation_required' }>
+      | undefined;
+    const archiveQueries = [
+      ...new Set(outcome.animeArchiveLookup?.titles.map((title) => title.trim()).filter(Boolean)),
+    ].slice(0, 3);
+    if (archiveQueries.length > 0 && services.animeArchive.enabled) {
+      const availabilitySignal = AbortSignal.timeout(7_000);
+      for (const query of archiveQueries) {
+        const availability = await services.animeArchive
+          .prepareNaturalEpisodeOffer({
+            query,
+            ...(outcome.animeArchiveLookup?.episodeNumber !== undefined
+              ? { expectedEpisodeNumber: outcome.animeArchiveLookup.episodeNumber }
+              : {}),
+            chatId: context.chatId,
+            threadId: context.threadId,
+            replyToMessageId: context.messageId,
+            requesterTelegramId: person.telegramId,
+            quotaBypass: bypassGroupPlan,
+            signal: availabilitySignal,
+          })
+          .catch((err) => {
+            log.debug({ err, chatId: context.chatId }, 'anime archive availability degraded');
+            return null;
+          });
+        if (availability?.status === 'confirmation_required') {
+          naturalArchiveOffer = availability;
+          // Only a newly-created, not-yet-delivered offer belongs to this turn. An equivalent
+          // offer may already back a visible prompt; a later failure while sending the factual
+          // answer must not invalidate that existing prompt.
+          pendingNaturalOfferId =
+            availability.offer.confirmationMessageId === null ? availability.offer.id : undefined;
+          break;
+        }
+        if (availabilitySignal.aborted) break;
+      }
+    }
     const finalText = outcome.text;
     const replyTo = ctx.message?.message_id;
     const replyOpts = replyTo ? { reply_parameters: { message_id: replyTo } } : {};
@@ -638,7 +724,9 @@ export async function handleMessage(
           };
           const sent = await ctx.reply(rendered.text, options).catch(async (err) => {
             log.warn({ err, chatId: context.chatId, index }, 'formatted text send failed');
-            return ctx.reply(telegramPlainText(chunk, 'markdown'), index === 0 ? replyOpts : {});
+            return ctx.reply(telegramPlainText(chunk, 'markdown'), {
+              ...(index === 0 ? replyOpts : {}),
+            });
           });
           rememberBotMessage(sent.message_id);
         }
@@ -653,6 +741,53 @@ export async function handleMessage(
           'text reply sent',
         );
       }
+    }
+    if (naturalArchiveOffer) {
+      const previousMessageId = naturalArchiveOffer.offer.confirmationMessageId;
+      const prompt = await ctx
+        .reply('Vuoi che te lo rehosti qui?', {
+          ...replyOpts,
+          reply_markup: buildInlineKeyboard(naturalArchiveOffer.keyboard),
+        })
+        .catch(async (err) => {
+          log.warn({ err, chatId: context.chatId }, 'natural anime archive prompt send failed');
+          if (previousMessageId === null) {
+            await services.animeArchive
+              .invalidateOffer(naturalArchiveOffer.offer.id)
+              .catch(() => undefined);
+          }
+          return null;
+        });
+      if (prompt) {
+        const attachment = await services.animeArchive
+          .replaceConfirmationMessage(naturalArchiveOffer.offer.id, prompt.message_id)
+          .catch((err) => {
+            log.warn({ err }, 'natural anime archive confirmation message attach failed');
+            return null;
+          });
+        if (attachment) {
+          pendingNaturalOfferId = undefined;
+          rememberBotMessage(prompt.message_id);
+          if (
+            attachment.replacedMessageId !== null &&
+            attachment.replacedMessageId !== prompt.message_id
+          ) {
+            await ctx.api
+              .deleteMessage(context.chatId, attachment.replacedMessageId)
+              .catch(() => undefined);
+          }
+        } else {
+          await ctx.api.deleteMessage(context.chatId, prompt.message_id).catch(() => undefined);
+          if (previousMessageId === null) {
+            await services.animeArchive
+              .invalidateOffer(naturalArchiveOffer.offer.id)
+              .catch(() => undefined);
+          }
+        }
+      }
+      // Either this prompt is attached, the previous equivalent prompt remains attached, or the
+      // new undelivered offer has been invalidated. The outer failure guard need not touch it.
+      pendingNaturalOfferId = undefined;
     }
     if (outcome.music) {
       const replyToMusic = ctx.message?.message_id;
@@ -877,6 +1012,9 @@ export async function handleMessage(
 
     services.autoengage.noteReply(context.chatId, person.userHandle);
   } catch (err) {
+    if (pendingNaturalOfferId) {
+      await services.animeArchive.invalidateOffer(pendingNaturalOfferId).catch(() => undefined);
+    }
     log.error({ err }, 'reply generation failed');
     const localized = await localizeResponse(services, context.chatId, {
       text: 'generation_failed',
@@ -889,4 +1027,162 @@ function sameUrl(left: string, right: string): boolean {
   const a = mediaUrlKey(left);
   const b = mediaUrlKey(right);
   return a && b ? a === b : left === right;
+}
+
+async function handleAnimeArchiveInteraction(
+  ctx: GrammyContext,
+  person: Person,
+  context: ChatContext,
+  text: string,
+  input: {
+    services: Services;
+    archiveMatches: ReturnType<Services['animeArchive']['classifyText']>;
+    quotaBypass: boolean;
+  },
+): Promise<boolean> {
+  const { services } = input;
+  const decision = parseAnimeArchiveConfirmationDecision(text);
+  if (decision) {
+    const result = await services.animeArchive.confirmText({
+      text,
+      actorTelegramId: person.telegramId,
+      chatId: context.chatId,
+      threadId: context.threadId,
+      replyToMessageId: context.repliedToMessageId,
+      isAdmin: services.isAnimeArchiveAdmin(person, context),
+      quotaBypass: input.quotaBypass,
+      signal: AbortSignal.timeout(20_000),
+    });
+    // A casual "sì" with no pending prompt remains ordinary conversation.
+    if (result.status === 'rejected' && result.reason === 'not_found') return false;
+    const consumedOffer =
+      result.status === 'cancelled'
+        ? result.offer
+        : result.status === 'queued'
+          ? result.offer
+          : undefined;
+    const confirmationMessageId = consumedOffer?.confirmationMessageId;
+    if (confirmationMessageId) {
+      // Text confirmations should retire the same short prompt a button callback would delete.
+      await ctx.api.deleteMessage(context.chatId, confirmationMessageId).catch(() => undefined);
+    }
+    await sendArchiveResult(ctx, services, result);
+    return true;
+  }
+
+  if (input.archiveMatches.length === 0) return false;
+  for (const match of input.archiveMatches) {
+    const result = await services.animeArchive.prepareUrl({
+      url: match.url,
+      chatId: context.chatId,
+      threadId: context.threadId,
+      replyToMessageId: context.messageId,
+      requesterTelegramId: person.telegramId,
+      isAdmin: services.isAnimeArchiveAdmin(person, context),
+      quotaBypass: input.quotaBypass,
+      signal: AbortSignal.timeout(20_000),
+    });
+    await sendArchiveResult(ctx, services, result);
+  }
+  return true;
+}
+
+async function sendArchiveResult(
+  ctx: GrammyContext,
+  services: Services,
+  result: AnimeArchivePreparationResult | AnimeArchiveConfirmationResult,
+): Promise<void> {
+  const response = archiveResultResponse(result);
+  if (result.status !== 'confirmation_required') {
+    await sendResponse(ctx, await localizeResponse(services, ctx.chat?.id ?? 0, response));
+    return;
+  }
+
+  const previousMessageId = result.offer.confirmationMessageId;
+  let sent: Awaited<ReturnType<typeof sendResponse>>;
+  try {
+    sent = await sendResponse(ctx, await localizeResponse(services, ctx.chat?.id ?? 0, response));
+  } catch (error) {
+    if (previousMessageId === null) {
+      await services.animeArchive.invalidateOffer(result.offer.id).catch(() => undefined);
+    }
+    throw error;
+  }
+  if (!sent) {
+    if (previousMessageId === null) {
+      await services.animeArchive.invalidateOffer(result.offer.id).catch(() => undefined);
+    }
+    throw new Error('Anime archive confirmation prompt was not delivered');
+  }
+  const attachment = await services.animeArchive
+    .replaceConfirmationMessage(result.offer.id, sent.message_id)
+    .catch((err) => {
+      log.warn({ err }, 'anime archive confirmation message attach failed');
+      return null;
+    });
+  if (!attachment) {
+    await ctx.api.deleteMessage(ctx.chat?.id ?? 0, sent.message_id).catch(() => undefined);
+    if (previousMessageId === null) {
+      await services.animeArchive.invalidateOffer(result.offer.id).catch(() => undefined);
+    }
+    throw new Error('Anime archive confirmation prompt could not be attached');
+  }
+  if (attachment.replacedMessageId !== null && attachment.replacedMessageId !== sent.message_id) {
+    await ctx.api
+      .deleteMessage(ctx.chat?.id ?? 0, attachment.replacedMessageId)
+      .catch(() => undefined);
+  }
+}
+
+export function archiveResultResponse(
+  result: AnimeArchivePreparationResult | AnimeArchiveConfirmationResult,
+): CommandResponse {
+  if (result.status === 'queued') {
+    return {
+      rawText:
+        result.created || result.changed
+          ? result.job.episodes.length === 1
+            ? 'Episodio in coda. Lo preparo per il telefono e te lo mando qui appena è pronto.'
+            : `Serie in coda: ${result.job.episodes.length} episodi, rigorosamente uno alla volta.`
+          : 'Questa richiesta è già stata presa in carico.',
+      textFormat: 'plain',
+    };
+  }
+  if (result.status === 'confirmation_required') {
+    return {
+      rawText: 'Vuoi scaricare e rehostare l’intero anime su telegram?',
+      textFormat: 'plain',
+      keyboard: result.keyboard,
+    };
+  }
+  if (result.status === 'cancelled') {
+    return { rawText: 'Va bene, richiesta annullata.', textFormat: 'plain' };
+  }
+  return { rawText: archiveRejectText(result.reason), textFormat: 'plain' };
+}
+
+function archiveRejectText(reason: AnimeArchiveServiceRejectReason): string {
+  switch (reason) {
+    case 'admin_required':
+      return 'La serie completa può essere archiviata solo da un vero amministratore.';
+    case 'bulk_disabled':
+      return 'L’archivio delle serie complete è disabilitato.';
+    case 'nsfw_disabled':
+      return 'Questa sorgente è bloccata dalla policy NSFW del media layer.';
+    case 'quota_denied':
+      return 'La quota media della chat è esaurita; riprova più tardi.';
+    case 'source_unavailable':
+    case 'no_episodes':
+      return 'La sorgente non espone episodi utilizzabili in questo momento.';
+    case 'ambiguous_confirmation':
+      return 'Ci sono più conferme aperte: rispondi direttamente al messaggio giusto.';
+    case 'expired':
+      return 'Questa conferma è scaduta.';
+    case 'already_consumed':
+      return 'Questa conferma è già stata usata.';
+    case 'disabled':
+      return 'L’archivio anime non è disponibile in questo momento.';
+    default:
+      return 'Richiesta di archivio non valida per questo utente, chat o argomento.';
+  }
 }

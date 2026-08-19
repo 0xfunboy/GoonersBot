@@ -7,7 +7,45 @@ export interface NormalizeOptions {
   ffmpegBin: string;
   timeoutMs: number;
   maxUploadBytes: number;
+  /** Optional codec/filter bound used only by the long-form archive profile. */
+  threads?: number;
   signal?: AbortSignal;
+}
+
+export type AnimeVideoProfile = 'mobile' | 'source';
+
+/** Explicit long-form settings. These do not alter the generic link-media defaults above. */
+export interface NormalizeAnimeVideoOptions extends NormalizeOptions {
+  profile: AnimeVideoProfile;
+  maxHeight: number;
+  crf: number;
+  audioBitrateKbps: number;
+  threads: number;
+}
+
+export interface AnimeVideoDecisionOptions {
+  profile: AnimeVideoProfile;
+  maxHeight: number;
+  maxUploadBytes: number;
+}
+
+export type AnimeVideoPreparationAction = 'remux' | 'transcode';
+
+export interface AnimeVideoNormalizationResult {
+  action: AnimeVideoPreparationAction;
+  sizeBytes: number;
+  /** True when the initial CRF encode exceeded the upload budget and was retried by bitrate. */
+  bitrateLimited: boolean;
+}
+
+export class AnimeVideoOutputTooLargeError extends Error {
+  constructor(
+    public readonly actualBytes: number,
+    public readonly maxBytes: number,
+  ) {
+    super(`normalized anime video is ${actualBytes} bytes (maximum ${maxBytes})`);
+    this.name = 'AnimeVideoOutputTooLargeError';
+  }
 }
 
 async function run(
@@ -75,6 +113,9 @@ async function transcodeVideo(
     opts.ffmpegBin,
     [
       '-y',
+      ...(opts.threads === undefined
+        ? []
+        : ['-threads', String(opts.threads), '-filter_threads', String(opts.threads)]),
       ...LOCAL_INPUT_PROTOCOLS,
       '-i',
       input,
@@ -84,6 +125,7 @@ async function transcodeVideo(
       '0:a:0?',
       '-c:v',
       'libx264',
+      ...(opts.threads === undefined ? [] : ['-threads:v', String(opts.threads)]),
       '-preset',
       'veryfast',
       ...settings.qualityArgs,
@@ -104,8 +146,180 @@ async function transcodeVideo(
   );
 }
 
+function boundedHeightScale(maxHeight: number): string {
+  // `-2` derives an even width. min(maxHeight,ih) prevents upscale; trunc also makes height even.
+  return `scale=-2:'trunc(min(${maxHeight},ih)/2)*2'`;
+}
+
 function boundedScale(max: number): string {
   return `scale='min(${max},iw)':'min(${max},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2`;
+}
+
+function assertAnimeOptions(opts: NormalizeAnimeVideoOptions): void {
+  if (!Number.isSafeInteger(opts.maxHeight) || opts.maxHeight < 2) {
+    throw new TypeError('anime maxHeight must be an integer of at least 2');
+  }
+  if (!Number.isFinite(opts.crf) || opts.crf < 0 || opts.crf > 51) {
+    throw new TypeError('anime crf must be between 0 and 51');
+  }
+  if (!Number.isFinite(opts.audioBitrateKbps) || opts.audioBitrateKbps <= 0) {
+    throw new TypeError('anime audioBitrateKbps must be positive');
+  }
+  if (!Number.isSafeInteger(opts.threads) || opts.threads < 1 || opts.threads > 4) {
+    throw new TypeError('anime ffmpeg threads must be an integer between 1 and 4');
+  }
+  if (!Number.isSafeInteger(opts.maxUploadBytes) || opts.maxUploadBytes <= 0) {
+    throw new TypeError('anime maxUploadBytes must be a positive integer');
+  }
+}
+
+/**
+ * Source mode may avoid a costly re-encode, but only when every property needed by Telegram and
+ * the configured archive budget is known to be safe. Mobile mode intentionally produces a
+ * consistent compact encode.
+ */
+export function decideAnimeVideoPreparation(
+  probe: VideoProbe,
+  inputBytes: number,
+  opts: AnimeVideoDecisionOptions,
+): AnimeVideoPreparationAction {
+  if (opts.profile !== 'source') return 'transcode';
+  if (!isTelegramCompatibleVideo(probe)) return 'transcode';
+  if (!Number.isFinite(inputBytes) || inputBytes < 0 || inputBytes > opts.maxUploadBytes) {
+    return 'transcode';
+  }
+  if (
+    typeof probe.height !== 'number' ||
+    !Number.isFinite(probe.height) ||
+    probe.height <= 0 ||
+    probe.height > opts.maxHeight
+  ) {
+    return 'transcode';
+  }
+  return 'remux';
+}
+
+async function remuxCopyFaststart(
+  input: string,
+  output: string,
+  opts: NormalizeOptions,
+): Promise<void> {
+  await run(
+    opts.ffmpegBin,
+    ['-y', ...LOCAL_INPUT_PROTOCOLS, '-i', input, '-c', 'copy', '-movflags', '+faststart', output],
+    opts.timeoutMs,
+    opts.signal,
+  );
+}
+
+async function transcodeAnimeVideo(
+  input: string,
+  output: string,
+  opts: NormalizeAnimeVideoOptions,
+  qualityArgs: string[],
+  audioBitrate: number,
+): Promise<void> {
+  await transcodeVideo(input, output, opts, {
+    scale: boundedHeightScale(Math.floor(opts.maxHeight / 2) * 2),
+    qualityArgs,
+    audioBitrate,
+  });
+}
+
+async function animeBitrateRetry(
+  input: string,
+  output: string,
+  opts: NormalizeAnimeVideoOptions,
+  probe: VideoProbe,
+): Promise<number> {
+  const duration = probe.duration;
+  if (!duration || !Number.isFinite(duration) || duration <= 0) {
+    throw new AnimeVideoOutputTooLargeError(await fileSize(output), opts.maxUploadBytes);
+  }
+
+  // Leave headroom for MP4 overhead and one-pass encoder variance. The configured audio bitrate is
+  // an upper bound on this constrained pass so unusually small budgets still prioritize the video.
+  const totalBitrate = Math.floor((opts.maxUploadBytes * 8 * 0.86) / Math.max(1, duration));
+  const configuredAudioBitrate = Math.round(opts.audioBitrateKbps * 1_000);
+  const audioFloor = Math.min(configuredAudioBitrate, 32_000);
+  const audioBitrate = Math.min(
+    configuredAudioBitrate,
+    Math.max(audioFloor, Math.floor(totalBitrate * 0.25)),
+  );
+  const videoBitrate = totalBitrate - audioBitrate;
+  if (videoBitrate < 64_000) {
+    throw new AnimeVideoOutputTooLargeError(await fileSize(output), opts.maxUploadBytes);
+  }
+
+  await transcodeAnimeVideo(
+    input,
+    output,
+    opts,
+    [
+      '-b:v',
+      String(videoBitrate),
+      '-maxrate',
+      String(videoBitrate),
+      '-bufsize',
+      String(videoBitrate * 2),
+    ],
+    audioBitrate,
+  );
+  return fileSize(output);
+}
+
+/**
+ * Prepare a long-form episode as a bounded, phone-friendly MP4.
+ *
+ * The optional source probe lets the archive worker reuse the probe it already performed for its
+ * duration ceiling. When omitted, this function probes once itself.
+ */
+export async function normalizeAnimeVideo(
+  input: string,
+  output: string,
+  opts: NormalizeAnimeVideoOptions,
+  sourceProbe?: VideoProbe,
+): Promise<AnimeVideoNormalizationResult> {
+  assertAnimeOptions(opts);
+  const [inputBytes, probe] = await Promise.all([
+    fileSize(input),
+    sourceProbe
+      ? Promise.resolve(sourceProbe)
+      : probeVideo(opts.ffmpegBin, input, 15_000, opts.signal),
+  ]);
+  const decision = decideAnimeVideoPreparation(probe, inputBytes, opts);
+
+  if (decision === 'remux') {
+    try {
+      await remuxCopyFaststart(input, output, opts);
+      const sizeBytes = await fileSize(output);
+      if (sizeBytes <= opts.maxUploadBytes) {
+        return { action: 'remux', sizeBytes, bitrateLimited: false };
+      }
+    } catch (err) {
+      if (opts.signal?.aborted) throw opts.signal.reason ?? err;
+      // A stream-copy/container failure is recoverable through the bounded anime transcode below.
+    }
+  }
+
+  const configuredAudioBitrate = Math.round(opts.audioBitrateKbps * 1_000);
+  await transcodeAnimeVideo(
+    input,
+    output,
+    opts,
+    ['-crf', String(opts.crf)],
+    configuredAudioBitrate,
+  );
+  const firstSize = await fileSize(output);
+  if (firstSize <= opts.maxUploadBytes) {
+    return { action: 'transcode', sizeBytes: firstSize, bitrateLimited: false };
+  }
+
+  const finalSize = await animeBitrateRetry(input, output, opts, probe);
+  if (finalSize > opts.maxUploadBytes) {
+    throw new AnimeVideoOutputTooLargeError(finalSize, opts.maxUploadBytes);
+  }
+  return { action: 'transcode', sizeBytes: finalSize, bitrateLimited: true };
 }
 
 async function fileSize(path: string): Promise<number> {
@@ -180,22 +394,7 @@ export async function remuxFaststart(
   opts: NormalizeOptions,
 ): Promise<void> {
   try {
-    await run(
-      opts.ffmpegBin,
-      [
-        '-y',
-        ...LOCAL_INPUT_PROTOCOLS,
-        '-i',
-        input,
-        '-c',
-        'copy',
-        '-movflags',
-        '+faststart',
-        output,
-      ],
-      opts.timeoutMs,
-      opts.signal,
-    );
+    await remuxCopyFaststart(input, output, opts);
   } catch {
     if (opts.signal?.aborted) throw opts.signal.reason;
     await normalizeVideo(input, output, opts);

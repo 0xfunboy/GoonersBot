@@ -30,6 +30,7 @@ import { AmbientCacheRepo } from './repositories/ambientCache.js';
 import { JobNotificationsRepo } from './repositories/jobNotifications.js';
 import { TopicAffinityRepo } from './repositories/topicAffinity.js';
 import { SocialStandingRepo } from './repositories/socialStanding.js';
+import { AnimeArchiveRepo } from './repositories/animeArchive.js';
 import { MongoSocialProfileStore } from '../social/mongoStore.js';
 
 const log = childLogger('storage');
@@ -67,6 +68,7 @@ export class Storage {
   readonly jobNotifications: JobNotificationsRepo;
   readonly topicAffinity: TopicAffinityRepo;
   readonly socialStanding: SocialStandingRepo;
+  readonly animeArchive: AnimeArchiveRepo;
   readonly socialProfiles: MongoSocialProfileStore;
 
   private constructor(
@@ -106,6 +108,7 @@ export class Storage {
     this.jobNotifications = new JobNotificationsRepo(db);
     this.topicAffinity = new TopicAffinityRepo(db);
     this.socialStanding = new SocialStandingRepo(db);
+    this.animeArchive = new AnimeArchiveRepo(db);
     this.socialProfiles = new MongoSocialProfileStore(db);
   }
 
@@ -143,6 +146,7 @@ export class Storage {
     await JobNotificationsRepo.ensureIndexes(this.db);
     await TopicAffinityRepo.ensureIndexes(this.db);
     await SocialStandingRepo.ensureIndexes(this.db);
+    await AnimeArchiveRepo.ensureIndexes(this.db);
     await MongoSocialProfileStore.ensureIndexes(this.db);
     log.info('indexes ensured');
   }

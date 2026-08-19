@@ -17,7 +17,8 @@ const log = childLogger('scheduler');
  */
 export class Scheduler {
   private timers: NodeJS.Timeout[] = [];
-  private readonly runningJobs = new Set<string>();
+  private readonly runningJobs = new Map<string, Promise<void>>();
+  private stopped = false;
 
   constructor(
     private readonly config: AppConfig,
@@ -35,9 +36,12 @@ export class Scheduler {
     private readonly animeReleaseTick?: () => Promise<void>,
     /** Announces finished /learn development jobs so the admin never has to poll. */
     private readonly learnNotifyTick?: () => Promise<void>,
+    /** Wakes the durable anime worker in case an enqueue raced the previous empty drain. */
+    private readonly animeArchiveTick?: () => Promise<void>,
   ) {}
 
   start(): void {
+    this.stopped = false;
     this.every(60 * 60 * 1000, 30_000, () =>
       this.safe('cleanup', () =>
         runRetentionCleanup(this.storage, this.config.env.MESSAGE_HISTORY_RETENTION_DAYS),
@@ -87,39 +91,51 @@ export class Scheduler {
         this.safe('generated-image-autopost', () => tick()),
       );
     }
+    if (this.config.animeArchive.enabled && this.animeArchiveTick) {
+      const tick = this.animeArchiveTick;
+      this.every(30_000, 5_000, () => this.safe('anime-archive', () => tick()));
+    }
     log.info(
       {
         generatedImageAutopostEnabled: this.config.auto.generatedImageAutopostEnabled,
         animeFollowsEnabled: this.config.anime.follows.enabled,
+        animeArchiveEnabled: this.config.animeArchive.enabled,
       },
       'scheduler started (cleanup + mining + feedback + autopost + anime releases)',
     );
   }
 
-  private every(intervalMs: number, firstDelayMs: number, fn: () => void): void {
-    setTimeout(fn, firstDelayMs).unref();
-    const t = setInterval(fn, intervalMs);
-    t.unref();
-    this.timers.push(t);
+  private every(intervalMs: number, firstDelayMs: number, fn: () => void | Promise<void>): void {
+    const first = setTimeout(() => {
+      if (!this.stopped) void fn();
+    }, firstDelayMs);
+    first.unref();
+    const interval = setInterval(() => {
+      if (!this.stopped) void fn();
+    }, intervalMs);
+    interval.unref();
+    this.timers.push(first, interval);
   }
 
-  private async safe(name: string, fn: () => Promise<void>): Promise<void> {
+  private safe(name: string, fn: () => Promise<void>): Promise<void> {
+    if (this.stopped) return Promise.resolve();
     if (this.runningJobs.has(name)) {
       log.debug({ job: name }, 'scheduled job still running; overlapping tick skipped');
-      return;
+      return Promise.resolve();
     }
-    this.runningJobs.add(name);
-    try {
-      await fn();
-    } catch (err) {
-      log.error({ err, job: name }, 'scheduled job failed');
-    } finally {
-      this.runningJobs.delete(name);
-    }
+    const run = Promise.resolve()
+      .then(fn)
+      .catch((err) => log.error({ err, job: name }, 'scheduled job failed'))
+      .finally(() => this.runningJobs.delete(name));
+    this.runningJobs.set(name, run);
+    return run;
   }
 
-  stop(): void {
-    for (const t of this.timers) clearInterval(t);
+  /** Cancels initial/periodic ticks and waits for storage-using work already in flight. */
+  async stop(): Promise<void> {
+    this.stopped = true;
+    for (const timer of this.timers) clearTimeout(timer);
     this.timers = [];
+    await Promise.allSettled([...this.runningJobs.values()]);
   }
 }

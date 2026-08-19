@@ -6,6 +6,7 @@ import { Services } from './services/index.js';
 import { createBot } from './telegram/bot.js';
 import { Scheduler } from './jobs/scheduler.js';
 import { runAnimeReleaseJob } from './jobs/animeReleaseJob.js';
+import { createAnimeReleaseNotifier } from './jobs/animeReleaseNotifier.js';
 import { runLearnNotifyJob } from './jobs/learnNotifyJob.js';
 import { buildMiningWindows, withContinuousMiningLock } from './jobs/memoryMiningJob.js';
 import { KNOWLEDGE_SEED } from './knowledge/seed.js';
@@ -274,27 +275,14 @@ async function main(): Promise<void> {
    * The job claims each notification before this callback runs, so returning false (delivery
    * failed) is what releases the claim and lets the next tick retry - never a duplicate send.
    */
+  const animeReleaseNotifier = createAnimeReleaseNotifier({
+    api: goonerBot.bot.api,
+    users: storage.users,
+    animeArchive: services.animeArchive,
+    log,
+  });
   const animeReleaseTick = async (): Promise<void> => {
-    await runAnimeReleaseJob(config.anime, storage, services.animeCatalog, async (notification) => {
-      const { series, episode } = notification;
-      const lines = [`Nuovo episodio di *${series.title}*: episodio ${episode}.`, series.url];
-      const legal = series.streamingLinks[0];
-      if (legal) lines.push(`Disponibile su ${legal.site}: ${legal.url}`);
-      const rendered = renderTelegramText(lines.join('\n'), 'markdown');
-      try {
-        await goonerBot.bot.api.sendMessage(notification.chatId, rendered.text, {
-          parse_mode: rendered.parseMode,
-          ...(notification.threadId ? { message_thread_id: notification.threadId } : {}),
-        });
-        return true;
-      } catch (err) {
-        log.warn(
-          { err, chatId: notification.chatId, sourceId: series.sourceId, episode },
-          'anime release notification send failed',
-        );
-        return false;
-      }
-    });
+    await runAnimeReleaseJob(config.anime, storage, services.animeCatalog, animeReleaseNotifier);
   };
   /** Tell the admin a /learn job finished, with the one command they need next. */
   const learnNotifyTick = async (): Promise<void> => {
@@ -338,6 +326,7 @@ async function main(): Promise<void> {
     () => services.access.list().chats,
     animeReleaseTick,
     learnNotifyTick,
+    async () => services.kickAnimeArchiveWorker(),
   );
   scheduler.start();
 
@@ -347,16 +336,15 @@ async function main(): Promise<void> {
   // The first historical extraction can spend an LLM timeout budget. Polling must be live before
   // that
   // work starts, otherwise one exhausted provider can make a healthy bot look offline for minutes.
-  let communityBackfillRunning = false;
+  let communityBackfillPromise: Promise<void> | undefined;
   const runCommunityBackfill = (): void => {
-    if (communityBackfillRunning) return;
-    communityBackfillRunning = true;
-    void runInitialCommunityBackfill(config, storage, services)
+    if (communityBackfillPromise) return;
+    communityBackfillPromise = runInitialCommunityBackfill(config, storage, services)
       .catch((err) =>
         log.warn({ err }, 'community backfill attempt failed; checkpoints will retry'),
       )
       .finally(() => {
-        communityBackfillRunning = false;
+        communityBackfillPromise = undefined;
       });
   };
   const communityBackfillTimer = setTimeout(runCommunityBackfill, 1_000);
@@ -370,11 +358,18 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     log.info({ signal }, 'shutting down gracefully');
-    scheduler.stop();
+    clearTimeout(communityBackfillTimer);
+    clearInterval(communityBackfillRetry);
+    await scheduler.stop();
     try {
       await goonerBot.stop();
     } catch (err) {
       log.warn({ err }, 'error stopping bot');
+    }
+    try {
+      await services.shutdownAnimeArchive();
+    } catch (err) {
+      log.warn({ err }, 'error stopping anime archive jobs');
     }
     try {
       await services.linkMedia.shutdown();
@@ -386,6 +381,7 @@ async function main(): Promise<void> {
     } catch (err) {
       log.warn({ err }, 'error stopping local-development jobs');
     }
+    await communityBackfillPromise?.catch(() => undefined);
     try {
       await storage.close();
     } catch (err) {

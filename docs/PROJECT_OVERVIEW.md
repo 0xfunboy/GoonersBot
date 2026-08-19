@@ -138,6 +138,10 @@ Established during this session, worth keeping:
 | --- | --- | --- |
 | `b9f4bdb` | 34 | **AniList catalog + per-chat follows.** New `src/anime/` module: GraphQL provider, optional Jikan/MAL enrichment, deterministic title normalisation and fuzzy matching (bigram Dice + token coverage, no LLM), SearXNG fallback for discovery. Collections `anime_series` and `anime_follows`. A scheduler job polls followed series and announces a new episode **exactly once per chat**, using a conditional watermark claim taken *before* sending — so a restarted scheduler cannot duplicate a notice. Also added bounded `POST` support to `safeRemoteFetch` for GraphQL, which refuses to follow redirects rather than replaying a body against an unvalidated origin. |
 
+The media-acquisition companion is documented in [ANIME_ARCHIVE.md](ANIME_ARCHIVE.md). It keeps
+the catalog/follow system above as the knowledge source, then adds bounded live availability,
+AnimeUnity/HentaiSaturn adapters and a persistent sequential Telegram delivery worker.
+
 ### Feature 2 — ambient recall
 
 | commit | files | what |
@@ -172,12 +176,14 @@ These are worth reading as a group, because they were all the same class of mist
 
 ## 5. New state
 
-Six collections, all in the existing database, indexes created idempotently at boot:
+Eight collections, all in the existing database, indexes created idempotently at boot:
 
 | collection | holds |
 | --- | --- |
 | `anime_series` | the catalog, keyed `source`+`sourceId`; refresh is an upsert |
 | `anime_follows` | per-chat subscriptions + the `lastNotifiedEpisode` watermark |
+| `anime_archive_offers` | expiring owner/chat/topic-bound `SI / NO` archive confirmations |
+| `anime_archive_jobs` | leased, resumable episode rows and Telegram delivery receipts |
 | `ambient_cache` | cached ambient lookups, including negative results |
 | `topic_affinity` | what each chat keeps coming back to, and who raised it |
 | `job_notifications` | duplicate-suppression claims for `/learn` notices |

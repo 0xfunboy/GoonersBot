@@ -8,6 +8,11 @@ import {
   readXNetscapeCookieJar,
   XNetscapeCookieJarError,
 } from '../src/frontend/x/netscapeCookies.js';
+import {
+  parseLinuxProcStatus,
+  profileBrowserTreePids,
+  X_FRONTEND_FIREFOX_PREFERENCES,
+} from '../src/frontend/x/runtime.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -63,8 +68,37 @@ describe('X frontend configuration', () => {
       display: ':98',
       cookieJarPath: setup.cookieJarPath,
       profileDir: setup.profileDir,
+      browserMaxRssBytes: 1_536 * 1024 * 1024,
+      browserMaxCpuPercent: 300,
+      browserMaxSessionMs: 360 * 60_000,
+      mediaGuardIntervalMs: 15_000,
     });
     expect(Object.isFrozen(config)).toBe(true);
+  });
+
+  it('bounds Firefox RSS, recycle age and media-guard cadence', async () => {
+    const setup = await fixture();
+    const config = await loadXFrontendConfig({
+      ...setup.env,
+      SOCIAL_X_BROWSER_MAX_RSS_MB: '768',
+      SOCIAL_X_BROWSER_MAX_CPU_PERCENT: '450',
+      SOCIAL_X_BROWSER_MAX_SESSION_MINUTES: '90',
+      SOCIAL_X_MEDIA_GUARD_INTERVAL_SECONDS: '10',
+    });
+    expect(config.browserMaxRssBytes).toBe(768 * 1024 * 1024);
+    expect(config.browserMaxCpuPercent).toBe(450);
+    expect(config.browserMaxSessionMs).toBe(90 * 60_000);
+    expect(config.mediaGuardIntervalMs).toBe(10_000);
+
+    await expect(
+      loadXFrontendConfig({ ...setup.env, SOCIAL_X_BROWSER_MAX_RSS_MB: '128' }),
+    ).rejects.toThrow('between 256 and 8192');
+    await expect(
+      loadXFrontendConfig({ ...setup.env, SOCIAL_X_BROWSER_MAX_SESSION_MINUTES: '0' }),
+    ).rejects.toThrow('between 15 and 1440');
+    await expect(
+      loadXFrontendConfig({ ...setup.env, SOCIAL_X_BROWSER_MAX_CPU_PERCENT: '50' }),
+    ).rejects.toThrow('between 100 and 800');
   });
 
   it.each(['0.0.0.0', '::1', 'localhost', '192.168.1.2'])(
@@ -127,6 +161,66 @@ describe('X frontend configuration', () => {
     await expect(
       loadXFrontendConfig({ ...setup.env, SOCIAL_X_COOKIE_JAR_FILE: linkedJar }),
     ).rejects.toThrow('must not be a symbolic link');
+  });
+});
+
+describe('X Firefox resource guard', () => {
+  it('installs block-all autoplay and bounded media-cache preferences in code', () => {
+    expect(X_FRONTEND_FIREFOX_PREFERENCES['media.autoplay.default']).toBe(5);
+    expect(X_FRONTEND_FIREFOX_PREFERENCES['media.autoplay.allow-muted']).toBe(false);
+    expect(X_FRONTEND_FIREFOX_PREFERENCES['media.memory_caches_combined_limit_kb']).toBe(65_536);
+  });
+
+  it('parses parent and resident bytes from Linux proc status without guessing missing fields', () => {
+    expect(
+      parseLinuxProcStatus('Name:\tfirefox\nPPid:\t2478\nVmRSS:\t505140 kB\nThreads:\t7\n'),
+    ).toEqual({ parentPid: 2478, rssBytes: 505_140 * 1024 });
+    expect(parseLinuxProcStatus('Name:\tfirefox\nPPid:\t1\n')).toBeNull();
+  });
+
+  it('selects only the exact dedicated-profile Firefox tree', () => {
+    const rows = [
+      {
+        pid: 10,
+        parentPid: 1,
+        rssBytes: 100,
+        argv: ['/snap/firefox/firefox', '-profile', '/safe/x'],
+      },
+      {
+        pid: 11,
+        parentPid: 10,
+        rssBytes: 200,
+        argv: ['/snap/firefox/firefox', '-contentproc'],
+      },
+      {
+        pid: 12,
+        parentPid: 11,
+        rssBytes: 300,
+        argv: ['/snap/firefox/firefox', '-contentproc'],
+      },
+      {
+        pid: 20,
+        parentPid: 1,
+        rssBytes: 400,
+        argv: ['/snap/firefox/firefox', '-profile', '/personal'],
+      },
+      {
+        pid: 21,
+        parentPid: 20,
+        rssBytes: 500,
+        argv: ['/snap/firefox/firefox', '-contentproc'],
+      },
+      {
+        pid: 30,
+        parentPid: 1,
+        rssBytes: 600,
+        argv: ['/tmp/not-firefox', '-profile', '/safe/x'],
+      },
+    ];
+
+    expect([...profileBrowserTreePids(rows, '/safe/x')].sort((a, b) => a - b)).toEqual([
+      10, 11, 12,
+    ]);
   });
 });
 

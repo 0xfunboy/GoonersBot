@@ -21,7 +21,11 @@ import type { SceneAnalyzer } from '../brain/sceneAnalyzer.js';
 import type { GroundingService } from '../search/groundingService.js';
 import type { HeatService } from './heat.js';
 import type { KnowledgeRetriever } from '../knowledge/knowledgeRetriever.js';
-import type { AnimeKnowledgeService } from '../anime/knowledgeService.js';
+import type {
+  AnimeIntent,
+  AnimeKnowledgeAnswer,
+  AnimeKnowledgeService,
+} from '../anime/knowledgeService.js';
 import { parseAnimeIntent } from '../anime/knowledgeService.js';
 import type { AmbientRecallResult, AmbientRetriever } from '../ambient/retriever.js';
 import type { SocialStandingService } from '../social/standingService.js';
@@ -396,6 +400,65 @@ export interface ReplyOutcome {
   cortex?: SourcedCortexDecision;
   providerBundle: ProviderBundle;
   threadState?: ConversationThreadState;
+  /** Resolved catalog subject for a silent, post-composition archive availability check. */
+  animeArchiveLookup?: AnimeArchiveLookup;
+}
+
+export interface AnimeArchiveLookup {
+  titles: string[];
+  episodeNumber?: number | undefined;
+}
+
+/** Only decisive lookup answers may become a natural archive offer; follow mutations never do. */
+export function animeArchiveLookupFromAnswer(
+  intent: AnimeIntent,
+  answer: AnimeKnowledgeAnswer | null | undefined,
+): AnimeArchiveLookup | undefined {
+  if (intent !== 'lookup' || !answer?.series) return undefined;
+  return {
+    titles: [
+      answer.series.title,
+      answer.series.titleEnglish,
+      answer.series.titleRomaji,
+      answer.series.titleNative,
+      ...answer.series.aliases,
+    ].filter((title): title is string => Boolean(title?.trim())),
+    ...(answer.series.latestEpisode !== undefined
+      ? { episodeNumber: answer.series.latestEpisode }
+      : {}),
+  };
+}
+
+const TERMINAL_AGENT_TOOLS = new Set<CortexTool>([
+  'web_search',
+  'image_lookup',
+  'music',
+  'link_media',
+  'image_gen',
+  'video_gen',
+  'translate',
+  'tts',
+  'capability_forge',
+]);
+
+/**
+ * Anime catalog facts belong to the normal styled reply pipeline. Ignore only a redundant web
+ * search if an unnormalized model decision contains both; all other artifact tools stay terminal.
+ */
+export function shouldUseTerminalAgentRuntime(
+  decision: Pick<SourcedCortexDecision, 'toolCalls'> | undefined,
+  hasDocumentContext: boolean,
+): boolean {
+  if (hasDocumentContext) return true;
+  const hasAnimeKnowledge = Boolean(
+    decision?.toolCalls.some((call) => call.tool === 'anime_knowledge'),
+  );
+  return Boolean(
+    decision?.toolCalls.some(
+      (call) =>
+        TERMINAL_AGENT_TOOLS.has(call.tool) && !(hasAnimeKnowledge && call.tool === 'web_search'),
+    ),
+  );
 }
 
 /**
@@ -929,20 +992,10 @@ export class ReplyService {
     const standing = await standingPromise;
     standingState.ceiling = standing?.roastCeiling;
 
-    const terminalAgentTools = new Set<CortexTool>([
-      'web_search',
-      'image_lookup',
-      'music',
-      'link_media',
-      'image_gen',
-      'video_gen',
-      'translate',
-      'tts',
-      'capability_forge',
-    ]);
-    const shouldUseAgentRuntime =
-      Boolean(documentContext) ||
-      Boolean(cortexDecision?.toolCalls.some((call) => terminalAgentTools.has(call.tool)));
+    const shouldUseAgentRuntime = shouldUseTerminalAgentRuntime(
+      cortexDecision,
+      Boolean(documentContext),
+    );
     if (shouldUseAgentRuntime && semanticMessage.trim()) {
       try {
         const agentPlan = makeImmediatePlan();
@@ -1503,6 +1556,7 @@ export class ReplyService {
       : wants('web_search', 'web_search')
         ? 'web'
         : null;
+    const animeIntent = parseAnimeIntent(callFor('anime_knowledge')?.args?.['intent']) ?? 'lookup';
     const [retrieved, grounding, knowledgeItems, heatValue, animeAnswer] = await Promise.all([
       wantsGroupRag
         ? this.memoryRetriever.retrieve({
@@ -1537,7 +1591,7 @@ export class ReplyService {
         : Promise.resolve(0),
       wants('anime_knowledge', 'anime_knowledge') && this.anime.enabled
         ? this.anime.handle({
-            intent: parseAnimeIntent(callFor('anime_knowledge')?.args?.['intent']) ?? 'lookup',
+            intent: animeIntent,
             title:
               callFor('anime_knowledge')?.args?.['title'] ??
               callFor('anime_knowledge')?.query ??
@@ -1552,6 +1606,7 @@ export class ReplyService {
       // Ambient recall is unconditional: unlike every other provider here it is not gated on a
       // classified intent, because its whole purpose is knowing things nobody thought to ask for.
     ]);
+    const animeArchiveLookup = animeArchiveLookupFromAnswer(animeIntent, animeAnswer);
     const news = wants('news', 'news')
       ? await this.newsContext(ctx, history, retrieved, scene)
       : { sources: [] };
@@ -1949,6 +2004,7 @@ export class ReplyService {
       ...(cortexDecision ? { cortex: cortexDecision } : {}),
       providerBundle,
       threadState,
+      ...(animeArchiveLookup ? { animeArchiveLookup } : {}),
     };
     if (imageUrl !== undefined) outcome.imageUrl = imageUrl;
     if (imageBuffer !== undefined) outcome.imageBuffer = imageBuffer;
