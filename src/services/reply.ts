@@ -24,6 +24,8 @@ import type { KnowledgeRetriever } from '../knowledge/knowledgeRetriever.js';
 import type { AnimeKnowledgeService } from '../anime/knowledgeService.js';
 import { parseAnimeIntent } from '../anime/knowledgeService.js';
 import type { AmbientRecallResult, AmbientRetriever } from '../ambient/retriever.js';
+import type { SocialStandingService } from '../social/standingService.js';
+import { resolveStance } from '../social/stanceService.js';
 import type { ImageFinder } from '../media/imageFinder.js';
 import type { NewsService } from '../news/newsService.js';
 import type { AutonomousPoster } from './autonomousPoster.js';
@@ -63,6 +65,7 @@ import type {
   ReplyPlan,
   SceneAnalysis,
   TurnEvaluation,
+  RoastBudget,
 } from '../brain/types.js';
 import { childLogger } from '../utils/logger.js';
 import { containsMinorMediaReference, MediaSafetyError } from '../safety/mediaSafety.js';
@@ -176,6 +179,11 @@ function formatAnimeAnswer(answer: { resolved: boolean; summary: string } | null
       'it is useful:',
     answer.summary,
   ].join('\n');
+}
+
+/** The scene analyser already classifies the situation; standing reuses it rather than re-deriving. */
+function evaluationSocialSignal(scene: SceneAnalysis) {
+  return scene.socialSignal;
 }
 
 /** Format retrieved knowledge into a compact, clearly-optional context block (or '' if none). */
@@ -434,6 +442,7 @@ export class ReplyService {
     private readonly social: SocialProfileEngine,
     private readonly anime: AnimeKnowledgeService,
     private readonly ambient: AmbientRetriever,
+    private readonly standing: SocialStandingService,
   ) {
     this.evaluator = new TurnEvaluator(llm, {
       enabled: config.brain.evaluatorEnabled,
@@ -715,6 +724,21 @@ export class ReplyService {
 
     const addressed =
       !ctx.context.isGroup || ctx.context.isBotMentioned || ctx.context.isReplyToBot;
+
+    // Started alongside recall for the same reason: it is independent of scene and Cortex, so
+    // running it in parallel costs no wall-clock time.
+    // Filled once the promise settles below. A holder rather than a plain binding because
+    // `makeImmediatePlan` closes over it and is invoked after that point; the suppressed-reply
+    // path reads it earlier and correctly sees nothing, since it emits no text.
+    const standingState: { ceiling?: RoastBudget } = {};
+    const standingPromise = this.standing.observe({
+      chatId: ctx.context.chatId,
+      handle: ctx.person.userHandle,
+      message: ctx.message.messageText ?? '',
+      scene,
+      socialSignal: evaluationSocialSignal(scene),
+      addressed: !ctx.context.isGroup || ctx.context.isBotMentioned || ctx.context.isReplyToBot,
+    });
     const recentNegativeFeedback = ctx.recentBotReplies.some((r) => (r.feedbackScore ?? 0) < 0);
     const capabilities = {
       webSearch: this.grounding.enabled,
@@ -796,6 +820,7 @@ export class ReplyService {
         currentHandle: ctx.person.userHandle,
         maxLines: this.config.env.MAX_REPLY_LINES,
         maxChars: this.config.env.MAX_REPLY_CHARS,
+        ...(standingState.ceiling ? { standingRoastCeiling: standingState.ceiling } : {}),
       });
     };
     const immediateOutcome = (params: {
@@ -863,6 +888,7 @@ export class ReplyService {
         currentHandle: ctx.person.userHandle,
         maxLines: this.config.env.MAX_REPLY_LINES,
         maxChars: this.config.env.MAX_REPLY_CHARS,
+        ...(standingState.ceiling ? { standingRoastCeiling: standingState.ceiling } : {}),
       });
       return {
         text: '',
@@ -900,6 +926,8 @@ export class ReplyService {
     // its whole deadline to every single turn. Kicked off before the Cortex call instead, it
     // overlaps with an LLM round-trip and is almost always already settled by now.
     const ambientRecall = await ambientRecallPromise;
+    const standing = await standingPromise;
+    standingState.ceiling = standing?.roastCeiling;
 
     const terminalAgentTools = new Set<CortexTool>([
       'web_search',
@@ -1084,6 +1112,7 @@ export class ReplyService {
         currentHandle: ctx.person.userHandle,
         maxLines: this.config.env.MAX_REPLY_LINES,
         maxChars: this.config.env.MAX_REPLY_CHARS,
+        ...(standingState.ceiling ? { standingRoastCeiling: standingState.ceiling } : {}),
       });
       const query = cortexDecision
         ? (callFor('music')?.query ?? '').trim()
@@ -1541,10 +1570,21 @@ export class ReplyService {
     // Curated culture and ambient facts share one prompt slot on purpose: its framing already
     // says "background you happen to know, use only if it fits", which is exactly the contract
     // that keeps recall from dragging every conversation onto the same subject.
+    // Standing sets tone, stance sets substance, and they are rendered separately so neither can
+    // be mistaken for the other: a bot whose rapport picked its arguments would be a sycophant.
+    const stance = this.config.standing.stanceEnabled
+      ? resolveStance({
+          message: ctx.message.messageText ?? '',
+          facts: ambientRecall.facts,
+          sources: grounding?.sources ?? [],
+        })
+      : null;
     const knowledgeBlock = [
       formatKnowledge(knowledgeItems),
       formatAnimeAnswer(animeAnswer),
       ambientRecall.block,
+      standing?.block ?? '',
+      stance?.block ?? '',
     ]
       .filter(Boolean)
       .join('\n\n');

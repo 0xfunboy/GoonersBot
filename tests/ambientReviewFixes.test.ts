@@ -203,3 +203,38 @@ describe('learn notifier bounds what it announces', () => {
     expect(notify.mock.calls[0]?.[0].nextCommand).toBe('/learn diff 11111111');
   });
 });
+
+describe('a prompt block must never reach a user', () => {
+  it('strips the grounding block that leaked into the group verbatim', async () => {
+    const { stripPromptScaffolding } = await import('../src/services/agentRuntime.js');
+    const leaked = [
+      'WEB CONTEXT (fresh results from a web search for "significato nautra vota" - use these',
+      'facts to be accurate; include direct links when the user asks for links, sources, prices,',
+      'listings, availability, or "what you found"; never say you "searched the web"):',
+      '- Vota - Significato ed etimologia: la voce Treccani [treccani.it] https://treccani.it/vota',
+      'SCANNED PAGES (opened result pages; prefer these concrete details over snippets):',
+      '- Vota: dettaglio concreto',
+    ].join('\n');
+
+    const out = stripPromptScaffolding(leaked);
+
+    // The findings survive; the instructions written for the model do not.
+    expect(out).toContain('Treccani');
+    expect(out).toContain('https://treccani.it/vota');
+    for (const directive of [
+      'WEB CONTEXT',
+      'SCANNED PAGES',
+      'use these',
+      'never say you',
+      'prefer these concrete',
+    ]) {
+      expect(out, `leaked: ${directive}`).not.toContain(directive);
+    }
+  });
+
+  it('leaves ordinary prose untouched', async () => {
+    const { stripPromptScaffolding } = await import('../src/services/agentRuntime.js');
+    const prose = 'Esce giovedi 20 agosto su Netflix (e anche su YouTube).';
+    expect(stripPromptScaffolding(prose)).toBe(prose);
+  });
+});

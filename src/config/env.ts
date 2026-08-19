@@ -361,6 +361,13 @@ const envSchema = z.object({
    */
   AMBIENT_DEADLINE_MS: intFromString(2_500),
 
+  // ---- Social standing and factual stance ----
+  // Tracks how each person has treated the bot (warmth earned over months, separate from the
+  // fast-decaying heat score) and lets it plant a flag on a disputed fact when it holds a source.
+  SOCIAL_STANDING_ENABLED: boolFromString(true),
+  /** Take a side in a disagreement only when a source is actually in hand. */
+  FACTUAL_STANCE_ENABLED: boolFromString(true),
+
   // NSFW model routing (hybrid: mode flag > per-chat nsfw mode > lexicon > default model)
   LLM_NSFW_MODEL: z.string().optional(),
   // Optional separate endpoint for the NSFW model (e.g. amoral-gemma on a router) so adult turns

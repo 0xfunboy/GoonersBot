@@ -25,6 +25,7 @@ import { JikanEnricher } from '../anime/providers/jikan.js';
 import { AnimeCatalogService } from '../anime/catalogService.js';
 import { AnimeFollowService } from '../anime/followService.js';
 import { AnimeKnowledgeService } from '../anime/knowledgeService.js';
+import { SocialStandingService } from '../social/standingService.js';
 import { AmbientRetriever } from '../ambient/retriever.js';
 import { AnimeAmbientProvider } from '../ambient/providers/animeAmbient.js';
 import { WikipediaAmbientProvider } from '../ambient/providers/wikipediaAmbient.js';
@@ -116,6 +117,7 @@ export class Services {
   readonly animeFollows: AnimeFollowService;
   readonly anime: AnimeKnowledgeService;
   readonly ambient: AmbientRetriever;
+  readonly standing: SocialStandingService;
   readonly imageFinder: ImageFinder;
   readonly news: NewsService;
   readonly autonomousPoster: AutonomousPoster;
@@ -352,6 +354,7 @@ export class Services {
     // The curated knowledge base is deliberately absent: `knowledge_rag` already retrieves it and
     // `reply.ts` joins both into the same prompt slot, so registering it here would pay for a
     // second embedding pass and print every matching entry twice inside one reply.
+    this.standing = new SocialStandingService(storage, { enabled: config.standing.enabled });
     this.ambient = new AmbientRetriever(
       config.ambient,
       [
@@ -404,6 +407,7 @@ export class Services {
       this.social,
       this.anime,
       this.ambient,
+      this.standing,
     );
   }
 
