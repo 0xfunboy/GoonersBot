@@ -669,6 +669,97 @@ describe('AnimeArchiveService natural availability and textual confirmation', ()
     ]);
   });
 
+  it('resolves Season 3 through a Roman-numeral archive title and offers the current bulk snapshot', async () => {
+    const subUrl = 'https://www.animeunity.so/anime/7613-mushoku-tensei-jobless-reincarnation-3';
+    const itaUrl =
+      'https://www.animeunity.so/anime/7614-mushoku-tensei-jobless-reincarnation-3-ita';
+    const hit = (
+      sourceId: string,
+      canonicalUrl: string,
+      title: string,
+    ): AnimeArchiveSearchResult => ({
+      source: 'animeunity',
+      sourceId,
+      slug:
+        sourceId === '7613'
+          ? 'mushoku-tensei-jobless-reincarnation-3'
+          : 'mushoku-tensei-jobless-reincarnation-3-ita',
+      title,
+      canonicalUrl,
+      status: 'ongoing',
+      genres: [],
+      episodeCount: 14,
+    });
+    const edition = (sourceId: string, canonicalUrl: string, count: number, title: string) => {
+      const episodes = Array.from({ length: count }, (_, index) => {
+        const number = String(index + 1);
+        return {
+          ...animeUnityEpisode(`${sourceId}-ep-${number}`, number),
+          seriesId: sourceId,
+          seriesSlug:
+            sourceId === '7613'
+              ? 'mushoku-tensei-jobless-reincarnation-3'
+              : 'mushoku-tensei-jobless-reincarnation-3-ita',
+          seriesTitle: title,
+          canonicalUrl: `${canonicalUrl}/${sourceId}-ep-${number}`,
+          canonicalSeriesUrl: canonicalUrl,
+        };
+      });
+      return animeUnitySeries({
+        sourceId,
+        slug:
+          sourceId === '7613'
+            ? 'mushoku-tensei-jobless-reincarnation-3'
+            : 'mushoku-tensei-jobless-reincarnation-3-ita',
+        title,
+        canonicalUrl,
+        status: 'ongoing',
+        episodeCount: 14,
+        episodes,
+      });
+    };
+    const { service, animeUnity } = harness();
+    animeUnity.search.mockImplementation(async (query: string) =>
+      query === 'Mushoku Tensei III'
+        ? [
+            hit('7613', subUrl, 'Mushoku Tensei III: Isekai Ittara Honki Dasu'),
+            hit('7614', itaUrl, 'Mushoku Tensei III: Isekai Ittara Honki Dasu (ITA)'),
+          ]
+        : [],
+    );
+    animeUnity.getSeries.mockImplementation(async (url: string | URL) =>
+      String(url) === subUrl
+        ? edition('7613', subUrl, 8, 'Mushoku Tensei III: Isekai Ittara Honki Dasu')
+        : edition('7614', itaUrl, 5, 'Mushoku Tensei III: Isekai Ittara Honki Dasu (ITA)'),
+    );
+
+    const prepared = await service.prepareNaturalSeriesOffer({
+      query: 'Mushoku Tensei Season 3',
+      chatId: -100,
+      threadId: 42,
+      requesterTelegramId: 123,
+      isAdmin: true,
+    });
+
+    expect(prepared).toMatchObject({
+      status: 'confirmation_required',
+      series: {
+        sourceId: '7613',
+        title: 'Mushoku Tensei III: Isekai Ittara Honki Dasu',
+        status: 'ongoing',
+        episodeCount: 14,
+      },
+    });
+    if (prepared.status !== 'confirmation_required') throw new Error('expected bulk offer');
+    expect(prepared.series.episodes).toHaveLength(8);
+    expect(prepared.series.episodes.at(-1)?.number).toBe('8');
+    expect(animeUnity.search.mock.calls.map((call) => call[0])).toEqual([
+      'Mushoku Tensei Season 3',
+      'Mushoku Tensei 3',
+      'Mushoku Tensei III',
+    ]);
+  });
+
   it('uses the requested episode to disambiguate the two live Chainsmoker editions', async () => {
     const itaUrl = 'https://www.animeunity.so/anime/7600-yani-neko-ita';
     const subUrl = 'https://www.animeunity.so/anime/7601-yani-neko';

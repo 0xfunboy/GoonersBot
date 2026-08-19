@@ -1183,14 +1183,15 @@ export function archiveResultResponse(
   }
   if (result.status === 'confirmation_required') {
     const source = animeArchiveSourceLabel(result.series.source);
+    const availableCount = result.series.episodes.length;
     const found = result.episode
       ? `${result.series.title} — episodio ${result.episode.number}`
-      : result.series.title;
+      : `${result.series.title} — ${availableCount} ${availableCount === 1 ? 'episodio attualmente disponibile' : 'episodi attualmente disponibili'}`;
     return {
       rawText: `Trovato su ${source}: ${found}.\n${
         result.episode
           ? 'Vuoi che te lo scarichi e rehosti qui?'
-          : 'Vuoi scaricare e rehostare l’intero anime su Telegram?'
+          : `Vuoi accodare ${availableCount === 1 ? 'questo episodio' : `questi ${availableCount} episodi`} su Telegram?`
       }`,
       textFormat: 'plain',
       keyboard: result.keyboard,
@@ -1205,7 +1206,7 @@ export function archiveResultResponse(
 function archiveRejectText(reason: AnimeArchiveServiceRejectReason): string {
   switch (reason) {
     case 'admin_required':
-      return 'La serie completa può essere archiviata solo da un vero amministratore.';
+      return 'L’archivio multiplo degli episodi disponibili può essere avviato solo da un vero amministratore.';
     case 'bulk_disabled':
       return 'L’archivio delle serie complete è disabilitato.';
     case 'nsfw_disabled':

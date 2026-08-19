@@ -86,10 +86,16 @@ describe('anime archive confirmation UI', () => {
         status: 'confirmation_required',
         offer: { id: 'ao_fixture' },
         keyboard,
-        series: { title: 'Fixture', source: 'animeunity' },
+        series: {
+          title: 'Fixture',
+          source: 'animeunity',
+          episodes: [{ number: '1' }, { number: '2' }, { number: '3' }],
+        },
       } as never),
     ).toMatchObject({
-      rawText: expect.stringMatching(/Trovato su .*Fixture.*intero anime/s),
+      rawText: expect.stringMatching(
+        /Trovato su .*Fixture.*3 episodi attualmente disponibili.*accodare questi 3 episodi/s,
+      ),
       keyboard,
     });
     expect(
@@ -97,7 +103,7 @@ describe('anime archive confirmation UI', () => {
         status: 'confirmation_required',
         offer: { id: 'ao_episode' },
         keyboard,
-        series: { title: 'Fixture', source: 'animeunity' },
+        series: { title: 'Fixture', source: 'animeunity', episodes: [{ number: '7' }] },
         episode: { number: '7' },
       } as never),
     ).toMatchObject({

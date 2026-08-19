@@ -1200,7 +1200,45 @@ function archiveSearchQueryVariants(query: string): string[] {
     .replace(/\s+/gu, ' ')
     .trim();
   if (compactSeason && compactSeason !== base) variants.push(compactSeason);
+
+  // Some archives publish sequel seasons with Roman numerals even when users/catalogs say
+  // "Season 3" / "stagione 3". Generate only a bounded 1..20 equivalent; this is title
+  // normalization, not intent detection, and keeps the source search deterministic.
+  const romanSeason = base
+    .replace(/\b(?:season|stagione)\s*(\d{1,2})\b/giu, (_match, digits: string) => {
+      const value = Number(digits);
+      const roman = value >= 1 && value <= 20 ? romanNumeral(value) : null;
+      return roman ?? digits;
+    })
+    .replace(/\b(\d{1,2})(?:st|nd|rd|th)\s+season\b/giu, (_match, digits: string) => {
+      const value = Number(digits);
+      const roman = value >= 1 && value <= 20 ? romanNumeral(value) : null;
+      return roman ?? digits;
+    })
+    .replace(/\s+/gu, ' ')
+    .trim();
+  if (romanSeason && romanSeason !== base && romanSeason !== compactSeason)
+    variants.push(romanSeason);
   return [...new Set(variants)];
+}
+
+function romanNumeral(value: number): string {
+  const table: ReadonlyArray<readonly [number, string]> = [
+    [10, 'X'],
+    [9, 'IX'],
+    [5, 'V'],
+    [4, 'IV'],
+    [1, 'I'],
+  ];
+  let remaining = value;
+  let output = '';
+  for (const [amount, symbol] of table) {
+    while (remaining >= amount) {
+      output += symbol;
+      remaining -= amount;
+    }
+  }
+  return output;
 }
 
 function stableTargetKey(

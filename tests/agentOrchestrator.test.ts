@@ -459,6 +459,62 @@ describe('multi-action agent orchestration', () => {
     });
   });
 
+  it('does not let the second planner block a Cortex-selected anime archive behind catalog reads', async () => {
+    const planner = new MultiActionPlanner(
+      fakeLLM({
+        json: {
+          goal: 'check an airing season then archive it',
+          actions: [
+            {
+              id: 'check_anime_status',
+              tool: 'anime_knowledge',
+              purpose: 'verify the current release status',
+              query: 'Mushoku Tensei Season 3',
+              dependsOn: [],
+            },
+            {
+              id: 'archive_current',
+              tool: 'anime_archive',
+              purpose: 'archive the currently available episodes',
+              query: 'Mushoku Tensei Season 3',
+              args: { intent: 'series', title: 'Mushoku Tensei Season 3' },
+              dependsOn: ['check_anime_status'],
+            },
+          ],
+        },
+      }),
+      { enabled: true },
+    );
+    const plan = await planner.plan({
+      request: 'cerca la terza serie Mushoku Tensei e rehostala tutta',
+      availableTools: [
+        { name: 'anime_knowledge', description: 'anime metadata', risk: 'read', maxCalls: 2 },
+        {
+          name: 'anime_archive',
+          description: 'archive anime',
+          risk: 'external_write',
+          maxCalls: 1,
+        },
+      ],
+      requestedActions: [
+        {
+          tool: 'anime_archive',
+          query: 'Mushoku Tensei Season 3',
+          args: { intent: 'series', title: 'Mushoku Tensei Season 3' },
+          reason: 'Cortex selected current bulk archive',
+        },
+      ],
+    });
+
+    expect(plan.actions).toHaveLength(1);
+    expect(plan.actions[0]).toMatchObject({
+      tool: 'anime_archive',
+      query: 'Mushoku Tensei Season 3',
+      args: { intent: 'series', title: 'Mushoku Tensei Season 3' },
+      dependsOn: [],
+    });
+  });
+
   it('rejects schema-valid transformation plans that sever trusted document dataflow', async () => {
     const planner = new MultiActionPlanner(
       fakeLLM({
