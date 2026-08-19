@@ -138,10 +138,6 @@ Established during this session, worth keeping:
 | --- | --- | --- |
 | `b9f4bdb` | 34 | **AniList catalog + per-chat follows.** New `src/anime/` module: GraphQL provider, optional Jikan/MAL enrichment, deterministic title normalisation and fuzzy matching (bigram Dice + token coverage, no LLM), SearXNG fallback for discovery. Collections `anime_series` and `anime_follows`. A scheduler job polls followed series and announces a new episode **exactly once per chat**, using a conditional watermark claim taken *before* sending — so a restarted scheduler cannot duplicate a notice. Also added bounded `POST` support to `safeRemoteFetch` for GraphQL, which refuses to follow redirects rather than replaying a body against an unvalidated origin. |
 
-**Declined in the same commit:** the original brief asked for AnimeUnity/HentaiSaturn scrapers to
-download and rehost whole series into Telegram. That is a piracy redistribution pipeline and was
-not built; the catalog answers the same questions from AniList and links to legal streaming.
-
 ### Feature 2 — ambient recall
 
 | commit | files | what |
