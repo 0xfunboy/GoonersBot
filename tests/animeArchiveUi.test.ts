@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Env } from '../src/config/env.js';
 import { Localizer } from '../src/config/index.js';
 import { classifyAnimeUnityUrl } from '../src/anime/archive/animeUnity.js';
-import { parseNaturalAnimeArchiveRequest } from '../src/anime/archive/intent.js';
+import {
+  parseNaturalAnimeArchiveRequest,
+  parseNaturalAnimeAvailabilityRequest,
+} from '../src/anime/archive/intent.js';
 import { buildInlineKeyboard, parseCallbackData } from '../src/telegram/keyboards.js';
 import { callbackHandlers } from '../src/telegram/handlers/callbacks/index.js';
 import { archiveResultResponse, handleMessage } from '../src/telegram/handlers/message.js';
@@ -236,10 +239,10 @@ describe('anime archive mixed URL routing', () => {
       series: { title: 'Youjo Senki 2' },
       episode: { number: '7' },
     });
-    const replaceConfirmationMessage = vi.fn().mockResolvedValue({
-      offer: { id: 'ao_tanya', confirmationMessageId: 903 },
+    const replaceConfirmationMessage = vi.fn(async (_offerId: string, messageId: number) => ({
+      offer: { id: 'ao_tanya', confirmationMessageId: messageId },
       replacedMessageId: null,
-    });
+    }));
     const services = {
       initializeContext: vi.fn().mockResolvedValue(undefined),
       permissions: { checkAll: vi.fn().mockResolvedValue(true) },
@@ -345,6 +348,39 @@ describe('anime archive mixed URL routing', () => {
       expect.objectContaining({ reply_markup: expect.any(Object) }),
     );
     expect(replaceConfirmationMessage).toHaveBeenCalledWith('ao_tanya', 903);
+
+    prepareNaturalEpisodeOffer.mockClear();
+    reply.mockClear();
+    reply.mockResolvedValueOnce({ message_id: 904 });
+    await handleMessage(
+      ctx,
+      { telegramId: 42, userHandle: '@allowed' },
+      {
+        ...context,
+        repliedToText:
+          'Ma guarda come si scalda subito il sardo con la cittadinanza spagnola, non c’entra nulla con Tanya.',
+      },
+      {
+        messageText:
+          "ricontrolla un po' Tanya the evil 2, dovrebbe essere arrivato l'ep 7 su animeunity",
+        timestamp: new Date(),
+      },
+      { services, env: {} as Env, botUsername: 'GooNeuroBot' },
+    );
+
+    expect(prepareNaturalEpisodeRequest).not.toHaveBeenCalled();
+    expect(prepareNaturalEpisodeOffer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: 'Tanya the evil 2',
+        expectedEpisodeNumber: '7',
+        preferredSource: 'animeunity',
+        replyToMessageId: 78,
+      }),
+    );
+    expect(reply).toHaveBeenCalledWith(
+      'Vuoi che te lo scarichi e rehosti qui?',
+      expect.objectContaining({ reply_markup: expect.any(Object) }),
+    );
 
     prepareNaturalEpisodeOffer.mockClear();
     const unaddressedContext = { ...context };
@@ -487,6 +523,26 @@ describe('anime archive mixed URL routing', () => {
     expect(reply).toHaveBeenCalled();
     expect(invalidateOffer).not.toHaveBeenCalled();
     expect(replaceConfirmationMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('natural anime availability intent', () => {
+  it('turns an explicit re-check into an archive lookup with title, episode and source', () => {
+    expect(
+      parseNaturalAnimeAvailabilityRequest(
+        "ricontrolla un po' Tanya the evil 2, dovrebbe essere arrivato l'ep 7 su animeunity",
+      ),
+    ).toEqual({
+      query: 'Tanya the evil 2',
+      expectedEpisodeNumber: '7',
+      preferredSource: 'animeunity',
+    });
+  });
+
+  it('does not hijack ordinary anime discussion without an explicit availability check', () => {
+    expect(
+      parseNaturalAnimeAvailabilityRequest('secondo me Tanya the evil 2 è una bomba, episodio 7'),
+    ).toBeNull();
   });
 });
 

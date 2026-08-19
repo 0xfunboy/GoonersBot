@@ -20,7 +20,10 @@ import {
   type AnimeArchivePreparationResult,
   type AnimeArchiveServiceRejectReason,
 } from '../../anime/archive/service.js';
-import { parseNaturalAnimeArchiveRequest } from '../../anime/archive/intent.js';
+import {
+  parseNaturalAnimeArchiveRequest,
+  parseNaturalAnimeAvailabilityRequest,
+} from '../../anime/archive/intent.js';
 import { animeArchiveSourceLabel } from '../../anime/archive/types.js';
 import {
   renderTelegramText,
@@ -163,6 +166,10 @@ export async function handleMessage(
     addressed && message.messageText
       ? parseNaturalAnimeArchiveRequest(message.messageText, context.repliedToText)
       : null;
+  const naturalAvailabilityRequest =
+    addressed && message.messageText
+      ? parseNaturalAnimeAvailabilityRequest(message.messageText, context.repliedToText)
+      : null;
   // Archive sources must never fall through to the generic short-form downloader. In mixed
   // messages we pass only the unrelated URLs to LinkMediaService, whose limits remain unchanged.
   const genericMediaUrls = mediaUrls.filter(
@@ -177,6 +184,7 @@ export async function handleMessage(
     Boolean(animeArchive) &&
     (archiveMatches.length > 0 ||
       naturalArchiveRequest !== null ||
+      naturalAvailabilityRequest !== null ||
       parseAnimeArchiveConfirmationDecision(message.messageText ?? '') !== null);
   // Link rehosting is an independent per-chat feature: disabling conversation storage must not
   // disable the interceptor. Messages with neither an address nor a rehostable URL can stop here.
@@ -229,6 +237,7 @@ export async function handleMessage(
         services,
         archiveMatches,
         naturalArchiveRequest,
+        naturalAvailabilityRequest,
         quotaBypass: bypassGroupPlan,
       },
     ).catch(async (err) => {
@@ -1052,6 +1061,7 @@ async function handleAnimeArchiveInteraction(
     services: Services;
     archiveMatches: ReturnType<Services['animeArchive']['classifyText']>;
     naturalArchiveRequest: ReturnType<typeof parseNaturalAnimeArchiveRequest>;
+    naturalAvailabilityRequest: ReturnType<typeof parseNaturalAnimeAvailabilityRequest>;
     quotaBypass: boolean;
   },
 ): Promise<boolean> {
@@ -1104,6 +1114,26 @@ async function handleAnimeArchiveInteraction(
       });
       await sendArchiveResult(ctx, services, result);
     }
+    return true;
+  }
+
+  if (input.naturalAvailabilityRequest) {
+    const result = await services.animeArchive.prepareNaturalEpisodeOffer({
+      query: input.naturalAvailabilityRequest.query,
+      ...(input.naturalAvailabilityRequest.expectedEpisodeNumber
+        ? { expectedEpisodeNumber: input.naturalAvailabilityRequest.expectedEpisodeNumber }
+        : {}),
+      ...(input.naturalAvailabilityRequest.preferredSource
+        ? { preferredSource: input.naturalAvailabilityRequest.preferredSource }
+        : {}),
+      chatId: context.chatId,
+      threadId: context.threadId,
+      replyToMessageId: context.messageId,
+      requesterTelegramId: person.telegramId,
+      quotaBypass: input.quotaBypass,
+      signal: AbortSignal.timeout(20_000),
+    });
+    await sendArchiveResult(ctx, services, result);
     return true;
   }
 
