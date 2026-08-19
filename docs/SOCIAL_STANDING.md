@@ -125,10 +125,25 @@ disputed claim is graded first:
 
 | tier | condition | what the bot may do |
 | --- | --- | --- |
-| `settled` | a verified source supports one side — ambient recall, grounding, catalog | **assert it**, name the source, back whoever holds it |
-| `contested` | sources disagree, or evidence is thin | present the disagreement, refuse to pick, name what would settle it |
+| `settled` | **two or more independent sources** speak to the point | **assert it**, name the sources, back whoever holds it |
+| `contested` | exactly one source — evidence is thin | offer what it has, name where it came from, **refuse to say anyone is wrong** |
 | `opinion` | not a factual matter — taste, values, aesthetics | may hold a view, must mark it as a view |
 | `unknown` | no evidence either way | say so; this is a legitimate answer |
+
+Independence is counted **by host**: three pages on one site are one site. A single page is not
+"incontrovertible" however confident it reads, and confidence is exactly what a language model
+cannot be trusted to measure about itself — so corroboration is the bar instead.
+
+### The limitation this does not hide
+
+The grade measures **corroboration, not agreement**. Two independent sources that genuinely
+contradict each other are indistinguishable, here, from two that concur. So `settled` means
+*several sources speak to this*, not *several sources were checked against each other*.
+
+Detecting semantic contradiction is not something deterministic code can do, and faking it — by
+asking a model whether its sources agree — would put the over-confidence straight back in, in the
+one place the whole design exists to keep it out of. The honest move is a higher bar for asserting
+and an explicit note of what the bar does not prove.
 
 The bot may only say someone is *wrong* at `settled`. At `contested` the honest move is naming the
 disagreement, and at `opinion` there is no "wrong" to find.
@@ -142,7 +157,7 @@ When a disagreement is detected between members and a factual claim is at stake:
 
 1. grade the claim
 2. if `settled`, back the side that holds it — **regardless of rapport with either party**
-3. bring the evidence: the concrete fact and the link, not "I read that…"
+3. bring the evidence: the concrete facts and the links, not "I read that…"
 4. tone comes from rapport with the person being corrected — a friend gets it gently, a hostile
    gets it flatly, nobody gets humiliated over a fact
 5. if `contested` or `opinion`, do **not** ally; naming the disagreement is the contribution
@@ -196,5 +211,6 @@ things a model can hallucinate.
 | everyone becomes a friend | promotion needs 20+ interactions and 30 hostility-free days |
 | nobody becomes a friend because the group jokes by insulting | banter is worth exactly 0; only `conflict` is negative |
 | the bot sides with friends | evidence decides the side; a dedicated test asserts a friend gets corrected |
-| the bot argues constantly | allyship only fires at `settled`, which needs a source in hand |
+| the bot argues constantly | allyship only fires at `settled`, which needs two independent sources |
+| the bot settles a point on one blog | one source grades as `contested`; it may cite it, never adjudicate with it |
 | the bot becomes a fact-checking bore | one stance per exchange, and only when a disagreement is actually detected |
