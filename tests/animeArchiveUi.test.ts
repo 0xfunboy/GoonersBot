@@ -95,6 +95,18 @@ describe('anime archive confirmation UI', () => {
     });
     expect(
       archiveResultResponse({
+        status: 'confirmation_required',
+        offer: { id: 'ao_episode' },
+        keyboard,
+        series: { title: 'Fixture' },
+        episode: { number: '7' },
+      } as never),
+    ).toMatchObject({
+      rawText: 'Vuoi che te lo scarichi e rehosti qui?',
+      keyboard,
+    });
+    expect(
+      archiveResultResponse({
         status: 'queued',
         created: true,
         job: { episodes: [{}] },
@@ -203,11 +215,30 @@ describe('anime archive mixed URL routing', () => {
     expect(handleLinkMedia.mock.calls[0]?.[0].text).not.toContain(animeUrl);
   });
 
-  it('queues a quoted natural rehost command before the LLM path', async () => {
+  it('routes quoted anime acquisition before the LLM path, direct or with a download confirmation', async () => {
     const prepareNaturalEpisodeRequest = vi.fn().mockResolvedValue({
       status: 'queued',
       created: true,
       job: { episodes: [{}] },
+    });
+    const prepareNaturalEpisodeOffer = vi.fn().mockResolvedValue({
+      status: 'confirmation_required',
+      offer: { id: 'ao_tanya', confirmationMessageId: null },
+      keyboard: {
+        options: [
+          { id: 'yes|ao_tanya', label: 'SI' },
+          { id: 'no|ao_tanya', label: 'NO' },
+        ],
+        callback: 'anime_archive',
+        buttonAction: 'anime_archive',
+        columns: 2,
+      },
+      series: { title: 'Youjo Senki 2' },
+      episode: { number: '7' },
+    });
+    const replaceConfirmationMessage = vi.fn().mockResolvedValue({
+      offer: { id: 'ao_tanya', confirmationMessageId: 903 },
+      replacedMessageId: null,
     });
     const services = {
       initializeContext: vi.fn().mockResolvedValue(undefined),
@@ -220,6 +251,9 @@ describe('anime archive mixed URL routing', () => {
         classifyText: vi.fn().mockReturnValue([]),
         classifyUrl: vi.fn().mockReturnValue(null),
         prepareNaturalEpisodeRequest,
+        prepareNaturalEpisodeOffer,
+        replaceConfirmationMessage,
+        invalidateOffer: vi.fn().mockResolvedValue(null),
       },
       linkMedia: { enabled: false, autoRehostEnabled: false },
       config: { linkMedia: { maxUrlsPerMessage: 2 } },
@@ -237,11 +271,15 @@ describe('anime archive mixed URL routing', () => {
       getLanguage: vi.fn().mockResolvedValue('italian'),
       localizer: new Localizer('italian'),
     } as unknown as Services;
-    const reply = vi.fn().mockResolvedValue({ message_id: 902 });
+    const reply = vi
+      .fn()
+      .mockResolvedValueOnce({ message_id: 902 })
+      .mockResolvedValueOnce({ message_id: 903 });
     const ctx = {
       message: { message_id: 78 },
       chat: { id: -100 },
       reply,
+      api: { deleteMessage: vi.fn().mockResolvedValue(true) },
     } as unknown as GrammyContext;
     const context: ChatContext = {
       chatId: -100,
@@ -258,7 +296,7 @@ describe('anime archive mixed URL routing', () => {
       { telegramId: 42, userHandle: '@allowed' },
       context,
       {
-        messageText: 'voglio guardarlo, fai rehost da animeunity',
+        messageText: 'fai rehost da animeunity',
         timestamp: new Date(),
       },
       { services, env: {} as Env, botUsername: 'GooNeuroBot' },
@@ -278,6 +316,37 @@ describe('anime archive mixed URL routing', () => {
     );
 
     prepareNaturalEpisodeRequest.mockClear();
+    reply.mockClear();
+    await handleMessage(
+      ctx,
+      { telegramId: 42, userHandle: '@allowed' },
+      {
+        ...context,
+        repliedToText:
+          "L'episodio 7 di Saga of Tanya the Evil Season 2 è effettivamente uscito ed è disponibile su AnimeUnity.",
+      },
+      {
+        messageText: 'lo voglio scaricare, fai rehost o dammi il link',
+        timestamp: new Date(),
+      },
+      { services, env: {} as Env, botUsername: 'GooNeuroBot' },
+    );
+
+    expect(prepareNaturalEpisodeRequest).not.toHaveBeenCalled();
+    expect(prepareNaturalEpisodeOffer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: 'Saga of Tanya the Evil Season 2',
+        expectedEpisodeNumber: '7',
+        replyToMessageId: 78,
+      }),
+    );
+    expect(reply).toHaveBeenCalledWith(
+      'Vuoi che te lo scarichi e rehosti qui?',
+      expect.objectContaining({ reply_markup: expect.any(Object) }),
+    );
+    expect(replaceConfirmationMessage).toHaveBeenCalledWith('ao_tanya', 903);
+
+    prepareNaturalEpisodeOffer.mockClear();
     const unaddressedContext = { ...context };
     delete unaddressedContext.repliedToText;
     await handleMessage(
@@ -291,6 +360,7 @@ describe('anime archive mixed URL routing', () => {
       { services, env: {} as Env, botUsername: 'GooNeuroBot' },
     );
     expect(prepareNaturalEpisodeRequest).not.toHaveBeenCalled();
+    expect(prepareNaturalEpisodeOffer).not.toHaveBeenCalled();
   });
 
   it('keeps an already attached natural offer when the factual reply cannot be delivered', async () => {
@@ -440,8 +510,22 @@ describe('natural anime archive intent', () => {
       query: 'Saga of Tanya the Evil Season 2',
       expectedEpisodeNumber: '7',
       preferredSource: 'animeunity',
+      confirmationPreferred: true,
     });
     expect(parseNaturalAnimeArchiveRequest('parliamo di Chainsmoker Cat?', undefined)).toBeNull();
+  });
+
+  it('uses the quoted anime instead of treating action/link wording as a title', () => {
+    expect(
+      parseNaturalAnimeArchiveRequest(
+        'lo voglio scaricare, fai rehost o dammi il link',
+        "L'episodio 7 di Saga of Tanya the Evil Season 2 è effettivamente uscito ed è disponibile su AnimeUnity.",
+      ),
+    ).toEqual({
+      query: 'Saga of Tanya the Evil Season 2',
+      expectedEpisodeNumber: '7',
+      confirmationPreferred: true,
+    });
   });
 
   it('supports command-like titles but rejects negation, narration and how-to questions', () => {

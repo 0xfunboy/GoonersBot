@@ -1108,7 +1108,7 @@ async function handleAnimeArchiveInteraction(
   }
 
   if (!input.naturalArchiveRequest) return false;
-  const result = await services.animeArchive.prepareNaturalEpisodeRequest({
+  const naturalInput = {
     query: input.naturalArchiveRequest.query,
     ...(input.naturalArchiveRequest.expectedEpisodeNumber
       ? { expectedEpisodeNumber: input.naturalArchiveRequest.expectedEpisodeNumber }
@@ -1122,7 +1122,10 @@ async function handleAnimeArchiveInteraction(
     requesterTelegramId: person.telegramId,
     quotaBypass: input.quotaBypass,
     signal: AbortSignal.timeout(20_000),
-  });
+  };
+  const result = input.naturalArchiveRequest.confirmationPreferred
+    ? await services.animeArchive.prepareNaturalEpisodeOffer(naturalInput)
+    : await services.animeArchive.prepareNaturalEpisodeRequest(naturalInput);
   await sendArchiveResult(ctx, services, result);
   return true;
 }
@@ -1190,7 +1193,9 @@ export function archiveResultResponse(
   }
   if (result.status === 'confirmation_required') {
     return {
-      rawText: 'Vuoi scaricare e rehostare l’intero anime su telegram?',
+      rawText: result.episode
+        ? 'Vuoi che te lo scarichi e rehosti qui?'
+        : 'Vuoi scaricare e rehostare l’intero anime su telegram?',
       textFormat: 'plain',
       keyboard: result.keyboard,
     };
