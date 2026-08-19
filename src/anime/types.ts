@@ -44,6 +44,7 @@ export interface AnimeSeries {
   aliases: string[];
   /** Deterministic lookup keys derived from every known title (see `titles.ts`). */
   titleKeys: string[];
+  /** Catalog provenance for diagnostics/evidence; renderers must not expose it as a watch link. */
   url: string;
   coverUrl?: string | undefined;
   description?: string | undefined;
@@ -68,8 +69,6 @@ export interface AnimeSeries {
     anilist?: number | undefined;
     mal?: number | undefined;
   };
-  /** Where the user can legally watch it, as published by the source. */
-  streamingLinks: Array<{ site: string; url: string }>;
   /** Last time the source itself reported a change, when it exposes one. */
   sourceUpdatedAt?: Date | undefined;
 }

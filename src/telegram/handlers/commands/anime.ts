@@ -105,9 +105,9 @@ export const followingCommand: CommandSpec = {
         series: trustedHtml(
           followed
             .map((entry) => {
-              const seen =
-                entry.lastNotifiedEpisode >= 0 ? ` — ep. ${entry.lastNotifiedEpisode}` : '';
-              return `• <a href="https://anilist.co/anime/${encodeURIComponent(entry.sourceId)}">${escapeHtml(entry.title)}</a>${seen}`;
+              const lastEpisode = entry.archiveLastNotifiedEpisode ?? entry.lastNotifiedEpisode;
+              const seen = lastEpisode >= 0 ? ` — ep. ${lastEpisode}` : '';
+              return `• ${escapeHtml(entry.title)}${seen}`;
             })
             .join('\n'),
         ),

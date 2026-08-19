@@ -282,7 +282,41 @@ async function main(): Promise<void> {
     log,
   });
   const animeReleaseTick = async (): Promise<void> => {
-    await runAnimeReleaseJob(config.anime, storage, services.animeCatalog, animeReleaseNotifier);
+    await runAnimeReleaseJob(
+      config.anime,
+      storage,
+      services.animeCatalog,
+      async (series) => {
+        if (!services.animeArchive.enabled) return null;
+        const signal = AbortSignal.timeout(12_000);
+        const titles = [
+          ...new Set(
+            [
+              series.title,
+              series.titleEnglish,
+              series.titleRomaji,
+              series.titleNative,
+              ...series.aliases,
+            ].filter((title): title is string => Boolean(title?.trim())),
+          ),
+        ].slice(0, 3);
+        for (const title of titles) {
+          const availability = await services.animeArchive.findLatestAvailability(title, {
+            signal,
+            bypassCache: true,
+          });
+          if (availability.match) {
+            return {
+              series: availability.match.series,
+              episode: availability.match.episode,
+            };
+          }
+          if (signal.aborted) break;
+        }
+        return null;
+      },
+      animeReleaseNotifier,
+    );
   };
   /** Tell the admin a /learn job finished, with the one command they need next. */
   const learnNotifyTick = async (): Promise<void> => {

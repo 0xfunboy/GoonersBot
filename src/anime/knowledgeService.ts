@@ -101,7 +101,7 @@ export class AnimeKnowledgeService {
         resolved: true,
         series,
         candidates: [],
-        sources: [series.url],
+        sources: [],
       };
     }
     if (result.candidates.length > 0) {
@@ -113,7 +113,7 @@ export class AnimeKnowledgeService {
         summary: `Più titoli corrispondono a "${title}". Dati dal catalogo per ciascuno:\n${describeCandidates(candidates)}`,
         resolved: true,
         candidates,
-        sources: candidates.map((series) => series.url),
+        sources: [],
       };
     }
     return empty(`Nessuna serie trovata nel catalogo per "${title}".`);
@@ -142,7 +142,7 @@ export class AnimeKnowledgeService {
         resolved: true,
         series,
         candidates: [],
-        sources: [series.url],
+        sources: [],
       };
     }
     return this.failure(outcome.reason, title, outcome.candidates, {
@@ -162,7 +162,7 @@ export class AnimeKnowledgeService {
         resolved: true,
         series: outcome.series,
         candidates: [],
-        sources: [outcome.series.url],
+        sources: [],
       };
     }
     return this.failure(outcome.reason, title, outcome.candidates, {
@@ -176,13 +176,13 @@ export class AnimeKnowledgeService {
     if (followed.length === 0) {
       return empty('Questa chat non sta seguendo nessuna serie.');
     }
-    const lines = followed.map(
-      (entry, index) =>
-        `${index + 1}. ${entry.title} - https://anilist.co/anime/${entry.sourceId}` +
-        (entry.lastNotifiedEpisode >= 0
-          ? ` (ultimo avviso: ep. ${entry.lastNotifiedEpisode})`
-          : ''),
-    );
+    const lines = followed.map((entry, index) => {
+      const lastEpisode = entry.archiveLastNotifiedEpisode ?? entry.lastNotifiedEpisode;
+      return (
+        `${index + 1}. ${entry.title}` +
+        (lastEpisode >= 0 ? ` (ultimo avviso: ep. ${lastEpisode})` : '')
+      );
+    });
     return {
       summary: `Serie seguite da questa chat (${followed.length}):\n${lines.join('\n')}`,
       resolved: true,
@@ -198,7 +198,7 @@ export class AnimeKnowledgeService {
       summary: `Serie attualmente in onda:\n${describeCandidates(series)}`,
       resolved: true,
       candidates: series,
-      sources: series.map((entry) => entry.url),
+      sources: [],
     };
   }
 
@@ -216,7 +216,7 @@ export class AnimeKnowledgeService {
         summary: `Il titolo "${title}" è ambiguo. Candidati dal catalogo:\n${describeCandidates(candidates)}`,
         resolved: false,
         candidates,
-        sources: candidates.map((series) => series.url),
+        sources: [],
       };
     }
     return { ...empty(`Nessuna serie trovata nel catalogo per "${title}".`), candidates };

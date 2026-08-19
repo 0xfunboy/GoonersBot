@@ -129,8 +129,17 @@ const CLEARABLE_FIELDS = [
 
 /** Build the update document: set what the source published, clear what it no longer does. */
 function writeFor(series: AnimeSeriesUpsert, now: Date) {
-  const set = { ...stripUndefined(series), crawledAt: now, updatedAt: now };
-  const unset: Record<string, ''> = {};
+  const set: Record<string, unknown> = {
+    ...stripUndefined(series),
+    crawledAt: now,
+    updatedAt: now,
+  };
+  // Defend against an old in-memory caller too: Mongo rejects updating one path in both
+  // operators, so make sure a legacy extra property cannot collide with the `$unset` below.
+  delete set['streamingLinks'];
+  // `streamingLinks` belonged to the old catalog contract. Availability now comes exclusively
+  // from the archive adapters, so scrub the legacy field whenever an existing series is touched.
+  const unset: Record<string, ''> = { streamingLinks: '' };
   for (const field of CLEARABLE_FIELDS) {
     if (series[field] === undefined) unset[field] = '';
   }

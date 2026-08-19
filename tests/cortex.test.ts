@@ -6,6 +6,7 @@ import {
   normalizeDecision,
 } from '../src/brain/cortex/evaluator.js';
 import type { CortexDecision } from '../src/brain/cortex/schema.js';
+import { CORTEX_FEWSHOT, CORTEX_SYSTEM } from '../src/brain/cortex/prompt.js';
 import {
   animeArchiveLookupFromAnswer,
   shouldUseTerminalAgentRuntime,
@@ -118,6 +119,14 @@ describe('Cortex', () => {
         reason: 'model marked needsGrounding without web_search',
       },
     ]);
+  });
+
+  it('keeps anime watch/rehost planning on no-gateway archive sources', () => {
+    const prompt = `${CORTEX_SYSTEM}\n${CORTEX_FEWSHOT}`;
+    expect(prompt).toContain('AnimeUnity/HentaiSaturn');
+    expect(prompt).toContain('deterministic no-gateway archive layer');
+    expect(prompt).not.toContain('official streaming links');
+    expect(prompt).not.toContain('catalog carries the official streaming');
   });
 
   it('drops a model-supplied web_search when anime_knowledge already grounds the turn', () => {

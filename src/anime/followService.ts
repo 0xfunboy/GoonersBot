@@ -163,6 +163,5 @@ function seriesStub(follow: AnimeFollowDoc): AnimeSeries {
     genres: [],
     studios: [],
     externalIds: {},
-    streamingLinks: [],
   };
 }

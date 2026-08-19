@@ -273,7 +273,6 @@ describe('AnimeAmbientProvider', () => {
     genres: ['Adventure'],
     studios: [],
     externalIds: {},
-    streamingLinks: [],
     latestEpisode: 12,
   };
 
@@ -309,6 +308,7 @@ describe('AnimeAmbientProvider', () => {
     expect(facts).toHaveLength(1);
     expect(facts[0]?.subject).toBe('Frieren');
     expect(facts[0]?.entityId).toBe('anilist:154587');
+    expect(facts[0]).not.toHaveProperty('url');
     expect(service.lookup).not.toHaveBeenCalled();
   });
 

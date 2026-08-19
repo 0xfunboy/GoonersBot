@@ -12,7 +12,7 @@ import {
   type AnimeArchiveOfferTransitionFailure,
   type AnimeArchiveTarget,
 } from '../../storage/repositories/animeArchive.js';
-import { isDecisiveMatch, rankByTitle } from '../titles.js';
+import { EXACT_MATCH_SCORE, isDecisiveMatch, rankByTitle, type RankedTitle } from '../titles.js';
 import { childLogger } from '../../utils/logger.js';
 import type { AnimeSourceRegistry } from './registry.js';
 import {
@@ -21,6 +21,7 @@ import {
   type AnimeArchiveSearchResult,
   type AnimeArchiveSeries,
   type AnimeArchiveSource,
+  type AnimeSourceAdapter,
   type AnimeUrlClassification,
 } from './types.js';
 
@@ -78,7 +79,14 @@ export interface PrepareNaturalAnimeOfferInput extends AnimeArchiveRequestContex
   query: string;
   /** Catalog/follow episode to offer; decimal forms such as 7.5 or "7,5" are supported. */
   expectedEpisodeNumber?: number | string | undefined;
+  /** Explicit user source preference; omitted means AnimeUnity first, then allowed alternatives. */
+  preferredSource?: AnimeArchiveSource | undefined;
   signal?: AbortSignal | undefined;
+}
+
+export interface PrepareResolvedAnimeOfferInput extends AnimeArchiveRequestContext {
+  series: AnimeArchiveSeries;
+  episode: AnimeArchiveEpisode;
 }
 
 export interface AnimeArchiveTextMatch {
@@ -160,7 +168,19 @@ export interface AnimeArchiveAvailabilityMatch extends AnimeArchiveAvailabilityC
 export interface AnimeArchiveAvailabilityResult {
   match?: AnimeArchiveAvailabilityMatch | undefined;
   candidates: AnimeArchiveAvailabilityCandidate[];
+  failure?: 'not_found' | 'ambiguous' | undefined;
   fromCache: boolean;
+}
+
+interface ArchiveSearchTitleCandidate {
+  result: AnimeArchiveSearchResult;
+  titles: string[];
+}
+
+interface ResolvedRankedArchiveHit {
+  entry: RankedTitle<ArchiveSearchTitleCandidate>;
+  series: AnimeArchiveSeries;
+  episode: AnimeArchiveEpisode;
 }
 
 interface CachedAvailability {
@@ -420,13 +440,28 @@ export class AnimeArchiveService {
       limit?: number | undefined;
       signal?: AbortSignal | undefined;
       bypassCache?: boolean | undefined;
+      expectedEpisodeNumber?: number | string | undefined;
+      source?: AnimeArchiveSource | undefined;
     } = {},
   ): Promise<AnimeArchiveAvailabilityResult> {
     if (!this.enabled) return { candidates: [], fromCache: false };
     const normalized = query.trim().replace(/\s+/gu, ' ');
     if (normalized.length < 2) return { candidates: [], fromCache: false };
+    const expected = normalizeExpectedEpisodeNumber(options.expectedEpisodeNumber);
+    if (options.expectedEpisodeNumber !== undefined && expected === null) {
+      return { candidates: [], fromCache: false };
+    }
+    if (options.source && !this.sourceAllowed(options.source)) {
+      return { candidates: [], fromCache: false };
+    }
     const limit = boundedLimit(options.limit ?? DEFAULT_SEARCH_LIMIT, 1, 5, DEFAULT_SEARCH_LIMIT);
-    const cacheKey = `${this.config.linkMedia.nsfwAllow ? 'adult' : 'safe'}:${limit}:${normalized.toLocaleLowerCase('it')}`;
+    const cacheKey = [
+      this.config.linkMedia.nsfwAllow ? 'adult' : 'safe',
+      options.source ?? 'any',
+      expected ?? 'latest',
+      limit,
+      normalized.toLocaleLowerCase('it'),
+    ].join(':');
     const cached = this.availabilityCache.get(cacheKey);
     const nowMs = this.now().getTime();
     if (!options.bypassCache && cached && cached.expiresAt > nowMs) {
@@ -435,62 +470,140 @@ export class AnimeArchiveService {
     if (cached) this.availabilityCache.delete(cacheKey);
 
     options.signal?.throwIfAborted();
-    const adapters = this.registry.adapters.filter(
-      (adapter) => this.sourceAllowed(adapter.source) && typeof adapter.search === 'function',
-    );
-    const settled = await Promise.allSettled(
-      adapters.map((adapter) => adapter.search?.(normalized, limit, options.signal) ?? []),
-    );
-    options.signal?.throwIfAborted();
-    const hits = dedupeSearchResults(
-      settled.flatMap((entry) => (entry.status === 'fulfilled' ? entry.value : [])),
-      limit * Math.max(1, adapters.length),
-    );
-    const ranked = rankByTitle(
-      normalized,
-      hits.map((result) => ({
-        result,
-        titles: [result.title, result.slug.replace(/[-_]+/gu, ' ')],
-      })),
-      { limit, minScore: 0.45 },
-    );
-    const candidates: AnimeArchiveAvailabilityCandidate[] = ranked.map((entry) => ({
-      result: entry.item.result,
-      score: entry.score,
-      matchedKey: entry.matchedKey,
-    }));
-    const top = ranked[0];
+    const adapters = this.registry.adapters
+      .filter(
+        (adapter) =>
+          this.sourceAllowed(adapter.source) &&
+          (!options.source || adapter.source === options.source) &&
+          typeof adapter.search === 'function',
+      )
+      // Safe default is explicit: AnimeUnity wins whenever it has a valid match. The adult source
+      // is only consulted as an allowed fallback, never because it happens to expose more episodes.
+      .sort(
+        (left, right) =>
+          Number(left.source !== 'animeunity') - Number(right.source !== 'animeunity'),
+      );
+    const candidates: AnimeArchiveAvailabilityCandidate[] = [];
     let match: AnimeArchiveAvailabilityMatch | undefined;
-    if (top && isDecisiveMatch(ranked)) {
-      const series = await this.readSeries(
-        top.item.result.source,
-        top.item.result.canonicalUrl,
+    let sawAmbiguity = false;
+    for (const adapter of adapters) {
+      options.signal?.throwIfAborted();
+      const result = await this.findAdapterAvailability(
+        adapter,
+        normalized,
+        limit,
+        expected,
         options.signal,
       );
-      const episode = series ? latestEpisode(series.episodes) : undefined;
-      if (series && episode) {
-        match = {
-          result: top.item.result,
-          score: top.score,
-          matchedKey: top.matchedKey,
-          series,
-          episode,
-        };
+      candidates.push(...result.candidates);
+      if (result.match) {
+        match = result.match;
+        break;
       }
+      sawAmbiguity ||= result.failure === 'ambiguous';
     }
     const value: Omit<AnimeArchiveAvailabilityResult, 'fromCache'> = {
-      ...(match ? { match } : {}),
+      ...(match ? { match } : { failure: sawAmbiguity ? 'ambiguous' : 'not_found' }),
       candidates,
     };
     this.cacheAvailability(cacheKey, value, nowMs);
     return { ...value, fromCache: false };
   }
 
+  private async findAdapterAvailability(
+    adapter: AnimeSourceAdapter,
+    query: string,
+    limit: number,
+    expected: number | null,
+    signal?: AbortSignal,
+  ): Promise<Omit<AnimeArchiveAvailabilityResult, 'fromCache'>> {
+    let hits: AnimeArchiveSearchResult[];
+    try {
+      hits = dedupeSearchResults(await adapter.search!(query, limit, signal), limit);
+    } catch (error) {
+      signal?.throwIfAborted();
+      log.warn(
+        { source: adapter.source, error: safeError(error) },
+        'anime archive source search failed',
+      );
+      return { candidates: [], failure: 'not_found' };
+    }
+    const ranked = rankByTitle<ArchiveSearchTitleCandidate>(
+      query,
+      hits.map((result) => ({
+        result,
+        titles: [result.title, result.slug.replace(/[-_]+/gu, ' ')],
+      })),
+      { limit, minScore: 0.45 },
+    );
+    const candidates = ranked.map((entry) => availabilityCandidate(entry));
+    const top = ranked[0];
+    if (!top) return { candidates, failure: 'not_found' };
+
+    // Episode availability may disambiguate editions of the *same* title, but must never turn a
+    // fuzzy sequel/spinoff into the answer merely because the exact title lacks that episode.
+    const exact = ranked.filter((entry) => entry.score >= EXACT_MATCH_SCORE);
+    const cohort = exact.length ? exact : ranked.filter((entry) => entry.score >= top.score - 0.02);
+    if (expected !== null) {
+      const resolved = await Promise.all(
+        cohort.map(async (entry) => {
+          const series = await this.readSeries(
+            entry.item.result.source,
+            entry.item.result.canonicalUrl,
+            signal,
+          );
+          const episode = series?.episodes.find(
+            (candidate) => normalizeExpectedEpisodeNumber(candidate.number) === expected,
+          );
+          return series && episode ? { entry, series, episode } : null;
+        }),
+      );
+      const eligible = resolved.filter(
+        (entry): entry is NonNullable<(typeof resolved)[number]> => entry !== null,
+      );
+      const selected =
+        eligible.length === 1
+          ? eligible[0]
+          : isDecisiveMatch(eligible.map((entry) => entry.entry))
+            ? eligible[0]
+            : undefined;
+      return selected
+        ? { candidates, match: availabilityMatch(selected) }
+        : { candidates, failure: eligible.length > 1 ? 'ambiguous' : 'not_found' };
+    }
+
+    const titleDecisive = isDecisiveMatch(ranked);
+    const contenders = titleDecisive ? [top] : cohort;
+    const resolved = await Promise.all(
+      contenders.map(async (entry) => {
+        const series = await this.readSeries(
+          entry.item.result.source,
+          entry.item.result.canonicalUrl,
+          signal,
+        );
+        const episode = series ? latestEpisode(series.episodes) : undefined;
+        return series && episode ? { entry, series, episode } : null;
+      }),
+    );
+    const usable = resolved
+      .filter((entry): entry is NonNullable<(typeof resolved)[number]> => entry !== null)
+      .sort((left, right) => right.episode.order - left.episode.order);
+    const selected =
+      titleDecisive ||
+      usable.length === 1 ||
+      (usable[0] && usable[1] && usable[0].episode.order > usable[1].episode.order)
+        ? usable[0]
+        : undefined;
+    return selected
+      ? { candidates, match: availabilityMatch(selected) }
+      : { candidates, failure: usable.length > 1 ? 'ambiguous' : 'not_found' };
+  }
+
   /** Find the latest downloadable episode and persist a normal-user SI/NO offer for it. */
   async prepareNaturalEpisodeOffer(
     input: PrepareNaturalAnimeOfferInput,
   ): Promise<AnimeArchivePreparationResult> {
-    const blocked = this.blockedReason('animeunity');
+    const blocked = this.blockedReason(input.preferredSource ?? 'animeunity');
     if (blocked) return rejected(blocked);
     const quota = await this.precheckQuota(input.chatId, input.quotaBypass ?? false);
     if (!quota.allowed) return rejected('quota_denied', { quota });
@@ -501,11 +614,15 @@ export class AnimeArchiveService {
     const availability = await this.findLatestAvailability(input.query, {
       signal: input.signal,
       bypassCache: expected !== null,
+      ...(expected === null ? {} : { expectedEpisodeNumber: expected }),
+      ...(input.preferredSource ? { source: input.preferredSource } : {}),
     });
     if (!availability.match) {
-      return rejected(availability.candidates.length > 1 ? 'ambiguous' : 'not_found', {
-        candidates: availability.candidates,
-      });
+      const reason = availability.failure ?? 'not_found';
+      return rejected(
+        reason,
+        reason === 'ambiguous' ? { candidates: availability.candidates } : {},
+      );
     }
     const episode =
       expected === null
@@ -515,6 +632,53 @@ export class AnimeArchiveService {
           );
     if (!episode) return rejected('not_found');
     return this.createEpisodeOffer(availability.match.series, episode, input);
+  }
+
+  /** An explicit "rehost/scarica" instruction is consent itself, so queue without another SI/NO. */
+  async prepareNaturalEpisodeRequest(
+    input: PrepareNaturalAnimeOfferInput,
+  ): Promise<AnimeArchivePreparationResult> {
+    const blocked = this.blockedReason(input.preferredSource ?? 'animeunity');
+    if (blocked) return rejected(blocked);
+    const quota = await this.precheckQuota(input.chatId, input.quotaBypass ?? false);
+    if (!quota.allowed) return rejected('quota_denied', { quota });
+    const expected = normalizeExpectedEpisodeNumber(input.expectedEpisodeNumber);
+    if (input.expectedEpisodeNumber !== undefined && expected === null) {
+      return rejected('not_found');
+    }
+    const availability = await this.findLatestAvailability(input.query, {
+      signal: input.signal,
+      bypassCache: true,
+      ...(expected === null ? {} : { expectedEpisodeNumber: expected }),
+      ...(input.preferredSource ? { source: input.preferredSource } : {}),
+    });
+    if (!availability.match) {
+      const reason = availability.failure ?? 'not_found';
+      return rejected(
+        reason,
+        reason === 'ambiguous' ? { candidates: availability.candidates } : {},
+      );
+    }
+    return this.enqueueEpisode(availability.match.episode, input, input.quotaBypass ?? false);
+  }
+
+  /** Create a prompt for a source identity that was already resolved by the no-gateway poller. */
+  async prepareResolvedEpisodeOffer(
+    input: PrepareResolvedAnimeOfferInput,
+  ): Promise<AnimeArchivePreparationResult> {
+    const { series, episode } = input;
+    const blocked = this.blockedReason(series.source);
+    if (blocked) return rejected(blocked);
+    if (
+      episode.source !== series.source ||
+      episode.seriesId !== series.sourceId ||
+      episode.canonicalSeriesUrl !== series.canonicalUrl
+    ) {
+      return rejected('source_unavailable');
+    }
+    const quota = await this.precheckQuota(input.chatId, input.quotaBypass ?? false);
+    if (!quota.allowed) return rejected('quota_denied', { quota });
+    return this.createEpisodeOffer(series, episode, input);
   }
 
   private async prepareClassifiedEpisode(
@@ -937,6 +1101,24 @@ function episodeRef(episode: AnimeArchiveEpisode) {
 
 function latestEpisode(episodes: readonly AnimeArchiveEpisode[]): AnimeArchiveEpisode | undefined {
   return [...episodes].sort(compareAnimeEpisodes).at(-1);
+}
+
+function availabilityCandidate(
+  entry: RankedTitle<ArchiveSearchTitleCandidate>,
+): AnimeArchiveAvailabilityCandidate {
+  return {
+    result: entry.item.result,
+    score: entry.score,
+    matchedKey: entry.matchedKey,
+  };
+}
+
+function availabilityMatch(resolved: ResolvedRankedArchiveHit): AnimeArchiveAvailabilityMatch {
+  return {
+    ...availabilityCandidate(resolved.entry),
+    series: resolved.series,
+    episode: resolved.episode,
+  };
 }
 
 function stableTargetKey(

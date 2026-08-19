@@ -39,7 +39,7 @@ describe('loadEnv', () => {
     expect(env.ANIME_ARCHIVE_BULK_ENABLED).toBe(true);
     expect(env.ANIME_ARCHIVE_PROFILE).toBe('mobile');
     expect(env.ANIME_ARCHIVE_BULK_CONCURRENCY).toBe(1);
-    expect(env.ANIME_ARCHIVE_FFMPEG_THREADS).toBe(2);
+    expect(env.ANIME_ARCHIVE_FFMPEG_THREADS).toBe(1);
     expect(env.CAPABILITY_LOCAL_DEVELOPMENT_ENABLED).toBe(false);
     expect(env.CAPABILITY_LOCAL_DEVELOPMENT_ADMIN_IDS).toEqual([]);
     expect(env.CAPABILITY_LOCAL_DEVELOPMENT_PLANNER_MODEL).toBe('gemini-3.6-flash');

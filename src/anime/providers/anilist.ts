@@ -36,7 +36,6 @@ const MEDIA_FIELDS = `
   coverImage { large }
   nextAiringEpisode { episode airingAt }
   studios(isMain: true) { nodes { name } }
-  externalLinks { site url type }
 `;
 
 const SEARCH_QUERY = `query ($search: String!, $perPage: Int!) {
@@ -83,7 +82,6 @@ interface RawMedia {
   coverImage?: { large?: unknown } | null;
   nextAiringEpisode?: { episode?: unknown; airingAt?: unknown } | null;
   studios?: { nodes?: unknown } | null;
-  externalLinks?: unknown;
 }
 
 const STATUS_MAP: Readonly<Record<string, AnimeStatus>> = {
@@ -263,7 +261,6 @@ export function parseMedia(node: unknown): AnimeSeries | null {
     studios: studioNames(raw.studios?.nodes).slice(0, 10),
     score: asInt(raw.averageScore),
     externalIds: { anilist: id, mal: asInt(raw.idMal) },
-    streamingLinks: streamingLinks(raw.externalLinks),
     sourceUpdatedAt: epochSecondsToDate(asInt(raw.updatedAt)),
   };
   return series;
@@ -312,23 +309,6 @@ function studioNames(nodes: unknown): string[] {
   return nodes
     .map((node) => (isRecord(node) ? asString(node['name']) : undefined))
     .filter((name): name is string => Boolean(name));
-}
-
-/** Keep only real streaming destinations; AniList also lists forums, wikis and socials. */
-function streamingLinks(raw: unknown): Array<{ site: string; url: string }> {
-  if (!Array.isArray(raw)) return [];
-  const links: Array<{ site: string; url: string }> = [];
-  for (const entry of raw) {
-    if (!isRecord(entry)) continue;
-    if (asString(entry['type']) !== 'STREAMING') continue;
-    const site = asString(entry['site']);
-    const url = asString(entry['url']);
-    if (!site || !url) continue;
-    if (!/^https:\/\//i.test(url)) continue;
-    links.push({ site, url });
-    if (links.length >= 10) break;
-  }
-  return links;
 }
 
 /** AniList descriptions carry light HTML even with `asHtml: false`. */

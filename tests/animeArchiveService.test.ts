@@ -604,6 +604,151 @@ describe('AnimeArchiveService natural availability and textual confirmation', ()
     expect(hentaiSaturn.search).not.toHaveBeenCalled();
   });
 
+  it('uses the requested episode to disambiguate the two live Chainsmoker editions', async () => {
+    const itaUrl = 'https://www.animeunity.so/anime/7600-yani-neko-ita';
+    const subUrl = 'https://www.animeunity.so/anime/7601-yani-neko';
+    const hit = (sourceId: string, canonicalUrl: string): AnimeArchiveSearchResult => ({
+      source: 'animeunity',
+      sourceId,
+      slug: 'chainsmoker-cat',
+      title: 'Chainsmoker Cat',
+      canonicalUrl,
+      status: 'ongoing',
+      genres: [],
+    });
+    const edition = (sourceId: string, canonicalUrl: string, count: number): AnimeArchiveSeries => {
+      const episodes = Array.from({ length: count }, (_, index) => {
+        const number = String(index + 1);
+        return {
+          ...animeUnityEpisode(`${sourceId}-ep-${number}`, number),
+          seriesId: sourceId,
+          seriesSlug: 'chainsmoker-cat',
+          seriesTitle: 'Chainsmoker Cat',
+          canonicalUrl: `${canonicalUrl}/${sourceId}-ep-${number}`,
+          canonicalSeriesUrl: canonicalUrl,
+        };
+      });
+      return animeUnitySeries({
+        sourceId,
+        slug: 'chainsmoker-cat',
+        title: sourceId === '7600' ? 'Yani Neko (ITA)' : 'Yani Neko',
+        aliases: ['Chainsmoker Cat'],
+        canonicalUrl,
+        episodes,
+      });
+    };
+    const { service, animeUnity, jobs, offers } = harness({
+      animeUnitySearch: [hit('7600', itaUrl), hit('7601', subUrl)],
+    });
+    animeUnity.getSeries.mockImplementation(async (url) =>
+      String(url) === itaUrl ? edition('7600', itaUrl, 5) : edition('7601', subUrl, 7),
+    );
+
+    const queued = await service.prepareNaturalEpisodeRequest({
+      query: 'Chainsmoker Cat',
+      expectedEpisodeNumber: 7,
+      preferredSource: 'animeunity',
+      chatId: -100,
+      threadId: 42,
+      replyToMessageId: 77,
+      requesterTelegramId: 123,
+    });
+
+    expect(queued).toMatchObject({
+      status: 'queued',
+      created: true,
+      job: {
+        source: 'animeunity',
+        series: { id: '7601' },
+        episodes: [{ id: '7601-ep-7', number: 7 }],
+      },
+    });
+    expect(animeUnity.getSeries).toHaveBeenCalledTimes(2);
+    expect(jobs.inputs).toHaveLength(1);
+    expect(offers.docs).toHaveLength(0);
+
+    await expect(
+      service.prepareNaturalEpisodeRequest({
+        query: 'Chainsmoker Cat',
+        expectedEpisodeNumber: 99,
+        preferredSource: 'animeunity',
+        chatId: -100,
+        threadId: 42,
+        requesterTelegramId: 123,
+      }),
+    ).resolves.toEqual({ status: 'rejected', reason: 'not_found' });
+    expect(jobs.inputs).toHaveLength(1);
+  });
+
+  it('never lets episode availability promote a fuzzy sequel over an exact title', async () => {
+    const narutoUrl = 'https://www.animeunity.so/anime/8000-naruto';
+    const borutoUrl = 'https://www.animeunity.so/anime/8001-boruto-naruto-next-generations';
+    const result = (sourceId: string, title: string, canonicalUrl: string) => ({
+      source: 'animeunity' as const,
+      sourceId,
+      slug: title.toLowerCase().replace(/\s+/gu, '-'),
+      title,
+      canonicalUrl,
+      status: 'ongoing' as const,
+      genres: [],
+    });
+    const { service, animeUnity, jobs } = harness({
+      animeUnitySearch: [
+        result('8000', 'Naruto', narutoUrl),
+        result('8001', 'Boruto: Naruto Next Generations', borutoUrl),
+      ],
+    });
+    animeUnity.getSeries.mockImplementation(async (url) =>
+      String(url) === narutoUrl
+        ? animeUnitySeries({
+            sourceId: '8000',
+            title: 'Naruto',
+            canonicalUrl: narutoUrl,
+            episodes: [animeUnityEpisode('naruto-1', '1')],
+          })
+        : animeUnitySeries({
+            sourceId: '8001',
+            title: 'Boruto: Naruto Next Generations',
+            canonicalUrl: borutoUrl,
+            episodes: [animeUnityEpisode('boruto-500', '500')],
+          }),
+    );
+
+    await expect(
+      service.prepareNaturalEpisodeRequest({
+        query: 'Naruto',
+        expectedEpisodeNumber: 500,
+        chatId: -100,
+        requesterTelegramId: 123,
+      }),
+    ).resolves.toEqual({ status: 'rejected', reason: 'not_found' });
+    expect(animeUnity.getSeries).toHaveBeenCalledOnce();
+    expect(jobs.inputs).toHaveLength(0);
+  });
+
+  it('uses AnimeUnity before an allowed HentaiSaturn match by default', async () => {
+    const hsFrieren: AnimeArchiveSearchResult = {
+      source: 'hentaisaturn',
+      sourceId: 'hs-frieren',
+      slug: 'frieren',
+      title: 'Frieren',
+      canonicalUrl: 'https://www.hentaisaturn.tv/hentai/frieren',
+      status: 'ongoing',
+      genres: [],
+    };
+    const { service, animeUnity, hentaiSaturn } = harness({
+      config: config({ nsfwAllow: true }),
+      animeUnitySearch: [frierenHit],
+      hentaiSearch: [hsFrieren],
+    });
+
+    await expect(service.findLatestAvailability('Frieren')).resolves.toMatchObject({
+      match: { result: { source: 'animeunity' } },
+    });
+    expect(animeUnity.search).toHaveBeenCalledOnce();
+    expect(hentaiSaturn.search).not.toHaveBeenCalled();
+  });
+
   it('turns a downloadable natural match into a normal episode offer, then reuses enqueue on YES', async () => {
     const { service, canReserveMedia, jobs } = harness({ animeUnitySearch: [frierenHit] });
     const prepared = await service.prepareNaturalEpisodeOffer({
@@ -636,6 +781,36 @@ describe('AnimeArchiveService natural availability and textual confirmation', ()
       offerId: prepared.offer.id,
       destination: { replyToMessageId: 77 },
     });
+  });
+
+  it('binds a release prompt directly to the exact already-resolved source identity', async () => {
+    const series = animeUnitySeries();
+    const episode = series.episodes[1] as AnimeArchiveEpisode;
+    const { service, animeUnity, offers } = harness();
+
+    await expect(
+      service.prepareResolvedEpisodeOffer({
+        series,
+        episode,
+        chatId: -100,
+        threadId: 42,
+        requesterTelegramId: 123,
+      }),
+    ).resolves.toMatchObject({
+      status: 'confirmation_required',
+      offer: { target: { episode: { id: episode.sourceId } } },
+    });
+    expect(animeUnity.search).not.toHaveBeenCalled();
+    expect(offers.docs).toHaveLength(1);
+
+    await expect(
+      service.prepareResolvedEpisodeOffer({
+        series,
+        episode: { ...episode, seriesId: 'different-edition' },
+        chatId: -100,
+        requesterTelegramId: 123,
+      }),
+    ).resolves.toEqual({ status: 'rejected', reason: 'source_unavailable' });
   });
 
   it('selects an expected decimal episode exactly and rejects a live-source mismatch', async () => {

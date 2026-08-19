@@ -1,6 +1,10 @@
 export const ANIME_ARCHIVE_SOURCES = ['animeunity', 'hentaisaturn'] as const;
 
 export type AnimeArchiveSource = (typeof ANIME_ARCHIVE_SOURCES)[number];
+
+export function animeArchiveSourceLabel(source: AnimeArchiveSource): string {
+  return source === 'animeunity' ? 'AnimeUnity' : 'HentaiSaturn';
+}
 export type AnimeArchiveUrlKind = 'series' | 'episode';
 export type AnimeArchiveStatus = 'ongoing' | 'completed' | 'unknown';
 

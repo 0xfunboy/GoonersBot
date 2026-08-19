@@ -34,7 +34,7 @@ export type AnimeVideoPreparationAction = 'remux' | 'transcode';
 export interface AnimeVideoNormalizationResult {
   action: AnimeVideoPreparationAction;
   sizeBytes: number;
-  /** True when the initial CRF encode exceeded the upload budget and was retried by bitrate. */
+  /** True when the final encode uses an explicit bitrate budget (directly or after CRF). */
   bitrateLimited: boolean;
 }
 
@@ -218,9 +218,10 @@ async function transcodeAnimeVideo(
   opts: NormalizeAnimeVideoOptions,
   qualityArgs: string[],
   audioBitrate: number,
+  maxHeight = opts.maxHeight,
 ): Promise<void> {
   await transcodeVideo(input, output, opts, {
-    scale: boundedHeightScale(Math.floor(opts.maxHeight / 2) * 2),
+    scale: boundedHeightScale(Math.floor(maxHeight / 2) * 2),
     qualityArgs,
     audioBitrate,
   });
@@ -264,8 +265,27 @@ async function animeBitrateRetry(
       String(videoBitrate * 2),
     ],
     audioBitrate,
+    constrainedAnimeHeight(videoBitrate, opts.maxHeight),
   );
   return fileSize(output);
+}
+
+/** Skip a predictably oversized CRF pass for long episodes whose source bitrate dwarfs the cap. */
+export function shouldStartWithBitrateLimitedAnimeEncode(
+  inputBytes: number,
+  probe: VideoProbe,
+  maxUploadBytes: number,
+): boolean {
+  if (!probe.duration || !Number.isFinite(probe.duration) || probe.duration <= 0) return false;
+  if (!Number.isFinite(inputBytes) || inputBytes <= maxUploadBytes * 1.35) return false;
+  const sourceBitrate = (inputBytes * 8) / probe.duration;
+  const uploadBitrate = (maxUploadBytes * 8 * 0.86) / probe.duration;
+  return sourceBitrate > uploadBitrate * 1.35;
+}
+
+function constrainedAnimeHeight(videoBitrate: number, configuredMaxHeight: number): number {
+  const bitrateHeight = videoBitrate < 120_000 ? 360 : videoBitrate < 240_000 ? 480 : 720;
+  return Math.max(2, Math.min(configuredMaxHeight, bitrateHeight));
 }
 
 /**
@@ -300,6 +320,14 @@ export async function normalizeAnimeVideo(
       if (opts.signal?.aborted) throw opts.signal.reason ?? err;
       // A stream-copy/container failure is recoverable through the bounded anime transcode below.
     }
+  }
+
+  if (shouldStartWithBitrateLimitedAnimeEncode(inputBytes, probe, opts.maxUploadBytes)) {
+    const finalSize = await animeBitrateRetry(input, output, opts, probe);
+    if (finalSize > opts.maxUploadBytes) {
+      throw new AnimeVideoOutputTooLargeError(finalSize, opts.maxUploadBytes);
+    }
+    return { action: 'transcode', sizeBytes: finalSize, bitrateLimited: true };
   }
 
   const configuredAudioBitrate = Math.round(opts.audioBitrateKbps * 1_000);

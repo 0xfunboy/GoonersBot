@@ -20,6 +20,8 @@ import {
   type AnimeArchivePreparationResult,
   type AnimeArchiveServiceRejectReason,
 } from '../../anime/archive/service.js';
+import { parseNaturalAnimeArchiveRequest } from '../../anime/archive/intent.js';
+import { animeArchiveSourceLabel } from '../../anime/archive/types.js';
 import {
   renderTelegramText,
   splitTelegramMarkdown,
@@ -157,6 +159,10 @@ export async function handleMessage(
   const archiveMatches = message.messageText
     ? (animeArchive?.classifyText(message.messageText) ?? [])
     : [];
+  const naturalArchiveRequest =
+    addressed && message.messageText
+      ? parseNaturalAnimeArchiveRequest(message.messageText, context.repliedToText)
+      : null;
   // Archive sources must never fall through to the generic short-form downloader. In mixed
   // messages we pass only the unrelated URLs to LinkMediaService, whose limits remain unchanged.
   const genericMediaUrls = mediaUrls.filter(
@@ -170,6 +176,7 @@ export async function handleMessage(
   const hasArchiveInteraction =
     Boolean(animeArchive) &&
     (archiveMatches.length > 0 ||
+      naturalArchiveRequest !== null ||
       parseAnimeArchiveConfirmationDecision(message.messageText ?? '') !== null);
   // Link rehosting is an independent per-chat feature: disabling conversation storage must not
   // disable the interceptor. Messages with neither an address nor a rehostable URL can stop here.
@@ -221,6 +228,7 @@ export async function handleMessage(
       {
         services,
         archiveMatches,
+        naturalArchiveRequest,
         quotaBypass: bypassGroupPlan,
       },
     ).catch(async (err) => {
@@ -744,8 +752,14 @@ export async function handleMessage(
     }
     if (naturalArchiveOffer) {
       const previousMessageId = naturalArchiveOffer.offer.confirmationMessageId;
+      const source = animeArchiveSourceLabel(naturalArchiveOffer.series.source);
+      const episode = naturalArchiveOffer.episode?.number;
+      const promptText = [
+        `${source}${episode ? ` · episodio ${episode}` : ''}: ${naturalArchiveOffer.series.canonicalUrl}`,
+        'Vuoi che te lo rehosti qui?',
+      ].join('\n');
       const prompt = await ctx
-        .reply('Vuoi che te lo rehosti qui?', {
+        .reply(promptText, {
           ...replyOpts,
           reply_markup: buildInlineKeyboard(naturalArchiveOffer.keyboard),
         })
@@ -1037,6 +1051,7 @@ async function handleAnimeArchiveInteraction(
   input: {
     services: Services;
     archiveMatches: ReturnType<Services['animeArchive']['classifyText']>;
+    naturalArchiveRequest: ReturnType<typeof parseNaturalAnimeArchiveRequest>;
     quotaBypass: boolean;
   },
 ): Promise<boolean> {
@@ -1070,20 +1085,40 @@ async function handleAnimeArchiveInteraction(
     return true;
   }
 
-  if (input.archiveMatches.length === 0) return false;
-  for (const match of input.archiveMatches) {
-    const result = await services.animeArchive.prepareUrl({
-      url: match.url,
-      chatId: context.chatId,
-      threadId: context.threadId,
-      replyToMessageId: context.messageId,
-      requesterTelegramId: person.telegramId,
-      isAdmin: services.isAnimeArchiveAdmin(person, context),
-      quotaBypass: input.quotaBypass,
-      signal: AbortSignal.timeout(20_000),
-    });
-    await sendArchiveResult(ctx, services, result);
+  if (input.archiveMatches.length > 0) {
+    for (const match of input.archiveMatches) {
+      const result = await services.animeArchive.prepareUrl({
+        url: match.url,
+        chatId: context.chatId,
+        threadId: context.threadId,
+        replyToMessageId: context.messageId,
+        requesterTelegramId: person.telegramId,
+        isAdmin: services.isAnimeArchiveAdmin(person, context),
+        quotaBypass: input.quotaBypass,
+        signal: AbortSignal.timeout(20_000),
+      });
+      await sendArchiveResult(ctx, services, result);
+    }
+    return true;
   }
+
+  if (!input.naturalArchiveRequest) return false;
+  const result = await services.animeArchive.prepareNaturalEpisodeRequest({
+    query: input.naturalArchiveRequest.query,
+    ...(input.naturalArchiveRequest.expectedEpisodeNumber
+      ? { expectedEpisodeNumber: input.naturalArchiveRequest.expectedEpisodeNumber }
+      : {}),
+    ...(input.naturalArchiveRequest.preferredSource
+      ? { preferredSource: input.naturalArchiveRequest.preferredSource }
+      : {}),
+    chatId: context.chatId,
+    threadId: context.threadId,
+    replyToMessageId: context.messageId,
+    requesterTelegramId: person.telegramId,
+    quotaBypass: input.quotaBypass,
+    signal: AbortSignal.timeout(20_000),
+  });
+  await sendArchiveResult(ctx, services, result);
   return true;
 }
 
@@ -1174,6 +1209,10 @@ function archiveRejectText(reason: AnimeArchiveServiceRejectReason): string {
     case 'source_unavailable':
     case 'no_episodes':
       return 'La sorgente non espone episodi utilizzabili in questo momento.';
+    case 'not_found':
+      return 'Quell’episodio non è ancora disponibile su AnimeUnity o HentaiSaturn.';
+    case 'ambiguous':
+      return 'Ho trovato più edizioni compatibili: indica il titolo o l’episodio con più precisione.';
     case 'ambiguous_confirmation':
       return 'Ci sono più conferme aperte: rispondi direttamente al messaggio giusto.';
     case 'expired':

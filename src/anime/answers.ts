@@ -86,16 +86,6 @@ export function describeSeries(series: AnimeSeries): string {
   if (series.studios.length > 0) lines.push(`Studio: ${series.studios.slice(0, 3).join(', ')}`);
   if (series.score !== undefined) lines.push(`Punteggio community: ${series.score}/100`);
 
-  lines.push(`Scheda: ${series.url}`);
-
-  if (series.streamingLinks.length > 0) {
-    const where = series.streamingLinks
-      .slice(0, 4)
-      .map((link) => `${link.site}: ${link.url}`)
-      .join(' | ');
-    lines.push(`Dove vederlo legalmente: ${where}`);
-  }
-
   return lines.join('\n');
 }
 
@@ -106,7 +96,7 @@ export function summarizeSeries(series: AnimeSeries): string {
     series.latestEpisode !== undefined
       ? `${statusLabel(series.status)}, ep. ${series.latestEpisode}${total}`
       : statusLabel(series.status);
-  return `${series.title} (${detail}) - ${series.url}`;
+  return `${series.title} (${detail})`;
 }
 
 /**
@@ -156,9 +146,6 @@ export function describeSeriesCompact(series: AnimeSeries): string {
       `prossimo ep. ${series.nextEpisode.episode}${when ? ` il ${when}` : ''}${weekday ? ` (${weekday})` : ''}`,
     );
   }
-  const legal = series.streamingLinks[0];
-  if (legal) parts.push(`su ${legal.site}: ${legal.url}`);
-  parts.push(series.url);
   return parts.join(' · ');
 }
 
