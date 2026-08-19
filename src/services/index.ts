@@ -1,5 +1,6 @@
 import type { AppConfig } from '../config/index.js';
 import { Localizer } from '../config/index.js';
+import type { Api } from 'grammy';
 import type { ChatContext, Person } from '../domain/types.js';
 import type { LLMProvider } from '../providers/llm/types.js';
 import { MediaProcessor } from '../providers/media/index.js';
@@ -25,6 +26,11 @@ import { JikanEnricher } from '../anime/providers/jikan.js';
 import { AnimeCatalogService } from '../anime/catalogService.js';
 import { AnimeFollowService } from '../anime/followService.js';
 import { AnimeKnowledgeService } from '../anime/knowledgeService.js';
+import {
+  AnimeArchiveService,
+  AnimeArchiveWorker,
+  createDefaultAnimeSourceRegistry,
+} from '../anime/archive/index.js';
 import { SocialStandingService } from '../social/standingService.js';
 import { AmbientRetriever } from '../ambient/retriever.js';
 import { AnimeAmbientProvider } from '../ambient/providers/animeAmbient.js';
@@ -116,6 +122,8 @@ export class Services {
   readonly animeCatalog: AnimeCatalogService;
   readonly animeFollows: AnimeFollowService;
   readonly anime: AnimeKnowledgeService;
+  readonly animeArchive: AnimeArchiveService;
+  private readonly animeArchiveWorker: AnimeArchiveWorker;
   readonly ambient: AmbientRetriever;
   readonly standing: SocialStandingService;
   readonly imageFinder: ImageFinder;
@@ -172,6 +180,33 @@ export class Services {
     );
     this.music = new MusicService(config.music);
     this.quota = new GroupQuotaService(storage);
+    const archiveConfig = {
+      ...config.animeArchive,
+      enabled: config.animeArchive.enabled && config.linkMedia.ffmpegAvailable,
+      bulkEnabled:
+        config.animeArchive.bulkEnabled &&
+        config.linkMedia.ffmpegAvailable &&
+        config.animeArchive.bulkConcurrency === 1,
+    };
+    const archiveRegistry = createDefaultAnimeSourceRegistry({
+      timeoutMs: Math.min(15_000, archiveConfig.timeoutMs),
+      maxResponseBytes: 2 * 1024 * 1024,
+      userAgent: config.linkMedia.userAgent,
+    });
+    this.animeArchiveWorker = new AnimeArchiveWorker(
+      archiveConfig,
+      config.linkMedia,
+      storage,
+      this.quota,
+      archiveRegistry,
+    );
+    this.animeArchive = new AnimeArchiveService(
+      { animeArchive: archiveConfig, linkMedia: config.linkMedia },
+      storage,
+      this.quota,
+      archiveRegistry,
+      () => this.animeArchiveWorker.kick(),
+    );
     this.systemInfo = new SystemInfoService(config, this.quota);
     this.linkMedia = new LinkMediaService(config.linkMedia, storage, this.media, this.quota);
     this.permissions = new PermissionService(
@@ -457,6 +492,25 @@ export class Services {
   /** Bot admins in private chat are operator sessions, not secondary/free groups. */
   bypassesGroupPlan(person: Person, context: ChatContext): boolean {
     return !context.isGroup && this.permissions.isBotAdmin(person.userHandle);
+  }
+
+  /** Bulk archive authority: real group admin in groups, configured bot admin in private chat. */
+  isAnimeArchiveAdmin(person: Person, context: ChatContext): boolean {
+    return context.isGroup
+      ? context.isGroupAdmin || this.permissions.isBotAdmin(person.userHandle)
+      : this.permissions.isBotAdmin(person.userHandle);
+  }
+
+  attachAnimeArchiveTelegramApi(api: Api): void {
+    this.animeArchiveWorker.attachTelegramApi(api);
+  }
+
+  kickAnimeArchiveWorker(): void {
+    this.animeArchiveWorker.kick();
+  }
+
+  async shutdownAnimeArchive(): Promise<void> {
+    await this.animeArchiveWorker.shutdown();
   }
 
   async planForTurn(person: Person, context: ChatContext): Promise<QuotaPlan> {

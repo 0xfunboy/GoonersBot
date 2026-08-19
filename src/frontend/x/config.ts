@@ -5,6 +5,10 @@ const DEFAULT_BIND_HOST = '127.0.0.1';
 const DEFAULT_NOVNC_PORT = 6088;
 const DEFAULT_VNC_PORT = 5908;
 const DEFAULT_DISPLAY = ':98';
+const DEFAULT_BROWSER_MAX_RSS_MB = 1_536;
+const DEFAULT_BROWSER_MAX_CPU_PERCENT = 300;
+const DEFAULT_BROWSER_MAX_SESSION_MINUTES = 360;
+const DEFAULT_MEDIA_GUARD_INTERVAL_SECONDS = 15;
 
 export interface XFrontendConfig {
   readonly bindHost: string;
@@ -13,6 +17,14 @@ export interface XFrontendConfig {
   readonly display: string;
   readonly cookieJarPath: string;
   readonly profileDir: string;
+  /** Memory ceiling for the Snap Firefox tree (PSS, with RSS only as a fallback). */
+  readonly browserMaxRssBytes: number;
+  /** Sustained aggregate CPU ceiling where one fully occupied logical core is 100%. */
+  readonly browserMaxCpuPercent: number;
+  /** Hard recycle interval: persistent profiles survive, browser processes do not. */
+  readonly browserMaxSessionMs: number;
+  /** How often the runtime reapplies the page-level media guard. */
+  readonly mediaGuardIntervalMs: number;
 }
 
 export class XFrontendConfigError extends Error {
@@ -55,6 +67,35 @@ export async function loadXFrontendConfig(
   await validatePrivatePath(cookieJarPath, 'cookie jar', 'file', 0o600);
   await validatePrivatePath(profileDir, 'browser profile', 'directory', 0o700);
 
+  const browserMaxRssMb = parseBoundedInteger(
+    raw,
+    'SOCIAL_X_BROWSER_MAX_RSS_MB',
+    DEFAULT_BROWSER_MAX_RSS_MB,
+    256,
+    8_192,
+  );
+  const browserMaxSessionMinutes = parseBoundedInteger(
+    raw,
+    'SOCIAL_X_BROWSER_MAX_SESSION_MINUTES',
+    DEFAULT_BROWSER_MAX_SESSION_MINUTES,
+    15,
+    1_440,
+  );
+  const browserMaxCpuPercent = parseBoundedInteger(
+    raw,
+    'SOCIAL_X_BROWSER_MAX_CPU_PERCENT',
+    DEFAULT_BROWSER_MAX_CPU_PERCENT,
+    100,
+    800,
+  );
+  const mediaGuardIntervalSeconds = parseBoundedInteger(
+    raw,
+    'SOCIAL_X_MEDIA_GUARD_INTERVAL_SECONDS',
+    DEFAULT_MEDIA_GUARD_INTERVAL_SECONDS,
+    5,
+    60,
+  );
+
   return Object.freeze({
     bindHost,
     noVncPort,
@@ -62,6 +103,10 @@ export async function loadXFrontendConfig(
     display,
     cookieJarPath,
     profileDir,
+    browserMaxRssBytes: browserMaxRssMb * 1024 * 1024,
+    browserMaxCpuPercent,
+    browserMaxSessionMs: browserMaxSessionMinutes * 60_000,
+    mediaGuardIntervalMs: mediaGuardIntervalSeconds * 1_000,
   });
 }
 
@@ -81,6 +126,25 @@ function parsePort(raw: NodeJS.ProcessEnv, key: string, fallback: number): numbe
     throw new XFrontendConfigError(`${key} must be between 1024 and 65535`);
   }
   return port;
+}
+
+function parseBoundedInteger(
+  raw: NodeJS.ProcessEnv,
+  key: string,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const value = optionalValue(raw, key);
+  if (value === undefined) return fallback;
+  if (!/^[0-9]+$/u.test(value)) {
+    throw new XFrontendConfigError(`${key} must be an integer`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+    throw new XFrontendConfigError(`${key} must be between ${min} and ${max}`);
+  }
+  return parsed;
 }
 
 function requiredAbsolutePath(raw: NodeJS.ProcessEnv, key: string): string {

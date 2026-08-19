@@ -327,6 +327,27 @@ const envSchema = z.object({
   /** Series polled per tick; keeps the public API usage well inside its rate limit. */
   ANIME_FOLLOW_BATCH_SIZE: intFromString(20),
 
+  // ---- Anime episode acquisition (AnimeUnity + HentaiSaturn) ----
+  // Deliberately independent from LINK_MEDIA_*: episodes are long-form, while ordinary pasted
+  // clips keep their existing short duration and download budgets.
+  ANIME_ARCHIVE_ENABLED: boolFromString(true),
+  /** Whole-series jobs are separately switchable and still require an admin at confirmation. */
+  ANIME_ARCHIVE_BULK_ENABLED: boolFromString(true),
+  ANIME_ARCHIVE_PROFILE: z.enum(['mobile', 'source']).default('mobile'),
+  ANIME_ARCHIVE_MAX_DURATION_SECONDS: intFromString(7_200),
+  ANIME_ARCHIVE_MAX_DOWNLOAD_MB: intFromString(2_048),
+  /** Kept explicit for deployment visibility; the worker enforces sequential execution. */
+  ANIME_ARCHIVE_BULK_CONCURRENCY: intFromString(1),
+  ANIME_ARCHIVE_TIMEOUT_MS: intFromString(1_800_000),
+  ANIME_ARCHIVE_MAX_HEIGHT: intFromString(720),
+  ANIME_ARCHIVE_CRF: intFromString(28),
+  ANIME_ARCHIVE_AUDIO_BITRATE_KBPS: intFromString(80),
+  /** Caps long-form decoder/filter/encoder parallelism so one episode cannot monopolise the host. */
+  ANIME_ARCHIVE_FFMPEG_THREADS: intFromString(2),
+  ANIME_ARCHIVE_OFFER_TTL_MINUTES: intFromString(15),
+  ANIME_ARCHIVE_MAX_RETRIES: intFromString(3),
+  ANIME_ARCHIVE_TMP_DIR: z.string().default('.tmp-anime-archive'),
+
   // ---- Ambient recall (what the bot happens to know about the current topic) ----
   // Runs on every turn, classifies the message into topic domains deterministically and injects a
   // short factual block. Local-first: the reply path does not wait on the network.

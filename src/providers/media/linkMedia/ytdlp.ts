@@ -20,6 +20,8 @@ export interface YtdlpDownloadConfig {
   proxy?: string | undefined;
   /** Browser-like User-Agent used by yt-dlp. A safe default is used when omitted. */
   userAgent?: string | undefined;
+  /** Optional public page origin required by some HLS/CDN flows. Query/credentials are stripped. */
+  referer?: string | undefined;
   /** Optional yt-dlp JavaScript runtime specification, e.g. `node:/usr/bin/node`. */
   jsRuntime?: string | undefined;
   /** Optional curl_cffi browser target. Do not set globally unless a site requires it. */
@@ -302,10 +304,28 @@ function appendNetworkArgs(args: string[], cfg: YtdlpDownloadConfig): void {
 
   const jsRuntime = cleanOption(cfg.jsRuntime);
   if (jsRuntime) args.push('--js-runtimes', jsRuntime);
+  const referer = safePublicReferer(cfg.referer);
+  if (referer) args.push('--referer', referer);
   // The official executable already bundles curl_cffi. Impersonation is deliberately opt-in since
   // forcing it for every request can make otherwise-working extractors less reliable.
   const impersonate = cleanOption(cfg.impersonate);
   if (impersonate) args.push('--impersonate', impersonate);
+}
+
+function safePublicReferer(value: string | undefined): string | undefined {
+  const cleaned = cleanOption(value);
+  if (!cleaned) return undefined;
+  try {
+    const url = new URL(cleaned);
+    if ((url.protocol !== 'https:' && url.protocol !== 'http:') || url.username || url.password) {
+      return undefined;
+    }
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return undefined;
+  }
 }
 
 /** Build the complete argv without a shell; exported so option hardening stays regression-tested. */

@@ -1,4 +1,8 @@
 import type { CallbackSpec } from '../types.js';
+import type {
+  AnimeArchiveConfirmationResult,
+  AnimeArchiveServiceRejectReason,
+} from '../../../anime/archive/service.js';
 import {
   DELETE_MODE_CALLBACK,
   SET_LANGUAGE_CALLBACK,
@@ -124,14 +128,81 @@ const termsResponse: CallbackSpec = {
   },
 };
 
+/** anime_archive|yes|<nonce> / anime_archive|no|<nonce>. All payload lives server-side. */
+const animeArchiveConfirmation: CallbackSpec = {
+  action: 'anime_archive',
+  permissions: ['allowed_user', 'not_banned'],
+  needsTermsAccepted: true,
+  ownerOnly: true,
+  async handle({ services, person, context, args }) {
+    const result = await services.animeArchive.confirmCallback(args, {
+      actorTelegramId: person.telegramId,
+      chatId: context.chatId,
+      threadId: context.threadId,
+      isAdmin: services.isAnimeArchiveAdmin(person, context),
+      quotaBypass: services.bypassesGroupPlan(person, context),
+      signal: AbortSignal.timeout(20_000),
+    });
+    return archiveConfirmationResponse(result);
+  },
+};
+
 export const callbackHandlers: CallbackSpec[] = [
   setChatMode,
   deleteChatMode,
   setChatLanguage,
   showChatModes,
   showChatLanguages,
+  animeArchiveConfirmation,
   termsResponse,
 ];
+
+function archiveConfirmationResponse(result: AnimeArchiveConfirmationResult) {
+  if (result.status === 'queued') {
+    const count = result.job.episodes.length;
+    return {
+      rawText:
+        result.created || result.changed
+          ? count === 1
+            ? 'Perfetto, episodio in coda. Te lo mando qui appena è pronto.'
+            : `Perfetto, archivio in coda: ${count} episodi, uno alla volta.`
+          : 'Questa richiesta è già stata presa in carico.',
+      textFormat: 'plain' as const,
+      deleteOrigin: true,
+    };
+  }
+  if (result.status === 'cancelled') {
+    return {
+      rawText: 'Va bene, richiesta annullata.',
+      textFormat: 'plain' as const,
+      deleteOrigin: true,
+    };
+  }
+  return {
+    rawText: archiveRejectionText(result.reason),
+    textFormat: 'plain' as const,
+  };
+}
+
+function archiveRejectionText(reason: AnimeArchiveServiceRejectReason): string {
+  switch (reason) {
+    case 'admin_required':
+      return 'Per confermare una serie completa devi essere ancora amministratore.';
+    case 'quota_denied':
+      return 'La quota media della chat è esaurita; riprova più tardi.';
+    case 'expired':
+      return 'Questa conferma è scaduta.';
+    case 'already_consumed':
+      return 'Questa conferma è già stata usata.';
+    case 'source_unavailable':
+      return 'La sorgente non risponde correttamente: la conferma resta disponibile per riprovare.';
+    case 'bulk_disabled':
+    case 'disabled':
+      return 'L’archivio anime non è disponibile in questo momento.';
+    default:
+      return 'Conferma non valida per questo utente, chat o argomento.';
+  }
+}
 
 function boundedPage(raw: string | undefined, itemCount: number): number {
   const parsed = raw && /^\d+$/.test(raw) ? Number(raw) : 0;

@@ -6,6 +6,10 @@ import {
   normalizeDecision,
 } from '../src/brain/cortex/evaluator.js';
 import type { CortexDecision } from '../src/brain/cortex/schema.js';
+import {
+  animeArchiveLookupFromAnswer,
+  shouldUseTerminalAgentRuntime,
+} from '../src/services/reply.js';
 import { fakeLLM } from './helpers.js';
 
 const scene: SceneAnalysis = {
@@ -114,6 +118,93 @@ describe('Cortex', () => {
         reason: 'model marked needsGrounding without web_search',
       },
     ]);
+  });
+
+  it('drops a model-supplied web_search when anime_knowledge already grounds the turn', () => {
+    const out = normalizeDecision(
+      decision({
+        toolCalls: [
+          {
+            tool: 'web_search',
+            query: 'Frieren latest episode',
+            reason: 'redundant generic grounding',
+          },
+          {
+            tool: 'anime_knowledge',
+            query: 'Frieren',
+            reason: 'structured live catalog',
+          },
+          {
+            tool: 'group_rag',
+            reason: 'retain unrelated context tool',
+          },
+        ],
+        needsGrounding: true,
+      }),
+      ['anime_knowledge', 'web_search', 'group_rag'],
+      'quando esce Frieren?',
+    );
+    expect(out.toolCalls.map((call) => call.tool)).toEqual(['anime_knowledge', 'group_rag']);
+    expect(cortexToTurnEvaluation({ ...out, source: 'llm' }, true).providerRequests).not.toContain(
+      'web_search',
+    );
+  });
+
+  it('keeps the anime answer in styled reply routing and exposes its archive lookup', () => {
+    const rawMixedDecision = decision({
+      toolCalls: [
+        {
+          tool: 'anime_knowledge',
+          query: 'Frieren',
+          args: { intent: 'lookup' },
+          reason: 'structured live catalog',
+        },
+        {
+          tool: 'web_search',
+          query: 'Frieren latest episode',
+          reason: 'redundant generic grounding',
+        },
+      ],
+    });
+    expect(shouldUseTerminalAgentRuntime(rawMixedDecision, false)).toBe(false);
+    expect(
+      shouldUseTerminalAgentRuntime(
+        {
+          toolCalls: [
+            ...rawMixedDecision.toolCalls,
+            { tool: 'image_gen', query: 'Frieren', reason: 'requested artifact' },
+          ],
+        },
+        false,
+      ),
+    ).toBe(true);
+
+    const answer = {
+      resolved: true,
+      summary: 'Frieren è arrivato all’episodio 28.',
+      candidates: [],
+      sources: ['https://anilist.co/anime/154587'],
+      series: {
+        title: 'Frieren: Beyond Journey’s End',
+        titleEnglish: 'Frieren: Beyond Journey’s End',
+        titleRomaji: 'Sousou no Frieren',
+        titleNative: '葬送のフリーレン',
+        aliases: ['Frieren'],
+        latestEpisode: 28,
+      },
+    } as never;
+    expect(animeArchiveLookupFromAnswer('lookup', answer)).toEqual({
+      titles: [
+        'Frieren: Beyond Journey’s End',
+        'Frieren: Beyond Journey’s End',
+        'Sousou no Frieren',
+        '葬送のフリーレン',
+        'Frieren',
+      ],
+      episodeNumber: 28,
+    });
+    expect(animeArchiveLookupFromAnswer('follow', answer)).toBeUndefined();
+    expect(animeArchiveLookupFromAnswer('unfollow', answer)).toBeUndefined();
   });
 
   it('does not override a successful model decision because an Italian tool word appears', async () => {

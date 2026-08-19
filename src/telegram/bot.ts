@@ -22,6 +22,7 @@ import {
 import { localizeResponse, sendResponse } from './render.js';
 import { renderTelegramText, splitTelegramMarkdown, telegramPlainText } from './format.js';
 import { auditApprovedChatMemberships, persistMyChatMemberUpdate } from './membership.js';
+import { parseAnimeArchiveConfirmationDecision } from '../anime/archive/service.js';
 
 const log = childLogger('bot');
 
@@ -44,6 +45,7 @@ export async function createBot(config: AppConfig, services: Services): Promise<
   // Refresh membership before any scheduler is started. Mining/autopost queries fail closed until
   // Telegram has confirmed that an approved chat still contains the bot.
   await auditApprovedChatMemberships(bot, services, me.id);
+  services.attachAnimeArchiveTelegramApi(bot.api);
 
   services.capabilities.reserveCommands(
     commandHandlers.flatMap((spec) => [
@@ -192,7 +194,11 @@ export async function createBot(config: AppConfig, services: Services): Promise<
       const hasMediaUrl =
         Boolean(message.messageText) &&
         extractUrls(message.messageText, config.linkMedia.maxUrlsPerMessage).length > 0;
-      if (!addressed && !autoengageEnabled && !hasMediaUrl) {
+      const hasArchiveInteraction =
+        Boolean(message.messageText && services.animeArchive) &&
+        (services.animeArchive?.classifyText(message.messageText).length > 0 ||
+          parseAnimeArchiveConfirmationDecision(message.messageText ?? '') !== null);
+      if (!addressed && !autoengageEnabled && !hasMediaUrl && !hasArchiveInteraction) {
         await handleMessage(ctx, person, context, message, {
           services,
           env: config.env,

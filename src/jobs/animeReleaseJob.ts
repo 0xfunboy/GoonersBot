@@ -12,6 +12,8 @@ export type AnimeReleaseNotifier = (notification: AnimeReleaseNotification) => P
 export interface AnimeReleaseNotification {
   chatId: number;
   threadId?: number | undefined;
+  /** Follower who owns any optional per-user action attached to this notification. */
+  createdByHandle: string;
   series: AnimeSeries;
   /** Episode number that just became available. */
   episode: number;
@@ -70,6 +72,7 @@ export async function runAnimeReleaseJob(
         delivered = await notify({
           chatId: claim.chatId,
           threadId: claim.threadId,
+          createdByHandle: claim.createdByHandle,
           series,
           episode,
         });

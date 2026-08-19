@@ -103,7 +103,14 @@ export const YTDLP_HOSTS: readonly string[] = Object.freeze([
  * has no trustworthy pre-download classification endpoint.
  */
 export const NSFW_HOSTS: readonly string[] = Object.freeze([
-  ...new Set(['redgifs.com', ...YTDLP_ADULT_HOSTS, 'onlyfans.com', 'rule34.xxx', 'e621.net']),
+  ...new Set([
+    'redgifs.com',
+    ...YTDLP_ADULT_HOSTS,
+    'hentaisaturn.tv',
+    'onlyfans.com',
+    'rule34.xxx',
+    'e621.net',
+  ]),
 ]);
 
 /** Normalize a URL hostname or configured host pattern for boundary-safe comparisons. */

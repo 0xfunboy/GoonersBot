@@ -72,8 +72,12 @@ export async function buildChatContext(
     mentionedHandles: extractMentions(text),
   };
   if ('title' in chat && chat.title) out.chatName = chat.title;
-  if (ctx.message?.message_thread_id !== undefined) out.threadId = ctx.message.message_thread_id;
-  if (ctx.message?.message_id !== undefined) out.messageId = ctx.message.message_id;
+  // `ctx.message` is absent on callback queries, while `ctx.msg` resolves both ordinary and
+  // callback-origin messages. Keeping the topic here is essential for resumable background jobs.
+  const originMessage = ctx.msg;
+  if (originMessage?.message_thread_id !== undefined)
+    out.threadId = originMessage.message_thread_id;
+  if (originMessage?.message_id !== undefined) out.messageId = originMessage.message_id;
   if (repliedFrom) {
     out.repliedToUserHandle = repliedFrom.username
       ? normalizeHandle(repliedFrom.username)

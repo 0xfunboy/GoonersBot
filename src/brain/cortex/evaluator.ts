@@ -103,11 +103,22 @@ export function normalizeDecision(
   currentMessage: string,
 ): CortexDecision {
   const allowed = new Set(availableTools);
-  const toolCalls = decision.toolCalls.filter((call) => allowed.has(call.tool));
+  const allowedToolCalls = decision.toolCalls.filter((call) => allowed.has(call.tool));
+  const hasAnimeKnowledge = allowedToolCalls.some((call) => call.tool === 'anime_knowledge');
+  // A model may explicitly emit both calls even though the structured anime catalog already
+  // grounds the release answer. Keep the catalog (and every unrelated tool) but discard only the
+  // redundant web call so this turn cannot be diverted into the terminal agent runtime.
+  const toolCalls = hasAnimeKnowledge
+    ? allowedToolCalls.filter((call) => call.tool !== 'web_search')
+    : allowedToolCalls;
   if (
     decision.needsGrounding &&
     !decision.intents.includes('stay_quiet') &&
     allowed.has('web_search') &&
+    // The anime catalog is itself the authoritative structured source for release metadata. Do
+    // not add a terminal web-search action on top: that would move an ordinary anime answer out
+    // of the normal styled reply pipeline and hide its structured archive offer.
+    !hasAnimeKnowledge &&
     !toolCalls.some((call) => call.tool === 'web_search')
   ) {
     toolCalls.push({

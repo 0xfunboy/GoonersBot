@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { loadEnv } from '../src/config/env.js';
-import { resolveLLMConfig, resolveMiningLLMConfig } from '../src/config/index.js';
+import {
+  resolveAnimeArchiveConfig,
+  resolveLLMConfig,
+  resolveMiningLLMConfig,
+} from '../src/config/index.js';
 
 const base = { TELEGRAM_BOT_TOKEN: 'token123' };
 
@@ -31,11 +35,58 @@ describe('loadEnv', () => {
     expect(env.LINK_MEDIA_EXTRA_YTDLP_HOSTS).toBeUndefined();
     expect(env.LINK_MEDIA_YTDLP_NETWORK_ISOLATION).toBe(true);
     expect(env.LINK_MEDIA_BWRAP_BIN).toBe('/usr/bin/bwrap');
+    expect(env.ANIME_ARCHIVE_ENABLED).toBe(true);
+    expect(env.ANIME_ARCHIVE_BULK_ENABLED).toBe(true);
+    expect(env.ANIME_ARCHIVE_PROFILE).toBe('mobile');
+    expect(env.ANIME_ARCHIVE_BULK_CONCURRENCY).toBe(1);
+    expect(env.ANIME_ARCHIVE_FFMPEG_THREADS).toBe(2);
     expect(env.CAPABILITY_LOCAL_DEVELOPMENT_ENABLED).toBe(false);
     expect(env.CAPABILITY_LOCAL_DEVELOPMENT_ADMIN_IDS).toEqual([]);
     expect(env.CAPABILITY_LOCAL_DEVELOPMENT_PLANNER_MODEL).toBe('gemini-3.6-flash');
     expect(env.CAPABILITY_LOCAL_DEVELOPMENT_CODER_MODEL).toBe('qwen/qwen3.5-397b-a17b');
     expect(env.CAPABILITY_LOCAL_DEVELOPMENT_REVIEW_MODEL).toBe('nvidia/nemotron-3-super-120b-a12b');
+  });
+
+  it('keeps long-form anime limits independent and forces sequential bulk work', () => {
+    const cfg = resolveAnimeArchiveConfig(
+      loadEnv({
+        ...base,
+        ANIME_ARCHIVE_PROFILE: 'source',
+        ANIME_ARCHIVE_MAX_DURATION_SECONDS: '9000',
+        ANIME_ARCHIVE_MAX_DOWNLOAD_MB: '512',
+        ANIME_ARCHIVE_BULK_CONCURRENCY: '9',
+        ANIME_ARCHIVE_MAX_HEIGHT: '900',
+        ANIME_ARCHIVE_CRF: '25',
+        ANIME_ARCHIVE_AUDIO_BITRATE_KBPS: '96',
+        ANIME_ARCHIVE_FFMPEG_THREADS: '3',
+      }),
+    );
+    expect(cfg).toMatchObject({
+      enabled: true,
+      bulkEnabled: true,
+      profile: 'source',
+      maxDurationSeconds: 9_000,
+      maxDownloadBytes: 512 * 1024 * 1024,
+      bulkConcurrency: 1,
+      maxHeight: 900,
+      crf: 25,
+      audioBitrateKbps: 96,
+      ffmpegThreads: 3,
+    });
+  });
+
+  it('caps anime archive resource limits even when deployment values are unsafe', () => {
+    const cfg = resolveAnimeArchiveConfig(
+      loadEnv({
+        ...base,
+        ANIME_ARCHIVE_MAX_DURATION_SECONDS: '999999999',
+        ANIME_ARCHIVE_MAX_DOWNLOAD_MB: '999999999',
+        ANIME_ARCHIVE_TIMEOUT_MS: '999999999',
+      }),
+    );
+    expect(cfg.maxDurationSeconds).toBe(6 * 60 * 60);
+    expect(cfg.maxDownloadBytes).toBe(4_096 * 1024 * 1024);
+    expect(cfg.timeoutMs).toBe(2 * 60 * 60_000);
   });
 
   it('normalizes link-media cookie/runtime configuration', () => {
