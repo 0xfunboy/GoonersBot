@@ -84,6 +84,14 @@ export interface PrepareNaturalAnimeOfferInput extends AnimeArchiveRequestContex
   signal?: AbortSignal | undefined;
 }
 
+export interface PrepareNaturalAnimeSeriesOfferInput extends AnimeArchiveRequestContext {
+  query: string;
+  /** Explicit user source preference; omitted means AnimeUnity first, then allowed alternatives. */
+  preferredSource?: AnimeArchiveSource | undefined;
+  isAdmin: boolean;
+  signal?: AbortSignal | undefined;
+}
+
 export interface PrepareResolvedAnimeOfferInput extends AnimeArchiveRequestContext {
   series: AnimeArchiveSeries;
   episode: AnimeArchiveEpisode;
@@ -641,6 +649,28 @@ export class AnimeArchiveService {
     return this.createEpisodeOffer(availability.match.series, episode, input);
   }
 
+  /** Whole-series natural-language action selected upstream by Cortex; confirmation stays admin-only. */
+  async prepareNaturalSeriesOffer(
+    input: PrepareNaturalAnimeSeriesOfferInput,
+  ): Promise<AnimeArchivePreparationResult> {
+    const blocked = this.blockedReason(input.preferredSource ?? 'animeunity');
+    if (blocked) return rejected(blocked);
+    if (!this.config.animeArchive.bulkEnabled) return rejected('bulk_disabled');
+    if (!input.isAdmin) return rejected('admin_required');
+    const availability = await this.findLatestAvailability(input.query, {
+      signal: input.signal,
+      ...(input.preferredSource ? { source: input.preferredSource } : {}),
+    });
+    if (!availability.match) {
+      const reason = availability.failure ?? 'not_found';
+      return rejected(
+        reason,
+        reason === 'ambiguous' ? { candidates: availability.candidates } : {},
+      );
+    }
+    return this.createSeriesOffer(availability.match.series, input);
+  }
+
   /** An explicit "rehost/scarica" instruction is consent itself, so queue without another SI/NO. */
   async prepareNaturalEpisodeRequest(
     input: PrepareNaturalAnimeOfferInput,
@@ -715,6 +745,13 @@ export class AnimeArchiveService {
       input.signal,
     );
     if (!series) return rejected('source_unavailable');
+    return this.createSeriesOffer(series, input);
+  }
+
+  private async createSeriesOffer(
+    series: AnimeArchiveSeries,
+    input: AnimeArchiveRequestContext,
+  ): Promise<AnimeArchiveConfirmationRequired> {
     const offer = await this.storage.animeArchive.offers.create(
       {
         source: series.source,

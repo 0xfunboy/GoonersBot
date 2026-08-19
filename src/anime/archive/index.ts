@@ -1,7 +1,6 @@
 export * from './animeUnity.js';
 export * from './hentaiSaturn.js';
 export * from './http.js';
-export * from './intent.js';
 export * from './progress.js';
 export * from './registry.js';
 export * from './types.js';

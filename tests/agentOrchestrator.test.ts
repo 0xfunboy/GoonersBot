@@ -398,6 +398,67 @@ describe('multi-action agent orchestration', () => {
     expect(plan.actions[2]?.dependsOn).toEqual(['translate_1']);
   });
 
+  it('does not let the second planner mutate a Cortex-selected anime archive identity', async () => {
+    const planner = new MultiActionPlanner(
+      fakeLLM({
+        json: {
+          goal: 'archive an anime episode',
+          actions: [
+            {
+              id: 'mutated_archive',
+              tool: 'anime_archive',
+              purpose: 'archive a different episode',
+              query: 'Tanya the Evil 2',
+              args: {
+                intent: 'availability',
+                title: 'Tanya the Evil 2',
+                episode: '6',
+                source: 'animeunity',
+              },
+            },
+          ],
+        },
+      }),
+      { enabled: true },
+    );
+    const plan = await planner.plan({
+      request: "controlla se è uscito l'episodio 7 di Tanya the Evil 2 e rehostalo",
+      availableTools: [
+        {
+          name: 'anime_archive',
+          description: 'archive anime',
+          risk: 'external_write',
+          maxCalls: 1,
+        },
+      ],
+      requestedActions: [
+        {
+          tool: 'anime_archive',
+          query: 'Tanya the Evil 2',
+          args: {
+            intent: 'rehost',
+            title: 'Tanya the Evil 2',
+            episode: '7',
+            source: 'animeunity',
+          },
+          reason: 'Cortex selected exact episode rehost',
+        },
+      ],
+    });
+
+    expect(plan.actions).toHaveLength(1);
+    expect(plan.actions[0]).toMatchObject({
+      tool: 'anime_archive',
+      query: 'Tanya the Evil 2',
+      args: {
+        intent: 'rehost',
+        title: 'Tanya the Evil 2',
+        episode: '7',
+        source: 'animeunity',
+      },
+    });
+  });
+
   it('rejects schema-valid transformation plans that sever trusted document dataflow', async () => {
     const planner = new MultiActionPlanner(
       fakeLLM({

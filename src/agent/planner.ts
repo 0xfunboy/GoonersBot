@@ -154,6 +154,24 @@ function coversRequestedActions(plan: AgentActionPlan, context: AgentPlanningCon
     return false;
   }
 
+  // External archive writes carry a concrete identity selected by Cortex. A second planning model
+  // may order actions, but it must not silently mutate title/episode/source or switch availability
+  // into rehost (or vice versa). Any mismatch falls back to the exact trusted host plan.
+  const requestedArchive = (context.requestedActions ?? []).filter(
+    (action) => action.tool === 'anime_archive',
+  );
+  if (requestedArchive.length > 0) {
+    const plannedArchive = plan.actions.filter((action) => action.tool === 'anime_archive');
+    const sameArchiveAction = requestedArchive.every((requested) =>
+      plannedArchive.some(
+        (action) =>
+          (action.query ?? '') === (requested.query ?? '') &&
+          JSON.stringify(action.args ?? {}) === JSON.stringify(requested.args ?? {}),
+      ),
+    );
+    if (!sameArchiveAction) return false;
+  }
+
   // Presence alone is not enough for transformation chains. Without these dependency paths,
   // "translate the PDF and read it aloud" can execute three successful tools in parallel while
   // translating/voicing the raw user request rather than the document output.

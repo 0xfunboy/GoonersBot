@@ -20,6 +20,8 @@ export interface CortexCapabilities {
   knowledge: boolean;
   /** Anime release catalog (AniList) + per-chat follows. */
   anime: boolean;
+  /** AnimeUnity/HentaiSaturn availability + rehost action tool. */
+  animeArchive?: boolean;
   music: boolean;
   linkMedia: boolean;
   imageGeneration: boolean;
@@ -105,20 +107,20 @@ export function normalizeDecision(
   const allowed = new Set(availableTools);
   const allowedToolCalls = decision.toolCalls.filter((call) => allowed.has(call.tool));
   const hasAnimeKnowledge = allowedToolCalls.some((call) => call.tool === 'anime_knowledge');
-  // A model may explicitly emit both calls even though the structured anime catalog already
-  // grounds the release answer. Keep the catalog (and every unrelated tool) but discard only the
-  // redundant web call so this turn cannot be diverted into the terminal agent runtime.
-  const toolCalls = hasAnimeKnowledge
+  const hasAnimeArchive = allowedToolCalls.some((call) => call.tool === 'anime_archive');
+  const hasAnimeGrounding = hasAnimeKnowledge || hasAnimeArchive;
+  // Both anime tools are structured sources for their own domains: catalog metadata/follows and
+  // archive availability/rehost. A generic web search on top only adds a conflicting gateway path.
+  const toolCalls = hasAnimeGrounding
     ? allowedToolCalls.filter((call) => call.tool !== 'web_search')
     : allowedToolCalls;
   if (
     decision.needsGrounding &&
     !decision.intents.includes('stay_quiet') &&
     allowed.has('web_search') &&
-    // The anime catalog is itself the authoritative structured source for release metadata. Do
-    // not add a terminal web-search action on top: that would move an ordinary anime answer out
-    // of the normal styled reply pipeline and hide its structured archive offer.
-    !hasAnimeKnowledge &&
+    // Anime metadata and archive availability each have a structured authoritative tool. Do not
+    // synthesize a generic web-search action on top of either one.
+    !hasAnimeGrounding &&
     !toolCalls.some((call) => call.tool === 'web_search')
   ) {
     toolCalls.push({
@@ -141,6 +143,7 @@ export function availableToolsFor(capabilities: CortexCapabilities): CortexTool[
   if (capabilities.imageLookup) tools.push('image_lookup');
   if (capabilities.knowledge) tools.push('knowledge_rag');
   if (capabilities.anime) tools.push('anime_knowledge');
+  if (capabilities.animeArchive) tools.push('anime_archive');
   tools.push('group_rag');
   if (capabilities.music) tools.push('music');
   if (capabilities.linkMedia) tools.push('link_media');
@@ -203,6 +206,7 @@ function actionFromDecision(
     decision.intents.includes(intent);
   const tool = (name: CortexTool): boolean => decision.toolCalls.some((call) => call.tool === name);
   if (has('make_video') || tool('video_gen')) return 'generate_video';
+  if (has('archive_anime') || tool('anime_archive')) return 'archive_anime';
   if (has('download_media') || tool('link_media')) return 'download_media';
   if (has('play_music') || tool('music')) return 'download_music';
   if (has('draw_image')) return 'draw_image';

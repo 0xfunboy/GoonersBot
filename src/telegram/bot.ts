@@ -23,7 +23,6 @@ import { localizeResponse, sendResponse } from './render.js';
 import { renderTelegramText, splitTelegramMarkdown, telegramPlainText } from './format.js';
 import { auditApprovedChatMemberships, persistMyChatMemberUpdate } from './membership.js';
 import { parseAnimeArchiveConfirmationDecision } from '../anime/archive/service.js';
-import { parseNaturalAnimeArchiveRequest } from '../anime/archive/intent.js';
 
 const log = childLogger('bot');
 
@@ -198,8 +197,6 @@ export async function createBot(config: AppConfig, services: Services): Promise<
       const hasArchiveInteraction =
         Boolean(message.messageText && services.animeArchive) &&
         (services.animeArchive?.classifyText(message.messageText).length > 0 ||
-          (addressed &&
-            parseNaturalAnimeArchiveRequest(message.messageText, context.repliedToText) !== null) ||
           parseAnimeArchiveConfirmationDecision(message.messageText ?? '') !== null);
       if (!addressed && !autoengageEnabled && !hasMediaUrl && !hasArchiveInteraction) {
         await handleMessage(ctx, person, context, message, {

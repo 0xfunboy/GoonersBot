@@ -809,6 +809,38 @@ describe('AnimeArchiveService natural availability and textual confirmation', ()
     expect(hentaiSaturn.search).not.toHaveBeenCalled();
   });
 
+  it('keeps Cortex-selected whole-series archive actions behind the admin confirmation boundary', async () => {
+    const { service, offers } = harness({ animeUnitySearch: [frierenHit] });
+
+    await expect(
+      service.prepareNaturalSeriesOffer({
+        query: 'Frieren',
+        chatId: -100,
+        threadId: 42,
+        replyToMessageId: 77,
+        requesterTelegramId: 123,
+        isAdmin: false,
+      }),
+    ).resolves.toEqual({ status: 'rejected', reason: 'admin_required' });
+    expect(offers.docs).toHaveLength(0);
+
+    await expect(
+      service.prepareNaturalSeriesOffer({
+        query: 'Frieren',
+        chatId: -100,
+        threadId: 42,
+        replyToMessageId: 77,
+        requesterTelegramId: 123,
+        isAdmin: true,
+      }),
+    ).resolves.toMatchObject({
+      status: 'confirmation_required',
+      offer: { requiresAdmin: true, target: { kind: 'series' } },
+      series: { title: 'Frieren' },
+    });
+    expect(offers.docs).toHaveLength(1);
+  });
+
   it('turns a downloadable natural match into a normal episode offer, then reuses enqueue on YES', async () => {
     const { service, canReserveMedia, jobs } = harness({ animeUnitySearch: [frierenHit] });
     const prepared = await service.prepareNaturalEpisodeOffer({
