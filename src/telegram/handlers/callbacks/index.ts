@@ -138,7 +138,7 @@ const animeArchiveConfirmation: CallbackSpec = {
     const result = await services.animeArchive.confirmCallback(args, {
       actorTelegramId: person.telegramId,
       chatId: context.chatId,
-      threadId: context.threadId,
+      confirmationMessageId: context.messageId ?? 0,
       isAdmin: services.isAnimeArchiveAdmin(person, context),
       quotaBypass: services.bypassesGroupPlan(person, context),
       signal: AbortSignal.timeout(20_000),
@@ -196,11 +196,19 @@ function archiveRejectionText(reason: AnimeArchiveServiceRejectReason): string {
       return 'Questa conferma è già stata usata.';
     case 'source_unavailable':
       return 'La sorgente non risponde correttamente: la conferma resta disponibile per riprovare.';
+    case 'wrong_actor':
+      return 'Questa conferma appartiene all’utente che ha richiesto il download.';
+    case 'wrong_chat':
+      return 'Questa conferma non appartiene a questa chat.';
+    case 'invalid_confirmation':
+      return 'Questa conferma non corrisponde più al messaggio con i pulsanti.';
+    case 'not_found':
+      return 'Questa conferma non esiste più.';
     case 'bulk_disabled':
     case 'disabled':
       return 'L’archivio anime non è disponibile in questo momento.';
     default:
-      return 'Conferma non valida per questo utente, chat o argomento.';
+      return 'Conferma archivio non valida.';
   }
 }
 

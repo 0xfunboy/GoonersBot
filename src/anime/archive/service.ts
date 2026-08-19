@@ -66,6 +66,14 @@ export interface AnimeArchiveConfirmationInput {
   signal?: AbortSignal | undefined;
 }
 
+export interface AnimeArchiveCallbackConfirmationInput extends Omit<
+  AnimeArchiveConfirmationInput,
+  'offerId' | 'decision' | 'threadId'
+> {
+  /** Exact Telegram message that contained the inline keyboard being pressed. */
+  confirmationMessageId: number;
+}
+
 export interface AnimeArchiveTextConfirmationInput extends Omit<
   AnimeArchiveConfirmationInput,
   'offerId' | 'decision'
@@ -388,11 +396,29 @@ export class AnimeArchiveService {
 
   async confirmCallback(
     args: readonly string[],
-    actor: Omit<AnimeArchiveConfirmationInput, 'offerId' | 'decision'>,
+    actor: AnimeArchiveCallbackConfirmationInput,
   ): Promise<AnimeArchiveConfirmationResult> {
     const parsed = parseAnimeArchiveCallbackArgs(args);
     if (!parsed) return rejected('invalid_confirmation');
-    return this.confirm({ ...actor, offerId: parsed.offerId, decision: parsed.decision });
+    const offer = await this.storage.animeArchive.offers.get(parsed.offerId);
+    if (!offer) return rejected('not_found');
+    if (offer.requesterTelegramId !== actor.actorTelegramId) return rejected('wrong_actor');
+    if (offer.chatId !== actor.chatId) return rejected('wrong_chat');
+    // The callback is bound to the exact Telegram message whose keyboard carried this nonce. This
+    // is stronger than reconstructing a forum topic from callback context, which Telegram/grammY
+    // can represent differently from the originating user message.
+    if (
+      offer.confirmationMessageId === null ||
+      offer.confirmationMessageId !== actor.confirmationMessageId
+    ) {
+      return rejected('invalid_confirmation');
+    }
+    return this.confirm({
+      ...actor,
+      offerId: parsed.offerId,
+      decision: parsed.decision,
+      threadId: offer.threadId,
+    });
   }
 
   /**

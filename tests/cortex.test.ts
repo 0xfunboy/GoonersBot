@@ -128,6 +128,12 @@ describe('Cortex', () => {
     expect(prompt).toContain('anime_archive');
     expect(prompt).toContain('AnimeUnity and HentaiSaturn');
     expect(prompt).toContain('availability | rehost | series');
+    expect(prompt).toContain(
+      'to queue the requested episode. If the user asks to download/rehost/send',
+    );
+    expect(prompt).toContain('ALWAYS wins even when the same sentence also says');
+    expect(prompt).toContain('args.episode = "latest"');
+    expect(prompt).toContain('cerca l ultimo episodio di Chainsaw Man e rehostalo');
     expect(prompt).toContain('after YOU have classified the intent');
     expect(prompt).not.toContain('official streaming links');
   });
