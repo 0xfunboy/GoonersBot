@@ -28,13 +28,24 @@ consumed, the original prompt remains in chat as an audit trail and only its but
 Completed episodes carry Telegram receipts, so a restarted worker resumes at the first unfinished
 episode and keeps concurrency at exactly one.
 
-Normal anime questions continue through `anime_knowledge` and the styled reply pipeline. Once the
-existing catalog has resolved a series, a bounded live source lookup can add the natural offer
-`Vuoi che te lo rehosti qui?`. A button or a short reply such as `sì`, `scaricalo` or `vai` invokes
-the same single-episode job used by a pasted URL. An explicit addressed command such as
-`rehostami l'episodio 7`, including a reply to a bot release notice, skips the extra confirmation
-and queues that exact episode deterministically. Follow notifications are emitted only after the
-episode is observed on a supported archive source and include that canonical source URL.
+Natural-language archive actions use the same LLM-first action architecture as the rest of the
+bot. Cortex is the authoritative intent evaluator: it decides whether the turn needs
+`anime_knowledge` (catalog metadata/follows) or the `anime_archive` action tool, and emits structured
+`intent`, `title`, optional `episode` and optional `source` arguments. The coordinator may execute
+`anime_archive` only when Cortex requested it; the planner cannot invent the write action on its own.
+The archive service then deterministically verifies AnimeUnity/HentaiSaturn and creates the offer or
+queue job. Actual source URLs and `SI / NO` callbacks remain the only archive interactions handled
+before Cortex because their meaning is already explicit protocol state, not natural-language
+classification.
+
+`anime_archive` supports `availability`, `rehost` and `series`. Availability verifies the requested
+episode and creates `Vuoi che te lo scarichi e rehosti qui?`; an explicit rehost request queues the
+resolved episode; whole-series requests create the existing admin-only confirmation. The Cortex is
+given the replied-to Telegram text explicitly, so short follow-ups such as `scaricalo` can resolve
+pronouns and episode references semantically rather than through keyword/regex parsing. Ordinary
+anime questions continue through `anime_knowledge`; after a catalog lookup, the existing bounded
+source enrichment may still add a relevant archive offer. Follow notifications are emitted only
+after the episode is observed on a supported archive source and include that canonical source URL.
 
 Long jobs keep one best-effort Telegram status message updated across download and upload, adding a
 conversion stage only when fallback preparation is actually required. Status delivery is

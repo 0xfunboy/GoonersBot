@@ -414,6 +414,7 @@ export class Services {
       quota: this.quota,
       capabilities: this.capabilities,
       anime: this.anime,
+      animeArchive: this.animeArchive,
     });
     this.reply = new ReplyService(
       llm,

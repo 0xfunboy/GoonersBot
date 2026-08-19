@@ -20,10 +20,6 @@ import {
   type AnimeArchivePreparationResult,
   type AnimeArchiveServiceRejectReason,
 } from '../../anime/archive/service.js';
-import {
-  parseNaturalAnimeArchiveRequest,
-  parseNaturalAnimeAvailabilityRequest,
-} from '../../anime/archive/intent.js';
 import { animeArchiveSourceLabel } from '../../anime/archive/types.js';
 import {
   renderTelegramText,
@@ -162,14 +158,6 @@ export async function handleMessage(
   const archiveMatches = message.messageText
     ? (animeArchive?.classifyText(message.messageText) ?? [])
     : [];
-  const naturalArchiveRequest =
-    addressed && message.messageText
-      ? parseNaturalAnimeArchiveRequest(message.messageText, context.repliedToText)
-      : null;
-  const naturalAvailabilityRequest =
-    addressed && message.messageText
-      ? parseNaturalAnimeAvailabilityRequest(message.messageText, context.repliedToText)
-      : null;
   // Archive sources must never fall through to the generic short-form downloader. In mixed
   // messages we pass only the unrelated URLs to LinkMediaService, whose limits remain unchanged.
   const genericMediaUrls = mediaUrls.filter(
@@ -183,8 +171,6 @@ export async function handleMessage(
   const hasArchiveInteraction =
     Boolean(animeArchive) &&
     (archiveMatches.length > 0 ||
-      naturalArchiveRequest !== null ||
-      naturalAvailabilityRequest !== null ||
       parseAnimeArchiveConfirmationDecision(message.messageText ?? '') !== null);
   // Link rehosting is an independent per-chat feature: disabling conversation storage must not
   // disable the interceptor. Messages with neither an address nor a rehostable URL can stop here.
@@ -236,8 +222,6 @@ export async function handleMessage(
       {
         services,
         archiveMatches,
-        naturalArchiveRequest,
-        naturalAvailabilityRequest,
         quotaBypass: bypassGroupPlan,
       },
     ).catch(async (err) => {
@@ -583,6 +567,7 @@ export async function handleMessage(
       quotaBypass: bypassGroupPlan,
       passive: !addressed,
       allowLinkMedia: linkMediaAllowed,
+      animeArchiveAdmin: services.isAnimeArchiveAdmin(person, context),
       allowCapabilityInstall: services.permissions.isBotAdmin(person.userHandle),
     });
     const meteredUsage = currentLlmUsage();
@@ -645,7 +630,7 @@ export async function handleMessage(
     const archiveQueries = [
       ...new Set(outcome.animeArchiveLookup?.titles.map((title) => title.trim()).filter(Boolean)),
     ].slice(0, 3);
-    if (archiveQueries.length > 0 && services.animeArchive.enabled) {
+    if (!outcome.animeArchiveResult && archiveQueries.length > 0 && services.animeArchive.enabled) {
       const availabilitySignal = AbortSignal.timeout(7_000);
       for (const query of archiveQueries) {
         const availability = await services.animeArchive
@@ -710,6 +695,7 @@ export async function handleMessage(
     const hasExplicitArtifact = Boolean(
       outcome.music ||
       outcome.linkMediaUrl ||
+      outcome.animeArchiveResult ||
       outcome.audioBuffer ||
       outcome.imageBuffer ||
       outcome.imageUrl ||
@@ -758,6 +744,10 @@ export async function handleMessage(
           'text reply sent',
         );
       }
+    }
+    if (outcome.animeArchiveResult) {
+      const archiveMessageIds = await sendArchiveResult(ctx, services, outcome.animeArchiveResult);
+      for (const messageId of archiveMessageIds) rememberBotMessage(messageId);
     }
     if (naturalArchiveOffer) {
       const previousMessageId = naturalArchiveOffer.offer.confirmationMessageId;
@@ -1060,8 +1050,6 @@ async function handleAnimeArchiveInteraction(
   input: {
     services: Services;
     archiveMatches: ReturnType<Services['animeArchive']['classifyText']>;
-    naturalArchiveRequest: ReturnType<typeof parseNaturalAnimeArchiveRequest>;
-    naturalAvailabilityRequest: ReturnType<typeof parseNaturalAnimeAvailabilityRequest>;
     quotaBypass: boolean;
   },
 ): Promise<boolean> {
@@ -1117,58 +1105,21 @@ async function handleAnimeArchiveInteraction(
     return true;
   }
 
-  if (input.naturalAvailabilityRequest) {
-    const result = await services.animeArchive.prepareNaturalEpisodeOffer({
-      query: input.naturalAvailabilityRequest.query,
-      ...(input.naturalAvailabilityRequest.expectedEpisodeNumber
-        ? { expectedEpisodeNumber: input.naturalAvailabilityRequest.expectedEpisodeNumber }
-        : {}),
-      ...(input.naturalAvailabilityRequest.preferredSource
-        ? { preferredSource: input.naturalAvailabilityRequest.preferredSource }
-        : {}),
-      chatId: context.chatId,
-      threadId: context.threadId,
-      replyToMessageId: context.messageId,
-      requesterTelegramId: person.telegramId,
-      quotaBypass: input.quotaBypass,
-      signal: AbortSignal.timeout(20_000),
-    });
-    await sendArchiveResult(ctx, services, result);
-    return true;
-  }
-
-  if (!input.naturalArchiveRequest) return false;
-  const naturalInput = {
-    query: input.naturalArchiveRequest.query,
-    ...(input.naturalArchiveRequest.expectedEpisodeNumber
-      ? { expectedEpisodeNumber: input.naturalArchiveRequest.expectedEpisodeNumber }
-      : {}),
-    ...(input.naturalArchiveRequest.preferredSource
-      ? { preferredSource: input.naturalArchiveRequest.preferredSource }
-      : {}),
-    chatId: context.chatId,
-    threadId: context.threadId,
-    replyToMessageId: context.messageId,
-    requesterTelegramId: person.telegramId,
-    quotaBypass: input.quotaBypass,
-    signal: AbortSignal.timeout(20_000),
-  };
-  const result = input.naturalArchiveRequest.confirmationPreferred
-    ? await services.animeArchive.prepareNaturalEpisodeOffer(naturalInput)
-    : await services.animeArchive.prepareNaturalEpisodeRequest(naturalInput);
-  await sendArchiveResult(ctx, services, result);
-  return true;
+  return false;
 }
 
 async function sendArchiveResult(
   ctx: GrammyContext,
   services: Services,
   result: AnimeArchivePreparationResult | AnimeArchiveConfirmationResult,
-): Promise<void> {
+): Promise<number[]> {
   const response = archiveResultResponse(result);
   if (result.status !== 'confirmation_required') {
-    await sendResponse(ctx, await localizeResponse(services, ctx.chat?.id ?? 0, response));
-    return;
+    const sent = await sendResponse(
+      ctx,
+      await localizeResponse(services, ctx.chat?.id ?? 0, response),
+    );
+    return sent ? [sent.message_id] : [];
   }
 
   const previousMessageId = result.offer.confirmationMessageId;
@@ -1205,6 +1156,7 @@ async function sendArchiveResult(
       .deleteMessage(ctx.chat?.id ?? 0, attachment.replacedMessageId)
       .catch(() => undefined);
   }
+  return [sent.message_id];
 }
 
 export function archiveResultResponse(

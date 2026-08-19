@@ -65,6 +65,7 @@ export class ReplyPlanner {
       case 'bring_news_context':
       case 'download_music':
       case 'download_media':
+      case 'archive_anime':
       case 'generate_image':
       case 'draw_image':
       case 'generate_video':
@@ -103,6 +104,7 @@ export class ReplyPlanner {
       e.action === 'bring_news_context' ||
       e.action === 'download_music' ||
       e.action === 'download_media' ||
+      e.action === 'archive_anime' ||
       e.action === 'generate_image' ||
       e.action === 'draw_image' ||
       e.action === 'generate_video' ||

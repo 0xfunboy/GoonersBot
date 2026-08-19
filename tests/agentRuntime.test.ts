@@ -35,6 +35,7 @@ describe('AgentRuntime live provider bridge', () => {
       quota: {} as never,
       capabilities: { enabled: false } as never,
       anime: { enabled: false } as never,
+      animeArchive: { enabled: false } as never,
     });
 
     const definitions = (
@@ -82,6 +83,7 @@ describe('AgentRuntime live provider bridge', () => {
         quota: {} as never,
         capabilities: { enabled: true, acquire } as never,
         anime: { enabled: false } as never,
+        animeArchive: { enabled: false } as never,
       });
       const input: AgentRuntimeInput = {
         request: 'impara questa capacità',
@@ -209,6 +211,7 @@ describe('AgentRuntime live provider bridge', () => {
       quota: {} as never,
       capabilities: { enabled: false } as never,
       anime: { enabled: false } as never,
+      animeArchive: { enabled: false } as never,
     });
 
     const result = await runtime.run({
@@ -301,6 +304,7 @@ describe('AgentRuntime live provider bridge', () => {
       quota: { reserve } as never,
       capabilities: { enabled: false } as never,
       anime: { enabled: false } as never,
+      animeArchive: { enabled: false } as never,
     });
 
     const result = await runtime.run({
@@ -421,6 +425,7 @@ describe('AgentRuntime live provider bridge', () => {
       quota: {} as never,
       capabilities: { enabled: false } as never,
       anime: { enabled: false } as never,
+      animeArchive: { enabled: false } as never,
     });
 
     const result = await runtime.run({
@@ -507,6 +512,7 @@ describe('AgentRuntime live provider bridge', () => {
       quota: {} as never,
       capabilities: { enabled: false } as never,
       anime: { enabled: false } as never,
+      animeArchive: { enabled: false } as never,
     });
 
     const result = await runtime.run({
@@ -572,6 +578,7 @@ describe('AgentRuntime live provider bridge', () => {
       quota: {} as never,
       capabilities: { enabled: false } as never,
       anime: { enabled: false } as never,
+      animeArchive: { enabled: false } as never,
     });
 
     const result = await runtime.run({
@@ -654,6 +661,7 @@ describe('AgentRuntime live provider bridge', () => {
       quota: {} as never,
       capabilities: { enabled: false } as never,
       anime: { enabled: false } as never,
+      animeArchive: { enabled: false } as never,
     });
 
     const result = await runtime.run({
@@ -686,6 +694,121 @@ describe('AgentRuntime live provider bridge', () => {
       ?.prompt;
     expect(compositionPrompt).toContain('Telegram rehost is still pending');
     expect(compositionPrompt).not.toContain('Resolved media for Telegram delivery');
+  });
+
+  it('executes a Cortex-selected anime archive rehost as a transport-owned action', async () => {
+    const jsonCompletion = vi
+      .fn()
+      .mockResolvedValueOnce({
+        goal: 'verify and rehost Tanya episode 7',
+        actions: [
+          {
+            id: 'anime_archive_1',
+            tool: 'anime_archive',
+            purpose: 'verify and queue the requested anime episode',
+            query: 'Tanya the Evil 2',
+            args: {
+              intent: 'rehost',
+              title: 'Tanya the Evil 2',
+              episode: '7',
+              source: 'animeunity',
+            },
+            dependsOn: [],
+            optional: false,
+            timeoutMs: 20_000,
+            acceptance: { requireOutput: true, minEvidence: 0, requiredArtifactKinds: [] },
+          },
+        ],
+        finalResponse: {
+          language: 'Italian',
+          format: 'text',
+          mustInclude: [],
+          tone: 'direct',
+        },
+      })
+      .mockResolvedValueOnce({
+        message: 'Episodio verificato e messo in coda.',
+        usedActionIds: ['anime_archive_1'],
+        uncertainties: [],
+      });
+    const queued = {
+      status: 'queued' as const,
+      created: true,
+      job: {
+        series: { title: 'Youjo Senki 2' },
+        episodes: [{}],
+      },
+    };
+    const prepareNaturalEpisodeRequest = vi.fn().mockResolvedValue(queued);
+    const runtime = new AgentRuntime({
+      config: {
+        brain: { cortex: { model: 'test' }, replyModel: 'test' },
+        env: { REPETITION_SIMILARITY_THRESHOLD: 0.78 },
+        animeArchive: { enabled: true },
+        linkMedia: { enabled: false },
+      } as never,
+      llm: { capabilities: { chat: true }, jsonCompletion } as never,
+      media: { canGenerateImage: false } as never,
+      music: { enabled: false } as never,
+      video: { enabled: false } as never,
+      tts: { enabled: false } as never,
+      grounding: { enabled: false } as never,
+      knowledge: { enabled: false } as never,
+      imageFinder: {} as never,
+      imagePrompts: {} as never,
+      videoPrompts: {} as never,
+      quota: {} as never,
+      capabilities: { enabled: false } as never,
+      anime: { enabled: false } as never,
+      animeArchive: {
+        enabled: true,
+        prepareNaturalEpisodeRequest,
+      } as never,
+    });
+
+    const result = await runtime.run({
+      request: "controlla se è uscito l'episodio 7 di Tanya the Evil 2 e rehostalo",
+      language: 'italian',
+      person: { telegramId: 1, userHandle: '@alice' },
+      context: {
+        chatId: -100,
+        messageId: 77,
+        isGroup: true,
+        isBotMentioned: true,
+        isGroupAdmin: false,
+        isReplyToBot: false,
+      },
+      requestedActions: [
+        {
+          tool: 'anime_archive',
+          query: 'Tanya the Evil 2',
+          args: {
+            intent: 'rehost',
+            title: 'Tanya the Evil 2',
+            episode: '7',
+            source: 'animeunity',
+          },
+          reason: 'Cortex classified an explicit anime rehost request',
+        },
+      ],
+      recentMessages: [],
+      quotaBypass: true,
+      allowAnimeArchiveWrite: true,
+    });
+
+    expect(prepareNaturalEpisodeRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: 'Tanya the Evil 2',
+        expectedEpisodeNumber: '7',
+        preferredSource: 'animeunity',
+        chatId: -100,
+        replyToMessageId: 77,
+        requesterTelegramId: 1,
+      }),
+    );
+    expect(result?.animeArchiveResult).toBe(queued);
+    expect(result?.text).toBe('');
+    expect(result?.styleVariant).toBe('agent:anime_archive');
   });
 
   it('keeps a pure link-media resolution failure visible', async () => {
@@ -738,6 +861,7 @@ describe('AgentRuntime live provider bridge', () => {
       quota: {} as never,
       capabilities: { enabled: false } as never,
       anime: { enabled: false } as never,
+      animeArchive: { enabled: false } as never,
     });
 
     const result = await runtime.run({

@@ -34,6 +34,8 @@ const caps = {
   imageLookup: true,
   news: true,
   knowledge: true,
+  anime: true,
+  animeArchive: true,
   music: true,
   linkMedia: true,
   imageGeneration: true,
@@ -121,12 +123,52 @@ describe('Cortex', () => {
     ]);
   });
 
-  it('keeps anime watch/rehost planning on no-gateway archive sources', () => {
+  it('assigns natural anime availability/rehost intent to the Cortex tool contract', () => {
     const prompt = `${CORTEX_SYSTEM}\n${CORTEX_FEWSHOT}`;
-    expect(prompt).toContain('AnimeUnity/HentaiSaturn');
-    expect(prompt).toContain('deterministic no-gateway archive layer');
+    expect(prompt).toContain('anime_archive');
+    expect(prompt).toContain('AnimeUnity and HentaiSaturn');
+    expect(prompt).toContain('availability | rehost | series');
+    expect(prompt).toContain('after YOU have classified the intent');
     expect(prompt).not.toContain('official streaming links');
-    expect(prompt).not.toContain('catalog carries the official streaming');
+  });
+
+  it('keeps a model-selected anime_archive action and suppresses redundant web grounding', () => {
+    const out = normalizeDecision(
+      decision({
+        intents: ['archive_anime'],
+        toolCalls: [
+          {
+            tool: 'anime_archive',
+            query: 'Tanya the Evil 2',
+            args: {
+              intent: 'rehost',
+              title: 'Tanya the Evil 2',
+              episode: '7',
+              source: 'animeunity',
+            },
+            reason: 'explicit anime episode rehost request',
+          },
+          {
+            tool: 'web_search',
+            query: 'Tanya episode 7',
+            reason: 'redundant generic grounding',
+          },
+        ],
+        needsGrounding: true,
+      }),
+      ['anime_archive', 'web_search'],
+      "controlla se è uscito l'episodio 7 di Tanya the Evil 2 e rehostalo",
+    );
+    expect(out.toolCalls).toEqual([
+      expect.objectContaining({
+        tool: 'anime_archive',
+        args: expect.objectContaining({ intent: 'rehost', episode: '7' }),
+      }),
+    ]);
+    const evaluation = cortexToTurnEvaluation({ ...out, source: 'llm' }, true);
+    expect(evaluation.action).toBe('archive_anime');
+    expect(evaluation.providerRequests).toEqual(['anime_archive']);
+    expect(shouldUseTerminalAgentRuntime({ toolCalls: out.toolCalls }, false)).toBe(true);
   });
 
   it('drops a model-supplied web_search when anime_knowledge already grounds the turn', () => {

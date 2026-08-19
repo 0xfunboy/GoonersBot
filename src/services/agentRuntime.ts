@@ -21,6 +21,11 @@ import type { GroundingService } from '../search/groundingService.js';
 import type { KnowledgeRetriever } from '../knowledge/knowledgeRetriever.js';
 import type { AnimeKnowledgeService } from '../anime/knowledgeService.js';
 import { parseAnimeIntent } from '../anime/knowledgeService.js';
+import type {
+  AnimeArchivePreparationResult,
+  AnimeArchiveService,
+} from '../anime/archive/service.js';
+import type { AnimeArchiveSource } from '../anime/archive/types.js';
 import type { ImageFinder } from '../media/imageFinder.js';
 import type { GroupQuotaService } from './groupQuota.js';
 import type { ImagePromptService, PreparedImagePrompt } from './imagePrompt.js';
@@ -62,6 +67,7 @@ type RuntimeData =
   | { kind: 'voice'; buffer: Buffer }
   | { kind: 'music'; result: MusicResult }
   | { kind: 'link_media'; url: string }
+  | { kind: 'anime_archive'; result: AnimeArchivePreparationResult }
   | {
       kind: 'capability';
       text: string;
@@ -99,6 +105,10 @@ export interface AgentRuntimeInput {
   recentBotReplies?: BotReplyRecord[];
   visual?: { buffer: Buffer; mime: string } | null;
   quotaBypass?: boolean;
+  /** Natural whole-series archive authority already resolved by the host permission layer. */
+  animeArchiveAdmin?: boolean;
+  /** Approved addressed turns may execute the archive tool's persistent offer/queue writes. */
+  allowAnimeArchiveWrite?: boolean;
   allowCapabilityInstall?: boolean;
   signal?: AbortSignal;
 }
@@ -117,6 +127,7 @@ export interface AgentRuntimeResult {
   audioBuffer?: Buffer;
   music?: MusicResult;
   linkMediaUrl?: string;
+  animeArchiveResult?: AnimeArchivePreparationResult;
   status: 'complete' | 'partial' | 'failed';
   actionCount: number;
 }
@@ -136,6 +147,7 @@ export interface AgentRuntimeDependencies {
   quota: GroupQuotaService;
   capabilities: CapabilityForge;
   anime: AnimeKnowledgeService;
+  animeArchive: AnimeArchiveService;
 }
 
 /**
@@ -166,7 +178,7 @@ export class AgentRuntime {
     });
     const orchestrator = new ToolOrchestrator(definitions, registry, {
       maxConcurrency: 3,
-      allowExternalWrites: false,
+      allowExternalWrites: Boolean(input.allowAnimeArchiveWrite),
     });
     const composer = new FinalAnswerComposer(this.deps.llm, {
       model: input.model ?? this.deps.config.brain.replyModel,
@@ -193,17 +205,20 @@ export class AgentRuntime {
       { signal: input.signal },
     );
     if (result.plan.actions.length === 0) return null;
-    // Resolving a source URL is only preparation for the Telegram transport performed by the
-    // message handler. A pure link-media turn must stay silent until that handler has either
-    // received real Telegram message ids or emitted its deterministic failure notice.
-    const hasResolvedLinkMedia = result.execution.results.some((run) => {
+    // Transport-owned actions stay silent when they are the whole plan. The message handler must
+    // report actual Telegram delivery/queue/confirmation state rather than a composer paraphrase.
+    const transportKinds = new Set<RuntimeData['kind']>(['link_media', 'anime_archive']);
+    const hasTransportResult = result.execution.results.some((run) => {
       if (run.status !== 'succeeded') return false;
       const data = asRuntimeData(run.output?.data);
-      return data?.kind === 'link_media' && Boolean(data.url);
+      return Boolean(data && transportKinds.has(data.kind));
     });
-    const pureResolvedLinkMediaPlan =
-      hasResolvedLinkMedia && result.plan.actions.every((action) => action.tool === 'link_media');
-    const guardedText = pureResolvedLinkMediaPlan
+    const pureTransportPlan =
+      hasTransportResult &&
+      result.plan.actions.every(
+        (action) => action.tool === 'link_media' || action.tool === 'anime_archive',
+      );
+    const guardedText = pureTransportPlan
       ? ''
       : await this.guardFinalAnswer(result.answer.message, result, input);
 
@@ -235,6 +250,8 @@ export class AgentRuntime {
         output.music = data.result;
       } else if (data.kind === 'link_media' && !output.linkMediaUrl) {
         output.linkMediaUrl = data.url;
+      } else if (data.kind === 'anime_archive' && !output.animeArchiveResult) {
+        output.animeArchiveResult = data.result;
       }
     }
     log.info(
@@ -343,10 +360,23 @@ export class AgentRuntime {
     if (this.deps.anime.enabled)
       add(
         'anime_knowledge',
-        'look up anime release data (status, latest episode, airing day, where to watch legally) ' +
-          "and manage this chat's series follows",
+        "look up anime catalog metadata (status, latest episode, airing day) and manage this chat's follows",
         'read',
         { maxCalls: 2 },
+      );
+    const cortexRequestedAnimeArchive = Boolean(
+      input.requestedActions?.some((action) => action.tool === 'anime_archive'),
+    );
+    if (
+      this.deps.animeArchive.enabled &&
+      input.allowAnimeArchiveWrite &&
+      cortexRequestedAnimeArchive
+    )
+      add(
+        'anime_archive',
+        'verify AnimeUnity/HentaiSaturn episode availability and create/queue the requested Telegram anime rehost',
+        'external_write',
+        { maxCalls: 1, timeoutMs: 20_000 },
       );
     if (this.deps.grounding.enabled)
       add(
@@ -468,6 +498,49 @@ export class AgentRuntime {
           summary: answer.summary.slice(0, 6_000),
           data: { kind: 'text', text: answer.summary } satisfies RuntimeData,
           evidence: answer.sources.slice(0, 5).map((source) => ({ source })),
+          verified: true,
+        };
+      },
+
+      anime_archive: async (toolCtx) => {
+        const intent = animeArchiveIntent(stringArg(toolCtx, 'intent'));
+        const title = stringArg(toolCtx, 'title') ?? toolCtx.action.query?.trim();
+        if (!intent || !title) {
+          return failedOutput(
+            'Anime archive action requires a structured intent and concrete title.',
+          );
+        }
+        const episode = stringArg(toolCtx, 'episode');
+        const preferredSource = animeArchiveSource(stringArg(toolCtx, 'source'));
+        const common = {
+          query: title,
+          ...(episode && episode !== 'latest' ? { expectedEpisodeNumber: episode } : {}),
+          ...(preferredSource ? { preferredSource } : {}),
+          chatId: input.context.chatId,
+          threadId: input.context.threadId,
+          ...(input.context.messageId !== undefined
+            ? { replyToMessageId: input.context.messageId }
+            : {}),
+          requesterTelegramId: input.person.telegramId,
+          quotaBypass: input.quotaBypass ?? false,
+          signal: toolCtx.signal,
+        };
+        const result =
+          intent === 'availability'
+            ? await this.deps.animeArchive.prepareNaturalEpisodeOffer(common)
+            : intent === 'rehost'
+              ? await this.deps.animeArchive.prepareNaturalEpisodeRequest(common)
+              : await this.deps.animeArchive.prepareNaturalSeriesOffer({
+                  ...common,
+                  isAdmin: Boolean(input.animeArchiveAdmin),
+                });
+        return {
+          summary: animeArchiveSummary(result),
+          data: { kind: 'anime_archive', result } satisfies RuntimeData,
+          evidence: animeArchiveEvidence(result),
+          confidence: 1,
+          // A deterministic negative result is still verified: the transport layer must render the
+          // exact rejection instead of letting the answer composer hallucinate availability.
           verified: true,
         };
       },
@@ -948,6 +1021,37 @@ function textOutput(text: string, summary: string): ToolExecutionOutput {
 
 function failedOutput(summary: string): ToolExecutionOutput {
   return { summary, verified: false };
+}
+
+type AnimeArchiveRuntimeIntent = 'availability' | 'rehost' | 'series';
+
+function animeArchiveIntent(value: string | undefined): AnimeArchiveRuntimeIntent | null {
+  return value === 'availability' || value === 'rehost' || value === 'series' ? value : null;
+}
+
+function animeArchiveSource(value: string | undefined): AnimeArchiveSource | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === 'animeunity' || normalized === 'hentaisaturn' ? normalized : undefined;
+}
+
+function animeArchiveSummary(result: AnimeArchivePreparationResult): string {
+  if (result.status === 'confirmation_required') {
+    return result.episode
+      ? `Verified ${result.series.title} episode ${result.episode.number} on ${result.series.source}; Telegram rehost confirmation is ready.`
+      : `Verified ${result.series.title} on ${result.series.source}; whole-series confirmation is ready.`;
+  }
+  if (result.status === 'queued') {
+    return `Anime archive job queued: ${result.job.series.title}, ${result.job.episodes.length} episode(s).`;
+  }
+  return `Anime archive request verified as unavailable/rejected: ${result.reason}.`;
+}
+
+function animeArchiveEvidence(
+  result: AnimeArchivePreparationResult,
+): Array<{ source: string; title?: string }> {
+  if (result.status !== 'confirmation_required') return [];
+  const source = result.episode?.canonicalUrl ?? result.series.canonicalUrl;
+  return source ? [{ source, title: result.series.title }] : [];
 }
 
 function toolQuery(ctx: ToolExecutionContext, fallback: string): string {
