@@ -56,34 +56,83 @@ export function resolveStance(input: StanceInput): Stance {
     return { tier: 'opinion', evidence: [], block: renderOpinion() };
   }
 
-  const evidence = input.facts
-    .filter((fact) => Boolean(fact.url))
-    .slice(0, 3)
-    .map((fact) => ({ claim: fact.text, source: fact.subject, url: fact.url }));
+  const evidence = [
+    ...input.facts
+      .filter((fact) => Boolean(fact.url))
+      .map((fact) => ({ claim: fact.text, source: fact.subject, url: fact.url })),
+    ...(input.sources ?? [])
+      .filter((url) => /^https?:\/\//i.test(url))
+      .map((url) => ({ claim: '', source: hostOf(url), url })),
+  ].slice(0, 6);
 
-  if (evidence.length === 0) {
+  const tier = gradeEvidence(evidence);
+
+  if (tier === 'unknown') {
     // No source in hand. If people are disagreeing, saying so is the honest contribution.
     return disputing
-      ? { tier: 'unknown', evidence: [], block: renderUnknown() }
-      : { tier: 'unknown', evidence: [], block: '' };
+      ? { tier, evidence: [], block: renderUnknown() }
+      : { tier, evidence: [], block: '' };
   }
 
-  // A single corroborating source on a disputed point is what "settled" means here.
-  if (disputing) return { tier: 'settled', evidence, block: renderSettled(evidence) };
+  // Nobody is arguing: the facts speak for themselves and no flag needs planting.
+  if (!disputing) return { tier, evidence, block: '' };
 
-  // Evidence exists but nobody is arguing: no stance needed, the facts speak on their own.
-  return { tier: 'settled', evidence, block: '' };
+  return tier === 'settled'
+    ? { tier, evidence, block: renderSettled(evidence) }
+    : { tier, evidence, block: renderContested(evidence) };
+}
+
+/**
+ * Grade the evidence by how many *independent* sources back it.
+ *
+ * Corroboration is the bar, because a single page is not "incontrovertible" no matter how
+ * confident it sounds - and confidence is precisely what a language model cannot be trusted to
+ * measure about itself. Independence is counted by host: three pages on one site are one site.
+ *
+ * Honest limitation: this measures corroboration, not agreement. Two independent sources that
+ * genuinely contradict each other are indistinguishable here from two that concur, so `settled`
+ * means "several sources speak to this", not "several sources were checked against each other".
+ * Detecting semantic contradiction is not something deterministic code can do, and pretending
+ * otherwise would put the over-confidence straight back in.
+ */
+export function gradeEvidence(evidence: readonly StanceEvidence[]): StanceTier {
+  const hosts = new Set(
+    evidence.map((item) => (item.url ? hostOf(item.url) : item.source.toLowerCase())),
+  );
+  if (hosts.size === 0) return 'unknown';
+  // One source is thin: enough to bring to the table, never enough to tell someone they are wrong.
+  return hosts.size >= 2 ? 'settled' : 'contested';
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    return url.toLowerCase();
+  }
 }
 
 function renderSettled(evidence: readonly StanceEvidence[]): string {
   return [
-    'STANCE: SETTLED — you hold a source on the point being disputed.',
+    'STANCE: SETTLED — several independent sources speak to the point being disputed.',
     ...evidence.map(
       (item) => `  • ${item.source}: ${item.claim}${item.url ? ` (${item.url})` : ''}`,
     ),
     '  Back whoever holds this position and say why, citing the link.',
     '  Back it REGARDLESS of who you like: standing decides your tone, never your side.',
     '  Correct the other person on the fact only. Do not mock them for being wrong.',
+  ].join('\n');
+}
+
+function renderContested(evidence: readonly StanceEvidence[]): string {
+  return [
+    'STANCE: CONTESTED — you hold ONE source on a disputed point. That is not enough to settle it.',
+    ...evidence.map(
+      (item) =>
+        `  • ${item.source}${item.claim ? `: ${item.claim}` : ''}${item.url ? ` (${item.url})` : ''}`,
+    ),
+    '  Offer what you have and say where it comes from. Do NOT tell anyone they are wrong.',
+    '  Naming what would actually settle it is a better contribution than picking a side.',
   ].join('\n');
 }
 

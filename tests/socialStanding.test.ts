@@ -5,7 +5,7 @@ import {
   renderStanding,
   scoreTurn,
 } from '../src/social/standingService.js';
-import { resolveStance } from '../src/social/stanceService.js';
+import { gradeEvidence, resolveStance } from '../src/social/stanceService.js';
 import {
   DEMOTION_FLOOR,
   FRIEND_RAPPORT_THRESHOLD,
@@ -198,13 +198,33 @@ describe('stance follows evidence, not affection', () => {
     ...overrides,
   });
 
-  it('takes a side only when a source is actually in hand', () => {
+  it('settles only on corroboration from independent sources', () => {
     const settled = resolveStance({
       message: 'no ti sbagli, esce di giovedi',
       facts: [fact()],
+      sources: ['https://www.crunchyroll.com/series/GR9P57W96'],
     });
     expect(settled.tier).toBe('settled');
     expect(settled.block).toContain('anilist.co');
+  });
+
+  it('refuses to settle on a single source, however confident it looks', () => {
+    // One page is not "incontrovertible", and a model cannot be trusted to grade its own
+    // certainty - so corroboration is the bar rather than confidence.
+    const thin = resolveStance({ message: 'no ti sbagli, esce di giovedi', facts: [fact()] });
+    expect(thin.tier).toBe('contested');
+    expect(thin.block).toMatch(/do not tell anyone they are wrong/i);
+    // It still brings what it has to the table.
+    expect(thin.block).toContain('anilist.co');
+  });
+
+  it('counts several pages on one site as one source', () => {
+    const sameHost = resolveStance({
+      message: 'no ti sbagli',
+      facts: [fact()],
+      sources: ['https://anilist.co/anime/999', 'https://www.anilist.co/anime/1234'],
+    });
+    expect(sameHost.tier).toBe('contested');
   });
 
   it('refuses to pick a side with no evidence, even in a clear dispute', () => {
@@ -227,10 +247,38 @@ describe('stance follows evidence, not affection', () => {
   });
 
   it('instructs the model that affection must not choose the side', () => {
-    const block = resolveStance({ message: 'no ti sbagli', facts: [fact()] }).block;
+    const block = resolveStance({
+      message: 'no ti sbagli',
+      facts: [fact()],
+      sources: ['https://www.crunchyroll.com/series/x'],
+    }).block;
     // This is the sycophancy guard, stated where the model will actually read it.
     expect(block).toMatch(/REGARDLESS of who you like/i);
     expect(block).toMatch(/do not mock them/i);
+  });
+});
+
+describe('gradeEvidence', () => {
+  it('needs two independent hosts to settle', () => {
+    expect(gradeEvidence([])).toBe('unknown');
+    expect(gradeEvidence([{ claim: '', source: 'a', url: 'https://one.example/x' }])).toBe(
+      'contested',
+    );
+    expect(
+      gradeEvidence([
+        { claim: '', source: 'a', url: 'https://one.example/x' },
+        { claim: '', source: 'b', url: 'https://two.example/y' },
+      ]),
+    ).toBe('settled');
+  });
+
+  it('treats www and bare host as the same site', () => {
+    expect(
+      gradeEvidence([
+        { claim: '', source: 'a', url: 'https://anilist.co/x' },
+        { claim: '', source: 'b', url: 'https://www.anilist.co/y' },
+      ]),
+    ).toBe('contested');
   });
 });
 
@@ -247,7 +295,11 @@ describe('the sycophancy guard', () => {
   it('produces the same stance whether the speaker is a friend or hostile', () => {
     // The single property the whole design rests on: rapport is not an input to the stance at
     // all, so there is no path by which liking someone can change which claim the bot backs.
-    const dispute = { message: 'no ti sbagli, esce di giovedi', facts: [fact()] };
+    const dispute = {
+      message: 'no ti sbagli, esce di giovedi',
+      facts: [fact()],
+      sources: ['https://www.crunchyroll.com/series/x'],
+    };
     const first = resolveStance(dispute);
     const second = resolveStance(dispute);
     expect(first.tier).toBe(second.tier);
@@ -270,7 +322,11 @@ describe('the sycophancy guard', () => {
       'friend',
       'light',
     );
-    const substance = resolveStance({ message: 'no ti sbagli', facts: [fact()] }).block;
+    const substance = resolveStance({
+      message: 'no ti sbagli',
+      facts: [fact()],
+      sources: ['https://www.crunchyroll.com/series/x'],
+    }).block;
     expect(tone).toContain('SOCIAL STANDING');
     expect(tone).not.toContain('STANCE');
     expect(substance).toContain('STANCE');
