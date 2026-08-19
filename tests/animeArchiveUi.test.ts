@@ -53,7 +53,7 @@ describe('anime archive confirmation UI', () => {
         bypassesGroupPlan: () => false,
       },
       person: { telegramId: 123, userHandle: '@fixture' },
-      context: { chatId: -100, threadId: 7 },
+      context: { chatId: -100, threadId: 7, messageId: 501 },
       args: ['no', 'ao_fixture'],
     } as unknown as HandlerInput;
     await expect(spec?.handle(input)).resolves.toMatchObject({
@@ -65,7 +65,7 @@ describe('anime archive confirmation UI', () => {
       expect.objectContaining({
         actorTelegramId: 123,
         chatId: -100,
-        threadId: 7,
+        confirmationMessageId: 501,
         isAdmin: true,
       }),
     );
@@ -86,10 +86,10 @@ describe('anime archive confirmation UI', () => {
         status: 'confirmation_required',
         offer: { id: 'ao_fixture' },
         keyboard,
-        series: { title: 'Fixture' },
+        series: { title: 'Fixture', source: 'animeunity' },
       } as never),
     ).toMatchObject({
-      rawText: expect.stringContaining('intero anime'),
+      rawText: expect.stringMatching(/Trovato su .*Fixture.*intero anime/s),
       keyboard,
     });
     expect(
@@ -97,20 +97,24 @@ describe('anime archive confirmation UI', () => {
         status: 'confirmation_required',
         offer: { id: 'ao_episode' },
         keyboard,
-        series: { title: 'Fixture' },
+        series: { title: 'Fixture', source: 'animeunity' },
         episode: { number: '7' },
       } as never),
     ).toMatchObject({
-      rawText: 'Vuoi che te lo scarichi e rehosti qui?',
+      rawText: expect.stringMatching(/Trovato su .*Fixture.*episodio 7.*Vuoi che te lo scarichi/s),
       keyboard,
     });
     expect(
       archiveResultResponse({
         status: 'queued',
         created: true,
-        job: { episodes: [{}] },
+        job: {
+          source: 'animeunity',
+          series: { title: 'Fixture' },
+          episodes: [{ number: 7 }],
+        },
       } as never),
-    ).toMatchObject({ rawText: expect.stringContaining('Episodio in coda') });
+    ).toMatchObject({ rawText: expect.stringMatching(/Trovato su .*Episodio in coda/s) });
   });
 });
 

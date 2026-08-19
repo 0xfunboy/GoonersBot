@@ -1163,21 +1163,35 @@ export function archiveResultResponse(
   result: AnimeArchivePreparationResult | AnimeArchiveConfirmationResult,
 ): CommandResponse {
   if (result.status === 'queued') {
+    const source = animeArchiveSourceLabel(result.job.source);
+    const episode = result.job.episodes[0]?.number;
+    const target =
+      result.job.episodes.length === 1 && episode !== undefined
+        ? `${result.job.series.title} — episodio ${episode}`
+        : `${result.job.series.title} — ${result.job.episodes.length} episodi`;
     return {
       rawText:
         result.created || result.changed
-          ? result.job.episodes.length === 1
-            ? 'Episodio in coda. Lo preparo per il telefono e te lo mando qui appena è pronto.'
-            : `Serie in coda: ${result.job.episodes.length} episodi, rigorosamente uno alla volta.`
-          : 'Questa richiesta è già stata presa in carico.',
+          ? `Trovato su ${source}: ${target}.\n${
+              result.job.episodes.length === 1
+                ? 'Episodio in coda. Te lo mando qui appena è pronto.'
+                : 'Serie in coda, rigorosamente un episodio alla volta.'
+            }`
+          : `Trovato su ${source}: ${target}.\nQuesta richiesta è già stata presa in carico.`,
       textFormat: 'plain',
     };
   }
   if (result.status === 'confirmation_required') {
+    const source = animeArchiveSourceLabel(result.series.source);
+    const found = result.episode
+      ? `${result.series.title} — episodio ${result.episode.number}`
+      : result.series.title;
     return {
-      rawText: result.episode
-        ? 'Vuoi che te lo scarichi e rehosti qui?'
-        : 'Vuoi scaricare e rehostare l’intero anime su telegram?',
+      rawText: `Trovato su ${source}: ${found}.\n${
+        result.episode
+          ? 'Vuoi che te lo scarichi e rehosti qui?'
+          : 'Vuoi scaricare e rehostare l’intero anime su Telegram?'
+      }`,
       textFormat: 'plain',
       keyboard: result.keyboard,
     };

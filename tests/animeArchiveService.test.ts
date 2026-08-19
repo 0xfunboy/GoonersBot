@@ -376,11 +376,20 @@ describe('AnimeArchiveService secure series confirmation', () => {
       url: ANIMEUNITY_SERIES_URL,
     });
     if (prepared.status !== 'confirmation_required') throw new Error('expected offer');
+    await service.replaceConfirmationMessage(prepared.offer.id, 501);
+    await expect(
+      service.confirmCallback(['yes', prepared.offer.id], {
+        actorTelegramId: 123,
+        chatId: -100,
+        confirmationMessageId: 500,
+        isAdmin: true,
+      }),
+    ).resolves.toEqual({ status: 'rejected', reason: 'invalid_confirmation' });
 
     const accepted = await service.confirmCallback(['yes', prepared.offer.id], {
       actorTelegramId: 123,
       chatId: -100,
-      threadId: 42,
+      confirmationMessageId: 501,
       isAdmin: true,
     });
     expect(accepted).toMatchObject({ status: 'queued', created: true });
@@ -398,7 +407,7 @@ describe('AnimeArchiveService secure series confirmation', () => {
       await service.confirmCallback(['yes', prepared.offer.id], {
         actorTelegramId: 123,
         chatId: -100,
-        threadId: 42,
+        confirmationMessageId: 501,
         isAdmin: true,
       }),
     ).toMatchObject({
