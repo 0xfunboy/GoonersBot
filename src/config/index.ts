@@ -422,6 +422,20 @@ export function resolveAmbientConfig(env: Env): AmbientConfig {
   };
 }
 
+export interface SocialStandingConfig {
+  /** Track conduct toward the bot and let it soften with people who are kind. */
+  enabled: boolean;
+  /** Allow a grounded stance on a disputed claim. */
+  stanceEnabled: boolean;
+}
+
+export function resolveSocialStandingConfig(env: Env): SocialStandingConfig {
+  return {
+    enabled: env.SOCIAL_STANDING_ENABLED,
+    stanceEnabled: env.SOCIAL_STANDING_ENABLED && env.FACTUAL_STANCE_ENABLED,
+  };
+}
+
 export interface AnimeConfig {
   /** Catalog answers (release status, latest episode, airing schedule) are available. */
   enabled: boolean;
@@ -773,6 +787,7 @@ export interface AppConfig {
   linkMedia: LinkMediaConfig;
   anime: AnimeConfig;
   ambient: AmbientConfig;
+  standing: SocialStandingConfig;
 }
 
 export function loadConfig(): AppConfig {
@@ -793,5 +808,6 @@ export function loadConfig(): AppConfig {
     linkMedia: resolveLinkMediaConfig(env),
     anime: resolveAnimeConfig(env),
     ambient: resolveAmbientConfig(env),
+    standing: resolveSocialStandingConfig(env),
   };
 }

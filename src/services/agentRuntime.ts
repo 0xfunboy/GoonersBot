@@ -268,13 +268,16 @@ export class AgentRuntime {
 
     const verifiedSummaries = [
       // Recalled facts were verified before the plan even ran; they survive a tool that failed.
-      ...(input.ambientContext ? [input.ambientContext] : []),
+      // Stripped first: this block opens with directives aimed at the model, not the reader.
+      ...(input.ambientContext ? [stripPromptScaffolding(input.ambientContext)] : []),
       ...coordinated.execution.results
         .filter((run) => run.status === 'succeeded' && run.output?.verified !== false)
         .map((run) => run.output?.summary.trim())
         .filter((summary): summary is string => Boolean(summary)),
     ];
-    const deterministic = verifiedSummaries.join('\n\n').trim() || deterministicAgentFailure(input);
+    const deterministic =
+      stripPromptScaffolding(verifiedSummaries.join('\n\n')).trim() ||
+      deterministicAgentFailure(input);
     try {
       const rewrite = await this.deps.llm.chatCompletion({
         system: [
@@ -479,7 +482,10 @@ export class AgentRuntime {
         );
         if (!result) return failedOutput('No verified web result was available.');
         return {
-          summary: result.block,
+          // `summary` can end up in front of a user verbatim; `data` is only ever read by the
+          // composer. The formatted block belongs in the second, because it opens with
+          // instructions addressed to the model.
+          summary: digestOf(result.block, result.sources),
           data: { kind: 'text', text: result.block } satisfies RuntimeData,
           evidence: result.sources.map((source) => ({ source })),
           confidence: result.sources.length ? 0.82 : 0.55,
@@ -501,7 +507,7 @@ export class AgentRuntime {
         );
         if (!result) return failedOutput('The visual could not be identified reliably.');
         return {
-          summary: result.block,
+          summary: digestOf(result.block, result.sources),
           data: { kind: 'text', text: result.block } satisfies RuntimeData,
           evidence: result.sources.map((source) => ({ source })),
           confidence: 0.72,
@@ -879,6 +885,56 @@ export class AgentRuntime {
     });
     return synthesis.text.trim() || partials.join('\n\n');
   }
+}
+
+/**
+ * Header of a provider context block: an ALL-CAPS label followed by parenthesised directives.
+ *
+ * These blocks are written for the model ("use these facts to be accurate", "never say you
+ * searched the web") and are catastrophic when echoed: the group sees the bot's own instructions.
+ */
+const PROMPT_BLOCK_HEADER = /^[A-Z][A-Z0-9 /_-]{3,40}\s*\([^)]*\):?\s*$/;
+
+/**
+ * Remove prompt scaffolding from text that is about to be shown to a user.
+ *
+ * This is the invariant, not a patch for one tool: any block whose header addresses the model is
+ * dropped along with the directive line, wherever it came from. A tool that forgets the rule
+ * cannot leak through here.
+ */
+export function stripPromptScaffolding(text: string): string {
+  if (!text.includes('(')) return text.trim();
+  const kept: string[] = [];
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trimEnd();
+    // A header can wrap over several lines; drop until the parenthetical actually closes.
+    if (PROMPT_BLOCK_HEADER.test(line.trim())) continue;
+    kept.push(line);
+  }
+  return collapseWrappedHeaders(kept.join('\n')).trim();
+}
+
+/** Drop a multi-line header whose directives wrapped past the first line. */
+function collapseWrappedHeaders(text: string): string {
+  return text.replace(/^[A-Z][A-Z0-9 /_-]{3,40}\s*\([^)]*\):?/gm, '').replace(/\n{3,}/g, '\n\n');
+}
+
+/**
+ * A short, instruction-free digest of a grounding block.
+ *
+ * Keeps what a reader could use - the findings and their links - and none of the framing the
+ * model was given.
+ */
+function digestOf(block: string, sources: readonly string[]): string {
+  const findings = block
+    .split('\n')
+    .filter((line) => line.trimStart().startsWith('- '))
+    .slice(0, 4)
+    .map((line) => line.trim());
+  if (findings.length > 0) return findings.join('\n').slice(0, 1_200);
+  return sources.length > 0
+    ? sources.slice(0, 4).join('\n')
+    : 'Verified results were retrieved for this question.';
 }
 
 function textOutput(text: string, summary: string): ToolExecutionOutput {

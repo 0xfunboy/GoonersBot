@@ -6,6 +6,7 @@ import type {
   ReplyIntent,
   MemoryUseMode,
   TurnEvaluation,
+  RoastBudget,
 } from './types.js';
 import { capRoast, isSeriousSupport } from './socialAwareness.js';
 
@@ -28,6 +29,13 @@ export interface PlannerInput {
   maxChars: number;
   /** StyleEngine may preselect this and pass it through for persistence/guarding. */
   comedyStrategy?: ComedyStrategy;
+  /**
+   * Ceiling earned by how this person has treated the bot over time.
+   *
+   * Applied on top of the turn's own social ceiling, so a friend is teased rather than savaged
+   * even in a scene that would otherwise licence a heavy roast.
+   */
+  standingRoastCeiling?: RoastBudget;
 }
 
 /**
@@ -162,9 +170,13 @@ export class ReplyPlanner {
       );
     }
 
-    const roastBudget = socialSignal
+    const turnBudget = socialSignal
       ? capRoast(e.roastBudget, socialSignal.roastCeiling)
       : e.roastBudget;
+    // Two independent ceilings: what this moment allows, and what this person has earned.
+    const roastBudget = input.standingRoastCeiling
+      ? capRoast(turnBudget, input.standingRoastCeiling)
+      : turnBudget;
     const noveltyInstruction = seriousSupport
       ? 'Acknowledge the specific feeling without therapy-speak, then give one concrete immediate step. Be steady, loyal and direct; no roast.'
       : gratitudeTurn
