@@ -333,7 +333,7 @@ const envSchema = z.object({
   ANIME_ARCHIVE_ENABLED: boolFromString(true),
   /** Whole-series jobs are separately switchable and still require an admin at confirmation. */
   ANIME_ARCHIVE_BULK_ENABLED: boolFromString(true),
-  ANIME_ARCHIVE_PROFILE: z.enum(['mobile', 'source']).default('mobile'),
+  ANIME_ARCHIVE_PROFILE: z.enum(['mobile', 'source']).default('source'),
   ANIME_ARCHIVE_MAX_DURATION_SECONDS: intFromString(7_200),
   ANIME_ARCHIVE_MAX_DOWNLOAD_MB: intFromString(2_048),
   /** Kept explicit for deployment visibility; the worker enforces sequential execution. */

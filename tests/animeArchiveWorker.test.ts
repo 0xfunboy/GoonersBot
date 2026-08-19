@@ -422,6 +422,18 @@ async function runHarness(
 }
 
 describe('anime archive worker safety boundaries', () => {
+  it('uploads Telegram-compatible AnimeUnity/HentaiSaturn source bytes without remux or transcode', async () => {
+    const state = harness({ candidates: [directCandidate(1)] });
+
+    await runHarness(state, { waitFor: 'complete' });
+
+    expect(mocks.normalize).not.toHaveBeenCalled();
+    expect(mocks.send).toHaveBeenCalledOnce();
+    expect(mocks.send.mock.calls[0]?.[0].path).toContain('source-video.bin');
+    expect(state.reserveMedia).toHaveBeenCalledWith(state.job.destination.chatId, 5);
+    expect(mocks.thumbnail.mock.calls[0]?.[1]).toContain('source-video.bin');
+  });
+
   it('probes inside the bounded fallback loop and renews its lease before upload', async () => {
     const state = harness({ candidates: [directCandidate(1), directCandidate(2)] });
     mocks.probe.mockImplementation(async (_bin: string, input: string) => {
@@ -432,12 +444,8 @@ describe('anime archive worker safety boundaries', () => {
     await runHarness(state, { waitFor: 'complete' });
 
     expect(mocks.download).toHaveBeenCalledTimes(2);
-    expect(mocks.normalize).toHaveBeenCalledWith(
-      expect.stringContaining('candidate-1-'),
-      expect.stringContaining('prepared.mp4'),
-      expect.any(Object),
-      validProbe,
-    );
+    expect(mocks.normalize).not.toHaveBeenCalled();
+    expect(mocks.send.mock.calls[0]?.[0].path).toContain('candidate-1-');
     expect(state.canReserveMedia.mock.invocationCallOrder[0]).toBeLessThan(
       state.getEpisode.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
     );
@@ -454,7 +462,6 @@ describe('anime archive worker safety boundaries', () => {
     const deliveryToken = state.jobs.beginEpisodeDelivery.mock.calls[0]?.[3];
     expect(deliveryToken).toEqual(expect.any(String));
     expect(state.jobs.completeEpisode.mock.calls[0]?.[3]).toBe(deliveryToken);
-    expect(mocks.normalize.mock.calls[0]?.[2]).toMatchObject({ threads: 2 });
     expect(mocks.send.mock.calls[0]?.[0].signal).toBeInstanceOf(AbortSignal);
   });
 

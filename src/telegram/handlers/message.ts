@@ -1078,8 +1078,13 @@ async function handleAnimeArchiveInteraction(
           : undefined;
     const confirmationMessageId = consumedOffer?.confirmationMessageId;
     if (confirmationMessageId) {
-      // Text confirmations should retire the same short prompt a button callback would delete.
-      await ctx.api.deleteMessage(context.chatId, confirmationMessageId).catch(() => undefined);
+      // Keep the consumed prompt as a visible audit trail, exactly like a button confirmation.
+      // Only retire its keyboard so the same action cannot be clicked again.
+      await ctx.api
+        .editMessageReplyMarkup(context.chatId, confirmationMessageId, {
+          reply_markup: { inline_keyboard: [] },
+        })
+        .catch(() => undefined);
     }
     await sendArchiveResult(ctx, services, result);
     return true;

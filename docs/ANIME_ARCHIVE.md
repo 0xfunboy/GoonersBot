@@ -16,13 +16,15 @@ Supported public URL shapes are:
 - `https://www.hentaisaturn.tv/hentai/<slug>` — all currently listed episodes.
 
 A supported episode URL may be pasted by itself. After the ordinary approval and quota checks, the
-bot queues it and returns immediately; download, ffmpeg preparation and Telegram upload happen in
-the background in the same chat and forum topic.
+bot queues it and returns immediately; download and Telegram upload happen in the background in the
+same chat and forum topic. A Telegram-compatible source file is uploaded byte-for-byte unchanged;
+ffmpeg preparation is fallback-only for an incompatible or oversized source.
 
 A series URL never starts work immediately. A true group administrator (or a configured bot admin)
 receives `Vuoi scaricare e rehostare l'intero anime su telegram?` with `SI | NO` on one row. Private
 chat bulk requests are restricted to configured bot admins. The opaque confirmation expires, is
-bound to its requester/chat/topic, re-checks admin status on `SI`, and is consumed atomically.
+bound to its requester/chat/topic, re-checks admin status on `SI`, and is consumed atomically. Once
+consumed, the original prompt remains in chat as an audit trail and only its buttons are removed.
 Completed episodes carry Telegram receipts, so a restarted worker resumes at the first unfinished
 episode and keeps concurrency at exactly one.
 
@@ -34,9 +36,9 @@ the same single-episode job used by a pasted URL. An explicit addressed command 
 and queues that exact episode deterministically. Follow notifications are emitted only after the
 episode is observed on a supported archive source and include that canonical source URL.
 
-Long jobs keep one best-effort Telegram status message updated across download, conversion and
-upload, with a heartbeat for slow stages. Status delivery is hard-time-bounded and cannot delay the
-worker, its lease, or the media upload itself.
+Long jobs keep one best-effort Telegram status message updated across download and upload, adding a
+conversion stage only when fallback preparation is actually required. Status delivery is
+hard-time-bounded and cannot delay the worker, its lease, or the media upload itself.
 
 HentaiSaturn remains governed by `LINK_MEDIA_NSFW_ALLOW`; the archive layer does not weaken the
 existing adult-host policy.
@@ -49,7 +51,7 @@ link rehosting therefore retains its short-form 180-second default.
 ```dotenv
 ANIME_ARCHIVE_ENABLED=true
 ANIME_ARCHIVE_BULK_ENABLED=true
-ANIME_ARCHIVE_PROFILE=mobile
+ANIME_ARCHIVE_PROFILE=source
 ANIME_ARCHIVE_MAX_DURATION_SECONDS=7200
 ANIME_ARCHIVE_MAX_DOWNLOAD_MB=2048
 ANIME_ARCHIVE_BULK_CONCURRENCY=1
@@ -63,13 +65,17 @@ ANIME_ARCHIVE_MAX_RETRIES=3
 ANIME_ARCHIVE_TMP_DIR=.tmp-anime-archive
 ```
 
-`mobile` always produces H.264/AAC, `yuv420p`, `+faststart`, never upscales past the configured
-height and switches directly to a bitrate-limited encode when a CRF pass would predictably exceed
-the Telegram ceiling. `source` remuxes a compatible source that
-already fits Telegram's byte and height ceilings, otherwise it uses the same safe transcode path.
-The final upload ceiling is the existing `LINK_MEDIA_MAX_UPLOAD_MB` setting. Long-form ffmpeg work
-also caps decoder/filter/encoder parallelism (one to four threads) so a single episode cannot take
-every CPU core; ordinary short-form media keeps its existing behavior.
+Every archive job first preserves the downloaded AnimeUnity/HentaiSaturn file byte-for-byte when
+its H.264/AAC streams are already Telegram-compatible and it fits the configured upload ceiling.
+This fast path runs before profile selection: there is no remux and no lossy encode for a source
+that is already valid. If Telegram compatibility or the hard size ceiling requires preparation,
+the worker falls back to the bounded normalizer. `source` is the default fallback profile; `mobile`
+keeps the explicit compact H.264/AAC, `yuv420p`, `+faststart` fallback profile, never upscales past
+the configured height and switches directly to a bitrate-limited encode when a CRF pass would
+predictably exceed the Telegram ceiling. The final upload ceiling is the existing
+`LINK_MEDIA_MAX_UPLOAD_MB` setting. Long-form ffmpeg work caps decoder/filter/encoder parallelism
+(one to four threads) whenever a fallback encode is needed; ordinary short-form media keeps its
+existing behavior.
 
 ## Persistence and resource bounds
 
