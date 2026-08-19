@@ -1,3 +1,5 @@
+import { readFile, stat } from 'node:fs/promises';
+import { isAbsolute } from 'node:path';
 import type { Context } from 'grammy';
 import type { MessageEntity } from 'grammy/types';
 import type { ChatContext, IncomingMessage, MessageAttachment, Person } from '../domain/types.js';
@@ -113,6 +115,20 @@ async function downloadFile(
       log.warn({ size: file.file_size }, 'media exceeds size cap; skipping download');
       return null;
     }
+    // Telegram Local Bot API (`--local`) returns an absolute local `file_path`. Read it directly
+    // instead of reconstructing the cloud `api.telegram.org/file/...` URL. The same inbound cap
+    // applies before and after the read, so switching API roots cannot expand analysis exposure.
+    if (file.file_path && isAbsolute(file.file_path)) {
+      const metadata = await stat(file.file_path).catch(() => null);
+      if (!metadata?.isFile() || metadata.size > MAX_MEDIA_BYTES) {
+        if (metadata?.isFile())
+          log.warn({ size: metadata.size }, 'local Telegram media exceeds size cap; skipping read');
+        return null;
+      }
+      const buffer = await readFile(file.file_path);
+      return buffer.byteLength <= MAX_MEDIA_BYTES ? buffer : null;
+    }
+
     const token = ctx.api.token;
     const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
     const res = await fetch(url);
