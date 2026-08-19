@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DocumentProcessor } from '../src/documents/documentProcessor.js';
 import type { MessageAttachment } from '../src/domain/types.js';
@@ -108,6 +111,49 @@ describe('DocumentProcessor', () => {
         buffer: Buffer.from('replied PDF bytes'),
       }),
     ]);
+  });
+
+  it('reads absolute getFile paths returned by Telegram Local Bot API without cloud fetch', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'goonerbot-local-tg-file-'));
+    const localPath = join(root, 'reply.pdf');
+    await writeFile(localPath, Buffer.from('local Bot API PDF bytes'));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const ctx = {
+        message: {
+          document: {
+            file_id: 'local-pdf',
+            file_unique_id: 'local-pdf-unique',
+            file_name: 'reply.pdf',
+            mime_type: 'application/pdf',
+            file_size: 23,
+          },
+        },
+        api: {
+          token: 'secret',
+          getFile: vi.fn().mockResolvedValue({
+            file_id: 'local-pdf',
+            file_unique_id: 'local-pdf-unique',
+            file_path: localPath,
+            file_size: 23,
+          }),
+        },
+      } as unknown as Context;
+
+      const message = await buildIncomingMessage(ctx, {
+        image: true,
+        voice: true,
+        documents: true,
+      });
+      expect(message.attachments?.[0]).toMatchObject({
+        fileName: 'reply.pdf',
+        buffer: Buffer.from('local Bot API PDF bytes'),
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it('does not call getFile for a quoted archive video above the inbound analysis cap', async () => {
