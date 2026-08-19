@@ -10,7 +10,7 @@ const HEARTBEAT_MS = 45_000;
 const TELEGRAM_PROGRESS_TIMEOUT_MS = 5_000;
 const TIMED_OUT = Symbol('anime-progress-timeout');
 
-export type AnimeArchiveProgressStage = 'download' | 'conversion' | 'upload';
+export type AnimeArchiveProgressStage = 'download' | 'split' | 'upload';
 
 /** One edited status message per running job; progress failures never affect media delivery. */
 export class AnimeArchiveProgressReporter {
@@ -75,7 +75,7 @@ export class AnimeArchiveProgressReporter {
   ): Promise<void> {
     const labels: Record<AnimeArchiveProgressStage, string> = {
       download: 'download dalla sorgente',
-      conversion: 'conversione per Telegram',
+      split: 'divisione lossless per Telegram (qualità originale)',
       upload: 'upload su Telegram',
     };
     const elapsed = elapsedMinutes > 0 ? ` · ${elapsedMinutes} min` : '';

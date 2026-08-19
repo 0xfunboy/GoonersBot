@@ -17,8 +17,9 @@ Supported public URL shapes are:
 
 A supported episode URL may be pasted by itself. After the ordinary approval and quota checks, the
 bot queues it and returns immediately; download and Telegram upload happen in the background in the
-same chat and forum topic. A Telegram-compatible source file is uploaded byte-for-byte unchanged;
-ffmpeg preparation is fallback-only for an incompatible or oversized source.
+same chat and forum topic. Archive media is never lossily re-encoded. If the source fits the current
+Bot API per-file ceiling it is uploaded byte-for-byte unchanged; if it is larger, ffmpeg performs
+only a stream-copy split at keyframes and Telegram receives ordered `qualità originale` parts.
 
 A series URL never starts work immediately. A true group administrator (or a configured bot admin)
 receives `Vuoi scaricare e rehostare l'intero anime su telegram?` with `SI | NO` on one row. Private
@@ -47,9 +48,10 @@ anime questions continue through `anime_knowledge`; after a catalog lookup, the 
 source enrichment may still add a relevant archive offer. Follow notifications are emitted only
 after the episode is observed on a supported archive source and include that canonical source URL.
 
-Long jobs keep one best-effort Telegram status message updated across download and upload, adding a
-conversion stage only when fallback preparation is actually required. Status delivery is
-hard-time-bounded and cannot delay the worker, its lease, or the media upload itself.
+Long jobs keep one best-effort Telegram status message updated across download and upload. Oversized
+sources add a `divisione lossless per Telegram (qualità originale)` stage; there is no archive
+conversion/transcode stage. Status delivery is hard-time-bounded and cannot delay the worker, its
+lease, or the media upload itself.
 
 HentaiSaturn remains governed by `LINK_MEDIA_NSFW_ALLOW`; the archive layer does not weaken the
 existing adult-host policy.
@@ -62,31 +64,24 @@ link rehosting therefore retains its short-form 180-second default.
 ```dotenv
 ANIME_ARCHIVE_ENABLED=true
 ANIME_ARCHIVE_BULK_ENABLED=true
-ANIME_ARCHIVE_PROFILE=source
 ANIME_ARCHIVE_MAX_DURATION_SECONDS=7200
 ANIME_ARCHIVE_MAX_DOWNLOAD_MB=2048
 ANIME_ARCHIVE_BULK_CONCURRENCY=1
 ANIME_ARCHIVE_TIMEOUT_MS=1800000
-ANIME_ARCHIVE_MAX_HEIGHT=720
-ANIME_ARCHIVE_CRF=28
-ANIME_ARCHIVE_AUDIO_BITRATE_KBPS=80
-ANIME_ARCHIVE_FFMPEG_THREADS=1
 ANIME_ARCHIVE_OFFER_TTL_MINUTES=15
 ANIME_ARCHIVE_MAX_RETRIES=3
 ANIME_ARCHIVE_TMP_DIR=.tmp-anime-archive
 ```
 
-Every archive job first preserves the downloaded AnimeUnity/HentaiSaturn file byte-for-byte when
-its H.264/AAC streams are already Telegram-compatible and it fits the configured upload ceiling.
-This fast path runs before profile selection: there is no remux and no lossy encode for a source
-that is already valid. If Telegram compatibility or the hard size ceiling requires preparation,
-the worker falls back to the bounded normalizer. `source` is the default fallback profile; `mobile`
-keeps the explicit compact H.264/AAC, `yuv420p`, `+faststart` fallback profile, never upscales past
-the configured height and switches directly to a bitrate-limited encode when a CRF pass would
-predictably exceed the Telegram ceiling. The final upload ceiling is the existing
-`LINK_MEDIA_MAX_UPLOAD_MB` setting. Long-form ffmpeg work caps decoder/filter/encoder parallelism
-(one to four threads) whenever a fallback encode is needed; ordinary short-form media keeps its
-existing behavior.
+Every archive job preserves the downloaded AnimeUnity/HentaiSaturn encoded streams. The per-file
+upload ceiling is the existing `LINK_MEDIA_MAX_UPLOAD_MB` setting (45 MB by default, kept below the
+hosted Bot API's current 50 MB maximum). Files at or below that ceiling are uploaded unchanged even
+if Telegram ultimately chooses to display an unusual codec as a document. Larger files are split
+into MP4 parts with ffmpeg `-c copy`; segment duration is adjusted and retried if a keyframe-aligned
+part overshoots the ceiling. The worker never invokes CRF, bitrate limiting, scaling or audio
+re-encoding for archive sources. Multipart receipts store every emitted Telegram message id, and a
+failure after any accepted part is terminalized rather than automatically retried, preventing
+partial-delivery duplicates.
 
 ## Persistence and resource bounds
 

@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   download: vi.fn(),
   ytdlp: vi.fn(),
   normalize: vi.fn(),
+  splitLossless: vi.fn(),
   probe: vi.fn(),
   thumbnail: vi.fn(),
   send: vi.fn(),
@@ -50,6 +51,7 @@ vi.mock('../src/providers/media/linkMedia/normalizer.js', async (importOriginal)
   return {
     ...actual,
     normalizeAnimeVideo: mocks.normalize,
+    splitVideoLosslessly: mocks.splitLossless,
     probeVideo: mocks.probe,
     videoThumbnail: mocks.thumbnail,
   };
@@ -80,6 +82,21 @@ beforeEach(async () => {
     await writeFile(output, Buffer.from('prepared'));
     return { action: 'transcode', sizeBytes: 8, bitrateLimited: false };
   });
+  mocks.splitLossless.mockImplementation(async (_input: string, outputDir: string) => {
+    await mkdir(outputDir, { recursive: true });
+    const first = join(outputDir, 'part-000.mp4');
+    const second = join(outputDir, 'part-001.mp4');
+    await writeFile(first, Buffer.from('aa'));
+    await writeFile(second, Buffer.from('bb'));
+    return {
+      parts: [
+        { path: first, sizeBytes: 2 },
+        { path: second, sizeBytes: 2 },
+      ],
+      totalBytes: 4,
+      attempts: 1,
+    };
+  });
   mocks.thumbnail.mockResolvedValue(false);
   mocks.send.mockResolvedValue({ fileId: 'telegram-file', messageId: 91, kind: 'video' });
 });
@@ -93,15 +110,10 @@ function archiveConfig(overrides: Partial<AnimeArchiveConfig> = {}): AnimeArchiv
   return {
     enabled: true,
     bulkEnabled: true,
-    profile: 'mobile',
     maxDurationSeconds: 7_200,
     maxDownloadBytes: 500 * 1024 * 1024,
     bulkConcurrency: 1,
     timeoutMs: 30_000,
-    maxHeight: 720,
-    crf: 27,
-    audioBitrateKbps: 96,
-    ffmpegThreads: 2,
     offerTtlMinutes: 15,
     maxRetries: 3,
     tmpDir: scratchRoot,
@@ -432,6 +444,54 @@ describe('anime archive worker safety boundaries', () => {
     expect(mocks.send.mock.calls[0]?.[0].path).toContain('source-video.bin');
     expect(state.reserveMedia).toHaveBeenCalledWith(state.job.destination.chatId, 5);
     expect(mocks.thumbnail.mock.calls[0]?.[1]).toContain('source-video.bin');
+  });
+
+  it('splits an oversized archive episode losslessly instead of transcoding it', async () => {
+    const state = harness({ candidates: [directCandidate(1)] });
+    mocks.send
+      .mockResolvedValueOnce({ fileId: 'part-1', messageId: 91, kind: 'video' })
+      .mockResolvedValueOnce({ fileId: 'part-2', messageId: 92, kind: 'video' });
+
+    await runHarness(state, { media: { maxUploadBytes: 4 }, waitFor: 'complete' });
+
+    expect(mocks.normalize).not.toHaveBeenCalled();
+    expect(mocks.splitLossless).toHaveBeenCalledOnce();
+    expect(mocks.send).toHaveBeenCalledTimes(2);
+    expect(mocks.send.mock.calls.map((call) => call[0].path)).toEqual([
+      expect.stringContaining('part-000.mp4'),
+      expect.stringContaining('part-001.mp4'),
+    ]);
+    expect(mocks.send.mock.calls[0]?.[0].caption).toContain('Parte 1/2 · qualità originale');
+    expect(mocks.send.mock.calls[1]?.[0].caption).toContain('Parte 2/2 · qualità originale');
+    expect(state.reserveMedia).toHaveBeenCalledWith(state.job.destination.chatId, 4);
+    expect(state.jobs.completeEpisode.mock.calls[0]?.[4]).toMatchObject({
+      messageId: 92,
+      messageIds: [91, 92],
+      fileId: 'part-2',
+      fileIds: ['part-1', 'part-2'],
+    });
+  });
+
+  it('never retries a multipart episode after Telegram accepted an earlier lossless part', async () => {
+    const state = harness({ candidates: [directCandidate(1)] });
+    mocks.send
+      .mockResolvedValueOnce({ fileId: 'part-1', messageId: 91, kind: 'video' })
+      .mockRejectedValueOnce(
+        Object.assign(new Error('Bad Request: failed to send video'), {
+          error_code: 400,
+          description: 'Bad Request: failed to send video',
+        }),
+      );
+
+    await runHarness(state, { media: { maxUploadBytes: 4 }, waitFor: 'uncertain' });
+
+    expect(mocks.normalize).not.toHaveBeenCalled();
+    expect(mocks.splitLossless).toHaveBeenCalledOnce();
+    expect(mocks.send).toHaveBeenCalledTimes(2);
+    expect(state.jobs.abortEpisodeDelivery).not.toHaveBeenCalled();
+    expect(state.jobs.markEpisodeDeliveryUnknown).toHaveBeenCalledOnce();
+    expect(state.releaseMedia).not.toHaveBeenCalled();
+    expect(state.jobs.completeEpisode).not.toHaveBeenCalled();
   });
 
   it('probes inside the bounded fallback loop and renews its lease before upload', async () => {
