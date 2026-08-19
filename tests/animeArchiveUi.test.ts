@@ -59,7 +59,7 @@ describe('anime archive confirmation UI', () => {
     } as unknown as HandlerInput;
     await expect(spec?.handle(input)).resolves.toMatchObject({
       rawText: 'Va bene, richiesta annullata.',
-      deleteOrigin: true,
+      clearOriginKeyboard: true,
     });
     expect(confirmCallback).toHaveBeenCalledWith(
       ['no', 'ao_fixture'],

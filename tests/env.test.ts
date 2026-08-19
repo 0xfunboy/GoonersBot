@@ -37,7 +37,7 @@ describe('loadEnv', () => {
     expect(env.LINK_MEDIA_BWRAP_BIN).toBe('/usr/bin/bwrap');
     expect(env.ANIME_ARCHIVE_ENABLED).toBe(true);
     expect(env.ANIME_ARCHIVE_BULK_ENABLED).toBe(true);
-    expect(env.ANIME_ARCHIVE_PROFILE).toBe('mobile');
+    expect(env.ANIME_ARCHIVE_PROFILE).toBe('source');
     expect(env.ANIME_ARCHIVE_BULK_CONCURRENCY).toBe(1);
     expect(env.ANIME_ARCHIVE_FFMPEG_THREADS).toBe(1);
     expect(env.CAPABILITY_LOCAL_DEVELOPMENT_ENABLED).toBe(false);

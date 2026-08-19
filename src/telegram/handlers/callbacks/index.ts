@@ -168,14 +168,14 @@ function archiveConfirmationResponse(result: AnimeArchiveConfirmationResult) {
             : `Perfetto, archivio in coda: ${count} episodi, uno alla volta.`
           : 'Questa richiesta è già stata presa in carico.',
       textFormat: 'plain' as const,
-      deleteOrigin: true,
+      clearOriginKeyboard: true,
     };
   }
   if (result.status === 'cancelled') {
     return {
       rawText: 'Va bene, richiesta annullata.',
       textFormat: 'plain' as const,
-      deleteOrigin: true,
+      clearOriginKeyboard: true,
     };
   }
   return {

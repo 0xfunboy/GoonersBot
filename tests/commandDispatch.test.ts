@@ -16,7 +16,7 @@ function telegramContext(
     replyWithPhoto: vi.fn(),
     replyWithVideo: vi.fn(),
     replyWithVoice: vi.fn(),
-    api: { token: 'test-token' },
+    api: { token: 'test-token', editMessageReplyMarkup: vi.fn().mockResolvedValue(true) },
   };
   return {
     ...common,
@@ -215,6 +215,22 @@ describe('callback approval gate', () => {
     expect(handle).toHaveBeenCalledOnce();
     expect(ctx.reply).toHaveBeenCalledWith(
       'accepted',
+      expect.objectContaining({ parse_mode: 'HTML' }),
+    );
+  });
+
+  it('keeps a consumed action prompt in chat while removing its keyboard', async () => {
+    const ctx = telegramContext('callback', 7);
+    const handle = vi.fn().mockResolvedValue({ rawText: 'queued', clearOriginKeyboard: true });
+    const deps = dispatchDeps();
+
+    await runCallback(ctx, { ...callback(true, handle), ownerOnly: true }, deps);
+
+    expect(ctx.api.editMessageReplyMarkup).toHaveBeenCalledWith(-100, 10, {
+      reply_markup: { inline_keyboard: [] },
+    });
+    expect(ctx.reply).toHaveBeenCalledWith(
+      'queued',
       expect.objectContaining({ parse_mode: 'HTML' }),
     );
   });

@@ -5,6 +5,7 @@ import type { Api } from 'grammy';
 import type { AnimeArchiveConfig, LinkMediaConfig } from '../../config/index.js';
 import {
   AnimeVideoOutputTooLargeError,
+  isTelegramCompatibleVideo,
   normalizeAnimeVideo,
   probeVideo,
   type VideoProbe,
@@ -385,43 +386,65 @@ export class AnimeArchiveWorker {
         this.downloadWithFreshMediaFallback(adapter, episode, resolved.candidates, workdir, signal),
       );
       const rawProbe = downloaded.probe;
+      const rawSizeBytes = (await stat(downloaded.file)).size;
+      const passthrough =
+        rawSizeBytes > 0 &&
+        rawSizeBytes <= this.mediaCfg.maxUploadBytes &&
+        isTelegramCompatibleVideo(rawProbe);
 
-      const prepared = join(workdir, 'prepared.mp4');
-      const normalized = await progress.during(row, 'conversion', () =>
-        normalizeAnimeVideo(
-          downloaded.file,
-          prepared,
-          {
-            ffmpegBin: this.mediaCfg.ffmpegBin,
-            timeoutMs: this.cfg.timeoutMs,
-            maxUploadBytes: this.mediaCfg.maxUploadBytes,
-            profile: this.cfg.profile,
-            maxHeight: this.cfg.maxHeight,
-            crf: this.cfg.crf,
-            audioBitrateKbps: this.cfg.audioBitrateKbps,
-            threads: this.cfg.ffmpegThreads,
-            signal,
-          },
-          rawProbe,
-        ),
-      );
+      let preparedPath = downloaded.file;
+      let preparedProbe = rawProbe;
+      let preparation: {
+        action: 'passthrough' | 'remux' | 'transcode';
+        sizeBytes: number;
+        bitrateLimited: boolean;
+      };
+      if (passthrough) {
+        // AnimeUnity/HentaiSaturn already publish Telegram-ready MP4s in the common case. Preserve
+        // the exact downloaded bytes: no remux, no +faststart rewrite and, most importantly, no
+        // lossy encode. The normalizer remains a fallback only when Telegram compatibility or the
+        // hard upload-size ceiling actually requires it.
+        preparation = { action: 'passthrough', sizeBytes: rawSizeBytes, bitrateLimited: false };
+      } else {
+        const normalizedPath = join(workdir, 'prepared.mp4');
+        const normalized = await progress.during(row, 'conversion', () =>
+          normalizeAnimeVideo(
+            downloaded.file,
+            normalizedPath,
+            {
+              ffmpegBin: this.mediaCfg.ffmpegBin,
+              timeoutMs: this.cfg.timeoutMs,
+              maxUploadBytes: this.mediaCfg.maxUploadBytes,
+              profile: this.cfg.profile,
+              maxHeight: this.cfg.maxHeight,
+              crf: this.cfg.crf,
+              audioBitrateKbps: this.cfg.audioBitrateKbps,
+              threads: this.cfg.ffmpegThreads,
+              signal,
+            },
+            rawProbe,
+          ),
+        );
+        preparedPath = normalizedPath;
+        preparedProbe = await probeVideo(this.mediaCfg.ffmpegBin, normalizedPath, 20_000, signal);
+        preparation = normalized;
+      }
       log.info(
         {
           jobId: job.id,
           source: job.source,
           episode: row.number,
-          action: normalized.action,
-          bitrateLimited: normalized.bitrateLimited,
-          sizeBytes: normalized.sizeBytes,
+          action: preparation.action,
+          bitrateLimited: preparation.bitrateLimited,
+          sizeBytes: preparation.sizeBytes,
         },
         'anime archive episode prepared',
       );
-      quotaBytes = normalized.sizeBytes;
-      const preparedProbe = await probeVideo(this.mediaCfg.ffmpegBin, prepared, 20_000, signal);
+      quotaBytes = preparation.sizeBytes;
       const thumbnailPath = join(workdir, 'thumbnail.jpg');
       const hasThumbnail = await videoThumbnail(
         this.mediaCfg.ffmpegBin,
-        prepared,
+        preparedPath,
         thumbnailPath,
         20_000,
         signal,
@@ -499,7 +522,7 @@ export class AnimeArchiveWorker {
             api,
             chatId: job.destination.chatId,
             kind: 'video',
-            path: prepared,
+            path: preparedPath,
             caption: `${job.series.title} — Episodio ${displayEpisodeNumber(row.number)}`,
             filename: episodeFilename(job.series.title, row.number),
             signal,

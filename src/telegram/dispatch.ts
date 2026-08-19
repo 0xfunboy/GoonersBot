@@ -200,9 +200,20 @@ async function finish(
       }
     });
     if (!response) return;
-    // for terms accept/decline: remove the (personal) prompt the button was attached to
+    // Terms prompts disappear; durable action prompts may instead remain as an audit trail with
+    // their now-consumed buttons removed.
     if (response.deleteOrigin && ctx.callbackQuery) {
       await ctx.deleteMessage().catch(() => undefined);
+    } else if (response.clearOriginKeyboard && ctx.callbackQuery?.message?.message_id) {
+      await ctx.api
+        .editMessageReplyMarkup(
+          prepared.input.context.chatId,
+          ctx.callbackQuery.message.message_id,
+          {
+            reply_markup: { inline_keyboard: [] },
+          },
+        )
+        .catch(() => undefined);
     }
     const localized = await localizeResponse(services, prepared.input.context.chatId, response);
     const sent = await sendResponse(ctx, localized);

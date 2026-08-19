@@ -145,6 +145,8 @@ export interface CommandResponse {
   keyboard?: KeyboardResponse | undefined;
   /** for callbacks: delete the message the button was attached to before replying (terms prompt) */
   deleteOrigin?: boolean | undefined;
+  /** Keep the callback prompt as an audit trail but remove buttons once the choice is consumed. */
+  clearOriginKeyboard?: boolean | undefined;
   /** if set, the sent message self-destructs after this many ms (ephemeral prompts like /tos) */
   ephemeralMs?: number | undefined;
   /** Non-text provider usage produced by a command, consumed by dispatch accounting only. */
