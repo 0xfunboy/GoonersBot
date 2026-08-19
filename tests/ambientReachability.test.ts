@@ -300,13 +300,22 @@ describe('a fact the source stopped publishing is cleared, not kept', () => {
       genres: [],
       studios: [],
       externalIds: {},
-      streamingLinks: [],
       latestEpisode: 27,
       nextEpisode: { episode: 28, airingAt: new Date('2024-01-01T00:00:00Z') },
       airingWeekday: 4,
     };
-    await repo.upsert(airing);
+    col.stored['streamingLinks'] = [
+      { site: 'Legacy gateway', url: 'https://gateway.invalid/watch/1' },
+    ];
+    await repo.upsert({
+      ...airing,
+      // Simulate an old caller crossing the deploy boundary with the removed field still present.
+      streamingLinks: [{ site: 'Legacy gateway', url: 'https://gateway.invalid/watch/1' }],
+    } as AnimeSeries);
     expect(col.stored['nextEpisode']).toBeDefined();
+    expect(captured[0]?.['$set']).not.toHaveProperty('streamingLinks');
+    expect(captured[0]?.['$unset']).toMatchObject({ streamingLinks: '' });
+    expect(col.stored['streamingLinks']).toBeUndefined();
 
     // The same series once it has finished: AniList stops publishing nextAiringEpisode.
     const finished: AnimeSeries = {

@@ -6,7 +6,8 @@ import type { AmbientDomain } from '../domains.js';
 import type { AmbientFact, AmbientProvider, AmbientRecallRequest } from '../types.js';
 
 /**
- * Ambient release awareness, backed by the persisted AniList catalog.
+ * Ambient release awareness, backed by persisted metadata. Watch/download availability is never
+ * inferred from catalog links; the archive layer resolves AnimeUnity/HentaiSaturn separately.
  *
  * The point of this provider is the difference between the bot answering "e uscito l'ultimo
  * episodio?" and the bot *already knowing*, while chatting, that the episode dropped on
@@ -53,7 +54,6 @@ function toFact(series: AnimeSeries, score: number): AmbientFact {
     domain: 'anime',
     subject: series.title,
     text: describeSeriesCompact(series),
-    url: series.url,
     confidence: score,
     fromCache: true,
     adult: isAdult(series),

@@ -1,4 +1,5 @@
 import type { Collection, Db } from 'mongodb';
+import type { AnimeArchiveSource } from '../../anime/archive/types.js';
 import type { AnimeCatalogSource } from '../../anime/types.js';
 
 /**
@@ -19,6 +20,11 @@ export interface AnimeFollowDoc {
   createdAt: Date;
   /** Highest episode already announced to this chat; -1 means "nothing announced yet". */
   lastNotifiedEpisode: number;
+  /** Downloadable-source identity; deliberately independent from the metadata catalog id. */
+  archiveSource?: AnimeArchiveSource | undefined;
+  archiveSeriesId?: string | undefined;
+  /** Highest episode announced after it was observed on AnimeUnity/HentaiSaturn. */
+  archiveLastNotifiedEpisode?: number | undefined;
   lastCheckedAt?: Date | undefined;
 }
 
@@ -98,23 +104,29 @@ export class AnimeFollowsRepo {
   /** Distinct series that any chat follows, least recently checked first. */
   async listSeriesToPoll(
     limit: number,
-  ): Promise<Array<{ source: AnimeCatalogSource; sourceId: string }>> {
+  ): Promise<Array<{ source: AnimeCatalogSource; sourceId: string; title: string }>> {
     const rows = await this.col
       .aggregate<{
         _id: { source: AnimeCatalogSource; sourceId: string };
         oldest: Date | null;
+        title: string;
       }>([
         {
           $group: {
             _id: { source: '$source', sourceId: '$sourceId' },
             oldest: { $min: '$lastCheckedAt' },
+            title: { $first: '$title' },
           },
         },
         { $sort: { oldest: 1 } },
         { $limit: Math.max(1, limit) },
       ])
       .toArray();
-    return rows.map((row) => ({ source: row._id.source, sourceId: row._id.sourceId }));
+    return rows.map((row) => ({
+      source: row._id.source,
+      sourceId: row._id.sourceId,
+      title: row.title,
+    }));
   }
 
   async markChecked(
@@ -141,7 +153,7 @@ export class AnimeFollowsRepo {
     episode: number,
   ): Promise<AnimeFollowDoc[]> {
     if (!Number.isFinite(episode)) return [];
-    const target = Math.trunc(episode);
+    const target = episode;
     const claimed: AnimeFollowDoc[] = [];
     const pending = await this.col
       .find({ source, sourceId, lastNotifiedEpisode: { $lt: target } })
@@ -162,6 +174,69 @@ export class AnimeFollowsRepo {
     return claimed;
   }
 
+  /**
+   * Claim notifications using only a downloadable archive source.
+   *
+   * Existing follows are migrated lazily: the first AU/HS observation seeds the current episode
+   * without announcing old content. This also repairs legacy AniList watermarks that advanced
+   * before the episode actually appeared on a rehostable source.
+   */
+  async claimArchiveNotifications(
+    source: AnimeCatalogSource,
+    sourceId: string,
+    archiveSource: AnimeArchiveSource,
+    archiveSeriesId: string,
+    episode: number,
+  ): Promise<AnimeFollowDoc[]> {
+    if (!Number.isFinite(episode)) return [];
+    const target = Math.trunc(episode);
+    const catalogFilter = { source, sourceId };
+    await this.col.updateMany(
+      {
+        ...catalogFilter,
+        $or: [
+          { archiveSource: { $exists: false } },
+          { archiveSeriesId: { $exists: false } },
+          { archiveLastNotifiedEpisode: { $exists: false } },
+          { archiveSource: { $ne: archiveSource } },
+          { archiveSeriesId: { $ne: archiveSeriesId } },
+        ],
+      },
+      {
+        $set: {
+          archiveSource,
+          archiveSeriesId,
+          archiveLastNotifiedEpisode: target,
+        },
+      },
+    );
+
+    const claimed: AnimeFollowDoc[] = [];
+    const pending = await this.col
+      .find({
+        ...catalogFilter,
+        archiveSource,
+        archiveSeriesId,
+        archiveLastNotifiedEpisode: { $lt: target },
+      })
+      .toArray();
+    for (const follow of pending) {
+      const result = await this.col.findOneAndUpdate(
+        {
+          chatId: follow.chatId,
+          ...catalogFilter,
+          archiveSource,
+          archiveSeriesId,
+          archiveLastNotifiedEpisode: { $lt: target },
+        },
+        { $set: { archiveLastNotifiedEpisode: target } },
+        { returnDocument: 'before' },
+      );
+      if (result) claimed.push(result);
+    }
+    return claimed;
+  }
+
   /** Release a claim when the notification could not be delivered, so the next tick retries. */
   async releaseClaim(
     chatId: number,
@@ -172,6 +247,29 @@ export class AnimeFollowsRepo {
     await this.col.updateOne(
       { chatId, source, sourceId },
       { $set: { lastNotifiedEpisode: Math.trunc(previousEpisode) } },
+    );
+  }
+
+  /** Release only the exact AU/HS claim; a newer concurrent watermark is never moved backwards. */
+  async releaseArchiveClaim(
+    chatId: number,
+    source: AnimeCatalogSource,
+    sourceId: string,
+    archiveSource: AnimeArchiveSource,
+    archiveSeriesId: string,
+    claimedEpisode: number,
+    previousEpisode: number,
+  ): Promise<void> {
+    await this.col.updateOne(
+      {
+        chatId,
+        source,
+        sourceId,
+        archiveSource,
+        archiveSeriesId,
+        archiveLastNotifiedEpisode: Math.trunc(claimedEpisode),
+      },
+      { $set: { archiveLastNotifiedEpisode: previousEpisode } },
     );
   }
 

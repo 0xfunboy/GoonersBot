@@ -109,6 +109,74 @@ describe('DocumentProcessor', () => {
       }),
     ]);
   });
+
+  it('does not call getFile for a quoted archive video above the inbound analysis cap', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const getFile = vi.fn();
+    const ctx = {
+      message: {
+        reply_to_message: {
+          video: {
+            file_id: 'archive-video',
+            file_unique_id: 'archive-unique',
+            duration: 1_400,
+            width: 720,
+            height: 404,
+            file_size: 40 * 1024 * 1024,
+          },
+        },
+      },
+      api: { token: 'secret', getFile },
+    } as unknown as Context;
+
+    const message = await buildIncomingMessage(ctx, {
+      image: true,
+      voice: true,
+      documents: true,
+    });
+
+    expect(message.repliedVideoBuffer).toBeUndefined();
+    expect(getFile).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('aborts an undeclared Telegram response body once its real bytes cross the cap', async () => {
+    const chunk = new Uint8Array(11 * 1024 * 1024);
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(chunk);
+        controller.enqueue(chunk);
+        controller.close();
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body, { status: 200 })));
+    const ctx = {
+      message: {
+        document: {
+          file_id: 'unknown-size',
+          file_unique_id: 'unknown-size-unique',
+          file_name: 'large.pdf',
+          mime_type: 'application/pdf',
+        },
+      },
+      api: {
+        token: 'secret',
+        getFile: vi.fn().mockResolvedValue({
+          file_id: 'unknown-size',
+          file_unique_id: 'unknown-size-unique',
+          file_path: 'documents/large.pdf',
+        }),
+      },
+    } as unknown as Context;
+
+    const message = await buildIncomingMessage(ctx, {
+      image: true,
+      voice: true,
+      documents: true,
+    });
+    expect(message.attachments).toBeUndefined();
+  });
 });
 
 function makePdf(text: string): Buffer {

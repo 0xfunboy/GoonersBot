@@ -352,7 +352,6 @@ function toSeries(doc: AnimeSeriesDoc): AnimeSeries {
     studios: doc.studios ?? [],
     score: doc.score,
     externalIds: doc.externalIds ?? {},
-    streamingLinks: doc.streamingLinks ?? [],
     sourceUpdatedAt: doc.sourceUpdatedAt,
   };
 }

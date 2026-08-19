@@ -174,13 +174,14 @@ function imageQueryFromMessage(message: string): string | undefined {
  * like a database dump, which is exactly what the group complained about. Saying so explicitly
  * is what turns it back into something the style engine rewrites in the bot's own voice.
  */
-function formatAnimeAnswer(answer: { resolved: boolean; summary: string } | null): string {
+export function formatAnimeAnswer(answer: { resolved: boolean; summary: string } | null): string {
   if (!answer?.resolved || !answer.summary.trim()) return '';
   return [
     'ANIME RELEASE DATA (verified catalog facts answering the question just asked). These are ' +
       'raw fields, NOT a reply: never paste them as-is, never print a field list. Answer in your ' +
-      'own voice, in a few lines, giving the numbers and dates that matter and the link only if ' +
-      'it is useful:',
+      'own voice, in a few lines, giving the numbers and dates that matter. Never suggest or ' +
+      'invent catalog, watch, streaming, gateway or download links: media availability is handled ' +
+      'separately:',
     answer.summary,
   ].join('\n');
 }

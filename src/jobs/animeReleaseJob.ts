@@ -1,4 +1,5 @@
 import type { AnimeCatalogService } from '../anime/catalogService.js';
+import type { AnimeArchiveEpisode, AnimeArchiveSeries } from '../anime/archive/types.js';
 import type { AnimeSeries } from '../anime/types.js';
 import type { AnimeConfig } from '../config/index.js';
 import type { Storage } from '../storage/index.js';
@@ -17,7 +18,19 @@ export interface AnimeReleaseNotification {
   series: AnimeSeries;
   /** Episode number that just became available. */
   episode: number;
+  /** Exact no-gateway source that made this notification actionable. */
+  archiveSeries: AnimeArchiveSeries;
+  archiveEpisode: AnimeArchiveEpisode;
 }
+
+export interface AnimeReleaseAvailability {
+  series: AnimeArchiveSeries;
+  episode: AnimeArchiveEpisode;
+}
+
+export type AnimeReleaseAvailabilityResolver = (
+  series: AnimeSeries,
+) => Promise<AnimeReleaseAvailability | null>;
 
 export interface AnimeReleaseJobResult {
   polled: number;
@@ -36,31 +49,43 @@ export async function runAnimeReleaseJob(
   cfg: AnimeConfig,
   storage: Storage,
   catalog: AnimeCatalogService,
+  resolveAvailability: AnimeReleaseAvailabilityResolver,
   notify: AnimeReleaseNotifier,
 ): Promise<AnimeReleaseJobResult> {
   const result: AnimeReleaseJobResult = { polled: 0, newEpisodes: 0, notified: 0 };
-  if (!cfg.follows.enabled || !catalog.enabled) return result;
+  if (!cfg.follows.enabled) return result;
 
   const targets = await storage.animeFollows.listSeriesToPoll(cfg.follows.batchSize);
   for (const target of targets) {
     result.polled += 1;
     let series: AnimeSeries | null = null;
     try {
-      series = await catalog.refresh(target.source, target.sourceId);
+      // Release detection must not depend on a gateway catalog. Persisted metadata is used only
+      // for aliases/display; AnimeUnity or HentaiSaturn below is the sole live availability source.
+      series = await catalog.getPersisted(target.source, target.sourceId);
     } catch (error) {
-      log.warn({ error, ...target }, 'anime follow refresh failed');
+      log.warn({ error, ...target }, 'anime follow metadata read failed');
     }
     // Mark the poll attempt regardless of outcome; otherwise one permanently failing series
     // would monopolise every batch and starve all the others.
     await storage.animeFollows.markChecked(target.source, target.sourceId);
-    if (!series) continue;
+    series ??= releaseSeriesStub(target);
 
-    const episode = series.latestEpisode;
-    if (episode === undefined || !Number.isFinite(episode) || episode < 1) continue;
+    let availability: AnimeReleaseAvailability | null = null;
+    try {
+      availability = await resolveAvailability(series);
+    } catch (error) {
+      log.warn({ error, ...target }, 'anime archive availability refresh failed');
+    }
+    if (!availability) continue;
+    const episode = availability.episode.order;
+    if (!Number.isFinite(episode) || episode < 1) continue;
 
-    const claims = await storage.animeFollows.claimNotifications(
+    const claims = await storage.animeFollows.claimArchiveNotifications(
       target.source,
       target.sourceId,
+      availability.series.source,
+      availability.series.sourceId,
       episode,
     );
     if (claims.length === 0) continue;
@@ -75,6 +100,8 @@ export async function runAnimeReleaseJob(
           createdByHandle: claim.createdByHandle,
           series,
           episode,
+          archiveSeries: availability.series,
+          archiveEpisode: availability.episode,
         });
       } catch (error) {
         log.warn({ error, chatId: claim.chatId, ...target }, 'anime release notification failed');
@@ -85,7 +112,15 @@ export async function runAnimeReleaseJob(
       }
       // Undeliverable now: restore the previous watermark so the next tick retries this chat.
       await storage.animeFollows
-        .releaseClaim(claim.chatId, target.source, target.sourceId, claim.lastNotifiedEpisode)
+        .releaseArchiveClaim(
+          claim.chatId,
+          target.source,
+          target.sourceId,
+          availability.series.source,
+          availability.series.sourceId,
+          episode,
+          claim.archiveLastNotifiedEpisode ?? -1,
+        )
         .catch((error: unknown) =>
           log.warn({ error, chatId: claim.chatId, ...target }, 'anime claim release failed'),
         );
@@ -96,4 +131,23 @@ export async function runAnimeReleaseJob(
     log.info(result, 'anime release poll finished');
   }
   return result;
+}
+
+function releaseSeriesStub(target: {
+  source: AnimeSeries['source'];
+  sourceId: string;
+  title: string;
+}): AnimeSeries {
+  return {
+    source: target.source,
+    sourceId: target.sourceId,
+    title: target.title,
+    aliases: [],
+    titleKeys: [],
+    url: '',
+    status: 'unknown',
+    genres: [],
+    studios: [],
+    externalIds: {},
+  };
 }

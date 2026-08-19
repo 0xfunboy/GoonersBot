@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,6 +6,7 @@ import {
   AnimeVideoOutputTooLargeError,
   decideAnimeVideoPreparation,
   normalizeAnimeVideo,
+  shouldStartWithBitrateLimitedAnimeEncode,
   type NormalizeAnimeVideoOptions,
   type VideoProbe,
 } from '../src/providers/media/linkMedia/normalizer.js';
@@ -124,6 +125,25 @@ describe('anime video normalizer', () => {
     expect(videoBitrate).toBeGreaterThanOrEqual(64_000);
     expect(retry[retry.indexOf('-maxrate') + 1]).toBe(String(videoBitrate));
     expect(retry[retry.indexOf('-bufsize') + 1]).toBe(String(videoBitrate * 2));
+  });
+
+  it('starts directly with a bounded 480p bitrate encode for a predictably oversized episode', async () => {
+    await truncate(input, 20_000_000);
+    writeOutputs(9_000_000);
+    const options = opts({ maxUploadBytes: 10_000_000 });
+
+    expect(shouldStartWithBitrateLimitedAnimeEncode(20_000_000, probe, 10_000_000)).toBe(true);
+    await expect(normalizeAnimeVideo(input, output, options, probe)).resolves.toEqual({
+      action: 'transcode',
+      sizeBytes: 9_000_000,
+      bitrateLimited: true,
+    });
+
+    expect(runProcessChecked).toHaveBeenCalledTimes(1);
+    const args = vi.mocked(runProcessChecked).mock.calls[0]?.[1] ?? [];
+    expect(args).toContain('-b:v');
+    expect(args).not.toContain('-crf');
+    expect(args[args.indexOf('-vf') + 1]).toBe("scale=-2:'trunc(min(480,ih)/2)*2'");
   });
 
   it('rejects a second encode that still exceeds the hard upload cap', async () => {

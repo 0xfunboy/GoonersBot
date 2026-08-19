@@ -5,9 +5,15 @@ import {
   followingCommand,
   unfollowCommand,
 } from '../src/telegram/handlers/commands/anime.js';
-import { describeSeriesCompact } from '../src/anime/answers.js';
+import {
+  describeCandidates,
+  describeSeries,
+  describeSeriesCompact,
+  summarizeSeries,
+} from '../src/anime/answers.js';
 import { commandHandlers } from '../src/telegram/handlers/commands/index.js';
 import { translations } from '../src/config/i18n.js';
+import { formatAnimeAnswer } from '../src/services/reply.js';
 import type { AnimeSeries } from '../src/anime/types.js';
 import type { HandlerInput } from '../src/telegram/handlers/types.js';
 
@@ -22,7 +28,6 @@ const SERIES: AnimeSeries = {
   genres: ['Comedy'],
   studios: ['Bibury'],
   externalIds: {},
-  streamingLinks: [{ site: 'Netflix', url: 'https://www.netflix.com/title/82760630' }],
   latestEpisode: 7,
   nextEpisode: { episode: 8, airingAt: new Date('2026-08-20T00:00:00Z') },
   airingWeekday: 4,
@@ -143,7 +148,12 @@ describe('/unfollow and /following', () => {
   it('lists what the chat follows', async () => {
     const follows = {
       list: vi.fn(async () => [
-        { sourceId: '207141', title: 'Chainsmoker Cat', lastNotifiedEpisode: 7 },
+        {
+          sourceId: '207141',
+          title: 'Chainsmoker Cat',
+          lastNotifiedEpisode: 99,
+          archiveLastNotifiedEpisode: 7,
+        },
       ]),
     };
     const result = await followingCommand.handle(input({ follows }));
@@ -152,7 +162,9 @@ describe('/unfollow and /following', () => {
     const series = result?.vars?.['series'] as { kind: string; value: string };
     expect(series.kind).toBe('trusted_html');
     expect(series.value).toContain('Chainsmoker Cat');
-    expect(series.value).toContain('anilist.co/anime/207141');
+    expect(series.value).toContain('ep. 7');
+    expect(series.value).not.toContain('ep. 99');
+    expect(series.value).not.toMatch(/href=|https?:\/\//i);
   });
 });
 
@@ -240,7 +252,7 @@ describe('describeSeriesCompact', () => {
     const compact = describeSeriesCompact(SERIES);
     expect(compact).toContain('ep. 7');
     expect(compact).toContain('prossimo ep. 8');
-    expect(compact).toContain('Netflix');
+    expect(compact).not.toMatch(/https?:\/\//i);
     expect(compact).not.toContain('Comedy');
     expect(compact).not.toContain('Bibury');
     expect(compact).not.toContain('67');
@@ -251,10 +263,42 @@ describe('describeSeriesCompact', () => {
       ...SERIES,
       latestEpisode: undefined,
       nextEpisode: undefined,
-      streamingLinks: [],
     });
     expect(bare).toContain('Chainsmoker Cat');
     expect(bare).not.toContain('prossimo');
     expect(bare).not.toContain('undefined');
+  });
+
+  it('never renders catalog or legacy gateway links in factual text', () => {
+    const legacy = {
+      ...SERIES,
+      streamingLinks: [
+        { site: 'Crunchyroll', url: 'https://www.crunchyroll.com/series/legacy' },
+        { site: 'YouTube', url: 'https://youtube.com/watch?v=legacy' },
+        { site: 'OceanVeil', url: 'https://oceanveil.example/watch/legacy' },
+      ],
+    } as AnimeSeries & { streamingLinks: Array<{ site: string; url: string }> };
+    const rendered = [
+      describeSeries(legacy),
+      summarizeSeries(legacy),
+      describeSeriesCompact(legacy),
+      describeCandidates([legacy]),
+    ].join('\n');
+
+    expect(rendered).toContain('Chainsmoker Cat');
+    expect(rendered).not.toMatch(/https?:\/\/|anilist|crunchyroll|youtube|oceanveil/i);
+  });
+});
+
+describe('anime composer context', () => {
+  it('forbids the model from suggesting watch, gateway or download links', () => {
+    const prompt = formatAnimeAnswer({
+      resolved: true,
+      summary: 'Titolo: Chainsmoker Cat\nUltimo episodio uscito: 7',
+    });
+
+    expect(prompt).toMatch(/never suggest or invent/i);
+    expect(prompt).toMatch(/watch, streaming, gateway or download links/i);
+    expect(prompt).toMatch(/availability is handled separately/i);
   });
 });

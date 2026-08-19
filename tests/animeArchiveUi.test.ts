@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Env } from '../src/config/env.js';
 import { Localizer } from '../src/config/index.js';
 import { classifyAnimeUnityUrl } from '../src/anime/archive/animeUnity.js';
+import { parseNaturalAnimeArchiveRequest } from '../src/anime/archive/intent.js';
 import { buildInlineKeyboard, parseCallbackData } from '../src/telegram/keyboards.js';
 import { callbackHandlers } from '../src/telegram/handlers/callbacks/index.js';
 import { archiveResultResponse, handleMessage } from '../src/telegram/handlers/message.js';
@@ -202,6 +203,96 @@ describe('anime archive mixed URL routing', () => {
     expect(handleLinkMedia.mock.calls[0]?.[0].text).not.toContain(animeUrl);
   });
 
+  it('queues a quoted natural rehost command before the LLM path', async () => {
+    const prepareNaturalEpisodeRequest = vi.fn().mockResolvedValue({
+      status: 'queued',
+      created: true,
+      job: { episodes: [{}] },
+    });
+    const services = {
+      initializeContext: vi.fn().mockResolvedValue(undefined),
+      permissions: { checkAll: vi.fn().mockResolvedValue(true) },
+      conversation: {
+        isStarted: vi.fn().mockResolvedValue(true),
+        isTrackingEnabled: vi.fn().mockResolvedValue(false),
+      },
+      animeArchive: {
+        classifyText: vi.fn().mockReturnValue([]),
+        classifyUrl: vi.fn().mockReturnValue(null),
+        prepareNaturalEpisodeRequest,
+      },
+      linkMedia: { enabled: false, autoRehostEnabled: false },
+      config: { linkMedia: { maxUrlsPerMessage: 2 } },
+      storage: {
+        chats: { getLinkMedia: vi.fn().mockResolvedValue(false) },
+        botReplies: { getRecent: vi.fn(), getRecentFor: vi.fn() },
+      },
+      terms: {
+        hasDeclined: vi.fn().mockResolvedValue(false),
+        hasAccepted: vi.fn().mockResolvedValue(true),
+      },
+      isApproved: vi.fn().mockReturnValue(true),
+      bypassesGroupPlan: vi.fn().mockReturnValue(false),
+      isAnimeArchiveAdmin: vi.fn().mockReturnValue(false),
+      getLanguage: vi.fn().mockResolvedValue('italian'),
+      localizer: new Localizer('italian'),
+    } as unknown as Services;
+    const reply = vi.fn().mockResolvedValue({ message_id: 902 });
+    const ctx = {
+      message: { message_id: 78 },
+      chat: { id: -100 },
+      reply,
+    } as unknown as GrammyContext;
+    const context: ChatContext = {
+      chatId: -100,
+      messageId: 78,
+      isGroup: true,
+      isBotMentioned: false,
+      isGroupAdmin: false,
+      isReplyToBot: true,
+      repliedToText: 'Nuovo episodio di Saga of Tanya the Evil Season 2: episodio 7.',
+    };
+
+    await handleMessage(
+      ctx,
+      { telegramId: 42, userHandle: '@allowed' },
+      context,
+      {
+        messageText: 'voglio guardarlo, fai rehost da animeunity',
+        timestamp: new Date(),
+      },
+      { services, env: {} as Env, botUsername: 'GooNeuroBot' },
+    );
+
+    expect(prepareNaturalEpisodeRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: 'Saga of Tanya the Evil Season 2',
+        expectedEpisodeNumber: '7',
+        preferredSource: 'animeunity',
+        replyToMessageId: 78,
+      }),
+    );
+    expect(reply).toHaveBeenCalledWith(
+      expect.stringContaining('Episodio in coda'),
+      expect.any(Object),
+    );
+
+    prepareNaturalEpisodeRequest.mockClear();
+    const unaddressedContext = { ...context };
+    delete unaddressedContext.repliedToText;
+    await handleMessage(
+      ctx,
+      { telegramId: 42, userHandle: '@allowed' },
+      { ...unaddressedContext, isReplyToBot: false },
+      {
+        messageText: 'scarica Chainsmoker Cat episodio 7',
+        timestamp: new Date(),
+      },
+      { services, env: {} as Env, botUsername: 'GooNeuroBot' },
+    );
+    expect(prepareNaturalEpisodeRequest).not.toHaveBeenCalled();
+  });
+
   it('keeps an already attached natural offer when the factual reply cannot be delivered', async () => {
     const invalidateOffer = vi.fn().mockResolvedValue(null);
     const replaceConfirmationMessage = vi.fn();
@@ -326,6 +417,53 @@ describe('anime archive mixed URL routing', () => {
     expect(reply).toHaveBeenCalled();
     expect(invalidateOffer).not.toHaveBeenCalled();
     expect(replaceConfirmationMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('natural anime archive intent', () => {
+  it('extracts the exact episode and title from the quoted bot fact', () => {
+    expect(
+      parseNaturalAnimeArchiveRequest(
+        "zitto e rehostami l'episodio 7",
+        "L'episodio 7 di Chainsmoker Cat (Yani Neko) è già fuori da giovedì scorso.",
+      ),
+    ).toEqual({ query: 'Chainsmoker Cat', expectedEpisodeNumber: '7' });
+  });
+
+  it('honours an explicit no-gateway source and ignores ordinary discussion', () => {
+    expect(
+      parseNaturalAnimeArchiveRequest(
+        'voglio guardarlo, fai rehost da animeunity',
+        'Nuovo episodio di Saga of Tanya the Evil Season 2: episodio 7.',
+      ),
+    ).toEqual({
+      query: 'Saga of Tanya the Evil Season 2',
+      expectedEpisodeNumber: '7',
+      preferredSource: 'animeunity',
+    });
+    expect(parseNaturalAnimeArchiveRequest('parliamo di Chainsmoker Cat?', undefined)).toBeNull();
+  });
+
+  it('supports command-like titles but rejects negation, narration and how-to questions', () => {
+    expect(parseNaturalAnimeArchiveRequest('scarica Chainsmoker Cat')).toEqual({
+      query: 'Chainsmoker Cat',
+    });
+    expect(parseNaturalAnimeArchiveRequest('rehostami Chainsmoker Cat episodio 7')).toEqual({
+      query: 'Chainsmoker Cat',
+      expectedEpisodeNumber: '7',
+    });
+    expect(parseNaturalAnimeArchiveRequest("scarica l'ultimo episodio di Frieren")).toEqual({
+      query: 'Frieren',
+    });
+    for (const text of [
+      'non scarica Chainsmoker Cat',
+      'non voglio che lo scarichi',
+      'ho scaricato Chainsmoker Cat',
+      'come faccio a scaricare Chainsmoker Cat?',
+      'ho fatto il download',
+    ]) {
+      expect(parseNaturalAnimeArchiveRequest(text, 'Chainsmoker Cat — Episodio 7')).toBeNull();
+    }
   });
 });
 

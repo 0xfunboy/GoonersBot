@@ -98,7 +98,15 @@ export function extractMentions(text: string): string[] {
 }
 
 /** Download a Telegram file by file_id into a Buffer (with size cap). */
-async function downloadFile(ctx: Context, fileId: string): Promise<Buffer | null> {
+async function downloadFile(
+  ctx: Context,
+  fileId: string,
+  declaredSize?: number,
+): Promise<Buffer | null> {
+  if (declaredSize !== undefined && declaredSize > MAX_MEDIA_BYTES) {
+    log.debug({ size: declaredSize }, 'media exceeds inbound analysis cap; skipping download');
+    return null;
+  }
   try {
     const file = await ctx.api.getFile(fileId);
     if (file.file_size && file.file_size > MAX_MEDIA_BYTES) {
@@ -109,8 +117,32 @@ async function downloadFile(ctx: Context, fileId: string): Promise<Buffer | null
     const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
     const res = await fetch(url);
     if (!res.ok) return null;
-    const arr = await res.arrayBuffer();
-    return Buffer.from(arr);
+    const contentLength = Number(res.headers.get('content-length'));
+    if (Number.isFinite(contentLength) && contentLength > MAX_MEDIA_BYTES) {
+      await res.body?.cancel().catch(() => undefined);
+      log.warn({ size: contentLength }, 'media response exceeds size cap; skipping download');
+      return null;
+    }
+    if (!res.body) return null;
+    const reader = res.body.getReader();
+    const chunks: Buffer[] = [];
+    let total = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_MEDIA_BYTES) {
+          await reader.cancel().catch(() => undefined);
+          log.warn({ size: total }, 'media body exceeds size cap; aborting download');
+          return null;
+        }
+        chunks.push(Buffer.from(value));
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    return Buffer.concat(chunks, total);
   } catch (err) {
     log.warn({ err }, 'file download failed');
     return null;
@@ -136,7 +168,7 @@ export async function buildIncomingMessage(
   // ---- current-message media ----
   if (opts.image && msg?.photo && msg.photo.length > 0) {
     const largest = msg.photo[msg.photo.length - 1];
-    const buf = largest ? await downloadFile(ctx, largest.file_id) : null;
+    const buf = largest ? await downloadFile(ctx, largest.file_id, largest.file_size) : null;
     if (buf) {
       out.imageBuffer = buf;
       out.imageMime = 'image/jpeg';
@@ -147,7 +179,11 @@ export async function buildIncomingMessage(
   if (opts.voice) {
     const media = msg?.voice ?? msg?.audio ?? msg?.video ?? msg?.video_note;
     if (media) {
-      const buf = await downloadFile(ctx, media.file_id);
+      const buf = await downloadFile(
+        ctx,
+        media.file_id,
+        'file_size' in media ? media.file_size : undefined,
+      );
       if (buf) {
         out.audioBuffer = buf;
         out.audioMime = ('mime_type' in media && media.mime_type) || 'application/octet-stream';
@@ -157,7 +193,7 @@ export async function buildIncomingMessage(
     }
   }
   if (opts.documents && msg?.document && !isAudioOrVideoDocument(msg.document.mime_type)) {
-    const buf = await downloadFile(ctx, msg.document.file_id);
+    const buf = await downloadFile(ctx, msg.document.file_id, msg.document.file_size);
     if (buf) {
       out.attachments = [
         toAttachment(
@@ -177,7 +213,7 @@ export async function buildIncomingMessage(
     const repliedPhoto = replied.photo;
     if (repliedPhoto && repliedPhoto.length > 0) {
       const largest = repliedPhoto[repliedPhoto.length - 1];
-      const buf = largest ? await downloadFile(ctx, largest.file_id) : null;
+      const buf = largest ? await downloadFile(ctx, largest.file_id, largest.file_size) : null;
       if (buf) {
         out.repliedImageBuffer = buf;
         out.repliedImageMime = 'image/jpeg';
@@ -190,14 +226,22 @@ export async function buildIncomingMessage(
     const repliedVideo =
       replied.video ?? replied.video_note ?? replied.animation ?? repliedDocVideo;
     if (repliedVideo) {
-      const buf = await downloadFile(ctx, repliedVideo.file_id);
+      const buf = await downloadFile(
+        ctx,
+        repliedVideo.file_id,
+        'file_size' in repliedVideo ? repliedVideo.file_size : undefined,
+      );
       if (buf) out.repliedVideoBuffer = buf;
     }
     const repliedDocAudio =
       repliedDoc && /^audio\//.test(repliedDoc.mime_type ?? '') ? repliedDoc : undefined;
     const repliedAudio = replied.voice ?? replied.audio ?? repliedDocAudio;
     if (repliedAudio) {
-      const buf = await downloadFile(ctx, repliedAudio.file_id);
+      const buf = await downloadFile(
+        ctx,
+        repliedAudio.file_id,
+        'file_size' in repliedAudio ? repliedAudio.file_size : undefined,
+      );
       if (buf) {
         out.repliedAudioBuffer = buf;
         out.repliedAudioMime =
@@ -205,7 +249,7 @@ export async function buildIncomingMessage(
       }
     }
     if (opts.documents && repliedDoc && !repliedDocAudio && !repliedDocVideo) {
-      const buf = await downloadFile(ctx, repliedDoc.file_id);
+      const buf = await downloadFile(ctx, repliedDoc.file_id, repliedDoc.file_size);
       if (buf) {
         out.attachments = [
           ...(out.attachments ?? []),

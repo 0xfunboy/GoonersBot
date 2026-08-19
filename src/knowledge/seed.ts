@@ -152,19 +152,10 @@ export const KNOWLEDGE_SEED: Seed[] = [
   },
   {
     key: 'manga-platforms',
-    topic: 'Where weebs read/watch',
-    aliases: [
-      'crunchyroll',
-      'mangadex',
-      'shonen jump',
-      'mangaplus',
-      'nyaa',
-      'fansub',
-      'scanlation',
-      'simulcast',
-    ],
-    text: 'Ecosystem: Crunchyroll (simulcast streaming), MangaPlus / Shōnen Jump (official manga), MangaDex & scanlation groups, fansubs, nyaa for the high-seas crowd.',
-    tags: ['anime', 'manga', 'platforms'],
+    topic: 'Manga reading ecosystem',
+    aliases: ['mangadex', 'shonen jump', 'mangaplus', 'scanlation'],
+    text: 'Manga ecosystem: MangaPlus / Shōnen Jump publish official chapters; MangaDex and scanlation groups cover community translations.',
+    tags: ['manga', 'platforms'],
     salience: 0.5,
   },
   // ---- asian pop culture ----

@@ -34,7 +34,6 @@ function series(
     genres: [],
     studios: [],
     externalIds: {},
-    streamingLinks: [],
     ...overrides,
   };
 }

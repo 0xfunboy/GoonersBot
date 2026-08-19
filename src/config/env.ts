@@ -343,7 +343,7 @@ const envSchema = z.object({
   ANIME_ARCHIVE_CRF: intFromString(28),
   ANIME_ARCHIVE_AUDIO_BITRATE_KBPS: intFromString(80),
   /** Caps long-form decoder/filter/encoder parallelism so one episode cannot monopolise the host. */
-  ANIME_ARCHIVE_FFMPEG_THREADS: intFromString(2),
+  ANIME_ARCHIVE_FFMPEG_THREADS: intFromString(1),
   ANIME_ARCHIVE_OFFER_TTL_MINUTES: intFromString(15),
   ANIME_ARCHIVE_MAX_RETRIES: intFromString(3),
   ANIME_ARCHIVE_TMP_DIR: z.string().default('.tmp-anime-archive'),

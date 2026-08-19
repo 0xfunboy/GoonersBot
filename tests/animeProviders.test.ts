@@ -72,9 +72,8 @@ describe('parseMedia', () => {
     expect(parseMedia(TANYA_NODE)?.description).toBe('A military fantasy. Second line.');
   });
 
-  it('keeps only https streaming links and drops info links', () => {
-    const links = parseMedia(TANYA_NODE)?.streamingLinks ?? [];
-    expect(links).toEqual([{ site: 'Crunchyroll', url: 'https://www.crunchyroll.com/series/x' }]);
+  it('does not carry AniList gateway links into the catalog domain', () => {
+    expect(parseMedia(TANYA_NODE)).not.toHaveProperty('streamingLinks');
   });
 
   it('tolerates a node where every optional field is missing', () => {
@@ -154,6 +153,7 @@ describe('AnilistProvider', () => {
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(init.method).toBe('POST');
     expect(String(init.body)).toContain('tanya');
+    expect(String(init.body)).not.toContain('externalLinks');
   });
 
   it('degrades to an empty result when the API reports GraphQL errors', async () => {

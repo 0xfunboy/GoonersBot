@@ -1,9 +1,10 @@
 # Anime episode archive
 
 GoonersBot can resolve and rehost public episodes from AnimeUnity and HentaiSaturn without routing
-the conversation through the artifact agent. The existing AniList/Jikan catalog remains the source
-for release facts, title matching, follows and scheduled notifications; this module only checks
-whether the resolved episode is currently available from one of the two media sources.
+the conversation through the artifact agent. AniList/Jikan may supply internal metadata and title
+aliases, but never a watch/download link or a release notification. Live availability, follow
+notifications and every rehost action come exclusively from AnimeUnity first, with HentaiSaturn as
+an NSFW-policy-gated fallback.
 
 ## User flow
 
@@ -28,7 +29,14 @@ episode and keeps concurrency at exactly one.
 Normal anime questions continue through `anime_knowledge` and the styled reply pipeline. Once the
 existing catalog has resolved a series, a bounded live source lookup can add the natural offer
 `Vuoi che te lo rehosti qui?`. A button or a short reply such as `sì`, `scaricalo` or `vai` invokes
-the same single-episode job used by a pasted URL. Follow notifications use the same offer path.
+the same single-episode job used by a pasted URL. An explicit addressed command such as
+`rehostami l'episodio 7`, including a reply to a bot release notice, skips the extra confirmation
+and queues that exact episode deterministically. Follow notifications are emitted only after the
+episode is observed on a supported archive source and include that canonical source URL.
+
+Long jobs keep one best-effort Telegram status message updated across download, conversion and
+upload, with a heartbeat for slow stages. Status delivery is hard-time-bounded and cannot delay the
+worker, its lease, or the media upload itself.
 
 HentaiSaturn remains governed by `LINK_MEDIA_NSFW_ALLOW`; the archive layer does not weaken the
 existing adult-host policy.
@@ -49,14 +57,15 @@ ANIME_ARCHIVE_TIMEOUT_MS=1800000
 ANIME_ARCHIVE_MAX_HEIGHT=720
 ANIME_ARCHIVE_CRF=28
 ANIME_ARCHIVE_AUDIO_BITRATE_KBPS=80
-ANIME_ARCHIVE_FFMPEG_THREADS=2
+ANIME_ARCHIVE_FFMPEG_THREADS=1
 ANIME_ARCHIVE_OFFER_TTL_MINUTES=15
 ANIME_ARCHIVE_MAX_RETRIES=3
 ANIME_ARCHIVE_TMP_DIR=.tmp-anime-archive
 ```
 
 `mobile` always produces H.264/AAC, `yuv420p`, `+faststart`, never upscales past the configured
-height and makes a bitrate-aware second pass when needed. `source` remuxes a compatible source that
+height and switches directly to a bitrate-limited encode when a CRF pass would predictably exceed
+the Telegram ceiling. `source` remuxes a compatible source that
 already fits Telegram's byte and height ceilings, otherwise it uses the same safe transcode path.
 The final upload ceiling is the existing `LINK_MEDIA_MAX_UPLOAD_MB` setting. Long-form ffmpeg work
 also caps decoder/filter/encoder parallelism (one to four threads) so a single episode cannot take

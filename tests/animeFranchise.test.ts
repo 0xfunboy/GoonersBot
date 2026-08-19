@@ -37,7 +37,6 @@ function series(
     genres: [],
     studios: [],
     externalIds: {},
-    streamingLinks: [],
     ...extra,
   };
 }
@@ -345,10 +344,10 @@ describe('an ambiguous answer is information, not a tool failure', () => {
     expect(answer.summary).toContain('Season 2');
     expect(answer.summary).toContain('Ultimo episodio uscito: 6');
     expect(answer.summary).toContain('Prossimo episodio: 7');
-    expect(answer.sources).toEqual(['https://anilist.co/anime/135865']);
+    expect(answer.sources).toEqual([]);
   });
 
-  it('reports a shortlist as resolved and carries its sources', async () => {
+  it('reports a shortlist as resolved without exposing catalog gateway links', async () => {
     const answer = await knowledge(FRANCHISE).handle({
       intent: 'lookup',
       title: 'Tanya the Evil',
@@ -361,7 +360,7 @@ describe('an ambiguous answer is information, not a tool failure', () => {
     // verification failure to the user instead.
     expect(answer.resolved).toBe(true);
     expect(answer.candidates.length).toBeGreaterThan(1);
-    expect(answer.sources.length).toBeGreaterThan(1);
+    expect(answer.sources).toEqual([]);
     expect(answer.summary).not.toMatch(/ambiguo/i);
   });
 
@@ -375,6 +374,33 @@ describe('an ambiguous answer is information, not a tool failure', () => {
     });
 
     expect(answer.resolved).toBe(false);
+    expect(answer.sources).toEqual([]);
+  });
+
+  it('keeps gateway URLs out and reports the archive-source notification watermark', async () => {
+    const catalog = new AnimeCatalogService(config, {
+      storage: emptyStorage,
+      provider: provider([]),
+    });
+    const follows = {
+      list: vi.fn(async () => [
+        {
+          sourceId: '135865',
+          title: 'Saga of Tanya the Evil Season 2',
+          lastNotifiedEpisode: 99,
+          archiveLastNotifiedEpisode: 6,
+        },
+      ]),
+    } as unknown as AnimeFollowService;
+    const answer = await new AnimeKnowledgeService(config, catalog, follows).handle({
+      intent: 'list_follows',
+      chatId: -100,
+      userHandle: '@u',
+    });
+
+    expect(answer.summary).toContain('Saga of Tanya the Evil Season 2');
+    expect(answer.summary).toContain('ultimo avviso: ep. 6');
+    expect(answer.summary).not.toMatch(/https?:\/\//i);
     expect(answer.sources).toEqual([]);
   });
 });

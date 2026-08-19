@@ -25,6 +25,7 @@ import { redactSecrets } from '../../utils/secrets.js';
 import { ANIMEUNITY_MEDIA_HOSTS } from './animeUnity.js';
 import { HENTAISATURN_MEDIA_HOSTS } from './hentaiSaturn.js';
 import { assertAllowedArchiveUrl } from './http.js';
+import { AnimeArchiveProgressReporter } from './progress.js';
 import type { AnimeSourceRegistry } from './registry.js';
 import {
   AnimeArchiveError,
@@ -168,6 +169,8 @@ export class AnimeArchiveWorker {
   }
 
   private async processJob(job: AnimeArchiveJobDoc, api: Api, leaseMs: number): Promise<void> {
+    const progress = new AnimeArchiveProgressReporter(api, job);
+    await progress.start();
     const leaseAbort = new AbortController();
     const signal = AbortSignal.any([this.shutdownController.signal, leaseAbort.signal]);
     let renewInFlight = false;
@@ -198,12 +201,33 @@ export class AnimeArchiveWorker {
         );
         if (!claimed) break;
         const episode = claimed.episode;
+        log.info(
+          {
+            jobId: job.id,
+            source: job.source,
+            episode: episode.number,
+            totalEpisodes: job.episodes.length,
+          },
+          'anime archive episode started',
+        );
         try {
-          const delivered = await this.processEpisode(claimed.job, episode, api, signal, leaseMs);
+          const delivered = await this.processEpisode(
+            claimed.job,
+            episode,
+            api,
+            signal,
+            leaseMs,
+            progress,
+          );
           const completed = await this.persistDeliveredEpisode(job, episode, delivered);
           if (!completed) {
             throw new ArchiveDeliveryOutcomeUnknown(delivered.deliveryToken, false);
           }
+          await progress.delivered(episode);
+          log.info(
+            { jobId: job.id, source: job.source, episode: episode.number },
+            'anime archive episode delivered',
+          );
         } catch (error) {
           if (signal.aborted) throw signal.reason;
           if (error instanceof ArchiveDeliveryOutcomeUnknown) {
@@ -224,6 +248,7 @@ export class AnimeArchiveWorker {
               { jobId: job.id, source: job.source, episode: episode.number },
               'anime archive delivery became uncertain; automatic resend suppressed',
             );
+            await progress.failed(episode, false);
             continue;
           }
           const retryable = isRetryableFailure(error);
@@ -246,6 +271,7 @@ export class AnimeArchiveWorker {
             },
             'anime archive episode failed',
           );
+          await progress.failed(episode, failed.retryScheduled ?? false);
           if (isSourceLayoutFailure(error)) {
             const stopped = await this.storage.animeArchive.jobs.failPendingEpisodes(
               job.id,
@@ -261,7 +287,10 @@ export class AnimeArchiveWorker {
         }
       }
       const finalized = await this.storage.animeArchive.jobs.finalizeJob(job.id, this.workerId);
-      if (finalized) await this.notifyFinalSummary(finalized, api);
+      if (finalized) {
+        await progress.finishing();
+        await this.notifyFinalSummary(finalized, api);
+      }
     } finally {
       clearInterval(renewTimer);
     }
@@ -320,6 +349,7 @@ export class AnimeArchiveWorker {
     api: Api,
     parentSignal: AbortSignal,
     leaseMs: number,
+    progress: AnimeArchiveProgressReporter,
   ): Promise<DeliveredAnimeEpisode> {
     const deadline = AbortSignal.timeout(this.cfg.timeoutMs);
     const signal = AbortSignal.any([parentSignal, deadline]);
@@ -351,31 +381,40 @@ export class AnimeArchiveWorker {
         );
       }
       const resolved = await adapter.resolveMedia(episode, signal);
-      const downloaded = await this.downloadWithFreshMediaFallback(
-        adapter,
-        episode,
-        resolved.candidates,
-        workdir,
-        signal,
+      const downloaded = await progress.during(row, 'download', () =>
+        this.downloadWithFreshMediaFallback(adapter, episode, resolved.candidates, workdir, signal),
       );
       const rawProbe = downloaded.probe;
 
       const prepared = join(workdir, 'prepared.mp4');
-      const normalized = await normalizeAnimeVideo(
-        downloaded.file,
-        prepared,
+      const normalized = await progress.during(row, 'conversion', () =>
+        normalizeAnimeVideo(
+          downloaded.file,
+          prepared,
+          {
+            ffmpegBin: this.mediaCfg.ffmpegBin,
+            timeoutMs: this.cfg.timeoutMs,
+            maxUploadBytes: this.mediaCfg.maxUploadBytes,
+            profile: this.cfg.profile,
+            maxHeight: this.cfg.maxHeight,
+            crf: this.cfg.crf,
+            audioBitrateKbps: this.cfg.audioBitrateKbps,
+            threads: this.cfg.ffmpegThreads,
+            signal,
+          },
+          rawProbe,
+        ),
+      );
+      log.info(
         {
-          ffmpegBin: this.mediaCfg.ffmpegBin,
-          timeoutMs: this.cfg.timeoutMs,
-          maxUploadBytes: this.mediaCfg.maxUploadBytes,
-          profile: this.cfg.profile,
-          maxHeight: this.cfg.maxHeight,
-          crf: this.cfg.crf,
-          audioBitrateKbps: this.cfg.audioBitrateKbps,
-          threads: this.cfg.ffmpegThreads,
-          signal,
+          jobId: job.id,
+          source: job.source,
+          episode: row.number,
+          action: normalized.action,
+          bitrateLimited: normalized.bitrateLimited,
+          sizeBytes: normalized.sizeBytes,
         },
-        rawProbe,
+        'anime archive episode prepared',
       );
       quotaBytes = normalized.sizeBytes;
       const preparedProbe = await probeVideo(this.mediaCfg.ffmpegBin, prepared, 20_000, signal);
@@ -455,25 +494,27 @@ export class AnimeArchiveWorker {
 
       let sent: Awaited<ReturnType<typeof sendPreparedMediaToChat>>;
       try {
-        sent = await sendPreparedMediaToChat({
-          api,
-          chatId: job.destination.chatId,
-          kind: 'video',
-          path: prepared,
-          caption: `${job.series.title} — Episodio ${displayEpisodeNumber(row.number)}`,
-          filename: episodeFilename(job.series.title, row.number),
-          signal,
-          ...(job.destination.threadId === null
-            ? {}
-            : { messageThreadId: job.destination.threadId }),
-          ...(job.destination.replyToMessageId === null
-            ? {}
-            : { replyToMessageId: job.destination.replyToMessageId }),
-          video: {
-            ...preparedProbe,
-            ...(hasThumbnail ? { thumbnailPath } : {}),
-          },
-        });
+        sent = await progress.during(row, 'upload', () =>
+          sendPreparedMediaToChat({
+            api,
+            chatId: job.destination.chatId,
+            kind: 'video',
+            path: prepared,
+            caption: `${job.series.title} — Episodio ${displayEpisodeNumber(row.number)}`,
+            filename: episodeFilename(job.series.title, row.number),
+            signal,
+            ...(job.destination.threadId === null
+              ? {}
+              : { messageThreadId: job.destination.threadId }),
+            ...(job.destination.replyToMessageId === null
+              ? {}
+              : { replyToMessageId: job.destination.replyToMessageId }),
+            video: {
+              ...preparedProbe,
+              ...(hasThumbnail ? { thumbnailPath } : {}),
+            },
+          }),
+        );
       } catch (error) {
         if (isDefinitiveTelegramApiRejection(error)) {
           const aborted = await this.storage.animeArchive.jobs
