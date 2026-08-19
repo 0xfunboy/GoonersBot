@@ -8,9 +8,17 @@ export interface NaturalAnimeArchiveRequest {
   confirmationPreferred?: boolean | undefined;
 }
 
+export interface NaturalAnimeAvailabilityRequest {
+  query: string;
+  expectedEpisodeNumber?: string | undefined;
+  preferredSource?: AnimeArchiveSource | undefined;
+}
+
 const REHOST_COMMAND =
   /\b(?:(?:fai|fa|fammi)\s+(?:il\s+)?(?:rehost|download)|rehost(?:a|ami|alo|ala)?|scarica(?:mi|melo|mela|lo|la|te)?|download(?:a|ami|alo|ala)?|(?:puoi|potresti|riesci\s+a)\s+(?:(?:mi|lo|la)\s+)?(?:rehostare|scaricare|downloadare)|(?:voglio|vorrei)\s+(?:(?:vederlo|guardarlo|averlo|scaricarlo|downloadarlo|rehostarlo)|(?:scaricare|downloadare|rehostare)))\b/iu;
 const EPISODE_NUMBER = /\b(?:episodio|ep\.?|puntata)\s*#?\s*(\d+(?:[.,]\d+)?)/iu;
+const AVAILABILITY_CHECK =
+  /\b(?:ricontrolla|controlla|verifica|checka|vedi\s+se|guarda\s+se)\b|\b(?:dovrebbe|dovrebbero)\s+essere\s+arrivat\p{L}*\b/iu;
 
 /**
  * Resolve an explicit natural-language rehost command before the LLM/tool planner.
@@ -45,6 +53,33 @@ export function parseNaturalAnimeArchiveRequest(
   };
 }
 
+/**
+ * Resolve an explicit request to re-check whether a named episode is actually available on an
+ * archive source. This is a deterministic source lookup, never a conversational/model answer.
+ */
+export function parseNaturalAnimeAvailabilityRequest(
+  text: string,
+  repliedToText?: string,
+): NaturalAnimeAvailabilityRequest | null {
+  const normalized = normalizeForIntent(text);
+  if (!AVAILABILITY_CHECK.test(normalized)) return null;
+
+  const expectedEpisodeNumber =
+    extractEpisodeNumber(text) ?? (repliedToText ? extractEpisodeNumber(repliedToText) : undefined);
+  const query =
+    extractAvailabilityTitle(text) ??
+    extractAnimeTitle(text) ??
+    (repliedToText ? extractAnimeTitle(repliedToText) : null);
+  if (!query) return null;
+
+  const preferredSource = sourceMention(text);
+  return {
+    query,
+    ...(expectedEpisodeNumber ? { expectedEpisodeNumber } : {}),
+    ...(preferredSource ? { preferredSource } : {}),
+  };
+}
+
 function actionIsNegatedOrInformational(text: string, actionIndex: number): boolean {
   const prefix = text.slice(Math.max(0, actionIndex - 48), actionIndex);
   // Punctuation starts a new clause: "non so, scaricalo" remains a valid instruction, whereas
@@ -68,6 +103,19 @@ function extractAnimeTitle(value: string): string | null {
     /\b(?:episodio|ep\.?|puntata)\s*#?\s*\d+(?:[.,]\d+)?\s+di\s+(.+?)(?=\s+(?:e|è|era|uscit\p{L}*)(?:\s|[.!?\n]|$)|[.!?\n]|$)/iu,
     /^\s*titolo\s*:\s*(.+?)\s*$/imu,
     /^\s*(.+?)\s+[—-]\s*(?:episodio|ep\.?|puntata)\s*#?\s*\d+(?:[.,]\d+)?\s*$/imu,
+  ];
+  for (const pattern of patterns) {
+    const candidate = cleanTitle(pattern.exec(text)?.[1]);
+    if (candidate) return candidate;
+  }
+  return null;
+}
+
+function extractAvailabilityTitle(value: string): string | null {
+  const text = normalizeForExtraction(value);
+  const patterns = [
+    /\b(?:ricontrolla|controlla|verifica|checka)(?:\s+(?:un\s+po['’]?|un\s+attimo|per\s+favore|pls))*\s+(.+?)(?=\s*[,;.!?]|\s+(?:dovrebbe|dovrebbero|se|che)\b|$)/iu,
+    /\b(?:episodio|ep\.?|puntata)\s*#?\s*\d+(?:[.,]\d+)?\s+di\s+(.+?)(?=\s+(?:su|da)\s+(?:anime\s*unity|hentai\s*saturn)\b|[.!?\n]|$)/iu,
   ];
   for (const pattern of patterns) {
     const candidate = cleanTitle(pattern.exec(text)?.[1]);
