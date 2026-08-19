@@ -136,6 +136,7 @@ function config(
       bulkEnabled: overrides.bulkEnabled ?? true,
       maxDurationSeconds: 7_200,
       maxDownloadBytes: 2_048 * 1_024 * 1_024,
+      maxUploadBytes: 45 * 1_024 * 1_024,
       bulkConcurrency: 1,
       timeoutMs: 30_000,
       offerTtlMinutes: 15,

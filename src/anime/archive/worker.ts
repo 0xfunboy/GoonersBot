@@ -4,9 +4,7 @@ import { join } from 'node:path';
 import type { Api } from 'grammy';
 import type { AnimeArchiveConfig, LinkMediaConfig } from '../../config/index.js';
 import {
-  AnimeVideoOutputTooLargeError,
   probeVideo,
-  splitVideoLosslessly,
   type VideoProbe,
   videoThumbnail,
 } from '../../providers/media/linkMedia/normalizer.js';
@@ -390,66 +388,34 @@ export class AnimeArchiveWorker {
         throw new ArchiveEpisodeFailure('Downloaded video is empty', true);
       }
 
-      // Archive sources are already encoded for human viewing. Never trade source quality for the
-      // hosted Bot API's 50 MB transport limit: send the exact file when it fits, otherwise split
-      // it at keyframes with `-c copy`. A lossy transcode is deliberately not an archive fallback.
-      let preparedParts: Array<{ path: string; sizeBytes: number; probe: VideoProbe }>;
-      let preparation: {
-        action: 'passthrough' | 'split_lossless';
-        sizeBytes: number;
-        parts: number;
-        attempts: number;
-      };
-      if (rawSizeBytes <= this.mediaCfg.maxUploadBytes) {
-        preparedParts = [{ path: downloaded.file, sizeBytes: rawSizeBytes, probe: rawProbe }];
-        preparation = {
-          action: 'passthrough',
-          sizeBytes: rawSizeBytes,
-          parts: 1,
-          attempts: 0,
-        };
-      } else {
-        const splitDir = join(workdir, 'lossless-parts');
-        const split = await progress.during(row, 'split', () =>
-          splitVideoLosslessly(
-            downloaded.file,
-            splitDir,
-            {
-              ffmpegBin: this.mediaCfg.ffmpegBin,
-              timeoutMs: this.cfg.timeoutMs,
-              maxUploadBytes: this.mediaCfg.maxUploadBytes,
-              signal,
-            },
-            rawProbe,
-          ),
+      // Archive delivery is intentionally one episode = one Telegram file. Source media is never
+      // transcoded or split to satisfy a transport ceiling: configure a large-upload Telegram API
+      // backend instead. Failing closed here prevents a single episode from spamming the chat.
+      if (rawSizeBytes > this.cfg.maxUploadBytes) {
+        throw new ArchiveEpisodeFailure(
+          `Source episode is ${rawSizeBytes} bytes, above the configured single-file Telegram limit of ${this.cfg.maxUploadBytes} bytes; configure Telegram Local Bot API / a larger ANIME_ARCHIVE_MAX_UPLOAD_MB`,
+          false,
         );
-        const { duration: _wholeEpisodeDuration, ...splitProbe } = rawProbe;
-        preparedParts = split.parts.map((part) => ({ ...part, probe: splitProbe }));
-        preparation = {
-          action: 'split_lossless',
-          sizeBytes: split.totalBytes,
-          parts: split.parts.length,
-          attempts: split.attempts,
-        };
       }
       log.info(
         {
           jobId: job.id,
           source: job.source,
           episode: row.number,
-          action: preparation.action,
+          action: 'passthrough',
           sourceSizeBytes: rawSizeBytes,
-          sizeBytes: preparation.sizeBytes,
-          parts: preparation.parts,
-          attempts: preparation.attempts,
+          sizeBytes: rawSizeBytes,
+          parts: 1,
         },
         'anime archive episode prepared',
       );
-      quotaBytes = preparation.sizeBytes;
+      quotaBytes = rawSizeBytes;
+      const preparedPath = downloaded.file;
+      const preparedProbe = rawProbe;
       const thumbnailPath = join(workdir, 'thumbnail.jpg');
       const hasThumbnail = await videoThumbnail(
         this.mediaCfg.ffmpegBin,
-        preparedParts[0]!.path,
+        preparedPath,
         thumbnailPath,
         20_000,
         signal,
@@ -520,48 +486,35 @@ export class AnimeArchiveWorker {
         throw signal.reason;
       }
 
-      const sentParts: Awaited<ReturnType<typeof sendPreparedMediaToChat>>[] = [];
+      let sent: Awaited<ReturnType<typeof sendPreparedMediaToChat>>;
       try {
-        await progress.during(row, 'upload', async () => {
-          for (const [index, part] of preparedParts.entries()) {
-            signal.throwIfAborted();
-            const multipart = preparedParts.length > 1;
-            const baseCaption = `${job.series.title} — Episodio ${displayEpisodeNumber(row.number)}`;
-            const sent = await sendPreparedMediaToChat({
-              api,
-              chatId: job.destination.chatId,
-              kind: 'video',
-              path: part.path,
-              caption: multipart
-                ? `${baseCaption} — Parte ${index + 1}/${preparedParts.length} · qualità originale`
-                : baseCaption,
-              filename: multipart
-                ? episodePartFilename(job.series.title, row.number, index + 1, preparedParts.length)
-                : episodeFilename(job.series.title, row.number),
-              signal,
-              ...(job.destination.threadId === null
-                ? {}
-                : { messageThreadId: job.destination.threadId }),
-              ...(index === 0 && job.destination.replyToMessageId !== null
-                ? { replyToMessageId: job.destination.replyToMessageId }
+        sent = await progress.during(row, 'upload', () =>
+          sendPreparedMediaToChat({
+            api,
+            chatId: job.destination.chatId,
+            kind: 'video',
+            path: preparedPath,
+            caption: `${job.series.title} — Episodio ${displayEpisodeNumber(row.number)}`,
+            filename: episodeFilename(job.series.title, row.number),
+            signal,
+            ...(job.destination.threadId === null
+              ? {}
+              : { messageThreadId: job.destination.threadId }),
+            ...(job.destination.replyToMessageId === null
+              ? {}
+              : { replyToMessageId: job.destination.replyToMessageId }),
+            video: {
+              ...(typeof preparedProbe.width === 'number' ? { width: preparedProbe.width } : {}),
+              ...(typeof preparedProbe.height === 'number' ? { height: preparedProbe.height } : {}),
+              ...(typeof preparedProbe.duration === 'number'
+                ? { duration: preparedProbe.duration }
                 : {}),
-              video: {
-                ...(typeof part.probe.width === 'number' ? { width: part.probe.width } : {}),
-                ...(typeof part.probe.height === 'number' ? { height: part.probe.height } : {}),
-                ...(preparedParts.length === 1 && typeof part.probe.duration === 'number'
-                  ? { duration: part.probe.duration }
-                  : {}),
-                ...(index === 0 && hasThumbnail ? { thumbnailPath } : {}),
-              },
-            });
-            sentParts.push(sent);
-          }
-        });
+              ...(hasThumbnail ? { thumbnailPath } : {}),
+            },
+          }),
+        );
       } catch (error) {
-        // A definitive rejection is safe to roll back only before Telegram accepted any part. Once
-        // one lossless chunk exists in chat, retrying the episode could duplicate it, so retain the
-        // delivery latch and terminalize the uncertain/partial outcome instead.
-        if (sentParts.length === 0 && isDefinitiveTelegramApiRejection(error)) {
+        if (isDefinitiveTelegramApiRejection(error)) {
           const aborted = await this.storage.animeArchive.jobs
             .abortEpisodeDelivery(job.id, row.id, this.workerId, deliveryToken)
             .catch(() => null);
@@ -575,21 +528,13 @@ export class AnimeArchiveWorker {
         );
         throw new ArchiveDeliveryOutcomeUnknown(deliveryToken, terminalized, error);
       }
-      const lastSent = sentParts.at(-1);
-      if (!lastSent) {
-        throw new ArchiveEpisodeFailure('Telegram returned no archive media receipt', true);
-      }
-      const messageIds = sentParts.map((sent) => sent.messageId);
-      const fileIds = sentParts.flatMap((sent) => (sent.fileId ? [sent.fileId] : []));
       return {
         deliveryToken,
         receipt: {
           chatId: job.destination.chatId,
-          messageId: lastSent.messageId,
-          ...(messageIds.length > 1 ? { messageIds } : {}),
-          ...(lastSent.fileId ? { fileId: lastSent.fileId } : {}),
-          ...(fileIds.length > 1 ? { fileIds } : {}),
-          mediaKind: lastSent.kind === 'document' ? ('document' as const) : ('video' as const),
+          messageId: sent.messageId,
+          ...(sent.fileId ? { fileId: sent.fileId } : {}),
+          mediaKind: sent.kind === 'document' ? ('document' as const) : ('video' as const),
         },
       };
     } catch (error) {
@@ -920,7 +865,6 @@ function safeForwardHeaders(headers: Readonly<Record<string, string>>): Record<s
 
 function isRetryableFailure(error: unknown): boolean {
   if (error instanceof ArchiveEpisodeFailure) return error.retryable;
-  if (error instanceof AnimeVideoOutputTooLargeError) return false;
   if (error instanceof AnimeArchiveError) {
     return error.code === 'media_unavailable';
   }
@@ -978,13 +922,6 @@ function episodeFilename(title: string, episode: number): string {
       .trim()
       .slice(0, 120) || 'Anime';
   return `${safeTitle} - E${displayEpisodeNumber(episode)}.mp4`;
-}
-
-function episodePartFilename(title: string, episode: number, part: number, total: number): string {
-  return episodeFilename(title, episode).replace(
-    /\.mp4$/u,
-    ` - parte ${String(part).padStart(2, '0')}-${String(total).padStart(2, '0')}.mp4`,
-  );
 }
 
 async function prepareScratchRoot(

@@ -31,12 +31,14 @@ describe('loadEnv', () => {
     expect(env.REPLY_CANDIDATE_COUNT).toBe(3);
     expect(env.REPLY_MAX_REGENERATIONS).toBe(1);
     expect(env.MONGO_DB).toBe('goonerbot');
+    expect(env.TELEGRAM_API_ROOT).toBeUndefined();
     expect(env.LINK_MEDIA_COOKIES_FILE).toBeUndefined();
     expect(env.LINK_MEDIA_EXTRA_YTDLP_HOSTS).toBeUndefined();
     expect(env.LINK_MEDIA_YTDLP_NETWORK_ISOLATION).toBe(true);
     expect(env.LINK_MEDIA_BWRAP_BIN).toBe('/usr/bin/bwrap');
     expect(env.ANIME_ARCHIVE_ENABLED).toBe(true);
     expect(env.ANIME_ARCHIVE_BULK_ENABLED).toBe(true);
+    expect(env.ANIME_ARCHIVE_MAX_UPLOAD_MB).toBe(45);
     expect(env.ANIME_ARCHIVE_BULK_CONCURRENCY).toBe(1);
     expect(env.CAPABILITY_LOCAL_DEVELOPMENT_ENABLED).toBe(false);
     expect(env.CAPABILITY_LOCAL_DEVELOPMENT_ADMIN_IDS).toEqual([]);
@@ -51,6 +53,7 @@ describe('loadEnv', () => {
         ...base,
         ANIME_ARCHIVE_MAX_DURATION_SECONDS: '9000',
         ANIME_ARCHIVE_MAX_DOWNLOAD_MB: '512',
+        ANIME_ARCHIVE_MAX_UPLOAD_MB: '1900',
         ANIME_ARCHIVE_BULK_CONCURRENCY: '9',
       }),
     );
@@ -59,6 +62,7 @@ describe('loadEnv', () => {
       bulkEnabled: true,
       maxDurationSeconds: 9_000,
       maxDownloadBytes: 512 * 1024 * 1024,
+      maxUploadBytes: 1_900 * 1024 * 1024,
       bulkConcurrency: 1,
     });
   });
@@ -69,11 +73,13 @@ describe('loadEnv', () => {
         ...base,
         ANIME_ARCHIVE_MAX_DURATION_SECONDS: '999999999',
         ANIME_ARCHIVE_MAX_DOWNLOAD_MB: '999999999',
+        ANIME_ARCHIVE_MAX_UPLOAD_MB: '999999999',
         ANIME_ARCHIVE_TIMEOUT_MS: '999999999',
       }),
     );
     expect(cfg.maxDurationSeconds).toBe(6 * 60 * 60);
     expect(cfg.maxDownloadBytes).toBe(4_096 * 1024 * 1024);
+    expect(cfg.maxUploadBytes).toBe(2_000 * 1024 * 1024);
     expect(cfg.timeoutMs).toBe(2 * 60 * 60_000);
   });
 
