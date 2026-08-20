@@ -254,49 +254,24 @@ illegal, no doxxing. NSFW is opt-in per chat and meant for private, consenting a
 
 ## Commands
 
-| Command                      | Who           | What                                                                                        |
-| ---------------------------- | ------------- | ------------------------------------------------------------------------------------------- |
-| `/start`                     | admin         | wake GoonersBot in this chat                                                                |
-| `/stop`                      | admin         | put it to sleep                                                                             |
-| `/reset`                     | admin         | wipe conversation memory                                                                    |
-| `/mode`                      | admin         | pick a mode                                                                                 |
-| `/addmode <description>`     | admin         | add a custom mode (`[nsfw]` prefix flags it adult)                                          |
-| `/deletemode`                | admin         | delete a mode                                                                               |
-| `/introduce <text>`          | anyone        | tell GoonersBot who you are (saved as lore)                                                 |
-| `/setfact @handle <text>`    | admin         | manually insert lore                                                                        |
-| `/facts [@handle]`           | self / admin  | show personal memory (`/memory` and `/memoria` aliases)                                     |
-| `/clearfacts [@handle]`      | self / admin  | expire stored lore (self anytime, others need admin)                                        |
-| `/lore`                      | anyone        | top group lore (max 5)                                                                      |
-| `/forget`                    | reply / admin | reply to forget lore mined from a message; admin `/forget <id>`                             |
-| `/translate <language>`      | anyone        | translate the replied message (alias `/traduci`)                                            |
-| `/voice`                     | anyone        | turn the last message, or the replied one, into a voice note                                |
-| `/play <query>`              | anyone        | search YouTube and send the audio as a voice note (aliases `/suona`, `/riproduci`)          |
-| `/sing <query>`              | anyone        | same as `/play`, phrased for songs (aliases `/canta`, `/cantami`)                           |
-| `/news`                      | anyone        | force an autonomous post now (alias `/nuovo`)                                               |
-| `/autopost`                  | admin         | toggle timed autonomous posts in this chat                                                  |
-| `/genera <prompt>`           | anyone        | generate an original image with Stable Diffusion (aliases `/image`, `/img`)                 |
-| `/disegna <prompt>`          | anyone        | force manga planning/style while retaining capability routing (alias `/draw`)               |
-| `/genvid <prompt>`           | anyone        | generate a short video clip (aliases `/video`, `/genvideo`, `/vid`, `/clip`, `/animazione`) |
-| `/usage`                     | anyone        | your usage and limits                                                                       |
-| `/capabilities`              | approved      | list dynamically learned read-only capabilities                                             |
-| `/learn <goal>`              | bot admin     | install safe research recipes or build a reviewed local code candidate in private chat      |
-| `/community`                 | anyone        | privacy-safe social-awareness coverage and current community themes                         |
-| `/socialstatus`              | admin         | social-memory lifecycle/coverage diagnostics without exposing private scores                |
-| `/profile [free\|plus\|pro]` | admin         | show or set the shared group plan and live quotas (aliases: `/groupplan`, `/groupquota`)    |
-| `/language`                  | admin         | set chat language (it, en, ru, es)                                                          |
-| `/terms`                     | anyone        | terms of use and acceptance                                                                 |
-| `/conversationtracker`       | admin         | toggle passive tracking                                                                     |
-| `/autoengage`                | admin         | show passive-reply status                                                                   |
-| `/nsfw [off\|base\|smart]`   | admin         | NSFW model routing                                                                          |
-| `/ban @handle [seconds]`     | bot admin     | ban a Gooner (reply-aware, duration optional, 0 = permanent)                                |
-| `/unban @handle`             | bot admin     | unban a Gooner                                                                              |
-| `/brain`, `/debuglast`       | admin         | inspect why the bot answered the way it did                                                 |
-| `/approve [id]`              | bot admin     | approve a community chat or user (no id in a group = approve it)                            |
-| `/unapprove [id]`            | bot admin     | revoke approval for a chat or user                                                          |
-| `/approved`                  | bot admin     | list approved chats and users                                                               |
-| `/help`                      | anyone        | help                                                                                        |
+GoonersBot currently registers **50 static slash commands**, plus any dynamic commands installed by
+Capability Forge. The complete reference is generated from the same command registry and detailed
+help catalog used by the runtime, so syntax, aliases and access requirements are not maintained in a
+second handwritten table.
 
-admin means group admin or bot admin (`ADMIN_HANDLES`). bot admin means listed in `ADMIN_HANDLES`.
+- In Telegram: `/help` follows the chat language when it is Italian, English or Spanish (other
+  languages fall back to English), while `/help it`, `/help en` and `/help es` force only the help
+  language without changing the chat language.
+- Full repository reference: [`docs/COMMANDS.md`](docs/COMMANDS.md), generated with
+  `pnpm docs:commands` in Italian, English and Spanish.
+- Runtime-only dynamic commands: `/capabilities` lists the capabilities currently installed by
+  `/learn`.
+- `admin` means group admin **or** bot admin (`ADMIN_HANDLES`); `bot admin` means an entry in
+  `ADMIN_HANDLES`; `learn admin` also includes immutable local-development admin IDs.
+- `/anime <title>` is the release/catalog command. AnimeUnity/HentaiSaturn availability and rehost
+  are handled by the natural-language `anime_archive` action; archive delivery preserves the source
+  and enforces **one episode = one Telegram file**.
+
 Most commands that act on the chat need `/terms` accepted first. Outside the basic commands
 (`/start`, `/tos`/`/terms`, `/help`) everything requires approval (see below).
 

@@ -12,6 +12,7 @@ import {
   summarizeSeries,
 } from '../src/anime/answers.js';
 import { commandHandlers } from '../src/telegram/handlers/commands/index.js';
+import { COMMAND_HELP } from '../src/telegram/handlers/commands/helpCatalog.js';
 import { translations } from '../src/config/i18n.js';
 import { formatAnimeAnswer } from '../src/services/reply.js';
 import type { AnimeSeries } from '../src/anime/types.js';
@@ -234,16 +235,15 @@ describe('command surface', () => {
     }
   });
 
-  it('documents the commands in both the Italian and English help', () => {
-    const help = translations['help_text'];
-    for (const language of ['italian', 'english']) {
-      const text = String(help?.[language] ?? '');
-      for (const command of ['/anime', '/follow', '/unfollow', '/following']) {
-        expect(text, `${language} help is missing ${command}`).toContain(command);
+  it('documents the anime commands in detailed Italian, English and Spanish help', () => {
+    for (const command of ['anime', 'follow', 'unfollow', 'following']) {
+      const help = COMMAND_HELP[command];
+      expect(help, `missing help for /${command}`).toBeDefined();
+      for (const language of ['italian', 'english', 'spanish'] as const) {
+        expect(help?.usage[language]).toContain(`/${command}`);
+        expect(help?.description[language].length).toBeGreaterThan(20);
       }
     }
-    // The Italian aliases the group will actually type.
-    expect(String(help?.['italian'])).toContain('/segui');
   });
 });
 
