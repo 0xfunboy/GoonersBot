@@ -1,4 +1,11 @@
 import type { CommandSpec } from '../types.js';
+import {
+  HELP_CATEGORY_ORDER,
+  categoryLabel,
+  commandAccessLabel,
+  helpDefinition,
+  helpLanguageForChat,
+} from './helpCatalog.js';
 
 /**
  * One canonical map for the Italian/English command surface. Telegram command names are ASCII,
@@ -137,46 +144,42 @@ export function registeredCommandCatalog(): readonly CommandSpec[] {
 }
 
 /**
- * Render the actual registered command surface. This intentionally derives aliases from the same
- * function used by bot registration, preventing /help from drifting away from runtime behavior.
+ * Render the complete registered command surface. Long-form descriptions come from helpCatalog,
+ * while aliases and access requirements come from the actual CommandSpec registry so /help cannot
+ * drift away from runtime routing or permission semantics.
  */
-export function commandCatalogHelp(
-  language: string,
-  describe: (command: string) => string,
-): string {
-  const italian = language === 'italian';
-  const publicLabel = italian ? 'Comandi' : 'Commands';
-  const adminLabel = italian ? 'Controlli admin' : 'Admin controls';
-  const groups = [
-    {
-      label: publicLabel,
-      specs: registeredCatalog.filter((spec) => !isAdminCommand(spec)),
-    },
-    {
-      label: adminLabel,
-      specs: registeredCatalog.filter(isAdminCommand),
-    },
-  ];
+export function commandCatalogHelp(language: string): string {
+  const helpLanguage = helpLanguageForChat(language);
+  const aliasLabel =
+    helpLanguage === 'italian' ? 'Alias' : helpLanguage === 'spanish' ? 'Alias' : 'Aliases';
+  const accessLabel =
+    helpLanguage === 'italian' ? 'Accesso' : helpLanguage === 'spanish' ? 'Acceso' : 'Access';
 
-  const sections = groups
-    .filter((group) => group.specs.length > 0)
-    .map((group) => {
-      const lines = group.specs
-        .sort((a, b) => a.priority - b.priority || a.command.localeCompare(b.command))
-        .map((spec) => {
-          const command =
-            italian && italianHelpNames[spec.command]
-              ? (italianHelpNames[spec.command] as string)
-              : menuNameForCommand(spec);
-          const aliases = [spec.command, ...aliasesForCommand(spec)]
-            .filter((alias) => alias !== command)
-            .map((alias) => `/${alias}`);
-          const routes = [`/${command}`, ...aliases].join(' · ');
-          return `• ${routes} — ${escapeHtml(describe(spec.command))}`;
-        });
-      return `<strong>${group.label}</strong>\n${lines.join('\n')}`;
+  return HELP_CATEGORY_ORDER.map((category) => {
+    const specs = registeredCatalog
+      .filter((spec) => helpDefinition(spec.command)?.category === category)
+      .sort((a, b) => a.priority - b.priority || a.command.localeCompare(b.command));
+    if (specs.length === 0) return '';
+    const lines = specs.map((spec) => {
+      const definition = helpDefinition(spec.command);
+      if (!definition) return `/${menuNameForCommand(spec)} — ${spec.command}`;
+      const usage = definition.usage[helpLanguage];
+      const primary = /^\/([a-z0-9_]+)/iu.exec(usage)?.[1];
+      const aliases = [spec.command, ...aliasesForCommand(spec)]
+        .filter((alias) => alias !== primary)
+        .map((alias) => `/${alias}`);
+      return [
+        usage,
+        `  ${definition.description[helpLanguage]}`,
+        `  ${accessLabel}: ${commandAccessLabel(spec, helpLanguage)}${
+          aliases.length > 0 ? ` · ${aliasLabel}: ${aliases.join(', ')}` : ''
+        }`,
+      ].join('\n');
     });
-  return sections.join('\n\n');
+    return `${categoryLabel(category, helpLanguage)}\n${lines.join('\n\n')}`;
+  })
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 /** Compact alias appendix for /help, ordered for the selected chat language. */
@@ -193,17 +196,4 @@ export function commandAliasHelp(language: string): string {
     })
     .join(' · ');
   return `<strong>${label}</strong>\n${rows}`;
-}
-
-function escapeHtml(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-}
-
-function isAdminCommand(spec: CommandSpec): boolean {
-  return (
-    spec.adminOnly === true ||
-    spec.permissions.some((permission) =>
-      ['admin', 'group_admin', 'bot_admin'].includes(permission),
-    )
-  );
 }

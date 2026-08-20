@@ -20,6 +20,11 @@ import {
 } from '../src/telegram/handlers/commands/community.js';
 import { commandHandlers } from '../src/telegram/handlers/commands/index.js';
 import { helpCommand } from '../src/telegram/handlers/commands/misc.js';
+import {
+  COMMAND_HELP,
+  helpLanguageForChat,
+  normalizeHelpLanguage,
+} from '../src/telegram/handlers/commands/helpCatalog.js';
 import type { HandlerInput } from '../src/telegram/handlers/types.js';
 
 const person: Person = { telegramId: 1, userHandle: '@bob' };
@@ -97,17 +102,17 @@ describe('Telegram command registry', () => {
     expect(registeredCommandCatalog()).toEqual(commandHandlers);
   });
 
-  it('derives the admin help section from real permissions, not optional display metadata', () => {
-    const localizer = new Localizer('english');
-    const help = commandCatalogHelp(
-      'english',
-      (command) => localizer.t(`${command}_description`, {}, 'english') ?? command,
-    );
-    const adminSection = help.indexOf('<strong>Admin controls</strong>');
-    expect(adminSection).toBeGreaterThan(0);
-    expect(help.indexOf('/facts')).toBeLessThan(adminSection);
-    expect(help.indexOf('/start')).toBeGreaterThan(adminSection);
-    expect(help.indexOf('/language')).toBeGreaterThan(adminSection);
+  it('derives access labels from real command permissions', () => {
+    const help = commandCatalogHelp('english');
+    expect(help).toContain('Administration & development');
+    expect(help).toContain('/start\n  Wake GoonersBot in the current chat.');
+    expect(help).toContain('Access: admin');
+    expect(help).toContain('/facts [@user]');
+    expect(help).toContain('Access: approved user/chat');
+    expect(help).toContain('/ban @user [seconds]');
+    expect(help).toContain('Access: bot admin');
+    expect(help).toContain('/learn <request>');
+    expect(help).toContain('Access: learn admin');
   });
 
   it('requires accepted terms for LLM/media and personal-data reads, but keeps onboarding public', () => {
@@ -163,32 +168,99 @@ describe('Telegram command registry', () => {
     }
   });
 
-  it('builds /help from every real command and alias within Telegram message limits', async () => {
+  it('has detailed Italian, English and Spanish help for every registered static command', () => {
+    expect(Object.keys(COMMAND_HELP).sort()).toEqual(
+      commandHandlers.map((spec) => spec.command).sort(),
+    );
+    for (const spec of commandHandlers) {
+      const definition = COMMAND_HELP[spec.command];
+      expect(definition, `missing help for /${spec.command}`).toBeDefined();
+      for (const language of ['italian', 'english', 'spanish'] as const) {
+        expect(definition?.usage[language].trim().length).toBeGreaterThan(1);
+        expect(definition?.description[language].trim().length).toBeGreaterThan(10);
+      }
+    }
+  });
+
+  it('builds detailed /help from every real command and alias in Italian, English and Spanish', async () => {
     const localizer = new Localizer('italian');
-    for (const language of ['italian', 'english', 'russian', 'spanish']) {
-      const catalog = commandCatalogHelp(
-        language,
-        (command) => localizer.t(`${command}_description`, {}, language) ?? command,
-      );
+    for (const language of ['italian', 'english', 'spanish'] as const) {
+      const catalog = commandCatalogHelp(language);
       for (const spec of commandHandlers) {
-        const shown =
-          language === 'italian' && spec.command === 'genvid'
-            ? 'generavideo'
-            : menuNameForCommand(spec);
-        expect(catalog).toContain(`/${shown}`);
+        expect(catalog).toContain(COMMAND_HELP[spec.command]!.usage[language]);
+        expect(catalog).toContain(COMMAND_HELP[spec.command]!.description[language]);
         for (const alias of aliasesForCommand(spec)) expect(catalog).toContain(`/${alias}`);
       }
       const response = await helpCommand.handle(
         input({
           getLanguage: vi.fn().mockResolvedValue(language),
           localizer,
+          capabilities: { list: () => [] },
         }),
       );
-      expect(response?.rawText?.length).toBeLessThanOrEqual(4096);
+      expect(response?.textFormat).toBe('plain');
       expect(response?.rawText).toContain('/lore');
       expect(response?.rawText).toContain('/capabilities');
       expect(response?.rawText).toContain('/community');
+      expect(response?.rawText).toContain('/anime <');
+      expect(response?.rawText?.length).toBeGreaterThan(4096);
     }
+  });
+
+  it('keeps docs/COMMANDS.md and the README command pointer synchronized with runtime help', () => {
+    const docs = readFileSync(join(process.cwd(), 'docs/COMMANDS.md'), 'utf8');
+    const readme = readFileSync(join(process.cwd(), 'README.md'), 'utf8');
+    expect(docs).toContain(`Static commands: **${commandHandlers.length}**`);
+    expect(readme).toContain(`**${commandHandlers.length} static slash commands**`);
+    expect(readme).toContain('[`docs/COMMANDS.md`](docs/COMMANDS.md)');
+    expect(readme).toContain('/help it');
+    expect(readme).toContain('/help en');
+    expect(readme).toContain('/help es');
+    expect(docs).toContain('## Italiano');
+    expect(docs).toContain('## English');
+    expect(docs).toContain('## Español');
+    for (const spec of commandHandlers) {
+      const definition = COMMAND_HELP[spec.command]!;
+      for (const language of ['italian', 'english', 'spanish'] as const) {
+        expect(docs).toContain(`\`${definition.usage[language]}\``);
+        expect(docs).toContain(definition.description[language]);
+      }
+      for (const alias of aliasesForCommand(spec)) expect(docs).toContain(`\`/${alias}\``);
+    }
+  });
+
+  it('/help can override only its output language and appends installed dynamic commands', async () => {
+    const localizer = new Localizer('italian');
+    const response = await helpCommand.handle(
+      input(
+        {
+          getLanguage: vi.fn().mockResolvedValue('italian'),
+          localizer,
+          capabilities: {
+            list: () => [{ command: 'papers', description: 'Search technical papers' }],
+          },
+        },
+        ['es'],
+      ),
+    );
+    expect(response?.rawText).toContain('Chat y configuración');
+    expect(response?.rawText).toContain('Comandos dinámicos instalados');
+    expect(response?.rawText).toContain('/papers — Search technical papers');
+    expect(response?.rawText).not.toContain('Chat e configurazione');
+
+    const invalid = await helpCommand.handle(
+      input(
+        {
+          getLanguage: vi.fn().mockResolvedValue('english'),
+          localizer,
+          capabilities: { list: () => [] },
+        },
+        ['de'],
+      ),
+    );
+    expect(invalid).toMatchObject({ rawText: 'Usage: /help [it|en|es]', textFormat: 'plain' });
+    expect(normalizeHelpLanguage('español')).toBe('spanish');
+    expect(helpLanguageForChat('russian')).toBe('english');
   });
 });
 
