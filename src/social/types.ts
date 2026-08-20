@@ -21,6 +21,8 @@ export type SocialClaimState = 'active' | 'disputed' | 'superseded' | 'retracted
 
 export type SocialEvidenceSource =
   | 'self_declared'
+  /** Direct answer to a bot question bound to this exact person/slot; stronger than incidental banter. */
+  | 'clarified_self'
   | 'admin'
   | 'direct_observation'
   | 'repeated_behavior'

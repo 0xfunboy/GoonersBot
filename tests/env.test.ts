@@ -40,6 +40,11 @@ describe('loadEnv', () => {
     expect(env.ANIME_ARCHIVE_BULK_ENABLED).toBe(true);
     expect(env.ANIME_ARCHIVE_MAX_UPLOAD_MB).toBe(45);
     expect(env.ANIME_ARCHIVE_BULK_CONCURRENCY).toBe(1);
+    expect(env.SOCIAL_QUESTIONS_ENABLED).toBe(true);
+    expect(env.SOCIAL_QUESTION_CURIOSITY_PROBABILITY).toBe(0.1);
+    expect(env.SOCIAL_QUESTION_USER_COOLDOWN_MINUTES).toBe(720);
+    expect(env.SOCIAL_QUESTION_TTL_MINUTES).toBe(30);
+    expect(env.SOCIAL_QUESTION_UNQUOTED_ANSWER_WINDOW_MINUTES).toBe(8);
     expect(env.CAPABILITY_LOCAL_DEVELOPMENT_ENABLED).toBe(false);
     expect(env.CAPABILITY_LOCAL_DEVELOPMENT_ADMIN_IDS).toEqual([]);
     expect(env.CAPABILITY_LOCAL_DEVELOPMENT_PLANNER_MODEL).toBe('gemini-3.6-flash');

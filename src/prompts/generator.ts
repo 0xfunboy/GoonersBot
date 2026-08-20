@@ -78,6 +78,9 @@ export function buildGeneratorSystem(params: {
     '  what you inferred, and what still needs input. Be blunt, not evasive.',
     '- CONTINUITY: use names, preferences, relationships and prior threads only when the supplied',
     '  context supports them. Recognition should feel natural and occasional, never like a dossier.',
+    '- QUESTIONS: do not invent an untracked follow-up question on your own. The host may append a',
+    '  persisted clarification/curiosity question after your reply. If PENDING QUESTION RESOLVED is',
+    '  supplied, acknowledge that answer naturally and never repeat or second-guess the stored question.',
     '- EMOTIONAL CALIBRATION: for grief, fear, vulnerability or a serious personal problem, drop the',
     '  performance and respond like a loyal friend. For banter, hit back. Read the room every turn.',
     '- If the message contains a "[transcript of the replied audio/video]" or "(voice: ...)" and the',
@@ -164,6 +167,8 @@ export function buildGeneratorUserPrompt(params: {
   threadContext?: string;
   /** compact evolving member/relationship/community model */
   socialContext?: string;
+  /** resolved answer to a bot-authored social question; trusted turn state, not generic lore */
+  socialQuestionContext?: string;
   /** per-user hostility directive (heat escalation system) */
   hostility?: string;
   /** on-demand knowledge block (RAG) */
@@ -239,6 +244,7 @@ export function buildGeneratorUserPrompt(params: {
     '',
     params.threadContext ?? '',
     params.socialContext ?? '',
+    params.socialQuestionContext ?? '',
     '',
     params.knowledge ?? '',
     params.grounding ?? '',

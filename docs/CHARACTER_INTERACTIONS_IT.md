@@ -42,6 +42,7 @@ Il principio è: **prima si decide cosa sta succedendo e cosa bisogna fare, poi 
 | **Memory items / Group RAG**                       |                    lunga | lore episodica: meme, quote, group lore e memoria legacy revisionabile                                                  |
 | **Knowledge RAG / Ambient recall**                 |               conoscenza | fatti esterni/curati pertinenti al topic, distinti dalle informazioni personali                                         |
 | **Bot replies + feedback**                         |                  recente | cosa il bot ha già detto, stile usato, joke premise, memorie usate, reazioni positive/negative                          |
+| **Social questions** (`social_questions`)          |              minuti, TTL | domanda tracciata a persona/slot preciso; chiarimenti e curiosità senza perdere chi ha risposto a cosa                  |
 
 ### Thread e attribuzione
 
@@ -74,6 +75,10 @@ Oggi c'è una separazione netta: **preferenze, interessi, skill, ruoli, relazion
 Quando serve memoria, il bot recupera solo pochi elementi pertinenti. Il punteggio combina: speaker corrente o persona menzionata/reply, salience, freschezza, similarità semantica o keyword/topic, numero di utilizzi e cooldown. Una memoria personale è però **subject-bound**: embedding o keyword non possono trascinare la lore di un utente estraneo dentro il turno di un altro. Il recall cross-user è consentito solo quando Cortex/scene hanno classificato una vera richiesta di memoria/recap. **Recuperare una memoria non significa usarla**: `ReplyPlanner` può scegliere `none`, `implicit_style` o, raramente e solo se consentito, `explicit_callback`.
 
 Con embedding attivi, `VectorMemoryRetriever` crea un vettore da messaggio corrente + topic + ultimi turni (prima redatti da segreti) e usa cosine similarity. Se l'endpoint embedding non funziona o la dimensione è errata, il sistema degrada automaticamente a matching lessicale/Jaccard. Gli embedding vengono usati anche per collegare thread semantici. `scripts/backfillEmbeddings.ts` completa in batch gli embedding mancanti di memory items e knowledge base. L'isolamento per `chatId` è sempre deterministico: nessuna memoria viene cercata fuori dalla chat.
+
+### Domande, chiarimenti e apprendimento attivo
+
+GoonersBot può avere una sola domanda aperta per persona/thread. `clarification` nasce da una vera ambiguità di attribuzione: invece di scegliere una persona a caso, il bot domanda chi/cosa intende l'utente. `curiosity` è rara e con cooldown: segue naturalmente un argomento già in corso e cerca un dettaglio durevole ma non sensibile, mai per interrogare o riempire silenzi. Ogni domanda salva target, eventuale soggetto diverso, facet/key, candidati, `botMessageId` ed expiry. La risposta in reply è legata al messaggio esatto; una risposta non quotata è accettata solo per pochi minuti e solo se un evaluator la riconosce come risposta a quella domanda. Un chiarimento puramente referenziale resta stato conversazionale e non crea biografia. Una risposta diretta del soggetto a uno slot reale usa provenance `clarified_self`, distinta dalla `self_declared` estratta da una frase casuale; un chiarimento dato da terzi resta `peer_report` e non può sovrascrivere una forte dichiarazione del soggetto.
 
 ## 5. Scene, Cortex, evaluator e action
 

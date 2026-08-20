@@ -16,6 +16,13 @@ export {
 } from './evolution.js';
 export { MongoSocialProfileStore } from './mongoStore.js';
 export {
+  SocialQuestionService,
+  socialQuestionPromptBlock,
+  type PreparedSocialQuestion,
+  type SocialQuestionConfig,
+  type SocialQuestionResolution,
+} from './questions.js';
+export {
   SOCIAL_MINING_SCHEMA_HINT,
   SOCIAL_MINING_SYSTEM,
   SocialObservationMiner,

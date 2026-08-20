@@ -148,7 +148,9 @@ export async function handleMessage(
   const started = await services.conversation.isStarted(context.chatId);
   if (!started) return;
   const tracking = await services.conversation.isTrackingEnabled(context.chatId);
-  const addressed = !context.isGroup || context.isBotMentioned || context.isReplyToBot;
+  let addressed = !context.isGroup || context.isBotMentioned || context.isReplyToBot;
+  let socialQuestionResolution: import('../../social/index.js').SocialQuestionResolution | null =
+    null;
   const mediaUrls = message.messageText
     ? extractUrls(message.messageText, services.config.linkMedia.maxUrlsPerMessage)
     : [];
@@ -260,6 +262,22 @@ export async function handleMessage(
       );
       return;
     }
+  }
+
+  // A recent unquoted answer becomes an addressed turn only after the answer evaluator binds it to
+  // the exact persisted question. Ignoring a question and talking to somebody else must not summon
+  // the bot. Exact Telegram replies are already addressed and can be evaluated later after voice STT.
+  if (!addressed && tracking && message.messageText) {
+    socialQuestionResolution = await services.socialQuestions
+      ?.consumeAnswer({ person, context, messageText: message.messageText })
+      .catch((err) => {
+        log.debug(
+          { err, chatId: context.chatId },
+          'unquoted social question answer evaluation skipped',
+        );
+        return null;
+      });
+    if (socialQuestionResolution) addressed = true;
   }
 
   // Passive group traffic is retained as lightweight conversation context unless this specific
@@ -544,6 +562,17 @@ export async function handleMessage(
   const plan = await services.planForTurn(person, context);
   const model = services.modelForPlan(plan, route.model);
   const freePlan = services.isFreePlan(plan);
+  socialQuestionResolution ??= await services.socialQuestions
+    ?.consumeAnswer({
+      person,
+      context,
+      messageText: message.messageText ?? '',
+      model,
+    })
+    .catch((err) => {
+      log.debug({ err, chatId: context.chatId }, 'social question answer evaluation skipped');
+      return null;
+    });
 
   await ctx.replyWithChatAction('typing').catch(() => undefined);
 
@@ -559,6 +588,7 @@ export async function handleMessage(
       modeDescription,
       nsfwEnabled: route.nsfw,
       allowVision: !freePlan,
+      ...(socialQuestionResolution ? { socialQuestionResolution } : {}),
       model,
       ...(freePlan ? { internalModel: model } : {}),
       allowRefusalFallback: freePlan ? false : route.allowRefusalFallback,
@@ -666,6 +696,7 @@ export async function handleMessage(
     const replyTo = ctx.message?.message_id;
     const replyOpts = replyTo ? { reply_parameters: { message_id: replyTo } } : {};
     let botMessageId: number | undefined;
+    let socialQuestionMessageId: number | undefined;
     const botMessageIds: number[] = [];
     const rememberBotMessage = (messageId: number): void => {
       if (!botMessageIds.includes(messageId)) botMessageIds.push(messageId);
@@ -705,6 +736,7 @@ export async function handleMessage(
       const ttsCfg = services.config.voice.tts;
       const wantVoiceReply =
         !hasExplicitArtifact &&
+        !outcome.socialQuestion &&
         services.tts.enabled &&
         finalText.length <= ttsCfg.maxChars &&
         ((wasVoice && ttsCfg.replyToVoice) || Math.random() < ttsCfg.autoVoiceProbability);
@@ -733,6 +765,7 @@ export async function handleMessage(
           });
           rememberBotMessage(sent.message_id);
         }
+        if (outcome.socialQuestion) socialQuestionMessageId = botMessageIds.at(-1);
         log.info(
           {
             chatId: context.chatId,
@@ -897,6 +930,16 @@ export async function handleMessage(
           return null;
         });
       if (sent) rememberBotMessage(sent.message_id);
+    }
+    if (outcome.socialQuestion && socialQuestionMessageId !== undefined) {
+      await services.socialQuestions
+        ?.attachMessage(outcome.socialQuestion.id, socialQuestionMessageId)
+        .catch((err) =>
+          log.warn(
+            { err, chatId: context.chatId, questionId: outcome.socialQuestion?.id },
+            'social question message attach failed',
+          ),
+        );
     }
     await Promise.all(
       botMessageIds.map((messageId) =>
