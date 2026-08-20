@@ -43,6 +43,18 @@ function normalizedTerms(text: string): Set<string> {
   return new Set(terms ?? []);
 }
 
+function authoredMiningText(raw: string | null | undefined): string {
+  const text = raw ?? '';
+  if (!text) return '';
+  const markers = ['[transcript of the replied audio/video]:', '[media context]:'];
+  let cut = text.length;
+  for (const marker of markers) {
+    const index = text.indexOf(marker);
+    if (index >= 0) cut = Math.min(cut, index);
+  }
+  return text.slice(0, cut).trim();
+}
+
 function memoryLine(memory: MemoryItem): string {
   const text = compactMiningText(memory.text.replace(/\s+/gu, ' '), 420);
   return `- id=${memory._id ?? 'unknown'} subject=${memory.subjectHandle ?? 'group'} category=${memory.category} revision=${memory.revision ?? 1}: ${text}`;
@@ -61,7 +73,7 @@ export function selectMemoriesForMiningContext(
   if (maxItems <= 0 || maxBytes <= 0 || memories.length === 0) return [];
   const transcript = messages
     .flatMap((message) => [
-      message.message.messageText ?? '',
+      authoredMiningText(message.message.messageText),
       message.message.imageDescription ?? '',
       message.message.voiceDescription ?? '',
     ])
@@ -114,7 +126,9 @@ function renderMessages(messages: StoredMessage[]): string {
     .map((m) => {
       const id = m.messageId != null ? `#${m.messageId} ` : '';
       const name = m.isBot ? 'BOT' : m.handle;
-      const parts = [compactMiningText(m.message.messageText, MINING_MESSAGE_TEXT_CHARS)];
+      const parts = [
+        compactMiningText(authoredMiningText(m.message.messageText), MINING_MESSAGE_TEXT_CHARS),
+      ];
       if (m.message.imageDescription) {
         parts.push(
           `[img: ${compactMiningText(m.message.imageDescription, MINING_MEDIA_DESCRIPTION_CHARS)}]`,
@@ -155,6 +169,7 @@ export const MEMORY_MINING_SYSTEM = [
   'For new/reinforce, category MUST be meme, quote or group_lore. Other categories are allowed only',
   'to update/expire a matching legacy ALREADY KNOWN item after an explicit correction.',
   'Use @handles for subjectHandle/involvedHandles. sourceMessageIds = the #ids that justify the item (numbers only).',
+  'Quoted/replied transcripts are referent context, not words authored by the current human; never attribute them to that human.',
 ].join('\n');
 
 export const MEMORY_MINING_SCHEMA_HINT = [

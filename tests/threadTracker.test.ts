@@ -131,4 +131,63 @@ describe('ConversationThreadTracker', () => {
     expect(comment.currentThread?.ownerHandle).toBe('@funboy');
     expect(comment.promptBlock).toContain("@miguel is talking about @funboy's thread/entity");
   });
+
+  it('treats an injected replied-media transcript as quoted context, never as the current speaker words', async () => {
+    const s = makeTracker();
+    const first = await s.tracker.track({
+      person: { telegramId: 1, userHandle: '@berry' },
+      context: { ...chat, messageId: 20 },
+      message: { messageText: 'Piero è quello dei video del trattore', timestamp: new Date() },
+      history: [],
+    });
+    const entityCount = s.entities.length;
+    const quoted = await s.tracker.track({
+      person: { telegramId: 2, userHandle: '@daniele' },
+      context: {
+        ...chat,
+        messageId: 21,
+        repliedToMessageId: 20,
+        repliedToUserHandle: '@berry',
+        isReplyToBot: false,
+      },
+      message: {
+        messageText:
+          '[transcript of the replied audio/video]: io sono il tizio del trattore e mando quei video',
+        timestamp: new Date(),
+      },
+      history: [],
+    });
+
+    expect(quoted.currentThread?.threadId).toBe(first.currentThread?.threadId);
+    expect(quoted.currentThread?.ownerHandle).toBe('@berry');
+    expect(quoted.currentEntities).toEqual([]);
+    expect(s.entities).toHaveLength(entityCount);
+    expect(quoted.promptBlock).toContain('Quoted/replied transcripts belong to the quoted message');
+  });
+
+  it('can identify one explicitly mentioned subject without changing the existing thread owner', async () => {
+    const s = makeTracker();
+    const first = await s.tracker.track({
+      person: { telegramId: 1, userHandle: '@berry' },
+      context: { ...chat, messageId: 30 },
+      message: { messageText: 'sto parlando degli amici del gruppo', timestamp: new Date() },
+      history: [],
+    });
+    const correction = await s.tracker.track({
+      person: { telegramId: 1, userHandle: '@berry' },
+      context: {
+        ...chat,
+        messageId: 31,
+        mentionedHandles: ['@ilrinnegato'],
+      },
+      message: { messageText: 'Daniele è @ilrinnegato, quello è lui', timestamp: new Date() },
+      history: [],
+    });
+
+    expect(correction.currentThread?.threadId).toBe(first.currentThread?.threadId);
+    expect(correction.currentThread?.ownerHandle).toBe('@berry');
+    expect(correction.currentEntities[0]?.ownerHandle).toBe('@ilrinnegato');
+    expect(correction.promptBlock).toContain('Entities:\n- daniele lui (topic) owner=@ilrinnegato');
+    expect(correction.currentThread?.summary).toContain('owner=@berry');
+  });
 });

@@ -170,6 +170,79 @@ describe('MemoryRetriever', () => {
     expect(r.filter((x) => x.allowedToUseExplicitly).length).toBeLessThanOrEqual(1);
   });
 
+  it('never leaks unrelated personal lore by keyword overlap unless broad recall is explicit', async () => {
+    const berry = item({
+      subjectHandle: '@berry',
+      involvedHandles: ['@berry'],
+      text: 'berry likes cooking soffritto',
+      normalizedText: 'berry likes cooking soffritto',
+    });
+    const erika = item({
+      subjectHandle: '@erika',
+      involvedHandles: ['@erika'],
+      text: 'erika wrote a poem about soffritto',
+      normalizedText: 'erika wrote a poem about soffritto',
+      salience: 1,
+    });
+    const ordinary = await retriever([erika, berry]).retrieve({
+      chatId: -1,
+      currentMessage: 'parliamo del soffritto',
+      currentHandle: '@berry',
+      scene: { ...baseScene, currentTopic: 'soffritto' },
+      activeHandles: ['@berry', '@erika'],
+      mentionedHandles: [],
+      nsfwEnabled: true,
+    });
+    expect(ordinary.map((entry) => entry.item.subjectHandle)).toContain('@berry');
+    expect(ordinary.map((entry) => entry.item.subjectHandle)).not.toContain('@erika');
+
+    const broad = await retriever([erika, berry]).retrieve({
+      chatId: -1,
+      currentMessage: 'chi aveva scritto quella cosa sul soffritto?',
+      currentHandle: '@berry',
+      scene: { ...baseScene, currentTopic: 'soffritto', userIntent: 'request_memory' },
+      activeHandles: ['@berry', '@erika'],
+      mentionedHandles: [],
+      allowBroadUserRecall: true,
+      nsfwEnabled: true,
+    });
+    expect(broad.map((entry) => entry.item.subjectHandle)).toContain('@erika');
+  });
+
+  it('hides auto-mined identity biography even for the correct subject', async () => {
+    const autoIdentity = item({
+      subjectHandle: '@miguel',
+      involvedHandles: ['@miguel'],
+      text: 'Miguel ha passaporto spagnolo ma si definisce sardo',
+      normalizedText: 'miguel ha passaporto spagnolo ma si definisce sardo',
+      category: 'group_lore',
+      source: 'auto',
+      salience: 1,
+    });
+    const manualIdentity = item({
+      subjectHandle: '@miguel',
+      involvedHandles: ['@miguel'],
+      text: 'Miguel è spagnolo',
+      normalizedText: 'miguel è spagnolo',
+      category: 'role',
+      source: 'admin',
+      salience: 1,
+    });
+    const out = await retriever([autoIdentity, manualIdentity]).retrieve({
+      chatId: -1,
+      currentMessage: 'Miguel di dove è?',
+      currentHandle: '@miguel',
+      scene: { ...baseScene, currentTopic: 'Miguel', userIntent: 'request_memory' },
+      activeHandles: ['@miguel'],
+      mentionedHandles: ['@miguel'],
+      nsfwEnabled: true,
+    });
+    expect(out.map((entry) => entry.item.text)).toContain('Miguel è spagnolo');
+    expect(out.map((entry) => entry.item.text)).not.toContain(
+      'Miguel ha passaporto spagnolo ma si definisce sardo',
+    );
+  });
+
   it('excludes recently used memory (cooldown)', async () => {
     const used = item({ lastUsedAt: new Date() });
     const r = await retriever([used]).retrieve({

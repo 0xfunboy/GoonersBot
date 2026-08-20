@@ -58,6 +58,7 @@ import { RepetitionGuard } from '../brain/repetitionGuard.js';
 import { decideReplyAcceptance, type AssessedReplyCandidate } from '../brain/replyAcceptance.js';
 import { TurnEvaluator } from '../brain/turnEvaluator.js';
 import { violatesSocialFloor } from '../brain/socialAwareness.js';
+import { AttributionVerifier, shouldVerifyAttribution } from '../brain/attributionVerifier.js';
 import { availableToolsFor, Cortex, cortexToTurnEvaluation } from '../brain/cortex/evaluator.js';
 import { fallbackCortex } from '../brain/cortex/fallback.js';
 import type { CortexTool, SourcedCortexDecision } from '../brain/cortex/schema.js';
@@ -313,6 +314,34 @@ function hardFloorFallback(plan: ReplyPlan, language: string, topic: string): st
     : 'I am missing the context needed to say something useful here. Give me the exact target and I will address it directly.';
 }
 
+function attributionFailClosed(
+  candidate: string,
+  social: SocialContext,
+  currentHandle: string,
+  language: string,
+): string {
+  const otherLabels = social.members
+    .filter((member) => member.handle.toLowerCase() !== currentHandle.toLowerCase())
+    .flatMap((member) => [member.handle, member.displayName ?? '', ...member.aliases])
+    .map((label) => label.trim())
+    .filter((label) => label.length >= 3);
+  const riskyBiography =
+    /\b(sard[oa]|spagnol[oa]|sicilian[oa]|italian[oa]|frances[ea]|tedesc[oa]|trattor\w*|fattori\w*|agricoltor\w*|contadin\w*|avvocat\w*|medic\w*|ingegner\w*)\b/i;
+  const safeParagraphs = candidate
+    .split(/\n{2,}/u)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .filter((paragraph) => {
+      if (riskyBiography.test(paragraph)) return false;
+      const lower = paragraph.toLowerCase();
+      return !otherLabels.some((label) => lower.includes(label.toLowerCase()));
+    });
+  if (safeParagraphs.length > 0) return safeParagraphs.join('\n\n');
+  return /^it(?:alian)?$/i.test(language)
+    ? 'Ricevuto. Su chi è chi tengo separati i fatti e non aggiungo biografia che non sia verificata.'
+    : 'Got it. I will keep each person’s facts separate and avoid any biography that is not verified.';
+}
+
 function usedRunningJoke(
   text: string,
   jokes: SocialContext['runningJokes'],
@@ -478,6 +507,7 @@ export class ReplyService {
   private readonly planner = new ReplyPlanner();
   private readonly evaluator: TurnEvaluator;
   private readonly cortex: Cortex;
+  private readonly attributionVerifier: AttributionVerifier;
   private readonly generator: ResponseGenerator;
   private readonly ranker = new ResponseRanker();
   private readonly guard: RepetitionGuard;
@@ -524,6 +554,7 @@ export class ReplyService {
       temperature: config.brain.cortex.temperature,
       maxTokens: config.brain.cortex.maxTokens,
     });
+    this.attributionVerifier = new AttributionVerifier(llm);
     this.generator = new ResponseGenerator(llm, this.styleEngine, {
       model: config.brain.replyModel,
       temperature: config.brain.replyTemperature,
@@ -727,15 +758,27 @@ export class ReplyService {
       message: ctx.message,
       history,
     });
+    const aliasResolvedHandles = await this.social.resolveHandlesInText(
+      ctx.context.chatId,
+      [ctx.message.messageText ?? '', ctx.context.repliedToText ?? ''].join('\n'),
+    );
+    const socialFocusHandles = [
+      ...new Set(
+        [
+          ctx.person.userHandle,
+          ...mentioned,
+          ...aliasResolvedHandles,
+          ...(ctx.context.repliedToUserHandle ? [ctx.context.repliedToUserHandle] : []),
+        ].filter(Boolean),
+      ),
+    ];
     const socialSnapshot = await this.social.getContext(ctx.context.chatId, {
-      focusHandles: [
-        ctx.person.userHandle,
-        ...mentioned,
-        ...(ctx.context.repliedToUserHandle ? [ctx.context.repliedToUserHandle] : []),
-      ],
-      maxMembers: 14,
+      focusHandles: socialFocusHandles,
+      // Correct attribution beats breadth: unrelated regulars must not leak biography into this turn.
+      focusOnly: true,
+      maxMembers: Math.max(1, socialFocusHandles.length),
       maxFacetsPerFocusedMember: 8,
-      maxFacetsPerOtherMember: 3,
+      maxFacetsPerOtherMember: 0,
       maxRelationships: 12,
       maxJokes: 3,
       maxNorms: 6,
@@ -1572,6 +1615,12 @@ export class ReplyService {
     // Direct interactions always get a relevance-filtered personal-memory lookup. Retrieval is not
     // the same as forcing a callback: the planner can still choose memoryUseMode=none.
     const wantsGroupRag = addressed || wants('group_rag', 'group_rag');
+    const allowBroadUserRecall = Boolean(
+      evaluation.action === 'use_group_lore' ||
+      evaluation.action === 'summarize_thread' ||
+      scene.userIntent === 'request_memory' ||
+      cortexDecision?.intents.includes('recall_group'),
+    );
     const wantsKnowledgeRag = wants('knowledge_rag', 'knowledge_rag');
     const wantsGrounding =
       wants('web_search', 'web_search') || wants('image_lookup', 'image_lookup');
@@ -1589,8 +1638,9 @@ export class ReplyService {
             currentHandle: ctx.person.userHandle,
             scene,
             activeHandles,
-            mentionedHandles: mentioned,
+            mentionedHandles: [...new Set([...mentioned, ...aliasResolvedHandles])],
             repliedToHandle: ctx.context.repliedToUserHandle ?? null,
+            allowBroadUserRecall,
             nsfwEnabled: generationNsfwEnabled,
             recentMessages: history.slice(-3).map((m) => m.message.messageText ?? ''),
           })
@@ -1960,6 +2010,52 @@ export class ReplyService {
         'reply generation produced no usable candidates',
       );
       throw new Error('reply generation produced no usable candidates');
+    }
+
+    // Personal lore is useful only while ownership is exact. On turns involving multiple resolved
+    // humans (or explicit biography assertions), run a small structured verifier after generation.
+    // It treats previous BOT lines as non-evidence and can remove/rewrite a cross-assigned claim.
+    const attributionInput = {
+      candidate: best,
+      currentHandle: ctx.person.userHandle,
+      currentMessage: transcribed.messageText ?? '',
+      replyToHandle: ctx.context.repliedToUserHandle ?? null,
+      replyToText: ctx.context.repliedToText ?? null,
+      recentMessages: history.slice(-10).map((message) => ({
+        handle: message.isBot ? BOT_LABEL : message.handle,
+        text: message.message.messageText ?? '',
+        isBot: message.isBot,
+      })),
+      socialContext,
+      groupContext,
+      threadContext: threadState.promptBlock,
+      language: ctx.language,
+      model: ctx.internalModel,
+    };
+    if (shouldVerifyAttribution(attributionInput)) {
+      const firstCheck = await this.attributionVerifier.verify(attributionInput);
+      if (!firstCheck?.safe) {
+        const rewrite = firstCheck?.rewrite?.trim();
+        if (rewrite) {
+          const secondCheck = await this.attributionVerifier.verify({
+            ...attributionInput,
+            candidate: rewrite,
+          });
+          best = secondCheck?.safe
+            ? rewrite
+            : attributionFailClosed(best, socialSnapshot, ctx.person.userHandle, ctx.language);
+        } else {
+          best = attributionFailClosed(best, socialSnapshot, ctx.person.userHandle, ctx.language);
+        }
+        log.warn(
+          {
+            chatId: ctx.context.chatId,
+            issues: firstCheck?.issues ?? ['verifier unavailable'],
+            usedRewrite: Boolean(rewrite),
+          },
+          'personal attribution guard repaired or stripped generated lore',
+        );
+      }
     }
 
     // 6. optional ambient/verified image output. Explicit generation is handled earlier by image_gen.

@@ -96,10 +96,104 @@ describe('VectorMemoryRetriever', () => {
       scene,
       activeHandles: [],
       mentionedHandles: [],
+      allowBroadUserRecall: true,
       nsfwEnabled: true,
     });
     expect(out[0]?.item.subjectHandle).toBe('@0xfunboy');
     expect(out[0]?.cosineScore).toBeGreaterThan(0.9);
     expect(out[0]?.reason).toContain('cos');
+  });
+
+  it('hides auto-mined identity biography even when embedding similarity is perfect', async () => {
+    const unsafeIdentity = item({
+      subjectHandle: '@miguel',
+      involvedHandles: ['@miguel'],
+      text: 'Miguel ha passaporto spagnolo ma si definisce sardo',
+      normalizedText: 'miguel ha passaporto spagnolo ma si definisce sardo',
+      category: 'group_lore',
+      source: 'auto',
+      embedding: [1, 0, 0],
+    });
+    const storage = {
+      memoryItems: {
+        async listActive() {
+          return [unsafeIdentity];
+        },
+      },
+    } as unknown as Storage;
+    const embedder: Embedder = {
+      enabled: true,
+      async embed() {
+        return [[1, 0, 0]];
+      },
+    };
+    const retriever = new VectorMemoryRetriever(storage, embedder, {
+      maxItems: 3,
+      maxExplicitCallbacks: 1,
+      itemCooldownMinutes: 45,
+      subjectCooldownMinutes: 20,
+      embeddingDim: 3,
+      minScore: 0.3,
+    });
+    const out = await retriever.retrieve({
+      chatId: -1,
+      currentMessage: 'Miguel di dove è?',
+      currentHandle: '@miguel',
+      scene: { ...scene, currentTopic: 'Miguel' },
+      activeHandles: ['@miguel'],
+      mentionedHandles: ['@miguel'],
+      nsfwEnabled: true,
+    });
+    expect(out).toEqual([]);
+  });
+
+  it('does not let embeddings move an unrelated user memory into another person turn', async () => {
+    const berryMemory = item({
+      subjectHandle: '@berry',
+      involvedHandles: ['@berry'],
+      text: 'berry talks about cooking',
+      normalizedText: 'berry talks about cooking',
+      embedding: [0.8, 0.2, 0],
+    });
+    const johnnyMemory = item({
+      subjectHandle: '@johnny',
+      involvedHandles: ['@johnny'],
+      text: 'johnny compares supermarket offers with spreadsheets',
+      normalizedText: 'johnny compares supermarket offers with spreadsheets',
+      salience: 1,
+      embedding: [1, 0, 0],
+    });
+    const storage = {
+      memoryItems: {
+        async listActive() {
+          return [johnnyMemory, berryMemory];
+        },
+      },
+    } as unknown as Storage;
+    const embedder: Embedder = {
+      enabled: true,
+      async embed() {
+        return [[1, 0, 0]];
+      },
+    };
+    const retriever = new VectorMemoryRetriever(storage, embedder, {
+      maxItems: 3,
+      maxExplicitCallbacks: 1,
+      itemCooldownMinutes: 45,
+      subjectCooldownMinutes: 20,
+      embeddingDim: 3,
+      minScore: 0.3,
+    });
+    const out = await retriever.retrieve({
+      chatId: -1,
+      currentMessage: 'berry mi hai preso per johnny?',
+      currentHandle: '@berry',
+      scene: { ...scene, userIntent: 'continue_banter', currentTopic: 'johnny' },
+      activeHandles: ['@berry', '@johnny'],
+      mentionedHandles: [],
+      nsfwEnabled: true,
+    });
+    expect(out.map((entry) => entry.item.subjectHandle)).toContain('@berry');
+    expect(out.map((entry) => entry.item.subjectHandle)).not.toContain('@johnny');
   });
 });

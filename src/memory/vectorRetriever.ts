@@ -54,9 +54,21 @@ export class VectorMemoryRetriever {
     const scored: RetrievedMemory[] = [];
     for (const item of all) {
       if (!toxicityAllowed(item, input.nsfwEnabled)) continue;
+      if (!identityMemoryAllowed(item)) continue;
       if (item.lastUsedAt && now - new Date(item.lastUsedAt).getTime() < itemCdMs) continue;
 
       const handle = (item.subjectHandle ?? '').toLowerCase();
+      // Embeddings are relevance signals, never ownership signals. A semantically similar memory
+      // about an unrelated member must not cross into this turn unless broad group recall was
+      // explicitly requested upstream.
+      if (
+        item.subjectType === 'user' &&
+        handle &&
+        !input.allowBroadUserRecall &&
+        !mentioned.has(handle)
+      ) {
+        continue;
+      }
       const lastSubjectUse = handle ? subjectLastUsed.get(handle) : undefined;
       if (lastSubjectUse && now - lastSubjectUse < subjectCdMs) continue;
       const ageDays = Math.max(0, (now - new Date(item.lastSeenAt).getTime()) / 86_400_000);
@@ -127,6 +139,16 @@ export class VectorMemoryRetriever {
     }
     return top;
   }
+}
+
+function identityMemoryAllowed(item: MemoryItem): boolean {
+  if (item.subjectType !== 'user') return true;
+  const identityLike =
+    /\b(?:origin|origine|national|nazional|citizenship|cittadin|passport|passaporto|sard[oa]|spagnol[oa]|sicilian[oa]|italian[oa]|frances[ea]|tedesc[oa])\b/i.test(
+      `${item.category} ${item.text}`,
+    );
+  if (!identityLike) return true;
+  return item.source === 'admin' || item.source === 'manual_extract';
 }
 
 function latestUseBySubject(items: MemoryItem[]): Map<string, number> {
