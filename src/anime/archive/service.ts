@@ -10,6 +10,8 @@ import {
   type AnimeArchiveConfirmationAttachmentResult,
   type AnimeArchiveOfferDoc,
   type AnimeArchiveOfferTransitionFailure,
+  type AnimeArchiveSearchSessionDoc,
+  type AnimeArchiveSearchSessionItem,
   type AnimeArchiveTarget,
 } from '../../storage/repositories/animeArchive.js';
 import { EXACT_MATCH_SCORE, isDecisiveMatch, rankByTitle, type RankedTitle } from '../titles.js';
@@ -31,6 +33,11 @@ const DEFAULT_TEXT_URL_LIMIT = 4;
 const DEFAULT_SEARCH_LIMIT = 5;
 const AVAILABILITY_CACHE_TTL_MS = 2 * 60_000;
 const AVAILABILITY_CACHE_MAX_ENTRIES = 100;
+const ARCHIVE_SEARCH_RESULT_LIMIT = 6;
+const ARCHIVE_SEARCH_QUERY_LIMIT = 6;
+/** Adult archive recommendations must never persist or surface explicitly minor-coded material. */
+const MINOR_CODED_ARCHIVE_RE =
+  /\b(loli|lolicon|shota|shotacon|underage|minor|child|children|preteen|pre-teen|schoolchild)\b/iu;
 
 export interface AnimeArchiveServiceConfig {
   animeArchive: AnimeArchiveConfig;
@@ -89,6 +96,8 @@ export interface PrepareNaturalAnimeOfferInput extends AnimeArchiveRequestContex
   expectedEpisodeNumber?: number | string | undefined;
   /** Explicit user source preference; omitted means AnimeUnity first, then allowed alternatives. */
   preferredSource?: AnimeArchiveSource | undefined;
+  /** Bot message the user is replying to; may bind this turn to an already resolved archive identity. */
+  contextMessageId?: number | undefined;
   signal?: AbortSignal | undefined;
 }
 
@@ -96,7 +105,19 @@ export interface PrepareNaturalAnimeSeriesOfferInput extends AnimeArchiveRequest
   query: string;
   /** Explicit user source preference; omitted means AnimeUnity first, then allowed alternatives. */
   preferredSource?: AnimeArchiveSource | undefined;
+  /** Bot message the user is replying to; may bind this turn to an already resolved archive identity. */
+  contextMessageId?: number | undefined;
   isAdmin: boolean;
+  signal?: AbortSignal | undefined;
+}
+
+export interface PrepareNaturalAnimeSearchInput extends AnimeArchiveRequestContext {
+  /** Human semantic request, retained for the short-lived source-backed search session. */
+  query: string;
+  /** Source vocabulary selected by Cortex (e.g. ["isekai", "nekomimi"]). */
+  searchQueries: string[];
+  preferredSource: AnimeArchiveSource;
+  limit?: number | undefined;
   signal?: AbortSignal | undefined;
 }
 
@@ -155,6 +176,12 @@ export interface AnimeArchiveConfirmationRequired {
   episode?: AnimeArchiveEpisode | undefined;
 }
 
+export interface AnimeArchiveSearchResults {
+  status: 'search_results';
+  session: AnimeArchiveSearchSessionDoc;
+  results: AnimeArchiveSearchSessionItem[];
+}
+
 export interface AnimeArchiveCancelled {
   status: 'cancelled';
   offer: AnimeArchiveOfferDoc;
@@ -163,6 +190,7 @@ export interface AnimeArchiveCancelled {
 export type AnimeArchivePreparationResult =
   | AnimeArchiveQueued
   | AnimeArchiveConfirmationRequired
+  | AnimeArchiveSearchResults
   | AnimeArchiveRejected;
 
 export type AnimeArchiveConfirmationResult =
@@ -544,6 +572,113 @@ export class AnimeArchiveService {
     return { ...value, fromCache: false };
   }
 
+  /**
+   * Source-backed recommendation search selected upstream by Cortex. The model supplies source
+   * vocabulary, while this layer owns URLs, metadata, adult policy, minor-content filtering and the
+   * short-lived result identity used by later follow-ups.
+   */
+  async searchNatural(
+    input: PrepareNaturalAnimeSearchInput,
+  ): Promise<AnimeArchivePreparationResult> {
+    const blocked = this.blockedReason(input.preferredSource);
+    if (blocked) return rejected(blocked);
+    const adapter = this.registry.get(input.preferredSource);
+    if (typeof adapter.search !== 'function') return rejected('source_unavailable');
+
+    const searchQueries = [
+      ...new Set(input.searchQueries.map(cleanArchiveSearchQuery).filter(Boolean)),
+    ].slice(0, ARCHIVE_SEARCH_QUERY_LIMIT);
+    if (searchQueries.length === 0) {
+      const fallback = cleanArchiveSearchQuery(input.query);
+      if (fallback) searchQueries.push(fallback);
+    }
+    if (searchQueries.length === 0) return rejected('not_found');
+
+    const byId = new Map<
+      string,
+      { result: AnimeArchiveSearchResult; matchedQueries: Set<string>; sourceOrder: number }
+    >();
+    let sourceOrder = 0;
+    for (const searchQuery of searchQueries) {
+      input.signal?.throwIfAborted();
+      let hits: AnimeArchiveSearchResult[];
+      try {
+        hits = await adapter.search(searchQuery, 10, input.signal);
+      } catch (error) {
+        input.signal?.throwIfAborted();
+        log.warn(
+          { source: adapter.source, query: searchQuery, error: safeError(error) },
+          'anime archive recommendation search failed',
+        );
+        continue;
+      }
+      for (const result of hits) {
+        if (result.source !== input.preferredSource) continue;
+        const existing = byId.get(result.sourceId);
+        if (existing) {
+          existing.matchedQueries.add(searchQuery);
+          continue;
+        }
+        byId.set(result.sourceId, {
+          result,
+          matchedQueries: new Set([searchQuery]),
+          sourceOrder: sourceOrder++,
+        });
+      }
+    }
+    if (byId.size === 0) return rejected('not_found');
+
+    const hydrated = await Promise.all(
+      [...byId.values()].slice(0, 16).map(async (entry) => ({
+        entry,
+        series: await this.readSeries(
+          input.preferredSource,
+          entry.result.canonicalUrl,
+          input.signal,
+        ),
+      })),
+    );
+    const items = hydrated
+      .map(({ entry, series }) =>
+        archiveSearchSessionItem(
+          input.query,
+          searchQueries,
+          entry.result,
+          series,
+          [...entry.matchedQueries],
+          entry.sourceOrder,
+        ),
+      )
+      .filter((item): item is AnimeArchiveSearchSessionItem => item !== null)
+      .sort((left, right) => right.matchScore - left.matchScore)
+      .slice(
+        0,
+        boundedLimit(input.limit ?? ARCHIVE_SEARCH_RESULT_LIMIT, 1, 8, ARCHIVE_SEARCH_RESULT_LIMIT),
+      );
+    if (items.length === 0) return rejected('not_found');
+
+    const session = await this.storage.animeArchive.searches.create(
+      {
+        chatId: input.chatId,
+        threadId: input.threadId,
+        requesterTelegramId: input.requesterTelegramId,
+        source: input.preferredSource,
+        query: input.query,
+        searchQueries,
+        items,
+      },
+      this.now(),
+    );
+    return { status: 'search_results', session, results: session.items };
+  }
+
+  async attachSearchResultMessage(
+    sessionId: string,
+    messageId: number,
+  ): Promise<AnimeArchiveSearchSessionDoc | null> {
+    return this.storage.animeArchive.searches.attachResultMessage(sessionId, messageId, this.now());
+  }
+
   private async findAdapterAvailability(
     adapter: AnimeSourceAdapter,
     query: string,
@@ -640,6 +775,110 @@ export class AnimeArchiveService {
       : { candidates, failure: usable.length > 1 ? 'ambiguous' : 'not_found' };
   }
 
+  /**
+   * Recover a canonical series identity already established in this conversation. Reply-bound
+   * archive offers win; otherwise a recent source-backed search session may resolve a title. The
+   * returned series is re-fetched from its canonical public URL before use.
+   */
+  private async resolveContextSeries(
+    input: Pick<
+      PrepareNaturalAnimeOfferInput,
+      | 'chatId'
+      | 'threadId'
+      | 'requesterTelegramId'
+      | 'contextMessageId'
+      | 'query'
+      | 'preferredSource'
+      | 'signal'
+    >,
+  ): Promise<AnimeArchiveSeries | null> {
+    const searchActor = {
+      chatId: input.chatId,
+      threadId: input.threadId,
+      requesterTelegramId: input.requesterTelegramId,
+    };
+    const offerActor = {
+      actorTelegramId: input.requesterTelegramId,
+      chatId: input.chatId,
+      threadId: input.threadId,
+    };
+
+    if (input.contextMessageId !== undefined) {
+      const offer = await this.storage.animeArchive.offers.findByConfirmationMessage(
+        input.chatId,
+        input.contextMessageId,
+        input.requesterTelegramId,
+        this.now(),
+      );
+      if (
+        offer &&
+        this.sourceAllowed(offer.source) &&
+        (!input.preferredSource || offer.source === input.preferredSource)
+      ) {
+        const series = await this.readSeries(
+          offer.source,
+          offer.target.series.canonicalUrl,
+          input.signal,
+        );
+        if (
+          series &&
+          archiveContextTitleCompatible(input.query, series, offer.target.series.title)
+        ) {
+          return series;
+        }
+      }
+
+      const exactSession = await this.storage.animeArchive.searches.findByMessage(
+        input.chatId,
+        input.contextMessageId,
+        input.requesterTelegramId,
+        this.now(),
+      );
+      const exactItem = exactSession
+        ? resolveSearchSessionItem(exactSession, input.query, input.preferredSource)
+        : null;
+      if (exactItem && this.sourceAllowed(exactItem.source)) {
+        return this.readSeries(exactItem.source, exactItem.canonicalUrl, input.signal);
+      }
+    }
+
+    const latestSession = await this.storage.animeArchive.searches.findLatestForActor(
+      searchActor,
+      this.now(),
+    );
+    const latestItem = latestSession
+      ? resolveSearchSessionItem(latestSession, input.query, input.preferredSource)
+      : null;
+    if (latestItem && this.sourceAllowed(latestItem.source)) {
+      const series = await this.readSeries(
+        latestItem.source,
+        latestItem.canonicalUrl,
+        input.signal,
+      );
+      if (series) return series;
+    }
+
+    const recentOffers = await this.storage.animeArchive.offers.listLatestContextForActor(
+      offerActor,
+      6,
+      this.now(),
+    );
+    for (const offer of recentOffers) {
+      if (!this.sourceAllowed(offer.source)) continue;
+      if (input.preferredSource && offer.source !== input.preferredSource) continue;
+      if (!archiveStoredSeriesRefCompatible(input.query, offer.target.series)) continue;
+      const series = await this.readSeries(
+        offer.source,
+        offer.target.series.canonicalUrl,
+        input.signal,
+      );
+      if (series && archiveContextTitleCompatible(input.query, series, offer.target.series.title)) {
+        return series;
+      }
+    }
+    return null;
+  }
+
   /** Find the latest downloadable episode and persist a normal-user SI/NO offer for it. */
   async prepareNaturalEpisodeOffer(
     input: PrepareNaturalAnimeOfferInput,
@@ -651,6 +890,20 @@ export class AnimeArchiveService {
     const expected = normalizeExpectedEpisodeNumber(input.expectedEpisodeNumber);
     if (input.expectedEpisodeNumber !== undefined && expected === null) {
       return rejected('not_found');
+    }
+    const contextSeries = await this.resolveContextSeries(input);
+    if (contextSeries) {
+      const contextBlocked = this.blockedReason(contextSeries.source);
+      if (contextBlocked) return rejected(contextBlocked);
+      const episode =
+        expected === null
+          ? latestEpisode(contextSeries.episodes)
+          : contextSeries.episodes.find(
+              (candidate) => normalizeExpectedEpisodeNumber(candidate.number) === expected,
+            );
+      return episode
+        ? this.createEpisodeOffer(contextSeries, episode, input)
+        : rejected('not_found');
     }
     const availability = await this.findLatestAvailability(input.query, {
       signal: input.signal,
@@ -683,6 +936,12 @@ export class AnimeArchiveService {
     if (blocked) return rejected(blocked);
     if (!this.config.animeArchive.bulkEnabled) return rejected('bulk_disabled');
     if (!input.isAdmin) return rejected('admin_required');
+    const contextSeries = await this.resolveContextSeries(input);
+    if (contextSeries) {
+      const contextBlocked = this.blockedReason(contextSeries.source);
+      if (contextBlocked) return rejected(contextBlocked);
+      return this.createSeriesOffer(contextSeries, input);
+    }
     const availability = await this.findLatestAvailability(input.query, {
       signal: input.signal,
       ...(input.preferredSource ? { source: input.preferredSource } : {}),
@@ -708,6 +967,20 @@ export class AnimeArchiveService {
     const expected = normalizeExpectedEpisodeNumber(input.expectedEpisodeNumber);
     if (input.expectedEpisodeNumber !== undefined && expected === null) {
       return rejected('not_found');
+    }
+    const contextSeries = await this.resolveContextSeries(input);
+    if (contextSeries) {
+      const contextBlocked = this.blockedReason(contextSeries.source);
+      if (contextBlocked) return rejected(contextBlocked);
+      const episode =
+        expected === null
+          ? latestEpisode(contextSeries.episodes)
+          : contextSeries.episodes.find(
+              (candidate) => normalizeExpectedEpisodeNumber(candidate.number) === expected,
+            );
+      return episode
+        ? this.enqueueEpisode(episode, input, input.quotaBypass ?? false)
+        : rejected('not_found');
     }
     const availability = await this.findLatestAvailability(input.query, {
       signal: input.signal,
@@ -1189,6 +1462,133 @@ function availabilityMatch(resolved: ResolvedRankedArchiveHit): AnimeArchiveAvai
     series: resolved.series,
     episode: resolved.episode,
   };
+}
+
+function archiveStoredSeriesRefCompatible(
+  query: string,
+  series: { title: string; canonicalUrl: string },
+): boolean {
+  const ranked = rankByTitle(
+    query,
+    [
+      {
+        titles: [series.title, archiveSlugFromUrl(series.canonicalUrl)],
+      },
+    ],
+    { minScore: 0.45, limit: 1 },
+  );
+  return (ranked[0]?.score ?? 0) >= 0.6;
+}
+
+function archiveContextTitleCompatible(
+  query: string,
+  series: AnimeArchiveSeries,
+  storedTitle?: string,
+): boolean {
+  const titles = [
+    series.title,
+    ...series.aliases,
+    storedTitle,
+    series.slug.replace(/[-_]+/gu, ' '),
+    archiveSlugFromUrl(series.canonicalUrl),
+  ];
+  const ranked = rankByTitle(query, [{ titles }], { minScore: 0.45, limit: 1 });
+  return (ranked[0]?.score ?? 0) >= 0.6;
+}
+
+function resolveSearchSessionItem(
+  session: AnimeArchiveSearchSessionDoc,
+  query: string,
+  preferredSource?: AnimeArchiveSource,
+): AnimeArchiveSearchSessionItem | null {
+  const candidates = session.items
+    .filter((item) => !preferredSource || item.source === preferredSource)
+    .map((item) => ({
+      item,
+      titles: [
+        item.title,
+        ...item.aliases,
+        archiveSlugFromUrl(item.canonicalUrl),
+        item.sourceId.replace(/[-_]+/gu, ' '),
+      ],
+    }));
+  const ranked = rankByTitle(query, candidates, { minScore: 0.45, limit: 4 });
+  if (!isDecisiveMatch(ranked)) return null;
+  return ranked[0]?.item.item ?? null;
+}
+
+function archiveSearchSessionItem(
+  originalQuery: string,
+  searchQueries: readonly string[],
+  result: AnimeArchiveSearchResult,
+  series: AnimeArchiveSeries | null,
+  matchedQueries: readonly string[],
+  sourceOrder: number,
+): AnimeArchiveSearchSessionItem | null {
+  const aliases = [
+    ...(series?.aliases ?? []),
+    result.slug.replace(/[-_]+/gu, ' '),
+    archiveSlugFromUrl(result.canonicalUrl),
+  ];
+  const title = series?.title ?? result.title;
+  const genres = series?.genres ?? result.genres;
+  const description = series?.description;
+  const safetyText = [title, ...aliases, ...genres, description ?? ''].join(' ');
+  if (MINOR_CODED_ARCHIVE_RE.test(safetyText)) return null;
+
+  const matched = [...new Set(matchedQueries.map(cleanArchiveSearchQuery).filter(Boolean))];
+  const coverage = matched.length / Math.max(1, searchQueries.length);
+  const titleRank =
+    rankByTitle(originalQuery, [{ titles: [title, ...aliases] }], { minScore: 0, limit: 1 })[0]
+      ?.score ?? 0;
+  // The source query itself is evidence. Original free-form title similarity is only a small
+  // tie-breaker because recommendation requests contain adjectives that are not part of titles.
+  const matchScore = Math.max(
+    0,
+    Math.min(1, 0.12 + coverage * 0.78 + titleRank * 0.08 - Math.min(0.03, sourceOrder * 0.002)),
+  );
+  const reason = matched.length
+    ? `corrispondenza sorgente: ${matched.join(', ')}`
+    : 'corrispondenza nel catalogo della sorgente';
+  return {
+    source: result.source,
+    sourceId: result.sourceId,
+    title,
+    aliases: [...new Set(aliases.filter(Boolean))],
+    canonicalUrl: result.canonicalUrl,
+    ...((series?.coverUrl ?? result.coverUrl)
+      ? { coverUrl: series?.coverUrl ?? result.coverUrl }
+      : {}),
+    status: series?.status ?? result.status,
+    genres,
+    ...(series?.episodes.length || result.episodeCount
+      ? { episodeCount: series?.episodes.length || result.episodeCount }
+      : {}),
+    ...((series?.year ?? result.year) ? { year: series?.year ?? result.year } : {}),
+    ...(description ? { description } : {}),
+    matchScore,
+    reason,
+  };
+}
+
+function cleanArchiveSearchQuery(value: string): string {
+  const printable = Array.from(value.normalize('NFKC'), (character) => {
+    const code = character.codePointAt(0) ?? 0;
+    return code < 32 || code === 127 ? ' ' : character;
+  }).join('');
+  return printable.replace(/\s+/gu, ' ').trim().slice(0, 120);
+}
+
+function archiveSlugFromUrl(raw: string): string {
+  try {
+    const url = new URL(raw);
+    return decodeURIComponent(url.pathname.split('/').filter(Boolean).at(-1) ?? '').replace(
+      /[-_]+/gu,
+      ' ',
+    );
+  } catch {
+    return '';
+  }
 }
 
 function archiveSearchQueryVariants(query: string): string[] {

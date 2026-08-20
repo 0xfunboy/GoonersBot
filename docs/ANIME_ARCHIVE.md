@@ -42,14 +42,24 @@ queue job. Actual source URLs and `SI / NO` callbacks remain the only archive in
 before Cortex because their meaning is already explicit protocol state, not natural-language
 classification.
 
-`anime_archive` supports `availability`, `rehost` and `series`. Availability verifies the requested
-episode and creates `Vuoi che te lo scarichi e rehosti qui?`; an explicit rehost request queues one
-resolved episode; `series` means every episode currently available for the resolved season/series
-and creates the existing admin-only confirmation even while the season is still airing. The Cortex
-is given the replied-to Telegram text explicitly, so short follow-ups such as `scaricalo` or
-`mi accontento degli episodi usciti finora` can resolve
-pronouns, season references and current-snapshot intent semantically rather than through
-keyword/regex parsing. The second action planner is forbidden from putting catalog/web reads in an
+`anime_archive` supports `search`, `availability`, `rehost` and `series`. `search` is discovery
+against one real archive source: an adult/hentai recommendation request is routed by Cortex to
+HentaiSaturn with compact source vocabulary (for example `isekai|nekomimi`), then the service stores
+a short-lived shortlist containing only canonical public series URLs and source metadata. Explicitly
+minor-coded adult results are filtered before persistence. A later `passami <titolo> ep 2` resolves
+that title against the stored shortlist before any fuzzy source search, so the selected canonical
+series identity survives across turns.
+
+Availability verifies the requested episode and creates `Vuoi che te lo scarichi e rehosti qui?`;
+an explicit rehost request queues one resolved episode; `series` means every episode currently
+available for the resolved season/series and creates the existing admin-only confirmation even while
+the season is still airing. The Cortex is given the replied-to Telegram text explicitly, so short
+follow-ups such as `scaricalo`, `rehosta il primo episodio, non l'ultimo` or `mi accontento degli
+episodi usciti finora` can resolve pronouns, season references and current-snapshot intent
+semantically rather than through keyword/regex parsing. Replying to a previous archive confirmation
+also binds the service to that offer's exact `source + canonicalSeriesUrl` even after `NO`, until the
+offer TTL expires: changing episode 8 to episode 1 therefore keeps the same edition instead of
+re-running fuzzy franchise search. The second action planner is forbidden from putting catalog/web reads in an
 `anime_archive` dependency chain: the archive tool resolves and verifies its own source identity.
 Ordinary anime questions continue through `anime_knowledge`; after a catalog lookup, the existing bounded
 source enrichment may still add a relevant archive offer. Follow notifications are emitted only
@@ -91,8 +101,9 @@ multipart splitting for archive sources.
 
 ## Persistence and resource bounds
 
-MongoDB collections `anime_archive_offers` and `anime_archive_jobs` hold confirmation state,
-leases, per-episode attempts and Telegram receipts. They never hold signed media URLs, cookies or
+MongoDB collections `anime_archive_offers`, `anime_archive_search_sessions` and
+`anime_archive_jobs` hold confirmation state, short-lived canonical search shortlists, leases,
+per-episode attempts and Telegram receipts. They never hold signed media URLs, cookies or
 player headers. Signed URLs are resolved just in time for every bounded attempt; HTTP 403/410 and
 transient network failures restart source resolution rather than persisting an expired token.
 

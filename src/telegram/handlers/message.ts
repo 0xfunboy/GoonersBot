@@ -1119,6 +1119,11 @@ async function sendArchiveResult(
       ctx,
       await localizeResponse(services, ctx.chat?.id ?? 0, response),
     );
+    if (sent && result.status === 'search_results') {
+      await services.animeArchive
+        .attachSearchResultMessage(result.session.id, sent.message_id)
+        .catch((err) => log.warn({ err }, 'anime archive search result attach failed'));
+    }
     return sent ? [sent.message_id] : [];
   }
 
@@ -1162,6 +1167,28 @@ async function sendArchiveResult(
 export function archiveResultResponse(
   result: AnimeArchivePreparationResult | AnimeArchiveConfirmationResult,
 ): CommandResponse {
+  if (result.status === 'search_results') {
+    const source = animeArchiveSourceLabel(result.session.source);
+    const exactEnough = result.results.some((item) => item.matchScore >= 0.88);
+    const intro = exactEnough
+      ? `Ho trovato questi titoli su ${source}:`
+      : `Non vedo un titolo che copra tutti i criteri alla lettera su ${source}; questi sono i più vicini trovati:`;
+    const rows = result.results.map((item, index) => {
+      const episodeCount = item.episodeCount ? ` · ${item.episodeCount} ep.` : '';
+      const status = item.status === 'unknown' ? '' : ` · ${item.status}`;
+      const genres = item.genres.length ? ` · ${item.genres.slice(0, 4).join(', ')}` : '';
+      return `${index + 1}. ${item.title}${episodeCount}${status}${genres}`;
+    });
+    return {
+      rawText: [
+        intro,
+        ...rows,
+        '',
+        'Ho tenuto i riferimenti canonici di questa ricerca: puoi dirmi direttamente “passami <titolo> ep 2” e userò questa shortlist invece di rifare una ricerca ambigua.',
+      ].join('\n'),
+      textFormat: 'plain',
+    };
+  }
   if (result.status === 'queued') {
     const source = animeArchiveSourceLabel(result.job.source);
     const episode = result.job.episodes[0]?.number;

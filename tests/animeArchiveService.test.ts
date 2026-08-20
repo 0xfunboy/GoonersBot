@@ -9,8 +9,10 @@ import {
   type AnimeArchiveJobDoc,
   type AnimeArchiveOfferActor,
   type AnimeArchiveOfferDoc,
+  type AnimeArchiveSearchSessionDoc,
   type CreateAnimeArchiveJobInput,
   type CreateAnimeArchiveOfferInput,
+  type CreateAnimeArchiveSearchSessionInput,
 } from '../src/storage/repositories/animeArchive.js';
 import { AnimeSourceRegistry } from '../src/anime/archive/registry.js';
 import { classifyAnimeUnityUrl } from '../src/anime/archive/animeUnity.js';
@@ -152,6 +154,7 @@ interface Harness {
   animeUnity: ReturnType<typeof adapter>;
   hentaiSaturn: ReturnType<typeof adapter>;
   offers: InMemoryOffers;
+  searches: InMemorySearches;
   jobs: InMemoryJobs;
   canReserveMedia: ReturnType<typeof vi.fn>;
   kick: ReturnType<typeof vi.fn>;
@@ -173,8 +176,9 @@ function harness(
   const hs = adapter('hentaisaturn', hentaiSeries(), options.hentaiSearch ?? []);
   const registry = new AnimeSourceRegistry([au, hs]);
   const offers = new InMemoryOffers();
+  const searches = new InMemorySearches();
   const jobs = new InMemoryJobs();
-  const storage = { animeArchive: { offers, jobs } } as unknown as Storage;
+  const storage = { animeArchive: { offers, searches, jobs } } as unknown as Storage;
   const canReserveMedia = vi.fn(async () => options.quota ?? { allowed: true });
   const quota = { canReserveMedia } as unknown as GroupQuotaService;
   const kick = vi.fn();
@@ -190,6 +194,7 @@ function harness(
     animeUnity: au,
     hentaiSaturn: hs,
     offers,
+    searches,
     jobs,
     canReserveMedia,
     kick,
@@ -761,6 +766,268 @@ describe('AnimeArchiveService natural availability and textual confirmation', ()
     ]);
   });
 
+  it('keeps the exact Mushoku edition from a replied archive offer when the user changes episode', async () => {
+    const subUrl = 'https://www.animeunity.so/anime/7613-mushoku-tensei-jobless-reincarnation-3';
+    const itaUrl =
+      'https://www.animeunity.so/anime/7614-mushoku-tensei-jobless-reincarnation-3-ita';
+    const hit = (
+      sourceId: string,
+      canonicalUrl: string,
+      title: string,
+    ): AnimeArchiveSearchResult => ({
+      source: 'animeunity',
+      sourceId,
+      slug:
+        sourceId === '7613'
+          ? 'mushoku-tensei-jobless-reincarnation-3'
+          : 'mushoku-tensei-jobless-reincarnation-3-ita',
+      title,
+      canonicalUrl,
+      status: 'ongoing',
+      genres: ['Isekai'],
+    });
+    const edition = (sourceId: string, canonicalUrl: string, count: number, title: string) => {
+      const episodes = Array.from({ length: count }, (_, index) => {
+        const number = String(index + 1);
+        return {
+          ...animeUnityEpisode(`${sourceId}-ep-${number}`, number),
+          seriesId: sourceId,
+          seriesSlug:
+            sourceId === '7613'
+              ? 'mushoku-tensei-jobless-reincarnation-3'
+              : 'mushoku-tensei-jobless-reincarnation-3-ita',
+          seriesTitle: title,
+          canonicalUrl: `${canonicalUrl}/${sourceId}-ep-${number}`,
+          canonicalSeriesUrl: canonicalUrl,
+        };
+      });
+      return animeUnitySeries({
+        sourceId,
+        slug:
+          sourceId === '7613'
+            ? 'mushoku-tensei-jobless-reincarnation-3'
+            : 'mushoku-tensei-jobless-reincarnation-3-ita',
+        title,
+        aliases: ['Mushoku Tensei Jobless Reincarnation Season 3'],
+        canonicalUrl,
+        episodes,
+      });
+    };
+    const { service, animeUnity, jobs } = harness();
+    animeUnity.search.mockImplementation(async (query: string) =>
+      query === 'Mushoku Tensei III'
+        ? [
+            hit('7613', subUrl, 'Mushoku Tensei III: Isekai Ittara Honki Dasu'),
+            hit('7614', itaUrl, 'Mushoku Tensei III: Isekai Ittara Honki Dasu (ITA)'),
+          ]
+        : [],
+    );
+    animeUnity.getSeries.mockImplementation(async (url: string | URL) =>
+      String(url) === subUrl
+        ? edition('7613', subUrl, 8, 'Mushoku Tensei III: Isekai Ittara Honki Dasu')
+        : edition('7614', itaUrl, 5, 'Mushoku Tensei III: Isekai Ittara Honki Dasu (ITA)'),
+    );
+
+    const offer = await service.prepareNaturalEpisodeOffer({
+      query: 'Mushoku Tensei Season 3',
+      expectedEpisodeNumber: 8,
+      preferredSource: 'animeunity',
+      chatId: -100,
+      threadId: 42,
+      requesterTelegramId: 123,
+    });
+    if (offer.status !== 'confirmation_required') throw new Error('expected episode offer');
+    expect(offer.series.sourceId).toBe('7613');
+    await service.replaceConfirmationMessage(offer.offer.id, 700);
+    await service.confirm({
+      offerId: offer.offer.id,
+      decision: 'no',
+      actorTelegramId: 123,
+      chatId: -100,
+      threadId: 42,
+      isAdmin: true,
+    });
+    const searchesBeforeFollowup = animeUnity.search.mock.calls.length;
+
+    const queued = await service.prepareNaturalEpisodeRequest({
+      query: 'Mushoku Tensei Jobless Reincarnation Season 3',
+      expectedEpisodeNumber: 1,
+      preferredSource: 'animeunity',
+      contextMessageId: 700,
+      chatId: -100,
+      threadId: 42,
+      replyToMessageId: 701,
+      requesterTelegramId: 123,
+    });
+
+    expect(queued).toMatchObject({
+      status: 'queued',
+      job: {
+        source: 'animeunity',
+        series: { id: '7613', canonicalUrl: subUrl },
+        episodes: [{ id: '7613-ep-1', number: 1 }],
+      },
+    });
+    expect(animeUnity.search).toHaveBeenCalledTimes(searchesBeforeFollowup);
+    expect(jobs.inputs.at(-1)?.series.id).toBe('7613');
+
+    const second = await service.prepareNaturalEpisodeRequest({
+      query: 'Mushoku Tensei Season 3',
+      expectedEpisodeNumber: 2,
+      preferredSource: 'animeunity',
+      chatId: -100,
+      threadId: 42,
+      replyToMessageId: 702,
+      requesterTelegramId: 123,
+    });
+    expect(second).toMatchObject({
+      status: 'queued',
+      job: { series: { id: '7613' }, episodes: [{ id: '7613-ep-2', number: 2 }] },
+    });
+    expect(animeUnity.search).toHaveBeenCalledTimes(searchesBeforeFollowup);
+  });
+
+  it('persists a HentaiSaturn shortlist and resolves a later title+episode without fuzzy re-search', async () => {
+    const catsUrl = 'https://www.hentaisaturn.tv/hentai/gatte-calde';
+    const otherUrl = 'https://www.hentaisaturn.tv/hentai/orecchie-vibranti';
+    const hsHit = (
+      sourceId: string,
+      title: string,
+      canonicalUrl: string,
+    ): AnimeArchiveSearchResult => ({
+      source: 'hentaisaturn',
+      sourceId,
+      slug: sourceId,
+      title,
+      canonicalUrl,
+      status: 'completed',
+      genres: ['Fantasy', 'Nekomimi'],
+      episodeCount: 2,
+    });
+    const hsSeries = (
+      sourceId: string,
+      title: string,
+      canonicalUrl: string,
+    ): AnimeArchiveSeries => {
+      const episodes = ['1', '2'].map((number) => ({
+        source: 'hentaisaturn' as const,
+        sourceId: `${sourceId}-ep-${number}`,
+        seriesId: sourceId,
+        seriesSlug: sourceId,
+        seriesTitle: title,
+        number,
+        order: Number(number),
+        title: `${title} — Episodio ${number}`,
+        canonicalUrl: `${canonicalUrl}/ep-${number}`,
+        canonicalSeriesUrl: canonicalUrl,
+      }));
+      return {
+        source: 'hentaisaturn',
+        sourceId,
+        slug: sourceId,
+        title,
+        aliases: [],
+        canonicalUrl,
+        status: 'completed',
+        genres: ['Fantasy', 'Nekomimi'],
+        episodes,
+        externalIds: {},
+      };
+    };
+    const { service, hentaiSaturn, searches, jobs } = harness({
+      config: config({ nsfwAllow: true }),
+    });
+    hentaiSaturn.search.mockImplementation(async (query: string) =>
+      query === 'isekai'
+        ? [hsHit('gatte-calde', 'Gatte Calde', catsUrl)]
+        : query === 'nekomimi'
+          ? [
+              hsHit('gatte-calde', 'Gatte Calde', catsUrl),
+              hsHit('orecchie-vibranti', 'Orecchie Vibranti', otherUrl),
+            ]
+          : [],
+    );
+    hentaiSaturn.getSeries.mockImplementation(async (url: string | URL) =>
+      String(url) === catsUrl
+        ? hsSeries('gatte-calde', 'Gatte Calde', catsUrl)
+        : hsSeries('orecchie-vibranti', 'Orecchie Vibranti', otherUrl),
+    );
+
+    const found = await service.searchNatural({
+      query: 'hentai isekai con cat girl adulte aggressive',
+      searchQueries: ['isekai', 'nekomimi'],
+      preferredSource: 'hentaisaturn',
+      chatId: -100,
+      threadId: 42,
+      requesterTelegramId: 123,
+    });
+    expect(found).toMatchObject({ status: 'search_results' });
+    if (found.status !== 'search_results') throw new Error('expected search results');
+    expect(found.results[0]).toMatchObject({
+      source: 'hentaisaturn',
+      sourceId: 'gatte-calde',
+      title: 'Gatte Calde',
+      canonicalUrl: catsUrl,
+    });
+    expect(found.results[0]?.matchScore).toBeGreaterThan(found.results[1]?.matchScore ?? 0);
+    expect(searches.docs).toHaveLength(1);
+    expect(searches.docs[0]?.searchQueries).toEqual(['isekai', 'nekomimi']);
+    const searchCallsBeforeFollowup = hentaiSaturn.search.mock.calls.length;
+
+    const queued = await service.prepareNaturalEpisodeRequest({
+      query: 'Gatte Calde',
+      expectedEpisodeNumber: 2,
+      preferredSource: 'hentaisaturn',
+      chatId: -100,
+      threadId: 42,
+      requesterTelegramId: 123,
+    });
+    expect(queued).toMatchObject({
+      status: 'queued',
+      job: {
+        source: 'hentaisaturn',
+        series: { id: 'gatte-calde', canonicalUrl: catsUrl },
+        episodes: [{ id: 'gatte-calde-ep-2', number: 2 }],
+      },
+    });
+    expect(hentaiSaturn.search).toHaveBeenCalledTimes(searchCallsBeforeFollowup);
+    expect(jobs.inputs.at(-1)?.series.canonicalUrl).toBe(catsUrl);
+  });
+
+  it('filters explicitly minor-coded adult archive results before they enter a search session', async () => {
+    const unsafeUrl = 'https://www.hentaisaturn.tv/hentai/lolicon-fixture';
+    const { service, hentaiSaturn, searches } = harness({ config: config({ nsfwAllow: true }) });
+    hentaiSaturn.search.mockResolvedValue([
+      {
+        source: 'hentaisaturn',
+        sourceId: 'unsafe',
+        slug: 'unsafe',
+        title: 'Lolicon Fixture',
+        canonicalUrl: unsafeUrl,
+        status: 'completed',
+        genres: [],
+      },
+    ]);
+    hentaiSaturn.getSeries.mockResolvedValue({
+      ...hentaiSeries(),
+      sourceId: 'unsafe',
+      slug: 'unsafe',
+      title: 'Lolicon Fixture',
+      canonicalUrl: unsafeUrl,
+    });
+
+    await expect(
+      service.searchNatural({
+        query: 'hentai fantasy',
+        searchQueries: ['fantasy'],
+        preferredSource: 'hentaisaturn',
+        chatId: -100,
+        requesterTelegramId: 123,
+      }),
+    ).resolves.toEqual({ status: 'rejected', reason: 'not_found' });
+    expect(searches.docs).toHaveLength(0);
+  });
+
   it('uses the requested episode to disambiguate the two live Chainsmoker editions', async () => {
     const itaUrl = 'https://www.animeunity.so/anime/7600-yani-neko-ita';
     const subUrl = 'https://www.animeunity.so/anime/7601-yani-neko';
@@ -1002,7 +1269,7 @@ describe('AnimeArchiveService natural availability and textual confirmation', ()
     ).resolves.toEqual({ status: 'rejected', reason: 'source_unavailable' });
   });
 
-  it('selects an expected decimal episode exactly and rejects a live-source mismatch', async () => {
+  it('selects an expected decimal episode exactly and keeps later mismatches on the same resolved series', async () => {
     const series = animeUnitySeries({
       episodes: [
         animeUnityEpisode('100', '1'),
@@ -1037,7 +1304,7 @@ describe('AnimeArchiveService natural availability and textual confirmation', ()
     });
     expect(mismatch).toEqual({ status: 'rejected', reason: 'not_found' });
     expect(offers.docs).toHaveLength(1);
-    expect(animeUnity.search).toHaveBeenCalledTimes(2);
+    expect(animeUnity.search).toHaveBeenCalledOnce();
   });
 
   it('deduplicates equivalent pending offers and keeps unquoted SI scoped to delivered prompts', async () => {
@@ -1243,6 +1510,40 @@ class InMemoryOffers {
     return doc ? structuredClone(doc) : null;
   }
 
+  async findByConfirmationMessage(
+    chatId: number,
+    confirmationMessageId: number,
+    requesterTelegramId: number,
+    now: Date,
+  ) {
+    const doc = this.docs.find(
+      (entry) =>
+        entry.chatId === chatId &&
+        entry.confirmationMessageId === confirmationMessageId &&
+        entry.requesterTelegramId === requesterTelegramId &&
+        entry.expiresAt > now,
+    );
+    return doc ? structuredClone(doc) : null;
+  }
+
+  async listLatestContextForActor(
+    actor: Omit<AnimeArchiveOfferActor, 'isAdmin'>,
+    limit: number,
+    now: Date,
+  ) {
+    return this.docs
+      .filter(
+        (entry) =>
+          entry.requesterTelegramId === actor.actorTelegramId &&
+          entry.chatId === actor.chatId &&
+          entry.threadId === (actor.threadId ?? null) &&
+          entry.expiresAt > now,
+      )
+      .slice(-limit)
+      .reverse()
+      .map((entry) => structuredClone(entry));
+  }
+
   async listLatestPendingForActor(
     actor: Omit<AnimeArchiveOfferActor, 'isAdmin'>,
     limit: number,
@@ -1291,6 +1592,71 @@ class InMemoryOffers {
     if (state === 'accepted') doc.acceptedAt = now;
     else doc.cancelledAt = now;
     return { ok: true as const, offer: structuredClone(doc) };
+  }
+}
+
+class InMemorySearches {
+  readonly docs: AnimeArchiveSearchSessionDoc[] = [];
+  private sequence = 0;
+
+  async create(input: CreateAnimeArchiveSearchSessionInput, now: Date) {
+    this.sequence += 1;
+    const doc: AnimeArchiveSearchSessionDoc = {
+      id: `as_test_${this.sequence}`,
+      chatId: input.chatId,
+      threadId: input.threadId ?? null,
+      requesterTelegramId: input.requesterTelegramId,
+      source: input.source,
+      query: input.query,
+      searchQueries: [...input.searchQueries],
+      items: structuredClone(input.items),
+      resultMessageId: null,
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: input.expiresAt ?? new Date(now.getTime() + 30 * 60_000),
+    };
+    this.docs.push(doc);
+    return structuredClone(doc);
+  }
+
+  async attachResultMessage(id: string, resultMessageId: number, now: Date) {
+    const doc = this.docs.find((entry) => entry.id === id && entry.expiresAt > now);
+    if (!doc) return null;
+    doc.resultMessageId = resultMessageId;
+    doc.updatedAt = now;
+    return structuredClone(doc);
+  }
+
+  async findByMessage(
+    chatId: number,
+    resultMessageId: number,
+    requesterTelegramId: number,
+    now: Date,
+  ) {
+    const doc = this.docs.find(
+      (entry) =>
+        entry.chatId === chatId &&
+        entry.resultMessageId === resultMessageId &&
+        entry.requesterTelegramId === requesterTelegramId &&
+        entry.expiresAt > now,
+    );
+    return doc ? structuredClone(doc) : null;
+  }
+
+  async findLatestForActor(
+    actor: { chatId: number; threadId?: number | null; requesterTelegramId: number },
+    now: Date,
+  ) {
+    const matches = this.docs
+      .filter(
+        (entry) =>
+          entry.chatId === actor.chatId &&
+          entry.threadId === (actor.threadId ?? null) &&
+          entry.requesterTelegramId === actor.requesterTelegramId &&
+          entry.expiresAt > now,
+      )
+      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
+    return matches[0] ? structuredClone(matches[0]) : null;
   }
 }
 

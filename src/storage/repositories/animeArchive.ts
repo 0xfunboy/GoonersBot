@@ -95,6 +95,52 @@ export type AnimeArchiveOfferTransitionResult =
   | { ok: false; reason: AnimeArchiveOfferTransitionFailure };
 
 export const DEFAULT_ANIME_ARCHIVE_OFFER_TTL_MS = 15 * 60_000;
+export const DEFAULT_ANIME_ARCHIVE_SEARCH_SESSION_TTL_MS = 30 * 60_000;
+
+export interface AnimeArchiveSearchSessionItem {
+  source: AnimeArchiveSource;
+  sourceId: string;
+  title: string;
+  aliases: string[];
+  canonicalUrl: string;
+  coverUrl?: string | undefined;
+  status: 'ongoing' | 'completed' | 'unknown';
+  genres: string[];
+  episodeCount?: number | undefined;
+  year?: string | undefined;
+  /** Bounded source description used only to resolve later references; never a media URL. */
+  description?: string | undefined;
+  /** 0..1 ranking confidence assigned from source-backed metadata. */
+  matchScore: number;
+  reason: string;
+}
+
+export interface AnimeArchiveSearchSessionDoc {
+  id: string;
+  chatId: number;
+  threadId: number | null;
+  requesterTelegramId: number;
+  source: AnimeArchiveSource;
+  query: string;
+  searchQueries: string[];
+  items: AnimeArchiveSearchSessionItem[];
+  /** Telegram message that displayed this shortlist, attached after successful delivery. */
+  resultMessageId: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+  expiresAt: Date;
+}
+
+export interface CreateAnimeArchiveSearchSessionInput {
+  chatId: number;
+  threadId?: number | null | undefined;
+  requesterTelegramId: number;
+  source: AnimeArchiveSource;
+  query: string;
+  searchQueries: string[];
+  items: AnimeArchiveSearchSessionItem[];
+  expiresAt?: Date | undefined;
+}
 
 /** Pure validation used after a failed compare-and-set and by in-memory tests. */
 export function classifyAnimeArchiveOfferTransition(
@@ -313,6 +359,43 @@ export class AnimeArchiveOffersRepo {
     return this.col.findOne({ id });
   }
 
+  /**
+   * Resolve the exact series identity behind a message the user is replying to. The offer may have
+   * been accepted/cancelled already: its canonical source reference remains useful conversational
+   * context until the normal offer TTL removes it.
+   */
+  async findByConfirmationMessage(
+    chatId: number,
+    confirmationMessageId: number,
+    requesterTelegramId: number,
+    now: Date = new Date(),
+  ): Promise<AnimeArchiveOfferDoc | null> {
+    return this.col.findOne({
+      chatId,
+      confirmationMessageId,
+      requesterTelegramId,
+      expiresAt: { $gt: now },
+    });
+  }
+
+  /** Recent canonical archive references for semantic follow-ups, regardless of consumed state. */
+  async listLatestContextForActor(
+    actor: Omit<AnimeArchiveOfferActor, 'isAdmin'>,
+    limit: number,
+    now: Date = new Date(),
+  ): Promise<AnimeArchiveOfferDoc[]> {
+    return this.col
+      .find({
+        requesterTelegramId: actor.actorTelegramId,
+        chatId: actor.chatId,
+        threadId: normalizeThreadId(actor.threadId),
+        expiresAt: { $gt: now },
+      })
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .limit(Math.max(1, Math.min(8, Math.trunc(limit) || 1)))
+      .toArray();
+  }
+
   /** Delivered pending confirmations for textual SI/NO matching, newest first. */
   async listLatestPendingForActor(
     actor: Omit<AnimeArchiveOfferActor, 'isAdmin'>,
@@ -390,6 +473,120 @@ export class AnimeArchiveOffersRepo {
       state === 'accepted' ? 'accept' : 'cancel',
     );
     return { ok: false, reason: reason ?? 'already_consumed' };
+  }
+}
+
+/**
+ * Short-lived, source-backed recommendation memory. It stores only canonical public series refs and
+ * metadata, never signed media URLs. This is the bridge between "find me something like X" and a
+ * later "ok, send title Y episode 2" follow-up.
+ */
+export class AnimeArchiveSearchSessionsRepo {
+  private readonly col: Collection<AnimeArchiveSearchSessionDoc>;
+
+  constructor(
+    db: Db,
+    private readonly idFactory: () => string = () => opaqueId('as'),
+  ) {
+    this.col = db.collection<AnimeArchiveSearchSessionDoc>('anime_archive_search_sessions');
+  }
+
+  static async ensureIndexes(db: Db): Promise<void> {
+    const col = db.collection<AnimeArchiveSearchSessionDoc>('anime_archive_search_sessions');
+    await col.createIndex({ id: 1 }, { unique: true });
+    await col.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await col.createIndex({
+      requesterTelegramId: 1,
+      chatId: 1,
+      threadId: 1,
+      createdAt: -1,
+    });
+    await col.createIndex(
+      { chatId: 1, resultMessageId: 1 },
+      { partialFilterExpression: { resultMessageId: { $type: 'number' } } },
+    );
+  }
+
+  async create(
+    input: CreateAnimeArchiveSearchSessionInput,
+    now: Date = new Date(),
+  ): Promise<AnimeArchiveSearchSessionDoc> {
+    const expiresAt = input.expiresAt
+      ? new Date(input.expiresAt)
+      : new Date(now.getTime() + DEFAULT_ANIME_ARCHIVE_SEARCH_SESSION_TTL_MS);
+    assertValidDate(expiresAt, 'expiresAt');
+    if (expiresAt.getTime() <= now.getTime()) {
+      throw new Error('Anime archive search session expiry must be in the future');
+    }
+    const doc: AnimeArchiveSearchSessionDoc = {
+      id: this.idFactory(),
+      chatId: input.chatId,
+      threadId: normalizeThreadId(input.threadId),
+      requesterTelegramId: input.requesterTelegramId,
+      source: input.source,
+      query: input.query.trim().slice(0, 500),
+      searchQueries: [
+        ...new Set(input.searchQueries.map((value) => value.trim()).filter(Boolean)),
+      ].slice(0, 8),
+      items: input.items.slice(0, 8).map((item) => ({
+        ...item,
+        aliases: [...new Set(item.aliases.map((value) => value.trim()).filter(Boolean))].slice(
+          0,
+          16,
+        ),
+        genres: [...new Set(item.genres.map((value) => value.trim()).filter(Boolean))].slice(0, 24),
+        description: item.description?.slice(0, 1_500),
+        reason: item.reason.slice(0, 300),
+        matchScore: Math.max(0, Math.min(1, item.matchScore)),
+      })),
+      resultMessageId: null,
+      createdAt: now,
+      updatedAt: now,
+      expiresAt,
+    };
+    await this.col.insertOne(doc);
+    return doc;
+  }
+
+  async attachResultMessage(
+    id: string,
+    resultMessageId: number,
+    now: Date = new Date(),
+  ): Promise<AnimeArchiveSearchSessionDoc | null> {
+    return this.col.findOneAndUpdate(
+      { id, expiresAt: { $gt: now } },
+      { $set: { resultMessageId, updatedAt: now } },
+      { returnDocument: 'after' },
+    );
+  }
+
+  async findByMessage(
+    chatId: number,
+    resultMessageId: number,
+    requesterTelegramId: number,
+    now: Date = new Date(),
+  ): Promise<AnimeArchiveSearchSessionDoc | null> {
+    return this.col.findOne({
+      chatId,
+      resultMessageId,
+      requesterTelegramId,
+      expiresAt: { $gt: now },
+    });
+  }
+
+  async findLatestForActor(
+    actor: { chatId: number; threadId?: number | null; requesterTelegramId: number },
+    now: Date = new Date(),
+  ): Promise<AnimeArchiveSearchSessionDoc | null> {
+    return this.col.findOne(
+      {
+        chatId: actor.chatId,
+        threadId: normalizeThreadId(actor.threadId),
+        requesterTelegramId: actor.requesterTelegramId,
+        expiresAt: { $gt: now },
+      },
+      { sort: { createdAt: -1 } },
+    );
   }
 }
 
@@ -1491,15 +1688,18 @@ export class AnimeArchiveJobsRepo {
 /** Storage facade for the two collections; kept adapter-independent on purpose. */
 export class AnimeArchiveRepo {
   readonly offers: AnimeArchiveOffersRepo;
+  readonly searches: AnimeArchiveSearchSessionsRepo;
   readonly jobs: AnimeArchiveJobsRepo;
 
   constructor(db: Db) {
     this.offers = new AnimeArchiveOffersRepo(db);
+    this.searches = new AnimeArchiveSearchSessionsRepo(db);
     this.jobs = new AnimeArchiveJobsRepo(db);
   }
 
   static async ensureIndexes(db: Db): Promise<void> {
     await AnimeArchiveOffersRepo.ensureIndexes(db);
+    await AnimeArchiveSearchSessionsRepo.ensureIndexes(db);
     await AnimeArchiveJobsRepo.ensureIndexes(db);
   }
 }

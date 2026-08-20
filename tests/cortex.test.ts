@@ -127,7 +127,7 @@ describe('Cortex', () => {
     const prompt = `${CORTEX_SYSTEM}\n${CORTEX_FEWSHOT}`;
     expect(prompt).toContain('anime_archive');
     expect(prompt).toContain('AnimeUnity and HentaiSaturn');
-    expect(prompt).toContain('availability | rehost | series');
+    expect(prompt).toMatch(/search\s+\|\s+availability\s+\|\s+rehost\s+\|\s+series/u);
     expect(prompt).toContain(
       'to queue the requested episode. If the user asks to download/rehost/send',
     );
@@ -139,6 +139,11 @@ describe('Cortex', () => {
       'cerca la terza serie Mushoku Tensei e rehosta gli episodi disponibili',
     );
     expect(prompt).toContain('mi accontento degli episodi usciti fino ad ora');
+    expect(prompt).toContain('cercami un hentai isekai con cat girl porche ma che graffiano');
+    expect(prompt).toContain('"intent":"search","source":"hentaisaturn"');
+    expect(prompt).toContain('searchQueries":"isekai|isekai harem|nekomimi|kemono');
+    expect(prompt).toContain('passami Gatte Calde');
+    expect(prompt).toContain('preserve that exact series/edition');
     expect(prompt).toContain('after YOU have classified the intent');
     expect(prompt).not.toContain('official streaming links');
   });
