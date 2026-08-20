@@ -63,6 +63,8 @@ export interface GenerateReplyInput {
   threadContext?: string | undefined;
   /** evolving member profiles, relationships, norms and non-fatigued running jokes */
   socialContext?: string | undefined;
+  /** answer to a previously asked, persisted social question; already resolved before generation */
+  socialQuestionContext?: string | undefined;
   /** per-user hostility directive (escalation system) */
   hostility?: string | undefined;
   /** on-demand knowledge block (RAG) */
@@ -116,6 +118,9 @@ export class ResponseGenerator {
       ...(input.media ? { media: input.media } : {}),
       ...(input.threadContext ? { threadContext: input.threadContext } : {}),
       ...(input.socialContext ? { socialContext: input.socialContext } : {}),
+      ...(input.socialQuestionContext
+        ? { socialQuestionContext: input.socialQuestionContext }
+        : {}),
       ...(input.hostility ? { hostility: input.hostility } : {}),
       ...(input.knowledge ? { knowledge: input.knowledge } : {}),
       ...(input.documents ? { documents: input.documents } : {}),

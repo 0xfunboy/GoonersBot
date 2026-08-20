@@ -33,6 +33,7 @@ export function isSetValuedFacet(kind: SocialFacetKind): boolean {
 
 const SOURCE_RELIABILITY: Record<SocialEvidenceSource, number> = {
   self_declared: 1,
+  clarified_self: 1,
   admin: 0.98,
   direct_observation: 0.82,
   repeated_behavior: 0.78,
@@ -94,12 +95,12 @@ function alreadyObserved(existing: number[], sourceMessageId: number | null | un
 }
 
 function isPrivilegedEvidence(source: SocialEvidenceSource): boolean {
-  return source === 'self_declared' || source === 'admin';
+  return source === 'self_declared' || source === 'clarified_self' || source === 'admin';
 }
 
 function isStrongSelfDeclaration(claim: SocialFacetClaim): boolean {
   return (
-    claim.source === 'self_declared' &&
+    (claim.source === 'self_declared' || claim.source === 'clarified_self') &&
     claim.confidence >= STRONG_SELF_DECLARATION_CONFIDENCE &&
     (claim.state === 'active' || claim.state === 'disputed')
   );

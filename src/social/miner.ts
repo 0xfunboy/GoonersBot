@@ -312,7 +312,11 @@ function withSafeAutomaticSource(
   sourceAuthor: string,
 ): SocialObservation {
   let normalized = observation;
-  if (observation.source === 'admin' || observation.source === 'migration') {
+  if (
+    observation.source === 'admin' ||
+    observation.source === 'migration' ||
+    observation.source === 'clarified_self'
+  ) {
     normalized = { ...normalized, source: 'direct_observation' };
   }
   if (

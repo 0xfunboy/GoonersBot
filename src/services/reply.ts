@@ -44,8 +44,12 @@ import { isNewCapabilityInstallation, isVerifiedCapabilityReuse } from '../capab
 import type { AgentRuntime } from './agentRuntime.js';
 import {
   renderSocialContext,
+  socialQuestionPromptBlock,
+  type PreparedSocialQuestion,
   type SocialContext,
   type SocialProfileEngine,
+  type SocialQuestionResolution,
+  type SocialQuestionService,
 } from '../social/index.js';
 import { parseMusicRequest } from './musicIntent.js';
 import type { RetrievedMemory } from '../memory/types.js';
@@ -382,6 +386,8 @@ export interface ReplyContext {
   nsfwEnabled: boolean;
   /** Free groups do not invoke a separate vision model; their economy model handles text only. */
   allowVision: boolean;
+  /** Structured answer to a previously asked bot question, already resolved before reply generation. */
+  socialQuestionResolution?: SocialQuestionResolution | undefined;
   /** model from the NSFW router for this turn */
   model?: string | undefined;
   /** Economy model enforced for Free groups; paid plans use the configured fast brain models. */
@@ -436,6 +442,8 @@ export interface ReplyOutcome {
   threadState?: ConversationThreadState;
   /** Resolved catalog subject for a silent, post-composition archive availability check. */
   animeArchiveLookup?: AnimeArchiveLookup;
+  /** Optional human-like follow-up question whose bot message id must be attached after delivery. */
+  socialQuestion?: PreparedSocialQuestion;
 }
 
 export interface AnimeArchiveLookup {
@@ -539,6 +547,7 @@ export class ReplyService {
     private readonly videoPrompts: VideoPromptService,
     private readonly agentRuntime: AgentRuntime,
     private readonly social: SocialProfileEngine,
+    private readonly socialQuestions: SocialQuestionService,
     private readonly anime: AnimeKnowledgeService,
     private readonly ambient: AmbientRetriever,
     private readonly standing: SocialStandingService,
@@ -1811,6 +1820,9 @@ export class ReplyService {
       ...(media ? { media } : {}),
       ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
       ...(socialContext ? { socialContext } : {}),
+      ...(ctx.socialQuestionResolution
+        ? { socialQuestionContext: socialQuestionPromptBlock(ctx.socialQuestionResolution) }
+        : {}),
       ...(hostilityLine ? { hostility: hostilityLine } : {}),
       ...(knowledgeBlock ? { knowledge: knowledgeBlock } : {}),
       ...(documentContext ? { documents: documentContext } : {}),
@@ -1949,6 +1961,9 @@ export class ReplyService {
         ...(media ? { media } : {}),
         ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
         ...(socialContext ? { socialContext } : {}),
+        ...(ctx.socialQuestionResolution
+          ? { socialQuestionContext: socialQuestionPromptBlock(ctx.socialQuestionResolution) }
+          : {}),
         ...(hostilityLine ? { hostility: hostilityLine } : {}),
         ...(knowledgeBlock ? { knowledge: knowledgeBlock } : {}),
         ...(documentContext ? { documents: documentContext } : {}),
@@ -2015,6 +2030,7 @@ export class ReplyService {
     // Personal lore is useful only while ownership is exact. On turns involving multiple resolved
     // humans (or explicit biography assertions), run a small structured verifier after generation.
     // It treats previous BOT lines as non-evidence and can remove/rewrite a cross-assigned claim.
+    let attributionIssues: string[] = [];
     const attributionInput = {
       candidate: best,
       currentHandle: ctx.person.userHandle,
@@ -2035,6 +2051,9 @@ export class ReplyService {
     if (shouldVerifyAttribution(attributionInput)) {
       const firstCheck = await this.attributionVerifier.verify(attributionInput);
       if (!firstCheck?.safe) {
+        attributionIssues = firstCheck?.issues?.length
+          ? firstCheck.issues.map((issue) => `${issue.reason}: ${issue.subject} -> ${issue.claim}`)
+          : ['personal attribution verifier could not establish ownership'];
         const rewrite = firstCheck?.rewrite?.trim();
         if (rewrite) {
           const secondCheck = await this.attributionVerifier.verify({
@@ -2050,12 +2069,37 @@ export class ReplyService {
         log.warn(
           {
             chatId: ctx.context.chatId,
-            issues: firstCheck?.issues ?? ['verifier unavailable'],
+            issues: attributionIssues,
             usedRewrite: Boolean(rewrite),
           },
           'personal attribution guard repaired or stripped generated lore',
         );
       }
+    }
+
+    // Human questions are host-tracked state, not a style tic. Clarification is forced only after
+    // a real attribution problem; curiosity is sparse, cooldown-bound and never follows an answer
+    // to a previous question in the same turn.
+    let socialQuestion: PreparedSocialQuestion | undefined;
+    if (!ctx.passive && best.trim()) {
+      socialQuestion =
+        (await this.socialQuestions
+          .maybePrepare({
+            person: ctx.person,
+            context: ctx.context,
+            scene,
+            currentMessage: transcribed.messageText ?? '',
+            socialContext,
+            attributionIssues,
+            language: ctx.language,
+            model: ctx.internalModel ?? generationModel,
+            answerResolvedThisTurn: Boolean(ctx.socialQuestionResolution),
+          })
+          .catch((error) => {
+            log.debug({ error, chatId: ctx.context.chatId }, 'social question planning skipped');
+            return null;
+          })) ?? undefined;
+      if (socialQuestion) best = `${best.trim()}\n\n${socialQuestion.questionText}`;
     }
 
     // 6. optional ambient/verified image output. Explicit generation is handled earlier by image_gen.
@@ -2125,6 +2169,7 @@ export class ReplyService {
       providerBundle,
       threadState,
       ...(animeArchiveLookup ? { animeArchiveLookup } : {}),
+      ...(socialQuestion ? { socialQuestion } : {}),
     };
     if (imageUrl !== undefined) outcome.imageUrl = imageUrl;
     if (imageBuffer !== undefined) outcome.imageBuffer = imageBuffer;

@@ -68,6 +68,7 @@ import {
   SocialLearningPipeline,
   SocialObservationMiner,
   SocialProfileEngine,
+  SocialQuestionService,
 } from '../social/index.js';
 
 export * from './permissions.js';
@@ -134,6 +135,7 @@ export class Services {
   readonly videoPrompts: VideoPromptService;
   readonly agentRuntime: AgentRuntime;
   readonly social: SocialProfileEngine;
+  readonly socialQuestions: SocialQuestionService;
   readonly socialLearning: SocialLearningPipeline;
   readonly documents: DocumentProcessor;
   readonly capabilities: CapabilityForge;
@@ -343,6 +345,14 @@ export class Services {
     );
     this.videoPrompts = new VideoPromptService(llm, config);
     this.social = new SocialProfileEngine(storage.socialProfiles);
+    this.socialQuestions = new SocialQuestionService(llm, storage.socialQuestions, this.social, {
+      enabled: env.SOCIAL_QUESTIONS_ENABLED,
+      curiosityProbability: env.SOCIAL_QUESTION_CURIOSITY_PROBABILITY,
+      userCooldownMinutes: env.SOCIAL_QUESTION_USER_COOLDOWN_MINUTES,
+      ttlMinutes: env.SOCIAL_QUESTION_TTL_MINUTES,
+      unquotedAnswerWindowMinutes: env.SOCIAL_QUESTION_UNQUOTED_ANSWER_WINDOW_MINUTES,
+      model: config.brain.cortex.model,
+    });
     this.socialLearning = new SocialLearningPipeline(
       this.social,
       new SocialObservationMiner(miningLlm, {
@@ -441,6 +451,7 @@ export class Services {
       this.videoPrompts,
       this.agentRuntime,
       this.social,
+      this.socialQuestions,
       this.anime,
       this.ambient,
       this.standing,

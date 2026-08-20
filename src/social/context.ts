@@ -57,7 +57,11 @@ function selectedFacets(
     // must never become prompt-visible nationality/origin/identity. Admin corrections are allowed
     // immediately; automatic/self evidence needs repetition before it can become social context.
     if (isIdentityLikeFacet(claim)) {
-      if (claim.source !== 'admin' && claim.source !== 'migration') {
+      if (
+        claim.source !== 'admin' &&
+        claim.source !== 'migration' &&
+        claim.source !== 'clarified_self'
+      ) {
         const minEvidence = claim.source === 'self_declared' ? 2 : 3;
         if (claim.evidenceCount < minEvidence) continue;
       }

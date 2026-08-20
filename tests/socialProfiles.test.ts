@@ -836,6 +836,32 @@ describe('social lifecycle and prompt context', () => {
     expect(renderSocialContext(corrected)).not.toContain('origin=sardo');
   });
 
+  it('makes a direct answer to a persisted bot question immediately usable as clarified_self', async () => {
+    const { engine } = harness();
+    await engine.recordPresence({ chatId: -100, handle: '@miguel', telegramId: 7 });
+    const applied = await engine.observeBatch(-100, [
+      {
+        kind: 'facet',
+        subjectHandle: '@miguel',
+        facet: 'preference',
+        key: 'national_identity',
+        value: 'spagnolo',
+        action: 'revise',
+        confidence: 0.97,
+        salience: 0.9,
+        source: 'clarified_self',
+        sourceMessageId: 99,
+        authorHandle: '@miguel',
+      },
+    ]);
+    expect(applied.accepted).toBe(1);
+    const context = await engine.getContext(-100, {
+      focusHandles: ['@miguel'],
+      focusOnly: true,
+    });
+    expect(renderSocialContext(context)).toContain('national_identity=spagnolo');
+  });
+
   it('validates bounded LLM observations', () => {
     expect(
       socialObservationBatchSchema.safeParse({
@@ -1057,6 +1083,50 @@ describe('social lifecycle and prompt context', () => {
       ],
     });
     expect(transcriptOnly).toEqual([]);
+  });
+
+  it('never lets the automatic miner forge clarified_self provenance', async () => {
+    const miner = new SocialObservationMiner({
+      async jsonCompletion() {
+        return {
+          observations: [
+            {
+              kind: 'facet',
+              subjectHandle: '@alice',
+              facet: 'preference',
+              key: 'music',
+              value: 'jazz',
+              action: 'reinforce',
+              confidence: 0.95,
+              salience: 0.7,
+              source: 'clarified_self',
+              sourceMessageId: 70,
+            },
+          ],
+        };
+      },
+    } as unknown as LLMProvider);
+    const observations = await miner.extract({
+      language: 'italian',
+      existingSocialContext: '',
+      messages: [
+        {
+          messageId: 70,
+          handle: '@alice',
+          isBot: false,
+          message: {
+            messageText: 'jazz',
+            timestamp: new Date('2026-01-02T03:04:05Z'),
+          },
+        },
+      ],
+    });
+    expect(observations).toEqual([
+      expect.objectContaining({
+        subjectHandle: '@alice',
+        source: 'direct_observation',
+      }),
+    ]);
   });
 
   it('losslessly normalizes common structured-output aliases before validation', () => {

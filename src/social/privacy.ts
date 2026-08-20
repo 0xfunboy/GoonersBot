@@ -25,6 +25,7 @@ const PRIVATE_PROFILE_PATTERNS: RegExp[] = [
 
 const MIN_CONFIDENCE: Record<SocialEvidenceSource, number> = {
   self_declared: 0.35,
+  clarified_self: 0.6,
   admin: 0.5,
   direct_observation: 0.45,
   repeated_behavior: 0.55,

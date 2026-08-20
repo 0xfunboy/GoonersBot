@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const socialEvidenceSourceSchema = z.enum([
   'self_declared',
+  'clarified_self',
   'admin',
   'direct_observation',
   'repeated_behavior',

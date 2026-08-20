@@ -384,6 +384,13 @@ const envSchema = z.object({
   // Tracks how each person has treated the bot (warmth earned over months, separate from the
   // fast-decaying heat score) and lets it plant a flag on a disputed fact when it holds a source.
   SOCIAL_STANDING_ENABLED: boolFromString(true),
+  // Human-like follow-up questions. Clarifications are deterministic-stateful; curiosity is
+  // deliberately sparse so the bot learns without interrogating the room.
+  SOCIAL_QUESTIONS_ENABLED: boolFromString(true),
+  SOCIAL_QUESTION_CURIOSITY_PROBABILITY: floatFromString(0.1),
+  SOCIAL_QUESTION_USER_COOLDOWN_MINUTES: intFromString(720),
+  SOCIAL_QUESTION_TTL_MINUTES: intFromString(30),
+  SOCIAL_QUESTION_UNQUOTED_ANSWER_WINDOW_MINUTES: intFromString(8),
   /** Take a side in a disagreement only when a source is actually in hand. */
   FACTUAL_STANCE_ENABLED: boolFromString(true),
 
