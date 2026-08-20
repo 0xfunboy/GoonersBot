@@ -374,7 +374,7 @@ export class AgentRuntime {
     )
       add(
         'anime_archive',
-        'verify AnimeUnity/HentaiSaturn episode availability and create/queue the requested Telegram anime rehost',
+        'search supported anime archives, preserve canonical source identities, verify episode availability and create/queue Telegram rehosts',
         'external_write',
         { maxCalls: 1, timeoutMs: 20_000 },
       );
@@ -504,36 +504,62 @@ export class AgentRuntime {
 
       anime_archive: async (toolCtx) => {
         const intent = animeArchiveIntent(stringArg(toolCtx, 'intent'));
-        const title = stringArg(toolCtx, 'title') ?? toolCtx.action.query?.trim();
-        if (!intent || !title) {
-          return failedOutput(
-            'Anime archive action requires a structured intent and concrete title.',
-          );
-        }
-        const episode = stringArg(toolCtx, 'episode');
+        const title = stringArg(toolCtx, 'title');
+        const actionQuery = toolCtx.action.query?.trim();
         const preferredSource = animeArchiveSource(stringArg(toolCtx, 'source'));
-        const common = {
-          query: title,
-          ...(episode && episode !== 'latest' ? { expectedEpisodeNumber: episode } : {}),
-          ...(preferredSource ? { preferredSource } : {}),
+        if (!intent) {
+          return failedOutput('Anime archive action requires a structured intent.');
+        }
+        const shared = {
           chatId: input.context.chatId,
           threadId: input.context.threadId,
           ...(input.context.messageId !== undefined
             ? { replyToMessageId: input.context.messageId }
             : {}),
+          ...(input.context.repliedToMessageId !== undefined
+            ? { contextMessageId: input.context.repliedToMessageId }
+            : {}),
           requesterTelegramId: input.person.telegramId,
           quotaBypass: input.quotaBypass ?? false,
           signal: toolCtx.signal,
         };
-        const result =
-          intent === 'availability'
-            ? await this.deps.animeArchive.prepareNaturalEpisodeOffer(common)
-            : intent === 'rehost'
-              ? await this.deps.animeArchive.prepareNaturalEpisodeRequest(common)
-              : await this.deps.animeArchive.prepareNaturalSeriesOffer({
-                  ...common,
-                  isAdmin: Boolean(input.animeArchiveAdmin),
-                });
+        let result: AnimeArchivePreparationResult;
+        if (intent === 'search') {
+          if (!preferredSource) {
+            return failedOutput('Anime archive search requires an explicit supported source.');
+          }
+          const query = actionQuery || input.request.trim();
+          const searchQueries = archiveSearchQueries(stringArg(toolCtx, 'searchQueries'), query);
+          result = await this.deps.animeArchive.searchNatural({
+            ...shared,
+            query,
+            searchQueries,
+            preferredSource,
+          });
+        } else {
+          const concreteTitle = title ?? actionQuery;
+          if (!concreteTitle) {
+            return failedOutput(
+              'Anime archive episode/series action requires a concrete title selected by Cortex.',
+            );
+          }
+          const episode = stringArg(toolCtx, 'episode');
+          const common = {
+            ...shared,
+            query: concreteTitle,
+            ...(episode && episode !== 'latest' ? { expectedEpisodeNumber: episode } : {}),
+            ...(preferredSource ? { preferredSource } : {}),
+          };
+          result =
+            intent === 'availability'
+              ? await this.deps.animeArchive.prepareNaturalEpisodeOffer(common)
+              : intent === 'rehost'
+                ? await this.deps.animeArchive.prepareNaturalEpisodeRequest(common)
+                : await this.deps.animeArchive.prepareNaturalSeriesOffer({
+                    ...common,
+                    isAdmin: Boolean(input.animeArchiveAdmin),
+                  });
+        }
         return {
           summary: animeArchiveSummary(result),
           data: { kind: 'anime_archive', result } satisfies RuntimeData,
@@ -1023,10 +1049,21 @@ function failedOutput(summary: string): ToolExecutionOutput {
   return { summary, verified: false };
 }
 
-type AnimeArchiveRuntimeIntent = 'availability' | 'rehost' | 'series';
+type AnimeArchiveRuntimeIntent = 'search' | 'availability' | 'rehost' | 'series';
 
 function animeArchiveIntent(value: string | undefined): AnimeArchiveRuntimeIntent | null {
-  return value === 'availability' || value === 'rehost' || value === 'series' ? value : null;
+  return value === 'search' || value === 'availability' || value === 'rehost' || value === 'series'
+    ? value
+    : null;
+}
+
+function archiveSearchQueries(raw: string | undefined, fallback: string): string[] {
+  const parsed = (raw ?? '')
+    .split(/[|,;\n]+/u)
+    .map((value) => value.trim())
+    .filter((value) => value.length >= 2)
+    .slice(0, 6);
+  return parsed.length > 0 ? [...new Set(parsed)] : [fallback.trim()].filter(Boolean);
 }
 
 function animeArchiveSource(value: string | undefined): AnimeArchiveSource | undefined {
@@ -1035,6 +1072,9 @@ function animeArchiveSource(value: string | undefined): AnimeArchiveSource | und
 }
 
 function animeArchiveSummary(result: AnimeArchivePreparationResult): string {
+  if (result.status === 'search_results') {
+    return `Archive search resolved ${result.results.length} canonical ${result.session.source} candidate(s) and stored the shortlist for follow-up selection.`;
+  }
   if (result.status === 'confirmation_required') {
     return result.episode
       ? `Verified ${result.series.title} episode ${result.episode.number} on ${result.series.source}; Telegram rehost confirmation is ready.`
@@ -1049,6 +1089,9 @@ function animeArchiveSummary(result: AnimeArchivePreparationResult): string {
 function animeArchiveEvidence(
   result: AnimeArchivePreparationResult,
 ): Array<{ source: string; title?: string }> {
+  if (result.status === 'search_results') {
+    return result.results.map((item) => ({ source: item.canonicalUrl, title: item.title }));
+  }
   if (result.status !== 'confirmation_required') return [];
   const source = result.episode?.canonicalUrl ?? result.series.canonicalUrl;
   return source ? [{ source, title: result.series.title }] : [];

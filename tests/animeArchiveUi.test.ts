@@ -122,6 +122,28 @@ describe('anime archive confirmation UI', () => {
       } as never),
     ).toMatchObject({ rawText: expect.stringMatching(/Trovato su .*Episodio in coda/s) });
   });
+
+  it('renders source-backed archive search results without exposing the stored canonical URLs', () => {
+    const response = archiveResultResponse({
+      status: 'search_results',
+      session: { source: 'hentaisaturn' },
+      results: [
+        {
+          title: 'Gatte Calde',
+          source: 'hentaisaturn',
+          canonicalUrl: 'https://www.hentaisaturn.tv/hentai/gatte-calde',
+          episodeCount: 2,
+          status: 'completed',
+          genres: ['Fantasy', 'Nekomimi'],
+          matchScore: 0.93,
+        },
+      ],
+    } as never);
+
+    expect(response.rawText).toContain('Gatte Calde');
+    expect(response.rawText).toContain('passami <titolo> ep 2');
+    expect(response.rawText).not.toContain('https://www.hentaisaturn.tv');
+  });
 });
 
 describe('anime archive mixed URL routing', () => {

@@ -773,6 +773,7 @@ describe('AgentRuntime live provider bridge', () => {
       context: {
         chatId: -100,
         messageId: 77,
+        repliedToMessageId: 66,
         isGroup: true,
         isBotMentioned: true,
         isGroupAdmin: false,
@@ -803,12 +804,127 @@ describe('AgentRuntime live provider bridge', () => {
         preferredSource: 'animeunity',
         chatId: -100,
         replyToMessageId: 77,
+        contextMessageId: 66,
         requesterTelegramId: 1,
       }),
     );
     expect(result?.animeArchiveResult).toBe(queued);
     expect(result?.text).toBe('');
     expect(result?.styleVariant).toBe('agent:anime_archive');
+  });
+
+  it('executes a Cortex-selected HentaiSaturn discovery as a source-backed archive search', async () => {
+    const jsonCompletion = vi
+      .fn()
+      .mockResolvedValueOnce({
+        goal: 'search HentaiSaturn for matching adult anime',
+        actions: [
+          {
+            id: 'anime_search_1',
+            tool: 'anime_archive',
+            purpose: 'find source-backed adult anime candidates',
+            query: 'hentai isekai con cat girl adulte aggressive',
+            args: {
+              intent: 'search',
+              source: 'hentaisaturn',
+              searchQueries: 'isekai|isekai harem|nekomimi|kemono',
+            },
+            dependsOn: [],
+            optional: false,
+            timeoutMs: 20_000,
+            acceptance: { requireOutput: true, minEvidence: 0, requiredArtifactKinds: [] },
+          },
+        ],
+        finalResponse: {
+          language: 'Italian',
+          format: 'text',
+          mustInclude: [],
+          tone: 'direct',
+        },
+      })
+      .mockResolvedValueOnce({
+        message: 'Ho trovato dei candidati.',
+        usedActionIds: ['anime_search_1'],
+        uncertainties: [],
+      });
+    const searchResult = {
+      status: 'search_results' as const,
+      session: {
+        id: 'as_fixture',
+        source: 'hentaisaturn',
+      },
+      results: [
+        {
+          source: 'hentaisaturn',
+          title: 'Fixture Nekomimi',
+          canonicalUrl: 'https://www.hentaisaturn.tv/hentai/fixture-nekomimi',
+        },
+      ],
+    };
+    const searchNatural = vi.fn().mockResolvedValue(searchResult);
+    const runtime = new AgentRuntime({
+      config: {
+        brain: { cortex: { model: 'test' }, replyModel: 'test' },
+        env: { REPETITION_SIMILARITY_THRESHOLD: 0.78 },
+        animeArchive: { enabled: true },
+        linkMedia: { enabled: false },
+      } as never,
+      llm: { capabilities: { chat: true }, jsonCompletion } as never,
+      media: { canGenerateImage: false } as never,
+      music: { enabled: false } as never,
+      video: { enabled: false } as never,
+      tts: { enabled: false } as never,
+      grounding: { enabled: false } as never,
+      knowledge: { enabled: false } as never,
+      imageFinder: {} as never,
+      imagePrompts: {} as never,
+      videoPrompts: {} as never,
+      quota: {} as never,
+      capabilities: { enabled: false } as never,
+      anime: { enabled: false } as never,
+      animeArchive: { enabled: true, searchNatural } as never,
+    });
+
+    const result = await runtime.run({
+      request: 'cercami un hentai isekai con cat girl porche ma che graffiano',
+      language: 'italian',
+      person: { telegramId: 1, userHandle: '@alice' },
+      context: {
+        chatId: -100,
+        messageId: 77,
+        isGroup: true,
+        isBotMentioned: true,
+        isGroupAdmin: false,
+        isReplyToBot: false,
+      },
+      requestedActions: [
+        {
+          tool: 'anime_archive',
+          query: 'hentai isekai con cat girl adulte aggressive',
+          args: {
+            intent: 'search',
+            source: 'hentaisaturn',
+            searchQueries: 'isekai|isekai harem|nekomimi|kemono',
+          },
+          reason: 'Cortex selected source-backed adult anime discovery',
+        },
+      ],
+      recentMessages: [],
+      quotaBypass: true,
+      allowAnimeArchiveWrite: true,
+    });
+
+    expect(searchNatural).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: 'hentai isekai con cat girl adulte aggressive',
+        searchQueries: ['isekai', 'isekai harem', 'nekomimi', 'kemono'],
+        preferredSource: 'hentaisaturn',
+        chatId: -100,
+        requesterTelegramId: 1,
+      }),
+    );
+    expect(result?.animeArchiveResult).toBe(searchResult);
+    expect(result?.text).toBe('');
   });
 
   it('keeps a pure link-media resolution failure visible', async () => {
