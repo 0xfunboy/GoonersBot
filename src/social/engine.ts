@@ -12,6 +12,7 @@ import {
   maintainChatSocialState,
   maintainMemberProfile,
   normalizeSocialHandle,
+  normalizeSocialText,
   recordRunningJokeUse,
 } from './evolution.js';
 import { isValidSocialObservation } from './privacy.js';
@@ -491,6 +492,36 @@ export class SocialProfileEngine {
   async listKnownHandles(chatId: number, limit = 500): Promise<string[]> {
     const profiles = await this.store.listMembers(chatId, limit);
     return profiles.map((profile) => profile.handle);
+  }
+
+  /**
+   * Resolve plain display names/aliases that literally occur in the current human-authored text.
+   * This is identity lookup, not intent parsing: it only maps an already-seen label to the stable
+   * Telegram-backed profile so later context can stay focus-only without losing names like Johnny.
+   */
+  async resolveHandlesInText(chatId: number, text: string, limit = 8): Promise<string[]> {
+    const haystack = ` ${normalizeSocialText(text)} `;
+    if (haystack.trim().length < 2) return [];
+    const profiles = await this.store.listMembers(chatId, 500);
+    const matches: Array<{ handle: string; score: number }> = [];
+    for (const profile of profiles) {
+      const labels = [
+        profile.handle.replace(/^@/, ''),
+        profile.displayName ?? '',
+        ...profile.aliases,
+      ];
+      let best = 0;
+      for (const label of labels) {
+        const normalized = normalizeSocialText(label).trim();
+        if (normalized.length < 3) continue;
+        if (haystack.includes(` ${normalized} `)) best = Math.max(best, normalized.length);
+      }
+      if (best > 0) matches.push({ handle: profile.handle, score: best });
+    }
+    return matches
+      .sort((a, b) => b.score - a.score || a.handle.localeCompare(b.handle))
+      .slice(0, Math.max(1, Math.min(16, Math.trunc(limit) || 1)))
+      .map((match) => match.handle);
   }
 
   /** Remove a member profile and every structured social edge/joke targeting that member. */

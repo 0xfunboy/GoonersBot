@@ -927,6 +927,80 @@ describe('AgentRuntime live provider bridge', () => {
     expect(result?.text).toBe('');
   });
 
+  it('repairs cross-person biography in the multi-tool final-answer path before it reaches Telegram', async () => {
+    const jsonCompletion = vi
+      .fn()
+      .mockResolvedValueOnce({
+        safe: false,
+        issues: [
+          {
+            subject: '@daniele',
+            claim: 'Daniele è il tizio del trattore',
+            reason: 'style_as_biography',
+          },
+        ],
+        rewrite: 'Berry, Daniele non è quello del trattore: stai incrociando due persone diverse.',
+      })
+      .mockResolvedValueOnce({ safe: true, issues: [] });
+    const runtime = new AgentRuntime({
+      config: {
+        brain: { cortex: { model: 'test' }, replyModel: 'test' },
+        env: { REPETITION_SIMILARITY_THRESHOLD: 0.78 },
+        linkMedia: { enabled: false },
+      } as never,
+      llm: { capabilities: { chat: true }, jsonCompletion } as never,
+      media: { canGenerateImage: false } as never,
+      music: { enabled: false } as never,
+      video: { enabled: false } as never,
+      tts: { enabled: false } as never,
+      grounding: { enabled: false } as never,
+      knowledge: { enabled: false } as never,
+      imageFinder: {} as never,
+      imagePrompts: {} as never,
+      videoPrompts: {} as never,
+      quota: {} as never,
+      capabilities: { enabled: false } as never,
+      anime: { enabled: false } as never,
+      animeArchive: { enabled: false } as never,
+    });
+    const input: AgentRuntimeInput = {
+      request: '@Ilrinnegato manda uno dei tuoi video',
+      language: 'italian',
+      person: { telegramId: 1, userHandle: '@berry' },
+      context: {
+        chatId: -100,
+        isGroup: true,
+        isBotMentioned: true,
+        isGroupAdmin: false,
+        isReplyToBot: false,
+      },
+      recentMessages: [
+        { handle: '@berry', text: 'Piero è quello che manda i video del trattore' },
+        { handle: '@berry', text: 'Daniele è @Ilrinnegato' },
+      ],
+      socialContext:
+        '- MEMBER @berry\n- MEMBER @ilrinnegato: communication_style:monologhi_agricoltura=parla spesso di agricoltura',
+    };
+    const guarded = await (
+      runtime as unknown as {
+        guardFinalAnswer(
+          candidate: string,
+          coordinated: never,
+          input: AgentRuntimeInput,
+        ): Promise<string>;
+      }
+    ).guardFinalAnswer(
+      'Daniele, scendi dal trattore e mandaci uno dei tuoi video.',
+      {} as never,
+      input,
+    );
+
+    expect(guarded).toBe(
+      'Berry, Daniele non è quello del trattore: stai incrociando due persone diverse.',
+    );
+    expect(jsonCompletion).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps a pure link-media resolution failure visible', async () => {
     const jsonCompletion = vi
       .fn()

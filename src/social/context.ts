@@ -21,12 +21,21 @@ const DAY_MS = 86_400_000;
 export interface SocialContextOptions {
   now: Date;
   focusHandles?: string[];
+  /** Safety-first mode: only people explicitly resolved for this turn may enter the prompt. */
+  focusOnly?: boolean;
   maxMembers?: number;
   maxFacetsPerFocusedMember?: number;
   maxFacetsPerOtherMember?: number;
   maxRelationships?: number;
   maxJokes?: number;
   maxNorms?: number;
+}
+
+function isIdentityLikeFacet(claim: SocialFacetClaim): boolean {
+  const semantic = normalizeSocialText(`${claim.key} ${claim.value}`);
+  return /\b(origin|origine|national|nazional|citizenship|cittadin|country|paese|birthplace|nato|nata|regional origin|etni|ethnic)\b/i.test(
+    semantic,
+  );
 }
 
 function facetScore(claim: SocialFacetClaim, now: Date): number {
@@ -44,6 +53,15 @@ function selectedFacets(
   const bestBySlot = new Map<string, SocialFacetClaim>();
   for (const claim of profile.facets) {
     if (claim.state !== 'active') continue;
+    // Identity-like biography is uniquely damaging when wrong. A single banter line or peer report
+    // must never become prompt-visible nationality/origin/identity. Admin corrections are allowed
+    // immediately; automatic/self evidence needs repetition before it can become social context.
+    if (isIdentityLikeFacet(claim)) {
+      if (claim.source !== 'admin' && claim.source !== 'migration') {
+        const minEvidence = claim.source === 'self_declared' ? 2 : 3;
+        if (claim.evidenceCount < minEvidence) continue;
+      }
+    }
     const confidence = effectiveFacetConfidence(claim, now);
     if (confidence < 0.24) continue;
     const slot = isSetValuedFacet(claim.kind)
@@ -74,7 +92,11 @@ export function buildSocialContext(
 ): SocialContext {
   const focused = new Set((options.focusHandles ?? []).map(normalizeSocialHandle).filter(Boolean));
   const maxMembers = options.maxMembers ?? 12;
-  const rankedProfiles = [...profiles].sort((a, b) => {
+  const eligibleProfiles =
+    options.focusOnly && focused.size > 0
+      ? profiles.filter((profile) => focused.has(profile.handle))
+      : profiles;
+  const rankedProfiles = [...eligibleProfiles].sort((a, b) => {
     const focusDelta = Number(focused.has(b.handle)) - Number(focused.has(a.handle));
     if (focusDelta !== 0) return focusDelta;
     const seenDelta = b.lastSeenAt.getTime() - a.lastSeenAt.getTime();
@@ -203,7 +225,12 @@ export function renderSocialContext(context: SocialContext): string {
   }
   const lines = [
     'SOCIAL AWARENESS (private working context; never mention profiles, scores or stored memory):',
+    '- OWNERSHIP IS HARD: every MEMBER line belongs only to that exact handle. Never transfer a',
+    '  trait, anecdote, preference, identity or joke from one member to another.',
     '- Use only when relevant. Treat tentative details as uncertain; never invent missing biography.',
+    '- communication_style/content-sharing describes what someone says/posts; it is NOT evidence of',
+    '  occupation, nationality, residence, appearance or the identity of people shown in their media.',
+    '- A running joke/reputation is not biography. Never turn a comic label into a literal personal fact.',
     '- Match each person’s rapport. Affectionate banter must not erase practical help or empathy.',
     '- Running jokes are themes, not scripts: at most one organically, with a fresh phrasing.',
   ];

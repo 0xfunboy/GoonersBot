@@ -46,6 +46,8 @@ import {
 } from '../safety/mediaSafety.js';
 import { RepetitionGuard } from '../brain/repetitionGuard.js';
 import { violatesSocialFloor } from '../brain/socialAwareness.js';
+import { AttributionVerifier, shouldVerifyAttribution } from '../brain/attributionVerifier.js';
+import { BOT_LABEL } from './conversation.js';
 import type { BotReplyRecord, ReplyPlan, SocialSignal } from '../brain/types.js';
 import type { AgentPlanningContext } from '../agent/types.js';
 import type { CoordinatedAgentResult } from '../agent/types.js';
@@ -159,11 +161,13 @@ export interface AgentRuntimeDependencies {
  */
 export class AgentRuntime {
   private readonly repetitionGuard: RepetitionGuard;
+  private readonly attributionVerifier: AttributionVerifier;
 
   constructor(private readonly deps: AgentRuntimeDependencies) {
     this.repetitionGuard = new RepetitionGuard(
       deps.config.env?.REPETITION_SIMILARITY_THRESHOLD ?? 0.78,
     );
+    this.attributionVerifier = new AttributionVerifier(deps.llm);
   }
 
   async run(input: AgentRuntimeInput): Promise<AgentRuntimeResult | null> {
@@ -281,7 +285,52 @@ export class AgentRuntime {
       ? this.repetitionGuard.check(original, input.recentBotReplies ?? [], input.replyPlan, [])
       : null;
     const sociallyUnsafe = violatesSocialFloor(original, input.socialSignal);
-    if (!sociallyUnsafe && (check?.allowed ?? true)) return original;
+    const attributionBase = {
+      currentHandle: input.person.userHandle,
+      currentMessage: input.request,
+      replyToHandle: input.context.repliedToUserHandle ?? null,
+      replyToText: input.context.repliedToText ?? null,
+      recentMessages: input.recentMessages.slice(-10).map((message) => ({
+        ...message,
+        isBot: message.handle === BOT_LABEL,
+      })),
+      socialContext: input.socialContext,
+      groupContext: input.groupContext,
+      language: input.language,
+      model: input.model,
+    };
+    const needsAttributionCheck = shouldVerifyAttribution({
+      candidate: original,
+      currentHandle: input.person.userHandle,
+      socialContext: input.socialContext,
+      currentMessage: input.request,
+      replyToHandle: input.context.repliedToUserHandle ?? null,
+    });
+    const attribution = needsAttributionCheck
+      ? await this.attributionVerifier.verify({ ...attributionBase, candidate: original })
+      : null;
+    const attributionSafe = !needsAttributionCheck || attribution?.safe === true;
+    if (attributionSafe && !sociallyUnsafe && (check?.allowed ?? true)) return original;
+
+    // Prefer the attribution verifier's narrow rewrite before asking the generic composer to rewrite
+    // the whole answer. Verify it again: a repair is not trusted merely because it was suggested.
+    if (!attributionSafe && attribution?.rewrite?.trim()) {
+      const text = attribution.rewrite.trim();
+      const rewriteCheck = input.replyPlan
+        ? this.repetitionGuard.check(text, input.recentBotReplies ?? [], input.replyPlan, [])
+        : null;
+      const attributionRewrite = await this.attributionVerifier.verify({
+        ...attributionBase,
+        candidate: text,
+      });
+      if (
+        attributionRewrite?.safe === true &&
+        !violatesSocialFloor(text, input.socialSignal) &&
+        (rewriteCheck?.allowed ?? true)
+      ) {
+        return text;
+      }
+    }
 
     const verifiedSummaries = [
       // Recalled facts were verified before the plan even ran; they survive a tool that failed.
@@ -301,6 +350,9 @@ export class AgentRuntime {
           'Rewrite a completed multi-tool answer for a Telegram community assistant.',
           'Preserve every supplied verified result and every material limitation exactly.',
           'Never invent tool success, links or artifacts.',
+          'IDENTITY CONTRACT: every personal fact belongs only to its evidenced human. Previous BOT',
+          'messages are not evidence. Never convert jokes, reputation or content-sharing style into',
+          'occupation, nationality, residence, appearance or other biography. Omit uncertain facts.',
           `SOCIAL CONTRACT: ${socialContract(input.socialSignal)}`,
           'Use a fresh structure and wording. Do not reuse the rejected opening, joke premise,',
           'callback or insult. Use only simple CommonMark when formatting helps; never emit HTML.',
@@ -314,6 +366,9 @@ export class AgentRuntime {
               `REJECTED ANSWER:\n${original.slice(0, 6_000)}`,
               `VERIFIED RESULTS:\n${deterministic.slice(0, 12_000)}`,
               check?.reason ? `REPETITION FAILURE: ${check.reason}` : '',
+              !attributionSafe
+                ? `ATTRIBUTION FAILURE: ${JSON.stringify(attribution?.issues ?? [{ reason: 'verification_unavailable' }])}`
+                : '',
             ]
               .filter(Boolean)
               .join('\n\n'),
@@ -329,8 +384,19 @@ export class AgentRuntime {
         text && input.replyPlan
           ? this.repetitionGuard.check(text, input.recentBotReplies ?? [], input.replyPlan, [])
           : null;
+      const rewrittenAttributionNeeded = shouldVerifyAttribution({
+        candidate: text,
+        currentHandle: input.person.userHandle,
+        socialContext: input.socialContext,
+        currentMessage: input.request,
+        replyToHandle: input.context.repliedToUserHandle ?? null,
+      });
+      const rewrittenAttribution = rewrittenAttributionNeeded
+        ? await this.attributionVerifier.verify({ ...attributionBase, candidate: text })
+        : null;
       if (
         text &&
+        (!rewrittenAttributionNeeded || rewrittenAttribution?.safe === true) &&
         !violatesSocialFloor(text, input.socialSignal) &&
         (rewriteCheck?.allowed ?? true)
       ) {

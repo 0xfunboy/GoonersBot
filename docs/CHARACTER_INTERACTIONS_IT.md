@@ -30,22 +30,22 @@ Il principio è: **prima si decide cosa sta succedendo e cosa bisogna fare, poi 
 
 ## 2. I diversi tipi di memoria
 
-| Livello | Persistenza | Funzione |
-|---|---:|---|
-| **History** (`messages`) | breve/retained | ultime battute della chat, chi ha detto cosa, reply recenti |
-| **Thread state** (`conversation_threads/entities`) | giorni, TTL | mantiene il filo semantico: “quella”, “scaricalo”, “la mia macchina”, proprietà di oggetti/topic; usa anche embedding |
-| **Social profile** | lunga | modello strutturato della persona: interessi, preferenze, avversioni, skill, ruolo, stile comunicativo, goal, abitudini |
-| **Social graph** | lunga | rapporti direzionali fra persone: affinity, warmth, trust, banter affinity, support, rivalry, familiarity |
-| **Running jokes / norme** | lunga ma con decadimento | cultura condivisa della chat, inside joke con fatigue/cooldown, regole sociali osservate |
-| **Standing** (`social_standing`) | mesi | come quella persona ha trattato **il bot**: rapporto, conflitti reali, eventuale stato `friend` |
-| **Heat** (`user_heat`) | minuti | quanto il bot è irritato **adesso** con quel singolo utente; decade rapidamente |
-| **Memory items / Group RAG** | lunga | lore episodica: meme, quote, group lore e memoria legacy revisionabile |
-| **Knowledge RAG / Ambient recall** | conoscenza | fatti esterni/curati pertinenti al topic, distinti dalle informazioni personali |
-| **Bot replies + feedback** | recente | cosa il bot ha già detto, stile usato, joke premise, memorie usate, reazioni positive/negative |
+| Livello                                            |              Persistenza | Funzione                                                                                                                |
+| -------------------------------------------------- | -----------------------: | ----------------------------------------------------------------------------------------------------------------------- |
+| **History** (`messages`)                           |           breve/retained | ultime battute della chat, chi ha detto cosa, reply recenti                                                             |
+| **Thread state** (`conversation_threads/entities`) |              giorni, TTL | mantiene il filo semantico: “quella”, “scaricalo”, “la mia macchina”, proprietà di oggetti/topic; usa anche embedding   |
+| **Social profile**                                 |                    lunga | modello strutturato della persona: interessi, preferenze, avversioni, skill, ruolo, stile comunicativo, goal, abitudini |
+| **Social graph**                                   |                    lunga | rapporti direzionali fra persone: affinity, warmth, trust, banter affinity, support, rivalry, familiarity               |
+| **Running jokes / norme**                          | lunga ma con decadimento | cultura condivisa della chat, inside joke con fatigue/cooldown, regole sociali osservate                                |
+| **Standing** (`social_standing`)                   |                     mesi | come quella persona ha trattato **il bot**: rapporto, conflitti reali, eventuale stato `friend`                         |
+| **Heat** (`user_heat`)                             |                   minuti | quanto il bot è irritato **adesso** con quel singolo utente; decade rapidamente                                         |
+| **Memory items / Group RAG**                       |                    lunga | lore episodica: meme, quote, group lore e memoria legacy revisionabile                                                  |
+| **Knowledge RAG / Ambient recall**                 |               conoscenza | fatti esterni/curati pertinenti al topic, distinti dalle informazioni personali                                         |
+| **Bot replies + feedback**                         |                  recente | cosa il bot ha già detto, stile usato, joke premise, memorie usate, reazioni positive/negative                          |
 
 ### Thread e attribuzione
 
-`ConversationThreadTracker` è una memoria di lavoro diversa dalla lore. Collega follow-up allo stesso argomento usando **reply Telegram, alias, entità note, ownership e similarità embedding**. Registra chi possiede o ha introdotto il topic e impone una regola fondamentale: il bot deve rispondere al parlante corrente senza attribuirgli fatti appartenenti a un'altra persona. Anche il roast segue l'attribuzione reale.
+`ConversationThreadTracker` è una memoria di lavoro diversa dalla lore. Collega follow-up allo stesso argomento usando **reply Telegram, alias, entità note, ownership e similarità embedding**. Registra chi possiede o ha introdotto il topic e impone una regola fondamentale: il bot deve rispondere al parlante corrente senza attribuirgli fatti appartenenti a un'altra persona. I transcript/media provenienti dal messaggio citato restano contesto **read-only**: non diventano parole o biografia del parlante corrente. Anche il roast segue l'attribuzione reale.
 
 ## 3. Persone, amici, ostili e “nemici”
 
@@ -71,7 +71,7 @@ La memoria durevole non è un dump dello storico. `MemoryMiner` estrae candidate
 
 Oggi c'è una separazione netta: **preferenze, interessi, skill, ruoli, relazioni, norme e running joke appartengono al social graph**; `memory_items` rimane soprattutto per memoria episodica (`meme`, `quote`, `group_lore`) e per aggiornare/ritirare vecchia lore migrata. `LoreEngine` gestisce dedupe, reinforce, update, expire, revision history e cancellazione per utente/message ID.
 
-Quando serve memoria, il bot recupera solo pochi elementi pertinenti. Il punteggio combina: speaker corrente o persona menzionata/reply, salience, freschezza, similarità semantica o keyword/topic, numero di utilizzi e cooldown. Una memoria già usata di recente o un soggetto appena richiamato viene raffreddato. Il parlante corrente può ricevere al massimo più slot degli altri, ma il retriever diversifica categorie e soggetti. **Recuperare una memoria non significa usarla**: `ReplyPlanner` può scegliere `none`, `implicit_style` o, raramente e solo se consentito, `explicit_callback`.
+Quando serve memoria, il bot recupera solo pochi elementi pertinenti. Il punteggio combina: speaker corrente o persona menzionata/reply, salience, freschezza, similarità semantica o keyword/topic, numero di utilizzi e cooldown. Una memoria personale è però **subject-bound**: embedding o keyword non possono trascinare la lore di un utente estraneo dentro il turno di un altro. Il recall cross-user è consentito solo quando Cortex/scene hanno classificato una vera richiesta di memoria/recap. **Recuperare una memoria non significa usarla**: `ReplyPlanner` può scegliere `none`, `implicit_style` o, raramente e solo se consentito, `explicit_callback`.
 
 Con embedding attivi, `VectorMemoryRetriever` crea un vettore da messaggio corrente + topic + ultimi turni (prima redatti da segreti) e usa cosine similarity. Se l'endpoint embedding non funziona o la dimensione è errata, il sistema degrada automaticamente a matching lessicale/Jaccard. Gli embedding vengono usati anche per collegare thread semantici. `scripts/backfillEmbeddings.ts` completa in batch gli embedding mancanti di memory items e knowledge base. L'isolamento per `chatId` è sempre deterministico: nessuna memoria viene cercata fuori dalla chat.
 
@@ -95,7 +95,7 @@ Da qui nasce la `TurnEvaluation`: rispondere, stare zitto, correggere un claim, 
 
 `ReplyPlanner` converte scene + evaluation + standing + memorie in vincoli prima della generazione: cosa deve fare la risposta, quanta memoria può usare, chi è il target, lunghezza, roast massimo, frasi vietate e novelty instruction. Due ceiling indipendenti limitano il roast: **quanto consente questo momento** e **quanto consente la relazione storica con questa persona**.
 
-Il generatore produce più candidate. `ResponseRanker` le ordina; `RepetitionGuard` blocca cloni lessicali/semantici, catchphrase, aperture ripetute, callback di memoria saturi e risposte che eludono il compito. In supporto serio esiste un `social floor` che scarta risposte ostili anche se il modello le ha generate. Una rigenerazione costa un'altra chiamata solo se tutte le candidate violano hard floor; altrimenti le warning di novità restano solo segnali di ranking.
+Il generatore produce più candidate. `ResponseRanker` le ordina; `RepetitionGuard` blocca cloni lessicali/semantici, catchphrase, aperture ripetute, callback di memoria saturi e risposte che eludono il compito. In supporto serio esiste un `social floor` che scarta risposte ostili anche se il modello le ha generate. Sui turni con più persone o biografia entra inoltre un `AttributionVerifier`: tratta i vecchi messaggi del bot come **non-evidenza**, verifica che ogni fatto appartenga al soggetto giusto e impedisce di trasformare `communication_style`, running joke o reputation in nazionalità, lavoro o altra biografia. Una rewrite viene verificata una seconda volta; se resta ambigua il bot elimina la lore personale invece di rischiare un incrocio.
 
 Infine il bot registra **quale memoria e quale running joke ha davvero usato**. Le reply successive e le reaction Telegram alimentano il feedback: uno stile/joke apprezzato diventa più probabile in futuro quando compatibile, uno bocciato viene raffreddato; la salience delle memorie effettivamente usate sale o scende. I running joke accumulano `fatigue` e hanno cooldown, quindi una gag di gruppo può vivere a lungo senza diventare la risposta automatica a ogni messaggio.
 

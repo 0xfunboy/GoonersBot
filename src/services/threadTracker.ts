@@ -89,12 +89,11 @@ export class ConversationThreadTracker {
     history: StoredMessage[];
   }): Promise<ConversationThreadState> {
     if (!this.cfg.enabled) return emptyState(input.person.userHandle, input.context);
-    const text = (input.message.messageText ?? '').trim();
-    if (!text) return emptyState(input.person.userHandle, input.context);
+    const rawText = (input.message.messageText ?? '').trim();
+    const text = authoredThreadText(rawText);
     // Never track, store or embed messages that carry secrets / credentials / personal data.
-    if (containsSensitive(text)) return emptyState(input.person.userHandle, input.context);
+    if (text && containsSensitive(text)) return emptyState(input.person.userHandle, input.context);
 
-    const aliases = extractAliases(text);
     const active = await this.storage.conversationThreads.listActive(
       input.context.chatId,
       this.cfg.maxActive,
@@ -105,6 +104,16 @@ export class ConversationThreadTracker {
           input.context.repliedToMessageId,
         )
       : null;
+    // A reply may contain only an injected transcript/media block from the quoted message. Preserve
+    // that thread as read-only context, but never reassign its words/entities to the current human.
+    if (!text) {
+      return replyThread
+        ? stateFromExistingThread(replyThread, input.person.userHandle, input.context)
+        : emptyState(input.person.userHandle, input.context);
+    }
+
+    const aliases = extractAliases(text);
+    const activeForScoring = active;
     const aliasEntities = await this.storage.conversationEntities.findByAlias(
       input.context.chatId,
       aliases,
@@ -112,10 +121,11 @@ export class ConversationThreadTracker {
 
     const semanticText = redactSecrets(semanticThreadText(text, aliases));
     const queryVec =
-      this.embedder.enabled && active.some((t) => t.embedding?.length === this.cfg.embeddingDim)
+      this.embedder.enabled &&
+      activeForScoring.some((t) => t.embedding?.length === this.cfg.embeddingDim)
         ? ((await this.embedder.embed([semanticText]))[0] ?? [])
         : [];
-    const scored = active
+    const scored = activeForScoring
       .map((thread, idx) => ({
         thread,
         score: scoreThread({
@@ -141,7 +151,7 @@ export class ConversationThreadTracker {
 
     const now = new Date();
     const expiresAt = new Date(now.getTime() + this.cfg.ttlDays * 24 * 3600_000);
-    const owner = resolveOwner(text, input.person.userHandle, existing);
+    const owner = resolveOwner(text, input.person.userHandle, existing, input.context);
     const entity = buildEntity({
       chatId: input.context.chatId,
       text,
@@ -239,7 +249,8 @@ export class ConversationThreadTracker {
       ...(input.existing?.sourceMessageIds ?? []),
       ...(input.context.messageId !== undefined ? [input.context.messageId] : []),
     ];
-    const summary = summarizeThread(title, input.entity, input.text);
+    const threadOwner = input.existing?.ownerHandle ?? input.entity.ownerHandle ?? null;
+    const summary = summarizeThread(title, threadOwner, input.entity, input.text);
     const embedding =
       this.embedder.enabled && input.semanticText
         ? ((await this.embedder.embed([`${title}\n${summary}\n${entityAliases.join(' ')}`]))[0] ??
@@ -250,7 +261,7 @@ export class ConversationThreadTracker {
       threadId: input.existing?.threadId ?? randomUUID(),
       title,
       summary,
-      ownerHandle: input.existing?.ownerHandle ?? input.entity.ownerHandle ?? null,
+      ownerHandle: threadOwner,
       introducedByHandle: input.existing?.introducedByHandle ?? input.person.userHandle,
       participantHandles: [...new Set(participantHandles)].slice(-12),
       entityIds: [...new Set([...(input.existing?.entityIds ?? []), input.entity.entityId])],
@@ -273,6 +284,35 @@ function emptyState(speaker: string, context: ChatContext): ConversationThreadSt
     currentEntities: [],
     relatedThreads: [],
     memoryHandles: [...new Set([speaker, context.repliedToUserHandle ?? ''].filter(Boolean))],
+  };
+}
+
+function stateFromExistingThread(
+  thread: ConversationThreadDoc,
+  speaker: string,
+  context: ChatContext,
+): ConversationThreadState {
+  return {
+    currentThread: thread,
+    currentEntities: [],
+    relatedThreads: [],
+    promptBlock: renderThreadBlock({
+      speaker,
+      replyTo: context.repliedToUserHandle ?? null,
+      current: thread,
+      entities: [],
+      related: [],
+    }),
+    memoryHandles: [
+      ...new Set(
+        [
+          speaker,
+          context.repliedToUserHandle ?? '',
+          thread.ownerHandle ?? '',
+          thread.introducedByHandle,
+        ].filter(Boolean),
+      ),
+    ],
   };
 }
 
@@ -363,6 +403,8 @@ function renderThreadBlock(input: {
     `Thread summary: ${input.current.summary}`,
     entityLines.length ? `Entities:\n${entityLines.join('\n')}` : '',
     relation,
+    'Entity/topic ownership is only a conversational referent, never proof of biography or authorship.',
+    'Quoted/replied transcripts belong to the quoted message, not automatically to the current speaker.',
     'Roast rule: roast the current speaker for their claim/opinion; roast the owner only if the owner actually said or owns the thing being mocked.',
     related,
   ]
@@ -374,14 +416,39 @@ function resolveOwner(
   text: string,
   currentHandle: string,
   existing: ConversationThreadDoc | null | undefined,
+  context: ChatContext,
 ): string | null {
   if (FIRST_PERSON_OWNER_RE.test(text)) return currentHandle;
+  const mentionedOthers = [...new Set(context.mentionedHandles ?? [])].filter(
+    (handle) => handle && handle !== currentHandle,
+  );
+  if (mentionedOthers.length === 1) return mentionedOthers[0] ?? currentHandle;
+  if (
+    context.repliedToUserHandle &&
+    !context.isReplyToBot &&
+    context.repliedToUserHandle !== currentHandle
+  ) {
+    return context.repliedToUserHandle;
+  }
   return existing?.ownerHandle ?? currentHandle;
 }
 
 function isFollowup(text: string): boolean {
   const clean = text.trim();
   return clean.length <= 180 && FOLLOWUP_RE.test(clean);
+}
+
+function authoredThreadText(raw: string): string {
+  if (!raw) return '';
+  // These blocks are injected by the Telegram adapter from the replied message or a media resolver.
+  // They are evidence/context for the reply generator, but they were not authored by this speaker.
+  const markers = ['[transcript of the replied audio/video]:', '[media context]:'];
+  let cut = raw.length;
+  for (const marker of markers) {
+    const index = raw.indexOf(marker);
+    if (index >= 0) cut = Math.min(cut, index);
+  }
+  return raw.slice(0, cut).trim();
 }
 
 function semanticThreadText(text: string, aliases: string[]): string {
@@ -420,9 +487,14 @@ function classifyEntity(text: string, aliases: string[]): ConversationEntityType
   return aliases.length ? 'topic' : 'object';
 }
 
-function summarizeThread(title: string, entity: ConversationEntityDoc, text: string): string {
+function summarizeThread(
+  title: string,
+  ownerHandle: string | null,
+  entity: ConversationEntityDoc,
+  text: string,
+): string {
   const attrs = entity.attributes.length ? ` Attributes: ${entity.attributes.join(', ')}.` : '';
-  return `${title}; owner=${entity.ownerHandle ?? 'unknown'}; latest: ${text.replace(/\s+/g, ' ').trim().slice(0, 220)}.${attrs}`;
+  return `${title}; owner=${ownerHandle ?? 'unknown'}; latest: ${text.replace(/\s+/g, ' ').trim().slice(0, 220)}.${attrs}`;
 }
 
 function titleFromAliases(aliases: string[], text: string): string {

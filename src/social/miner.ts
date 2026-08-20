@@ -21,7 +21,8 @@ export const SOCIAL_MINING_SYSTEM = [
   'Interests, skills and habits are set-valued: use reinforce to add another genuine value; revise/retract only when the subject actually corrects or removes one.',
   'Use source="self_declared" only when the subject personally says it. Use peer_report for another member’s claim, direct_observation for visible interaction, repeated_behavior only with repeated evidence, and inferred sparingly.',
   'A peer report must never revise or retract a strong self-declaration. Prefer no observation over a low-confidence guess.',
-  'Do not mine a one-off insult as identity or lore. Do not turn temporary mood, irony, roleplay, pasted text, or a bot response into a profile.',
+  'Do not mine a one-off insult as identity or lore. Do not turn temporary mood, irony, roleplay, pasted text, quoted/replied media transcripts, or a bot response into a profile.',
+  'Nationality/origin/citizenship/region is high-identity biography: a single joke or provocative self-label is never durable identity. Prefer no observation until serious evidence repeats.',
   'Never extract health, political/religious identity, sexuality, ethnicity, precise location, contact data, credentials, financial identifiers, legal allegations, or other sensitive personal data.',
   'Relationship deltas are directional and gradual (-1..1): trust, warmth, affinity, banter_affinity, support, rivalry, familiarity.',
   'For each observation, sourceMessageId must identify the strongest supporting user message.',
@@ -39,13 +40,28 @@ export const SOCIAL_MINING_SCHEMA_HINT = [
   'Do not emit identity observations, admin/migration sources, uppercase enum values, invented handles, or omitted confidence/source fields.',
 ].join('\n');
 
+function authoredSocialText(raw: string | null | undefined): string {
+  const text = raw ?? '';
+  if (!text) return '';
+  const markers = ['[transcript of the replied audio/video]:', '[media context]:'];
+  let cut = text.length;
+  for (const marker of markers) {
+    const index = text.indexOf(marker);
+    if (index >= 0) cut = Math.min(cut, index);
+  }
+  return text.slice(0, cut).trim();
+}
+
 function renderTranscript(messages: StoredMessage[]): string {
   return messages
     .map((message) => {
       const id = message.messageId != null ? `#${message.messageId}` : '#unknown';
       const reply = message.replyToHandle ? ` reply-to=${message.replyToHandle}` : '';
       const textParts = [
-        compactMiningText(message.message.messageText, MINING_MESSAGE_TEXT_CHARS),
+        compactMiningText(
+          authoredSocialText(message.message.messageText),
+          MINING_MESSAGE_TEXT_CHARS,
+        ),
         message.message.imageDescription
           ? `[image: ${compactMiningText(message.message.imageDescription, MINING_MEDIA_DESCRIPTION_CHARS)}]`
           : null,
@@ -271,6 +287,26 @@ function referencedHandles(observation: SocialObservation): string[] {
   return [];
 }
 
+function isIdentityLikeObservation(observation: SocialObservation): boolean {
+  if (observation.kind !== 'facet') return false;
+  const semantic = `${observation.key} ${observation.value ?? ''}`.toLowerCase();
+  return /\b(origin|origine|national|nazional|citizenship|cittadin|country|paese|birthplace|regional origin|etni|ethnic)\b/i.test(
+    semantic,
+  );
+}
+
+function hardenIdentityLikeObservation(observation: SocialObservation): SocialObservation {
+  if (!isIdentityLikeObservation(observation)) return observation;
+  if (observation.source === 'admin' || observation.source === 'migration') return observation;
+  // One LLM-extracted sentence can be irony/roleplay. Keep it as tentative evidence so repeated
+  // serious declarations may reinforce it later, but never let one message become confidence=1.
+  return {
+    ...observation,
+    confidence: Math.min(observation.confidence, 0.55),
+    salience: Math.min(observation.salience ?? 0.5, 0.6),
+  };
+}
+
 function withSafeAutomaticSource(
   observation: SocialObservation,
   sourceAuthor: string,
@@ -332,7 +368,10 @@ export class SocialObservationMiner {
   }): Promise<SocialMiningExtraction> {
     const userMessages = params.messages.filter((message) => !message.isBot);
     if (userMessages.length === 0) return { observations: [], degraded: false };
-    const messageEvidence = new Map<number, { author: string; observedAt: Date }>();
+    const messageEvidence = new Map<
+      number,
+      { author: string; observedAt: Date; authoredText: string }
+    >();
     const knownHandles = new Set<string>(
       (params.knownHandles ?? []).map(normalizeSocialHandle).filter(Boolean),
     );
@@ -343,6 +382,7 @@ export class SocialObservationMiner {
         messageEvidence.set(message.messageId, {
           author: handle,
           observedAt: new Date(message.message.timestamp),
+          authoredText: authoredSocialText(message.message.messageText),
         });
       }
     }
@@ -394,7 +434,11 @@ export class SocialObservationMiner {
       if (!evidence || messageId == null || !eligibleEvidence.has(messageId)) continue;
       const handles = referencedHandles(raw).map(normalizeSocialHandle).filter(Boolean);
       if (handles.some((handle) => !knownHandles.has(handle))) continue;
-      const normalized = withSafeAutomaticSource(raw, evidence.author);
+      let normalized = withSafeAutomaticSource(raw, evidence.author);
+      normalized = hardenIdentityLikeObservation(normalized);
+      // If the only content in a human row came from an injected replied-media transcript, it is
+      // not evidence authored by that person and cannot back a social observation.
+      if (!evidence.authoredText.trim()) continue;
       if (!isValidSocialObservation(normalized)) continue;
       // Platform identity is maintained by recordPresence from Telegram's stable user id. An
       // LLM-authored display name/alias has no reversible identity history, so accepting it would

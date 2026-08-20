@@ -19,6 +19,8 @@ export interface MemoryRetrievalInput {
   activeHandles: string[];
   mentionedHandles: string[];
   repliedToHandle?: string | null;
+  /** Explicit group-memory questions may search across people; ordinary turns stay subject-bound. */
+  allowBroadUserRecall?: boolean;
   nsfwEnabled: boolean;
   recentMessages?: string[];
 }
@@ -56,9 +58,22 @@ export class MemoryRetriever {
     const scored: RetrievedMemory[] = [];
     for (const item of all) {
       if (!this.toxicityAllowed(item, input.nsfwEnabled)) continue;
+      if (!identityMemoryAllowed(item)) continue;
       if (item.lastUsedAt && now - new Date(item.lastUsedAt).getTime() < itemCdMs) continue;
 
       const handle = (item.subjectHandle ?? '').toLowerCase();
+      // Hard attribution boundary: ordinary conversation may only retrieve personal lore for the
+      // current/replied/explicitly-mentioned people. Keyword overlap can never pull a random user's
+      // biography into somebody else's turn. Broad cross-user recall is opt-in for explicit memory
+      // questions/recaps only.
+      if (
+        item.subjectType === 'user' &&
+        handle &&
+        !input.allowBroadUserRecall &&
+        !mentioned.has(handle)
+      ) {
+        continue;
+      }
       const lastSubjectUse = handle ? subjectLastUsed.get(handle) : undefined;
       if (lastSubjectUse && now - lastSubjectUse < subjectCdMs) continue;
       const ageDays = Math.max(0, (now - new Date(item.lastSeenAt).getTime()) / 86_400_000);
@@ -125,6 +140,18 @@ export class MemoryRetriever {
     if (!nsfw && (item.toxicity === 'nsfw' || item.toxicity === 'risky')) return false;
     return true;
   }
+}
+
+function identityMemoryAllowed(item: MemoryItem): boolean {
+  if (item.subjectType !== 'user') return true;
+  const identityLike =
+    /\b(?:origin|origine|national|nazional|citizenship|cittadin|passport|passaporto|sard[oa]|spagnol[oa]|sicilian[oa]|italian[oa]|frances[ea]|tedesc[oa])\b/i.test(
+      `${item.category} ${item.text}`,
+    );
+  if (!identityLike) return true;
+  // Historical auto-mined identity claims are too damaging when wrong. Only operator/manual
+  // curation may make them prompt-visible; social facets have their own repeated-evidence gate.
+  return item.source === 'admin' || item.source === 'manual_extract';
 }
 
 function latestUseBySubject(items: MemoryItem[]): Map<string, number> {

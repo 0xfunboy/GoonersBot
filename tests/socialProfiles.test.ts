@@ -120,6 +120,32 @@ describe('SocialProfileEngine', () => {
     expect(context.members.map((member) => member.handle)).toEqual(['@alice', '@bob']);
   });
 
+  it('resolves plain display names and aliases to stable handles for focus-only turns', async () => {
+    const { engine } = harness();
+    await engine.recordPresence({
+      chatId: -100,
+      handle: '@lospread',
+      telegramId: 20,
+      displayName: 'Johnny Bear',
+      alias: 'Johnny',
+    });
+    await engine.recordPresence({
+      chatId: -100,
+      handle: '@barchi7',
+      telegramId: 21,
+      displayName: 'Miguel B',
+      alias: 'Miguel',
+    });
+
+    const resolved = await engine.resolveHandlesInText(
+      -100,
+      'Mi hai preso per Johnny? Miguel invece che dice?',
+    );
+    expect(resolved).toHaveLength(2);
+    expect(resolved).toEqual(expect.arrayContaining(['@lospread', '@barchi7']));
+    await expect(engine.resolveHandlesInText(-100, 'parliamo di cucina')).resolves.toEqual([]);
+  });
+
   it('keeps Telegram identity stable and merges lore across username changes', async () => {
     const { engine } = harness();
     await engine.recordPresence({
@@ -722,6 +748,94 @@ describe('social lifecycle and prompt context', () => {
     expect(rendered).toContain('Running jokes are themes, not scripts');
   });
 
+  it('keeps social prompt focus-only and suppresses one-off identity-like biography', () => {
+    const now = new Date('2026-01-01T00:00:00Z');
+    const berry = createMemberProfile(-100, '@berry', now);
+    berry.messageCount = 100;
+    berry.displayName = 'Berry';
+    const miguel = createMemberProfile(-100, '@miguel', now);
+    miguel.messageCount = 100;
+    miguel.displayName = 'Miguel';
+    miguel.facets = [
+      {
+        id: 'roleplay-origin',
+        kind: 'skill',
+        key: 'origin',
+        normalizedKey: 'origin',
+        value: 'sardo',
+        normalizedValue: 'sardo',
+        state: 'active',
+        confidence: 1,
+        salience: 0.8,
+        source: 'self_declared',
+        evidenceCount: 1,
+        contradictionCount: 0,
+        sourceMessageIds: [10],
+        firstObservedAt: now,
+        lastObservedAt: now,
+        lastConfirmedAt: now,
+      },
+    ];
+    const johnny = createMemberProfile(-100, '@johnny', now);
+    johnny.messageCount = 100;
+    johnny.displayName = 'Johnny';
+    johnny.facets = [
+      {
+        id: 'shopping',
+        kind: 'habit',
+        key: 'shopping',
+        normalizedKey: 'shopping',
+        value: 'confronta le offerte della spesa',
+        normalizedValue: 'confronta le offerte della spesa',
+        state: 'active',
+        confidence: 0.9,
+        salience: 0.8,
+        source: 'self_declared',
+        evidenceCount: 2,
+        contradictionCount: 0,
+        sourceMessageIds: [11, 12],
+        firstObservedAt: now,
+        lastObservedAt: now,
+        lastConfirmedAt: now,
+      },
+    ];
+
+    const berryOnly = buildSocialContext(
+      [berry, miguel, johnny],
+      createChatSocialState(-100, now),
+      { now, focusHandles: ['@berry'], focusOnly: true },
+    );
+    expect(berryOnly.members.map((member) => member.handle)).toEqual(['@berry']);
+    expect(renderSocialContext(berryOnly)).not.toContain('Johnny');
+
+    const miguelContext = buildSocialContext([miguel], createChatSocialState(-100, now), {
+      now,
+      focusHandles: ['@miguel'],
+      focusOnly: true,
+    });
+    expect(renderSocialContext(miguelContext)).not.toContain('origin=sardo');
+    expect(renderSocialContext(miguelContext)).toContain('OWNERSHIP IS HARD');
+
+    miguel.facets.push({
+      ...miguel.facets[0]!,
+      id: 'operator-nationality',
+      kind: 'role',
+      key: 'national_identity',
+      normalizedKey: 'national_identity',
+      value: 'spagnolo',
+      normalizedValue: 'spagnolo',
+      source: 'admin',
+      evidenceCount: 1,
+    });
+    const corrected = buildSocialContext([miguel], createChatSocialState(-100, now), {
+      now,
+      focusHandles: ['@miguel'],
+      focusOnly: true,
+    });
+    expect(renderSocialContext(corrected)).toContain('national_identity=spagnolo');
+    expect(renderSocialContext(corrected)).not.toContain('origin=sardo');
+  });
+
   it('validates bounded LLM observations', () => {
     expect(
       socialObservationBatchSchema.safeParse({
@@ -858,6 +972,91 @@ describe('social lifecycle and prompt context', () => {
       source: 'peer_report',
       authorHandle: '@alice',
     });
+  });
+
+  it('downgrades one-off nationality/origin labels and ignores injected replied-media transcripts', async () => {
+    const llm = {
+      async jsonCompletion() {
+        return {
+          observations: [
+            {
+              kind: 'facet',
+              subjectHandle: '@miguel',
+              facet: 'skill',
+              key: 'origin',
+              value: 'sardo',
+              action: 'reinforce',
+              confidence: 1,
+              salience: 0.9,
+              source: 'self_declared',
+              sourceMessageId: 50,
+            },
+          ],
+        };
+      },
+    } as unknown as LLMProvider;
+    const miner = new SocialObservationMiner(llm);
+    const roleplay = await miner.extract({
+      language: 'italian',
+      existingSocialContext: '',
+      messages: [
+        {
+          messageId: 50,
+          handle: '@miguel',
+          isBot: false,
+          message: {
+            messageText: 'Io sono sardo di Sardinia, sono sardinigger.',
+            timestamp: new Date('2026-01-02T03:04:05Z'),
+          },
+        },
+      ],
+    });
+    expect(roleplay).toEqual([
+      expect.objectContaining({
+        subjectHandle: '@miguel',
+        key: 'origin',
+        confidence: 0.55,
+        salience: 0.6,
+      }),
+    ]);
+
+    const transcriptMiner = new SocialObservationMiner({
+      async jsonCompletion() {
+        return {
+          observations: [
+            {
+              kind: 'facet',
+              subjectHandle: '@daniele',
+              facet: 'role',
+              key: 'work_role',
+              value: 'tizio dei video del trattore',
+              action: 'reinforce',
+              confidence: 0.9,
+              salience: 0.8,
+              source: 'self_declared',
+              sourceMessageId: 50,
+            },
+          ],
+        };
+      },
+    } as unknown as LLMProvider);
+    const transcriptOnly = await transcriptMiner.extract({
+      language: 'italian',
+      existingSocialContext: '',
+      messages: [
+        {
+          messageId: 50,
+          handle: '@daniele',
+          isBot: false,
+          message: {
+            messageText:
+              '[transcript of the replied audio/video]: io sono il tizio dei video del trattore',
+            timestamp: new Date('2026-01-02T03:04:05Z'),
+          },
+        },
+      ],
+    });
+    expect(transcriptOnly).toEqual([]);
   });
 
   it('losslessly normalizes common structured-output aliases before validation', () => {
