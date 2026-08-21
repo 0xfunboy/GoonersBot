@@ -91,6 +91,9 @@ export interface SceneAnalysis {
 export type ReplyIntent =
   | 'answer_question'
   | 'acknowledge_gratitude'
+  | 'acknowledge'
+  | 'react_short'
+  | 'disagree_briefly'
   | 'roast_user'
   | 'roast_self'
   | 'summarize'
@@ -104,6 +107,9 @@ export type MemoryUseMode = 'none' | 'implicit_style' | 'explicit_callback';
 
 export type TurnAction =
   | 'answer'
+  | 'acknowledge'
+  | 'react_short'
+  | 'disagree_briefly'
   | 'challenge_claim'
   | 'ground_search'
   | 'bring_news_context'

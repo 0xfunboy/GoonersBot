@@ -53,6 +53,23 @@ describe('ModelRouter.route', () => {
     expect(d.reason).toMatch(/lexicon/);
   });
 
+  it('routes ordinary Italian adult sexual conversation to the NSFW model', () => {
+    const r = new ModelRouter(cfg);
+    const orgasm = r.route({
+      chatNsfwMode: 'smart',
+      modeNsfw: false,
+      messageText: 'Ma so avere un orgasmo',
+    });
+    const excitement = r.route({
+      chatNsfwMode: 'smart',
+      modeNsfw: false,
+      messageText: 'E ti eccita questo?',
+      contextText: 'stavamo parlando apertamente di sesso e kink',
+    });
+    expect(orgasm).toMatchObject({ model: 'amoral', nsfw: true });
+    expect(excitement).toMatchObject({ model: 'amoral', nsfw: true });
+  });
+
   it('chat smart + sensitive request => NSFW model without one-off lexicon terms', () => {
     const r = new ModelRouter(cfg);
     const d = r.route({

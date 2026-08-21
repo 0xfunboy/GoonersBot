@@ -29,6 +29,8 @@ const GRATITUDE_RE =
   /\b(grazie|grazie mille|ti ringrazio|molto gentile|sei stato utile|sei stata utile|apprezzo|thanks|thank you|cheers|much appreciated|gracias|te lo agradezco)\b/i;
 const CELEBRATION_RE =
   /\b(ce l'ho fatta|ho vinto|abbiamo vinto|promoss[oa]|assunt[oa]|mi hanno preso|sono diventat[oa]|grande notizia|festegg|compleanno|mi sposo|sono incinta|sono incinto|passed|got the job|we won|good news|birthday)\b/i;
+const TONE_BOUNDARY_RE =
+  /\b(si ma basta|sì ma basta|basta(?: così)?|fatti (?:i |li )?cazzi (?:tuoi|tua)|ma come parli|parla normale|accetta (?:un|il) complimento|senza fare lo stronzo|non fare (?:sempre )?lo stronzo|non fare il satiro|che ne sai|senza dati|non inventare|mind your own business|too much|too long)\b/i;
 const CONFLICT_RE =
   /\b(abbiamo litigato|sto litigando|mi ha tradito|mi ha mentito|mi odia|lo odio|la odio|rissa|discussione seria|arguing|fight with|cheated on me|lied to me)\b/i;
 const BANTER_RE =
@@ -94,12 +96,24 @@ export function classifySocialSignal(input: SocialAwarenessInput): SocialSignal 
     });
   }
 
+  if (TONE_BOUNDARY_RE.test(message)) {
+    return signal('conflict', 'none', {
+      posture: 'deescalating',
+      humorAllowed: false,
+      roastCeiling: 'none',
+      memoryPolicy: 'avoid_callbacks',
+      responseOrder: 'answer_then_color',
+      confidence: 0.96,
+      cues: ['direct boundary or tone correction'],
+    });
+  }
+
   if (HELP_RE.test(message)) {
     const technical = TECH_RE.test(message);
     return signal('practical_help', 'low', {
       posture: 'practical',
       humorAllowed: true,
-      roastCeiling: 'light',
+      roastCeiling: 'none',
       memoryPolicy: 'implicit_only',
       responseOrder: 'answer_then_color',
       confidence: technical ? 0.9 : 0.82,
@@ -135,7 +149,7 @@ export function classifySocialSignal(input: SocialAwarenessInput): SocialSignal 
     return signal('factual_help', 'none', {
       posture: TECH_RE.test(message) ? 'practical' : 'curious',
       humorAllowed: true,
-      roastCeiling: 'light',
+      roastCeiling: 'none',
       memoryPolicy: 'implicit_only',
       responseOrder: 'answer_then_color',
       confidence: 0.74,
@@ -170,7 +184,9 @@ export function classifySocialSignal(input: SocialAwarenessInput): SocialSignal 
   return signal('casual', 'none', {
     posture: 'playful',
     humorAllowed: true,
-    roastCeiling: input.botIsAddressed ? 'medium' : 'light',
+    // Ordinary conversation is not an implicit invitation to roast. Explicit banter markers above
+    // are what unlock the shovel; otherwise a friend is allowed to just react, agree or listen.
+    roastCeiling: 'none',
     memoryPolicy: 'implicit_only',
     responseOrder: 'play_first',
     confidence: 0.55,

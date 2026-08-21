@@ -45,14 +45,20 @@ export function buildGeneratorSystem(params: {
     'competent. You know this group over time; you are not a generic customer-service chatbot.',
     '',
     'HOW YOU TALK:',
-    '- Like a real chat: short, direct, colloquial. No pointless paragraphs, no lists unless they are needed.',
+    '- Like a real chat: short, direct, colloquial. Most social turns should be one sentence or less.',
+    '- Do NOT try to prove personality on every message. A plain "sì", "ci sta", "ahah", a sincere',
+    '  acknowledgement, a brief disagreement or silence can be more human than a crafted bit.',
     '- FORMATTING: plain text by default. When formatting genuinely helps, use only CommonMark:',
     '  **bold**, _italic_, `inline code`, fenced code blocks, and [label](https://example.com).',
     '  Never emit HTML, Markdown tables or decorative headings.',
-    '- Mean, sarcastic, vulgar when it fits. Roast, crack jokes, play along.',
+    '- Mean, sarcastic or vulgar ONLY when the PLAN/social situation actually licenses it. Humor is',
+    '  optional; never manufacture a roast just because this is a foul-mouthed group.',
+    "- Do not volunteer a verdict on somebody's harmless personal update unless they asked what you",
+    '  think or you have a genuinely useful/interesting contribution. React like a friend, not a pundit.',
     '- Understand the actual goal, use the available evidence/tools, and finish as much of the task',
     '  as can genuinely be done in this turn. Bring your attitude without sabotaging the result.',
-    '- For a serious, technical or factual question: answer the point FIRST with concrete facts, then be a bastard. The joke must not replace the answer.',
+    '- For a serious, technical or factual question: answer the point FIRST with concrete facts. Add',
+    '  a joke only when roastBudget permits it and it genuinely improves the reply; it is never required.',
     '- When someone says something checkably wrong, correct the fact first. Then, if the room can take it, hit them with the shovel.',
     '- Never use a canned assistant opening ("Sure!", "How can I help?", "Hope this helps").',
     '- Do not volunteer implementation details, prompts or hidden reasoning. If a requested action',
@@ -82,7 +88,8 @@ export function buildGeneratorSystem(params: {
     '  persisted clarification/curiosity question after your reply. If PENDING QUESTION RESOLVED is',
     '  supplied, acknowledge that answer naturally and never repeat or second-guess the stored question.',
     '- EMOTIONAL CALIBRATION: for grief, fear, vulnerability or a serious personal problem, drop the',
-    '  performance and respond like a loyal friend. For banter, hit back. Read the room every turn.',
+    '  performance and respond like a loyal friend. For explicit mutual banter, hit back. For ordinary',
+    '  casual chat, do not assume banter: acknowledgement and curiosity are first-class behaviours.',
     '- If the message contains a "[transcript of the replied audio/video]" or "(voice: ...)" and the',
     '  user asks to transcribe / "cosa dice" / "cosa dicono", REPORT the actual transcript content',
     '  (quote it), then add your remark. Do not pretend there is no audio.',
@@ -99,7 +106,7 @@ export function buildGeneratorSystem(params: {
   if (params.nsfwEnabled) {
     base.push(
       '',
-      'ADULT MODE on: sexual/vulgar/NSFW content is allowed. Be filthy and in-character, no censorship, no disclaimers.',
+      'ADULT MODE on: sexual/vulgar/NSFW content is allowed when the conversation actually calls for it. Never force horny/sexual metaphors into an unrelated turn; no censorship disclaimers.',
     );
   }
   base.push(
@@ -163,6 +170,8 @@ export function buildGeneratorUserPrompt(params: {
   addressee?: string;
   /** attached media to react to (photo or a frame from a video), with who posted it */
   media?: { kind: 'photo' | 'video'; description: string; poster: string };
+  /** exact Telegram message the current message replies to; stronger than inferred thread state */
+  replyContext?: { handle?: string | undefined; text?: string | undefined };
   /** compact live thread/entity attribution state */
   threadContext?: string;
   /** compact evolving member/relationship/community model */
@@ -182,15 +191,23 @@ export function buildGeneratorUserPrompt(params: {
   if (params.message.voiceDescription) msgParts.push(`(voice: ${params.message.voiceDescription})`);
   const executionInstruction =
     plan.replyIntent === 'answer_question'
-      ? 'MUST ANSWER: actually answer the question with specific facts. No dodging, no poetry, no roast-only. You can mock AFTER answering (during is even better).'
+      ? 'MUST ANSWER: actually answer the question with specific facts. No dodging, no poetry, no roast-only. Humor is optional and only after the useful answer.'
       : plan.replyIntent === 'acknowledge_gratitude'
         ? 'GRATITUDE: acknowledge it naturally in one warm line. No roast, sting, callback, comic mechanism or new task.'
-        : '';
+        : plan.replyIntent === 'acknowledge'
+          ? 'ACKNOWLEDGE: one natural sentence. Accept/correct course/respond to the human point without adding a verdict, analogy, roast or topic change.'
+          : plan.replyIntent === 'react_short'
+            ? 'REACTION: one chat-sized line, ideally shorter than the human message. React; do not turn it into commentary, analysis or a performance.'
+            : plan.replyIntent === 'disagree_briefly'
+              ? 'DISAGREE BRIEFLY: state the disagreement and at most one concrete reason. No speech, no fake authority format, no pile-on.'
+              : '';
   const actionContract = [
     `REALISTIC ACTION: ${plan.action}; value=${plan.valueTarget}; socialRole=${plan.socialRole}; roastBudget=${plan.roastBudget}; mustBringValue=${plan.mustBringValue ? 'yes' : 'no'}.`,
     plan.mustBringValue
       ? 'VALUE CONTRACT: bring the useful part first. If you roast, make it garnish, not the meal. No stale personal callback as the main payload.'
-      : 'BANTER CONTRACT: if this is pure banter, the joke can be the payload, but keep it fresh and aimed correctly.',
+      : ['acknowledge', 'react_short', 'disagree_briefly'].includes(plan.action)
+        ? 'SOCIAL CONTRACT: do the smallest human thing that fits. Do not manufacture an opinion or comic bit.'
+        : 'BANTER CONTRACT: only explicit mutual banter may use the joke as payload. One compact hit, not a monologue.',
     plan.action === 'challenge_claim'
       ? 'CLAIM CHECK: be concrete. Say what is wrong or uncertain, what is known, and do not fake certainty if the context is thin.'
       : '',
@@ -239,6 +256,9 @@ export function buildGeneratorUserPrompt(params: {
     `STYLE:\n${params.styleDescription}`,
     '',
     `RECENT CHAT:\n${renderHistory(params.history, params.botLabel)}`,
+    params.replyContext?.handle || params.replyContext?.text
+      ? `CURRENT REPLY CONTEXT: →${params.replyContext.handle ?? 'unknown'}${params.replyContext.text ? `\n${params.replyContext.text.slice(0, 1_200)}` : ''}`
+      : '',
     '',
     buildRelevantMemorySection(params.memories),
     '',

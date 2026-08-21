@@ -220,6 +220,9 @@ function actionFromDecision(
     return has('news_context') ? 'bring_news_context' : 'ground_search';
   if (has('summarize')) return 'summarize_thread';
   if (has('recall_group')) return 'use_group_lore';
+  if (has('acknowledge')) return 'acknowledge';
+  if (has('react_short')) return 'react_short';
+  if (has('disagree')) return 'disagree_briefly';
   if (has('banter') && !has('answer')) return 'banter_only';
   if (has('stay_quiet') && !botIsAddressed) return 'stay_quiet';
   return 'answer';

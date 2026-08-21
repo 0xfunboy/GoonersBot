@@ -3,7 +3,7 @@ import type { RetrievedMemory } from '../memory/types.js';
 import type { BotReplyRecord, RankedReply, ReplyPlan } from './types.js';
 import { extractJokePremises } from './repetitionGuard.js';
 import { isSeriousSupport, violatesSocialFloor } from './socialAwareness.js';
-import { inferComedyStrategy } from './styleEngine.js';
+import { inferComedyStrategy, inferConceptClusters } from './styleEngine.js';
 
 const ASSISTANT_TELLS = [
   /^\s*(certo|sure|of course|ecco|here'?s|come posso|how can i|spero (questo )?aiuti|hope this helps)/i,
@@ -85,10 +85,20 @@ export class ResponseRanker {
       .slice(0, 4)
       .map((r) => r.comedyStrategy ?? inferComedyStrategy(r.text))
       .filter(Boolean);
+    const recentConceptCounts = new Map<string, number>();
+    for (const reply of opts.recent.slice(0, 6)) {
+      for (const concept of inferConceptClusters(reply.text)) {
+        recentConceptCounts.set(concept, (recentConceptCounts.get(concept) ?? 0) + 1);
+      }
+    }
     const questionTerms = extractTerms(opts.userMessage ?? '');
     const mustAnswer = opts.plan.replyIntent === 'answer_question';
     const seriousSupport = isSeriousSupport(opts.plan.socialSignal);
     const gratitudeTurn = opts.plan.socialSignal?.situation === 'gratitude';
+    const shortSocial =
+      opts.plan.action === 'acknowledge' ||
+      opts.plan.action === 'react_short' ||
+      opts.plan.action === 'disagree_briefly';
     const comedyTurn =
       opts.plan.valueTarget === 'joke' ||
       opts.plan.roastBudget === 'medium' ||
@@ -104,10 +114,19 @@ export class ResponseRanker {
         score -= 1;
         problems.push('empty');
       } else if (len <= opts.maxChars) {
-        score += 0.3;
+        score += shortSocial ? 0.65 : 0.3;
       } else {
-        score -= 0.4 + Math.min(0.5, (len - opts.maxChars) / opts.maxChars);
-        problems.push('too long');
+        score -= (shortSocial ? 1.8 : 0.4) + Math.min(0.8, (len - opts.maxChars) / opts.maxChars);
+        problems.push(shortSocial ? 'violates short social contract' : 'too long');
+      }
+      if (
+        shortSocial &&
+        /^(?:\*\*)?(?:report|rapporto|verbale|bollettino|diagnosi|ministero|comitato|reparto)\b/i.test(
+          text,
+        )
+      ) {
+        score -= 1.2;
+        problems.push('performative fake-heading on social turn');
       }
 
       // novelty vs recent replies
@@ -119,6 +138,16 @@ export class ResponseRanker {
       const repeatedPremises = extractJokePremises(text).filter((premise) =>
         recentPremises.has(premise),
       );
+      const repeatedConcepts = inferConceptClusters(text).filter(
+        (concept) => (recentConceptCounts.get(concept) ?? 0) >= 2,
+      );
+      if (
+        repeatedConcepts.length > 0 &&
+        (shortSocial || opts.plan.valueTarget === 'social_glue' || comedyTurn)
+      ) {
+        score -= Math.min(1.2, repeatedConcepts.length * 0.65);
+        problems.push(`stale semantic joke domain: ${repeatedConcepts.join('+')}`);
+      }
       if (comedyTurn && repeatedPremises.length > 0) {
         score -= 0.75;
         problems.push(`stale joke premise: ${repeatedPremises.join('+')}`);

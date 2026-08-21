@@ -2,6 +2,9 @@ import { z } from 'zod';
 
 export const cortexIntentEnum = z.enum([
   'answer',
+  'acknowledge',
+  'react_short',
+  'disagree',
   'correct_claim',
   'web_lookup',
   'news_context',

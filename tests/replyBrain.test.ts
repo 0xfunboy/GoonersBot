@@ -407,7 +407,7 @@ describe('ReplyPlanner', () => {
     });
     expect(p.replyIntent).toBe('roast_self');
     expect(p.memoryUseMode).toBe('none');
-    expect(p.noveltyInstruction).toMatch(/structure/i);
+    expect(p.noveltyInstruction).toMatch(/structur/i);
   });
   it('dangerous → answer', () => {
     const p = planner.plan({
@@ -426,8 +426,105 @@ describe('ReplyPlanner', () => {
     });
     expect(p.replyIntent).toBe('answer_question');
     expect(p.mustAnswer).toBe(true);
-    expect(p.maxChars).toBeGreaterThanOrEqual(2_000);
-    expect(p.maxLines).toBeGreaterThanOrEqual(10);
+    expect(p.maxChars).toBeLessThanOrEqual(900);
+    expect(p.maxLines).toBeLessThanOrEqual(6);
+  });
+
+  it('demotes casual banter routing into a chat-sized human reaction', () => {
+    const casualSignal = {
+      situation: 'casual',
+      supportNeed: 'none',
+      posture: 'playful',
+      humorAllowed: true,
+      roastCeiling: 'none',
+      memoryPolicy: 'implicit_only',
+      responseOrder: 'play_first',
+      confidence: 0.8,
+      cues: [],
+    } as const;
+    const p = planner.plan({
+      ...baseInput,
+      evaluation: evaluation({
+        action: 'banter_only',
+        valueTarget: 'joke',
+        roastBudget: 'heavy',
+        socialRole: 'banter',
+        socialSignal: casualSignal,
+      }),
+      scene: scene({
+        userIntent: 'random_chatter',
+        socialSignal: casualSignal,
+      }),
+      recentHumanMessageLengths: [22, 31, 33, 44, 67],
+      comedyStrategy: 'absurd_analogy',
+    });
+    expect(p.action).toBe('react_short');
+    expect(p.replyIntent).toBe('react_short');
+    expect(p.valueTarget).toBe('social_glue');
+    expect(p.roastBudget).toBe('none');
+    expect(p.comedyStrategy).toBe('none');
+    expect(p.maxLines).toBe(1);
+    expect(p.maxChars).toBeLessThanOrEqual(100);
+  });
+
+  it('keeps explicit mutual banter licensed but bounded', () => {
+    const banterSignal = {
+      situation: 'banter',
+      supportNeed: 'none',
+      posture: 'sparring',
+      humorAllowed: true,
+      roastCeiling: 'heavy',
+      memoryPolicy: 'eligible',
+      responseOrder: 'play_first',
+      confidence: 0.9,
+      cues: ['explicit banter'],
+    } as const;
+    const p = planner.plan({
+      ...baseInput,
+      evaluation: evaluation({
+        action: 'banter_only',
+        valueTarget: 'joke',
+        roastBudget: 'heavy',
+        socialRole: 'banter',
+        socialSignal: banterSignal,
+      }),
+      scene: scene({ userIntent: 'insult_bot', socialSignal: banterSignal }),
+      recentHumanMessageLengths: [30, 33, 40],
+    });
+    expect(p.action).toBe('banter_only');
+    expect(p.replyIntent).toBe('roast_user');
+    expect(p.maxChars).toBeLessThanOrEqual(260);
+    expect(p.maxLines).toBeLessThanOrEqual(2);
+  });
+
+  it('recent negative feedback disables another performative comeback', () => {
+    const banterSignal = {
+      situation: 'banter',
+      supportNeed: 'none',
+      posture: 'sparring',
+      humorAllowed: true,
+      roastCeiling: 'heavy',
+      memoryPolicy: 'eligible',
+      responseOrder: 'play_first',
+      confidence: 0.9,
+      cues: ['banter'],
+    } as const;
+    const p = planner.plan({
+      ...baseInput,
+      evaluation: evaluation({
+        action: 'banter_only',
+        valueTarget: 'joke',
+        roastBudget: 'heavy',
+        socialRole: 'banter',
+        socialSignal: banterSignal,
+      }),
+      scene: scene({ userIntent: 'insult_bot', socialSignal: banterSignal }),
+      recentNegativeFeedback: true,
+      recentHumanMessageLengths: [25, 32, 40],
+    });
+    expect(p.action).toBe('react_short');
+    expect(p.roastBudget).toBe('none');
+    expect(p.comedyStrategy).toBe('none');
   });
 
   it('challenge claim plans must bring value and avoid explicit lore callbacks', () => {

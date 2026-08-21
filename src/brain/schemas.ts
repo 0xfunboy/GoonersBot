@@ -87,6 +87,9 @@ export const planSchema = z.object({
     .enum([
       'answer_question',
       'acknowledge_gratitude',
+      'acknowledge',
+      'react_short',
+      'disagree_briefly',
       'roast_user',
       'roast_self',
       'summarize',
@@ -100,6 +103,9 @@ export const planSchema = z.object({
   action: z
     .enum([
       'answer',
+      'acknowledge',
+      'react_short',
+      'disagree_briefly',
       'challenge_claim',
       'ground_search',
       'bring_news_context',
@@ -165,6 +171,9 @@ export const turnEvaluationSchema = z.object({
   action: z
     .enum([
       'answer',
+      'acknowledge',
+      'react_short',
+      'disagree_briefly',
       'challenge_claim',
       'ground_search',
       'bring_news_context',

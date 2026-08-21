@@ -1,4 +1,10 @@
-import type { ComedyStrategy, SceneAnalysis, SocialSignal, StyleProfile } from './types.js';
+import type {
+  ComedyStrategy,
+  RoastBudget,
+  SceneAnalysis,
+  SocialSignal,
+  StyleProfile,
+} from './types.js';
 import type { BotReplyRecord } from './types.js';
 import { isSeriousSupport } from './socialAwareness.js';
 
@@ -81,6 +87,7 @@ export interface StyleInput {
   nsfwEnabled: boolean;
   socialSignal?: SocialSignal;
   valueTarget?: 'truth' | 'context' | 'joke' | 'support' | 'technical_help' | 'social_glue';
+  roastBudget?: RoastBudget;
   socialRole?:
     | 'friend'
     | 'truth_checker'
@@ -103,7 +110,7 @@ export class StyleEngine {
     const humorAllowed = social?.humorAllowed ?? true;
     // bias by scene
     const biased: StyleVariant[] = [];
-    if (input.scene.botIsBeingCriticized) biased.push('self_deprecating', 'venomous');
+    if (input.scene.botIsBeingCriticized) biased.push('self_deprecating', 'deadpan_caring', 'dry');
     if (input.scene.energy === 'chaotic' || input.scene.energy === 'high')
       biased.push('surreal', 'meme_lord');
     if (input.scene.userIntent === 'insult_bot') biased.push('venomous', 'dry');
@@ -118,14 +125,17 @@ export class StyleEngine {
       biased.push('deadpan_caring', 'older_brother', 'confessional');
     }
 
+    const quietSocial = input.roastBudget === 'none' && input.valueTarget === 'social_glue';
     const compatiblePool: StyleVariant[] =
       seriousSupport || gratitudeTurn
         ? ['deadpan_caring', 'older_brother', 'confessional', 'curious_nerd']
-        : input.valueTarget === 'technical_help'
-          ? ['curious_nerd', 'dry', 'older_brother', 'deadpan_caring']
-          : input.valueTarget === 'support'
-            ? ['deadpan_caring', 'older_brother', 'confessional', 'dry', 'bar_talk']
-            : pool;
+        : quietSocial
+          ? ['dry', 'deadpan_caring', 'confessional', 'older_brother', 'curious_nerd']
+          : input.valueTarget === 'technical_help'
+            ? ['curious_nerd', 'dry', 'older_brother', 'deadpan_caring']
+            : input.valueTarget === 'support'
+              ? ['deadpan_caring', 'older_brother', 'confessional', 'dry', 'bar_talk']
+              : pool;
 
     // Cool down several recent voices, not just the previous one. Composite variants are persisted
     // as "a+b", so split them before filtering.
@@ -164,8 +174,9 @@ export class StyleEngine {
         : effectivePool;
     const primary = pick(candidates);
     const secondaryPool = compatiblePool.filter((v) => v !== primary && !recentVariants.has(v));
+    const secondaryProbability = seriousSupport || gratitudeTurn || quietSocial ? 0.05 : 0.16;
     const secondary =
-      secondaryPool.length > 0 && Math.random() < (seriousSupport ? 0.2 : 0.45)
+      secondaryPool.length > 0 && Math.random() < secondaryProbability
         ? pick(secondaryPool)
         : undefined;
     const variants = secondary ? [primary, secondary] : [primary];
@@ -181,47 +192,54 @@ export class StyleEngine {
       input.valueTarget === 'technical_help' ||
       input.socialRole === 'truth_checker';
     return {
-      aggression: seriousSupport
-        ? 0
-        : !humorAllowed
+      aggression:
+        seriousSupport || !humorAllowed
           ? 0
-          : input.scene.userIntent === 'insult_bot'
-            ? 0.7
-            : supportive
-              ? 0.05 + Math.random() * 0.15
-              : factual
-                ? 0.12 + Math.random() * 0.25
-                : 0.3 + Math.random() * 0.4,
+          : quietSocial
+            ? 0.02 + Math.random() * 0.08
+            : input.scene.userIntent === 'insult_bot'
+              ? 0.55 + Math.random() * 0.15
+              : supportive
+                ? 0.05 + Math.random() * 0.12
+                : factual
+                  ? 0.08 + Math.random() * 0.16
+                  : 0.18 + Math.random() * 0.2,
       vulgarity: seriousSupport
         ? 0.05 + Math.random() * 0.1
-        : !humorAllowed
-          ? 0.02
+        : !humorAllowed || quietSocial
+          ? 0.05 + Math.random() * 0.12
           : supportive
-            ? 0.1 + Math.random() * 0.2
+            ? 0.08 + Math.random() * 0.16
             : input.nsfwEnabled
-              ? 0.5 + Math.random() * 0.4
-              : 0.3 + Math.random() * 0.3,
-      nsfw,
-      absurdity: seriousSupport
-        ? 0.05
-        : !humorAllowed
+              ? 0.32 + Math.random() * 0.3
+              : 0.18 + Math.random() * 0.22,
+      nsfw: quietSocial ? Math.min(nsfw, 0.12) : nsfw,
+      absurdity:
+        seriousSupport || !humorAllowed
           ? 0
-          : input.scene.energy === 'chaotic'
-            ? 0.7
-            : 0.2 + Math.random() * 0.4,
-      dialect: 0.2 + Math.random() * 0.3,
-      brevity: input.scene.botIsBeingAddressed ? 0.5 : 0.7,
-      directness: 0.5 + Math.random() * 0.4,
-      chaos: seriousSupport
-        ? 0.05
-        : !humorAllowed
+          : quietSocial
+            ? 0.03 + Math.random() * 0.08
+            : input.scene.energy === 'chaotic'
+              ? 0.48 + Math.random() * 0.18
+              : 0.1 + Math.random() * 0.18,
+      dialect: 0.12 + Math.random() * 0.22,
+      brevity: quietSocial ? 0.92 : input.scene.botIsBeingAddressed ? 0.64 : 0.86,
+      directness: quietSocial ? 0.9 : 0.62 + Math.random() * 0.28,
+      chaos:
+        seriousSupport || !humorAllowed
           ? 0
-          : input.scene.energy === 'chaotic'
-            ? 0.8
-            : 0.3 + Math.random() * 0.3,
-      selfAwareness: input.scene.botIsBeingCriticized ? 0.8 : 0.3,
+          : quietSocial
+            ? 0.02 + Math.random() * 0.06
+            : input.scene.energy === 'chaotic'
+              ? 0.52 + Math.random() * 0.18
+              : 0.1 + Math.random() * 0.16,
+      selfAwareness: input.scene.botIsBeingCriticized ? 0.8 : 0.25,
       degen:
-        seriousSupport || !humorAllowed ? 0 : input.scene.humorStyle.includes('degen') ? 0.7 : 0.3,
+        seriousSupport || !humorAllowed || quietSocial
+          ? 0
+          : input.scene.humorStyle.includes('degen')
+            ? 0.55
+            : 0.16,
       variants,
       comedyStrategies,
       ...(social?.posture ? { supportPosture: social.posture } : {}),
@@ -260,7 +278,13 @@ export class StyleEngine {
    */
   selectComedyStrategies(input: StyleInput): ComedyStrategy[] {
     const social = input.socialSignal ?? input.scene.socialSignal;
-    if (social?.humorAllowed === false || isSeriousSupport(social)) return ['none'];
+    if (
+      social?.humorAllowed === false ||
+      isSeriousSupport(social) ||
+      input.roastBudget === 'none'
+    ) {
+      return ['none'];
+    }
 
     let pool: ComedyStrategy[];
     if (input.valueTarget === 'support') {
@@ -359,6 +383,56 @@ export class StyleEngine {
     if (lastClosing && lastClosing.length >= 6) tics.push(lastClosing);
     return [...new Set(tics)].slice(0, 12);
   }
+
+  /**
+   * Cool down semantic joke domains, not just exact n-grams. Five different Docker/RAM/kernel
+   * metaphors are still the same joke mechanism to humans, so after two recent uses the whole
+   * concept family becomes temporarily forbidden unless it is the actual factual topic.
+   */
+  fatiguedConcepts(recent: BotReplyRecord[]): string[] {
+    const counts = new Map<string, number>();
+    for (const reply of recent.slice(0, 6)) {
+      for (const concept of inferConceptClusters(reply.text)) {
+        counts.set(concept, (counts.get(concept) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .filter(([, count]) => count >= 2)
+      .map(([concept]) => CONCEPT_FATIGUE_LABELS[concept] ?? concept)
+      .slice(0, 5);
+  }
+}
+
+const CONCEPT_PATTERNS: Record<string, RegExp> = {
+  computing_metaphors:
+    /\b(server|docker|ram|kernel|container|linux|daemon|processo|process|thread|cpu|gpu|transistor|malloc|heap|stack|sql|tcp|ethernet|router|terminal|script|codice|code|binary|binario|buffer|overflow|runtime|debug|gdb|api)\b/i,
+  finance_crypto_metaphors:
+    /\b(bull run|bear market|short|leva|rug pull|solana|bitcoin|crypto|shitcoin|stablecoin|price discovery|market|trading|wallet|liquidazion)\b/i,
+  fake_bureaucracy_format:
+    /\b(verbale|rapporto di|bollettino|ministero|commissione|comitato|certificat|iso 9001|reparto|ispezione|accertamento)\b/i,
+  psych_diagnosis_metaphors:
+    /\b(diagnosi|psicolog|psichiatr|psicanalis|freud|jung|trauma|sindrome|terapia|meccanismo di difesa|tso)\b/i,
+  sexualized_tech_metaphors:
+    /\b(kinky|fetish|eccit|preliminar|sottomission|dominatric|frusta|orgasm|fase anale|ti bagni|sessual)\b/i,
+};
+
+const CONCEPT_FATIGUE_LABELS: Record<string, string> = {
+  computing_metaphors:
+    'computer/server/Docker/RAM/kernel metaphors as jokes; use plain human language unless computing is the actual subject',
+  finance_crypto_metaphors:
+    'crypto/trading/bull-run/rug-pull metaphors as jokes; use another frame unless finance is the actual subject',
+  fake_bureaucracy_format:
+    'fake REPORT/VERBALE/MINISTERO/DIAGNOSI heading formats; do not package the reply like an official document',
+  psych_diagnosis_metaphors:
+    'therapy/diagnosis/psychiatry metaphors as jokes; do not turn ordinary chat into a mock clinical report',
+  sexualized_tech_metaphors:
+    'sexualized computer metaphors; do not force kinky/CPU/RAM innuendo into another turn',
+};
+
+export function inferConceptClusters(text: string): string[] {
+  return Object.entries(CONCEPT_PATTERNS)
+    .filter(([, pattern]) => pattern.test(text))
+    .map(([name]) => name);
 }
 
 /** Best-effort migration for replies recorded before `comedyStrategy` existed. */

@@ -59,6 +59,8 @@ export interface GenerateReplyInput {
   addressee?: string | undefined;
   /** attached media to react to, with who posted it */
   media?: { kind: 'photo' | 'video'; description: string; poster: string } | undefined;
+  /** exact Telegram reply target for the current message */
+  replyContext?: { handle?: string | undefined; text?: string | undefined } | undefined;
   /** live thread/entity attribution block */
   threadContext?: string | undefined;
   /** evolving member profiles, relationships, norms and non-fatigued running jokes */
@@ -116,6 +118,7 @@ export class ResponseGenerator {
       ...(input.grounding ? { grounding: input.grounding } : {}),
       ...(input.addressee ? { addressee: input.addressee } : {}),
       ...(input.media ? { media: input.media } : {}),
+      ...(input.replyContext ? { replyContext: input.replyContext } : {}),
       ...(input.threadContext ? { threadContext: input.threadContext } : {}),
       ...(input.socialContext ? { socialContext: input.socialContext } : {}),
       ...(input.socialQuestionContext
@@ -147,13 +150,19 @@ export class ResponseGenerator {
     bannedPhrases: string[];
     overusedMemory: string[];
     count?: number;
+    maxReplyChars?: number;
   }): Promise<GeneratedCandidates> {
     const note = buildRegenerationNote(params.bannedPhrases, params.overusedMemory);
     const augmented = `${params.userPrompt}\n\n${note}`;
     const count = candidateCountForModel(params.count ?? 1, params.model);
     const results = await Promise.allSettled(
       Array.from({ length: count }, () =>
-        this.callOne(params.system, augmented, params.model, this.cfg.maxReplyChars),
+        this.callOne(
+          params.system,
+          augmented,
+          params.model,
+          params.maxReplyChars ?? this.cfg.maxReplyChars,
+        ),
       ),
     );
     const ok = results

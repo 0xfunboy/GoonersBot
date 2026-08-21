@@ -373,7 +373,7 @@ const envSchema = z.object({
    * Confidence the passive autoengage gate gives back when the message is about a domain the bot
    * actually holds facts for. Lowers the bar to speak up; never bypasses cooldowns or caps.
    */
-  AMBIENT_AUTOENGAGE_BONUS: floatFromString(0.1),
+  AMBIENT_AUTOENGAGE_BONUS: floatFromString(0.03),
   /**
    * Hard ceiling on the whole ambient recall step. A reply is never worth stalling: whatever has
    * not been recalled by then is simply not recalled this turn.
@@ -433,9 +433,9 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => {
-      if (v === undefined || v === '') return 0.6;
+      if (v === undefined || v === '') return 0.78;
       const n = Number.parseFloat(v);
-      return Number.isNaN(n) ? 0.6 : n;
+      return Number.isNaN(n) ? 0.78 : n;
     }),
 
   // Conversation memory / retention
