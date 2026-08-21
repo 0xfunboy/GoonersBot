@@ -27,6 +27,8 @@ export interface CortexFallbackInput {
   currentMessage: string;
   botIsAddressed: boolean;
   availableTools: CortexTool[];
+  /** Passive autoengage already approved this turn; keep the contribution tiny and non-performative. */
+  passiveApproved?: boolean;
 }
 
 export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecision {
@@ -83,6 +85,8 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
     intents.push('correct_claim', 'banter');
   } else if (has(msg, HINTS.insult)) {
     intents.push('banter');
+  } else if (input.passiveApproved) {
+    intents.push('react_short');
   } else if (input.botIsAddressed || input.currentMessage.includes('?')) {
     intents.push('answer');
   } else {
@@ -99,7 +103,7 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
     intents,
     toolCalls: calls,
     valueTarget: needsGrounding || intents.includes('correct_claim') ? 'truth' : 'social_glue',
-    roastBudget: intents.includes('banter') ? 'heavy' : 'light',
+    roastBudget: intents.includes('banter') ? 'medium' : 'none',
     socialRole: needsGrounding || intents.includes('correct_claim') ? 'truth_checker' : 'friend',
     needsGrounding,
     confidence: 0.45,

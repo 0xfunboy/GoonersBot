@@ -126,6 +126,32 @@ describe('social awareness floor', () => {
     expect(sparring.roastCeiling).toBe('heavy');
   });
 
+  it('treats direct tone boundaries as de-escalation even when they contain insults', () => {
+    for (const message of [
+      'fra accetta un complimento senza fare lo stronzo',
+      'ma come parli?',
+      'si ma basta',
+      'non fare il satiro senza dati, che ne sai',
+      'ma fatti i cazzi tua',
+    ]) {
+      const signal = classifySocialSignal({ currentMessage: message, botIsAddressed: true });
+      expect(signal.situation, message).toBe('conflict');
+      expect(signal.humorAllowed, message).toBe(false);
+      expect(signal.roastCeiling, message).toBe('none');
+    }
+  });
+
+  it('ordinary factual/casual turns do not implicitly license a roast', () => {
+    const factual = classifySocialSignal({ currentMessage: 'come funziona questa roba?' });
+    const casual = classifySocialSignal({
+      currentMessage: 'oggi ho finalmente finito sta roba',
+      botIsAddressed: true,
+    });
+    expect(factual.roastCeiling).toBe('none');
+    expect(casual.situation).toBe('casual');
+    expect(casual.roastCeiling).toBe('none');
+  });
+
   it('accepts gratitude without converting it into another stale roast', () => {
     const gratitude = classifySocialSignal({
       currentMessage: 'grazie, molto gentile',

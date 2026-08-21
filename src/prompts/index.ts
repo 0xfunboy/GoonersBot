@@ -157,10 +157,26 @@ export function buildReplyUserPrompt(params: {
 // ---- 9. autoengage scoring ----
 export function buildAutoEngageSystem(): string {
   return [
-    'You are the engagement gate for a group chat bot. Decide if the bot should reply RIGHT NOW.',
-    'Replying has a cost; only reply when it adds value or genuine fun.',
-    'Reply almost always when the bot is directly mentioned or replied to.',
-    'Reply less often for passive chatter. Never reply to spam or to keep talking to itself.',
+    'You are the interruption gate for a human-like participant in a busy private group chat.',
+    'This scorer is used ONLY for messages without a fresh direct @mention/reply to the bot.',
+    'Default to shouldReply=false. A real friend does not comment on every interesting sentence.',
+    'Reply only when at least one is true: the room is clearly inviting opinions; there is a useful',
+    'fact/correction the bot uniquely adds; someone needs support; or a very short reaction would',
+    'obviously improve the moment. A harmless personal update, fragment, running conversation between',
+    'other humans, or merely available joke angle is NOT enough. If silence would feel normal, stay silent.',
+    'IMPORTANT: BOT INVOLVEMENT is structural context. reply_chain/hot_thread means the bot is already',
+    'part of that discussion even if the latest message replies to another human. Read reply arrows and',
+    'the whole mini-discussion. Short continuations may deserve a short reply when they continue the bot branch.',
+    'TELEGRAM REPLY SEMANTICS: a human row with an arrow to BOT is speaking to BOT. If it says',
+    '"you/ti/te" or describes something that happened to "you", the default referent is BOT unless',
+    'the text explicitly names somebody else. A new human reply to that row inherits that branch.',
+    'CO-REFERENCE: in a reply chain, resolve omitted objects/subjects against REPLIED MESSAGE before',
+    'inventing a new topic. Example: if a human row →BOT says "it crashed you once" and the next',
+    'human replies "we lost count", "count" means how many times that same crash happened to BOT.',
+    'Do not reinterpret such elliptical continuations as unrelated personal anecdotes unless the text',
+    'contains positive evidence of a topic change.',
+    'Do not reward cleverness. The question is whether participation is socially licensed, not whether',
+    'a joke can be generated. After recent negative feedback, require an unusually strong reason to enter.',
     'Return ONLY JSON: {"shouldReply":bool,"confidence":0..1,"reason":str,"suggestedTone":str,"risk":"low|medium|high"}.',
   ].join(' ');
 }
@@ -177,20 +193,47 @@ export function buildAutoEngagePrompt(params: {
   recentBotReplies: number;
   conversationEnergy: number;
   botLabel: string;
+  botUsername?: string | undefined;
+  replyToHandle?: string | undefined;
+  replyToText?: string | undefined;
+  involvement?: {
+    kind: 'direct' | 'reply_chain' | 'hot_thread' | 'none';
+    replyDepth: number;
+    recentBotTurns: number;
+    recentBotBranchMessages: number;
+    reason: string;
+  };
 }): string {
+  const byId = new Map(
+    params.history
+      .filter((message) => typeof message.messageId === 'number')
+      .map((message) => [message.messageId as number, message] as const),
+  );
   const compactHistory = params.history
     .slice(-8)
     .map((message) => {
       const speaker = message.isBot ? params.botLabel : message.handle;
+      const replyTarget =
+        message.replyToHandle ||
+        (typeof message.replyToMessageId === 'number'
+          ? byId.get(message.replyToMessageId)?.handle
+          : undefined);
+      const arrow = replyTarget ? ` →${replyTarget}` : '';
       const text = (message.message.messageText ?? '').replace(/\s+/g, ' ').trim().slice(0, 280);
-      return `${speaker}: ${text || '[media]'}`;
+      return `${speaker}${arrow}: ${text || '[media]'}`;
     })
     .join('\n');
   return [
     `Current mode: ${params.modeName} - ${params.modeDescription}`,
     `Recent chat:\n${compactHistory || '[empty]'}`,
-    `Latest message from ${params.userHandle}: ${params.currentMessage.slice(0, 500)}`,
+    `Latest message from ${params.userHandle}${params.replyToHandle ? ` →${params.replyToHandle}` : ''}: ${params.currentMessage.slice(0, 500)}`,
+    params.replyToText
+      ? `REPLIED MESSAGE: ${params.replyToText.replace(/\s+/g, ' ').slice(0, 600)}`
+      : '',
     `Bot directly addressed (mention/reply): ${params.isMentionedOrReplied ? 'YES' : 'no'}`,
+    params.involvement
+      ? `BOT INVOLVEMENT: ${params.involvement.kind}; replyDepth=${params.involvement.replyDepth}; recentBotTurns=${params.involvement.recentBotTurns}; branchMessages=${params.involvement.recentBotBranchMessages}; ${params.involvement.reason}`
+      : 'BOT INVOLVEMENT: none',
     `Bot replies in the last hour in this chat: ${params.recentBotReplies}`,
     `Conversation energy (messages in recent window): ${params.conversationEnergy}`,
     'Decide now. Return the JSON.',

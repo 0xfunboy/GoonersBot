@@ -2,31 +2,12 @@ import type { AppConfig } from '../config/index.js';
 import type { Storage } from '../storage/index.js';
 import type { LoreEngine } from '../memory/loreEngine.js';
 import { childLogger } from '../utils/logger.js';
+import { inferTextFeedback } from '../brain/textFeedback.js';
 
 const log = childLogger('job-feedback');
 
-const POSITIVE_RE =
-  /(\bah+ah+\b|\blol\b|\blmao\b|\bmuoio\b|\bperfetto\b|\bgenio\b|\btop\b|\bbased\b|😂|🤣|😭|💀|❤️|🔥|👏|👍)/i;
-const NEGATIVE_RE =
-  /(\bripetitiv|\bnoios|\bstupid|\bnon fa ridere\b|\bbot rotto\b|\bnpc\b|\bsempre uguale\b|\bche cazzo dici\b|\bcringe\b|\bscemo\b|👎)/i;
-
-/** Infer a feedback score in [-1, 1] from the messages that followed a bot reply. */
-export function inferFeedback(texts: string[]): { score: number; reasons: string[] } {
-  let score = 0;
-  const reasons: string[] = [];
-  for (const t of texts) {
-    if (POSITIVE_RE.test(t)) {
-      score += 1;
-      reasons.push('positive');
-    }
-    if (NEGATIVE_RE.test(t)) {
-      score -= 1;
-      reasons.push('negative');
-    }
-  }
-  const clamped = Math.max(-1, Math.min(1, score));
-  return { score: clamped, reasons };
-}
+/** Backward-compatible export for tests/consumers. */
+export const inferFeedback = inferTextFeedback;
 
 /**
  * Feedback observer: looks at the messages following each unscored bot reply, infers whether it

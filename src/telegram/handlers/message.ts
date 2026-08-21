@@ -13,6 +13,7 @@ import type { LinkMediaResult } from '../../services/linkMedia.js';
 import { classifyExplicitSystemInfoRequest } from '../../services/systemInfo.js';
 import { extractUrls, mediaUrlKey } from '../../providers/media/linkMedia/url.js';
 import { extractJokePremises } from '../../brain/repetitionGuard.js';
+import { inferTextFeedback } from '../../brain/textFeedback.js';
 import { currentLlmUsage } from '../../providers/llm/requestContext.js';
 import {
   parseAnimeArchiveConfirmationDecision,
@@ -320,6 +321,45 @@ export async function handleMessage(
     .slice(0, 14);
   const modeName = mode?.name ?? 'Default';
   const modeDescription = mode?.description ?? 'Natural group participant.';
+
+  // Textual feedback must affect the VERY NEXT response, not a scheduler pass 90 seconds later.
+  // We score only an exact reply to a known bot message, so random "basta" in group chatter cannot
+  // train unrelated output. The background job remains as durability/backfill for missed updates.
+  if (context.repliedToMessageId !== undefined && message.messageText?.trim()) {
+    const targetReply = recentReplies.find(
+      (reply) =>
+        reply.messageId === context.repliedToMessageId ||
+        reply.messageIds?.includes(context.repliedToMessageId as number),
+    );
+    if (targetReply) {
+      const feedback = inferTextFeedback([message.messageText]);
+      if (feedback.score !== 0) {
+        targetReply.feedbackScore = feedback.score;
+        targetReply.feedbackReasons = feedback.reasons;
+        if (targetReply._id) {
+          await services.storage.botReplies
+            .setFeedback(targetReply._id, feedback.score, feedback.reasons)
+            .catch((err) => log.debug({ err }, 'immediate textual feedback persistence failed'));
+        }
+        if (feedback.score < 0) {
+          await Promise.all(
+            targetReply.usedMemoryIds.map((memoryId) =>
+              services.lore.adjustSalience(memoryId, -0.1, false).catch(() => undefined),
+            ),
+          );
+        }
+        log.info(
+          {
+            chatId: context.chatId,
+            botMessageId: context.repliedToMessageId,
+            score: feedback.score,
+            reasons: feedback.reasons,
+          },
+          'immediate textual feedback applied',
+        );
+      }
+    }
+  }
   const recentNegativeFeedback = recentReplies.some((r) => (r.feedbackScore ?? 0) < 0);
 
   const language = await services.getLanguage(context.chatId);
@@ -487,6 +527,7 @@ export async function handleMessage(
           minScore: services.config.ambient.minDomainScore,
           maxDomains: services.config.ambient.maxDomains,
         }).domains.length > 0,
+      botUsername,
     },
     addressed,
     autoengageEnabled,
@@ -557,7 +598,13 @@ export async function handleMessage(
     chatNsfwMode,
     modeNsfw: mode?.nsfw ?? false,
     messageText: message.messageText,
-    contextText: history.map((h) => h.message.messageText ?? '').join(' '),
+    // Smart NSFW routing follows the active conversation, not the entire retained history. This
+    // keeps an open adult discussion on the uncensored model without making one old sexual message
+    // contaminate unrelated topics much later.
+    contextText: history
+      .slice(-8)
+      .map((h) => h.message.messageText ?? '')
+      .join(' '),
   });
   const plan = await services.planForTurn(person, context);
   const model = services.modelForPlan(plan, route.model);

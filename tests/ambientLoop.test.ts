@@ -48,9 +48,16 @@ describe('autoengage known-topic bonus', () => {
     expect(decision.shouldReply).toBe(false);
   });
 
-  it('speaks up at the same confidence when it actually knows the subject', async () => {
+  it('does not treat knowing the subject as permission to interrupt at weak confidence', async () => {
     const decision = await scorer({ confidence: 0.5 }).decide(inputs(true), false, true);
-    expect(decision.shouldReply).toBe(true);
+    expect(decision.shouldReply).toBe(false);
+  });
+
+  it('keeps only a small known-topic rebate near the normal confidence bar', async () => {
+    const unknown = await scorer({ confidence: 0.59 }).decide(inputs(false), false, true);
+    const known = await scorer({ confidence: 0.59 }).decide(inputs(true), false, true);
+    expect(unknown.shouldReply).toBe(false);
+    expect(known.shouldReply).toBe(true);
   });
 
   it('never lets the bonus bypass the hourly cap', async () => {

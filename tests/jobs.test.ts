@@ -9,10 +9,24 @@ describe('inferFeedback', () => {
     const { score } = inferFeedback(['ahahah muoio', 'top 😂']);
     expect(score).toBeGreaterThan(0);
   });
-  it('scores negative reactions', () => {
+  it('scores negative reactions with behavioural reasons', () => {
     const { score, reasons } = inferFeedback(['sei ripetitivo', 'che cazzo dici']);
     expect(score).toBeLessThan(0);
-    expect(reasons).toContain('negative');
+    expect(reasons).toContain('repetitive_or_cringe');
+  });
+
+  it('learns explicit human boundaries from the phrases seen in the live chat', () => {
+    for (const [text, reason] of [
+      ['ma fatti i cazzi tua', 'unwanted_intervention'],
+      ['si ma basta', 'too_performative_or_verbose'],
+      ['Ma come parli?', 'too_performative_or_verbose'],
+      ['Fra accetta un complimento senza fare lo stronzo', 'forced_roast'],
+      ['che ne sai, non fare il satiro senza dati', 'unsupported_personal_claim'],
+    ] as const) {
+      const feedback = inferFeedback([text]);
+      expect(feedback.score, text).toBeLessThan(0);
+      expect(feedback.reasons, text).toContain(reason);
+    }
   });
   it('neutral when no signal', () => {
     expect(inferFeedback(['ok', 'va bene']).score).toBe(0);

@@ -14,6 +14,7 @@ import { AgnesVideoGenerator, VideoRateLimitError } from '../providers/video/agn
 import { prepareVideoForTelegram } from '../providers/video/prepare.js';
 import type { TtsProvider } from '../providers/voice/tts.js';
 import type { ImageProfile } from '../providers/image/stableDiffusion.js';
+import type { StoredMessage } from '../storage/repositories/messages.js';
 import type { ConversationService } from './conversation.js';
 import { BOT_LABEL } from './conversation.js';
 import type { MemoryRetrievalInput } from '../memory/memoryRetriever.js';
@@ -293,6 +294,37 @@ function imageAspectRatioFromTool(value: string | undefined): '16:9' | '9:16' | 
   return normalized === '16:9' || normalized === '9:16' || normalized === '1:1'
     ? normalized
     : undefined;
+}
+
+function compactSocialLine(text: string, maxChars: number): string {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (clean.length <= maxChars) return clean;
+  const sentences = clean.match(/.*?[.!?](?:\s|$)/g) ?? [];
+  const first = sentences[0]?.trim();
+  if (first && first.length <= maxChars) return first;
+  const slice = clean.slice(0, Math.max(20, maxChars - 1));
+  const boundary = Math.max(slice.lastIndexOf(','), slice.lastIndexOf(';'), slice.lastIndexOf(' '));
+  const clipped = (
+    boundary >= Math.floor(maxChars * 0.55) ? slice.slice(0, boundary) : slice
+  ).trim();
+  return `${clipped}…`;
+}
+
+function recentHumanMessageLengths(history: StoredMessage[]): number[] {
+  const markers = ['[transcript of the replied audio/video]:', '[media context]:'];
+  return history
+    .filter((message) => !message.isBot)
+    .slice(-16)
+    .map((message) => {
+      const raw = (message.message.messageText ?? '').trim();
+      let cut = raw.length;
+      for (const marker of markers) {
+        const index = raw.indexOf(marker);
+        if (index >= 0) cut = Math.min(cut, index);
+      }
+      return raw.slice(0, cut).replace(/\s+/g, ' ').trim().length;
+    })
+    .filter((length) => length > 0);
 }
 
 function hardFloorFallback(plan: ReplyPlan, language: string, topic: string): string {
@@ -893,6 +925,7 @@ export class ReplyService {
             currentMessage: cortexMessage,
             // The autoengage gate is the addressing signal for this internal deterministic pass.
             botIsAddressed: true,
+            passiveApproved: true,
             availableTools: availableToolsFor(capabilities),
           });
           cortexDecision = {
@@ -952,6 +985,10 @@ export class ReplyService {
         currentHandle: ctx.person.userHandle,
         maxLines: this.config.env.MAX_REPLY_LINES,
         maxChars: this.config.env.MAX_REPLY_CHARS,
+        recentHumanMessageLengths: recentHumanMessageLengths(history),
+        passive: Boolean(ctx.passive),
+        recentNegativeFeedback,
+        fatiguedConcepts: this.styleEngine.fatiguedConcepts(ctx.recentBotReplies),
         ...(standingState.ceiling ? { standingRoastCeiling: standingState.ceiling } : {}),
       });
     };
@@ -1022,6 +1059,10 @@ export class ReplyService {
         currentHandle: ctx.person.userHandle,
         maxLines: this.config.env.MAX_REPLY_LINES,
         maxChars: this.config.env.MAX_REPLY_CHARS,
+        recentHumanMessageLengths: recentHumanMessageLengths(history),
+        passive: Boolean(ctx.passive),
+        recentNegativeFeedback,
+        fatiguedConcepts: this.styleEngine.fatiguedConcepts(ctx.recentBotReplies),
         ...(standingState.ceiling ? { standingRoastCeiling: standingState.ceiling } : {}),
       });
       return {
@@ -1241,6 +1282,10 @@ export class ReplyService {
         currentHandle: ctx.person.userHandle,
         maxLines: this.config.env.MAX_REPLY_LINES,
         maxChars: this.config.env.MAX_REPLY_CHARS,
+        recentHumanMessageLengths: recentHumanMessageLengths(history),
+        passive: Boolean(ctx.passive),
+        recentNegativeFeedback,
+        fatiguedConcepts: this.styleEngine.fatiguedConcepts(ctx.recentBotReplies),
         ...(standingState.ceiling ? { standingRoastCeiling: standingState.ceiling } : {}),
       });
       const query = cortexDecision
@@ -1744,25 +1789,9 @@ export class ReplyService {
     // this specific person has actually built up heat; gratitude/de-escalation must feel accepted.
     const hostility = this.heat.enabled && heatValue >= 20 ? this.heat.directive(heatValue) : null;
 
-    // 3. style + plan
-    const style = this.styleEngine.sample({
-      modeName: ctx.modeName,
-      modeDescription: ctx.modeDescription,
-      scene,
-      recentBotReplies: ctx.recentBotReplies,
-      nsfwEnabled: generationNsfwEnabled,
-      valueTarget: evaluation.valueTarget,
-      socialRole: evaluation.socialRole,
-    });
-    // per-user heat raises the aggression floor for THIS user
-    if (
-      hostility &&
-      scene.socialSignal?.humorAllowed !== false &&
-      evaluation.socialSignal?.humorAllowed !== false
-    ) {
-      style.aggression = Math.max(style.aggression, hostility.aggression);
-    }
-    // banned phrases include overused openings AND recurring tics/sign-offs (kills catchphrases)
+    // 3. plan first, style second. Social policy must constrain personality, never the reverse.
+    // Previously a raw Cortex "banter" label could sample venomous/surreal style before the planner
+    // corrected the turn to a short acknowledgement; that contradiction leaked into generation.
     const bannedOpenings = [
       ...this.styleEngine.bannedOpenings(ctx.recentBotReplies),
       ...this.styleEngine.recurringTics(ctx.recentBotReplies),
@@ -1775,8 +1804,33 @@ export class ReplyService {
       currentHandle: ctx.person.userHandle,
       maxLines: this.config.env.MAX_REPLY_LINES,
       maxChars: this.config.env.MAX_REPLY_CHARS,
-      comedyStrategy: style.comedyStrategies?.[0],
+      recentHumanMessageLengths: recentHumanMessageLengths(history),
+      passive: Boolean(ctx.passive),
+      recentNegativeFeedback,
+      fatiguedConcepts: this.styleEngine.fatiguedConcepts(ctx.recentBotReplies),
+      ...(standingState.ceiling ? { standingRoastCeiling: standingState.ceiling } : {}),
     });
+    const style = this.styleEngine.sample({
+      modeName: ctx.modeName,
+      modeDescription: ctx.modeDescription,
+      scene,
+      recentBotReplies: ctx.recentBotReplies,
+      nsfwEnabled: generationNsfwEnabled,
+      valueTarget: plan.valueTarget,
+      roastBudget: plan.roastBudget,
+      socialRole: plan.socialRole,
+    });
+    plan.comedyStrategy =
+      plan.roastBudget === 'none' ? 'none' : (style.comedyStrategies?.[0] ?? 'none');
+    // per-user heat raises aggression only when this PLAN still licenses humor/roast.
+    if (
+      hostility &&
+      plan.roastBudget !== 'none' &&
+      scene.socialSignal?.humorAllowed !== false &&
+      evaluation.socialSignal?.humorAllowed !== false
+    ) {
+      style.aggression = Math.max(style.aggression, hostility.aggression);
+    }
 
     // Address the current speaker; media is attributed to its poster (replied-to user, or the
     // speaker if they sent it) so the roast target is unambiguous.
@@ -1818,6 +1872,16 @@ export class ReplyService {
       addressee,
       ...(providerContextBlock ? { grounding: providerContextBlock } : {}),
       ...(media ? { media } : {}),
+      ...(ctx.context.repliedToUserHandle || ctx.context.repliedToText
+        ? {
+            replyContext: {
+              ...(ctx.context.repliedToUserHandle
+                ? { handle: ctx.context.repliedToUserHandle }
+                : {}),
+              ...(ctx.context.repliedToText ? { text: ctx.context.repliedToText } : {}),
+            },
+          }
+        : {}),
       ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
       ...(socialContext ? { socialContext } : {}),
       ...(ctx.socialQuestionResolution
@@ -1847,7 +1911,7 @@ export class ReplyService {
           recent: ctx.recentBotReplies,
           plan,
           memories: retrieved,
-          maxChars: this.config.env.MAX_REPLY_CHARS,
+          maxChars: plan.maxChars,
           userMessage: transcribed.messageText ?? '',
         },
         (err) =>
@@ -1916,6 +1980,7 @@ export class ReplyService {
         model: generationModel,
         bannedPhrases: [...plan.bannedPhrases, blockedCandidate.split(/\s+/).slice(0, 4).join(' ')],
         overusedMemory: overusedTexts,
+        maxReplyChars: plan.maxChars,
       });
       candidates = regen.candidates;
       allCandidates.push(...regen.candidates);
@@ -1959,6 +2024,16 @@ export class ReplyService {
         addressee,
         ...(providerContextBlock ? { grounding: providerContextBlock } : {}),
         ...(media ? { media } : {}),
+        ...(ctx.context.repliedToUserHandle || ctx.context.repliedToText
+          ? {
+              replyContext: {
+                ...(ctx.context.repliedToUserHandle
+                  ? { handle: ctx.context.repliedToUserHandle }
+                  : {}),
+                ...(ctx.context.repliedToText ? { text: ctx.context.repliedToText } : {}),
+              },
+            }
+          : {}),
         ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
         ...(socialContext ? { socialContext } : {}),
         ...(ctx.socialQuestionResolution
@@ -1976,7 +2051,7 @@ export class ReplyService {
             recent: ctx.recentBotReplies,
             plan,
             memories: retrieved,
-            maxChars: this.config.env.MAX_REPLY_CHARS,
+            maxChars: plan.maxChars,
             userMessage: transcribed.messageText ?? '',
           },
           (err) =>
@@ -2025,6 +2100,20 @@ export class ReplyService {
         'reply generation produced no usable candidates',
       );
       throw new Error('reply generation produced no usable candidates');
+    }
+
+    if (
+      (plan.action === 'acknowledge' ||
+        plan.action === 'react_short' ||
+        plan.action === 'disagree_briefly') &&
+      best.length > plan.maxChars
+    ) {
+      const originalLength = best.length;
+      best = compactSocialLine(best, plan.maxChars);
+      log.info(
+        { chatId: ctx.context.chatId, action: plan.action, originalLength, chars: best.length },
+        'overlong social reply compacted to chat-sized line',
+      );
     }
 
     // Personal lore is useful only while ownership is exact. On turns involving multiple resolved

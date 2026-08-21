@@ -19,6 +19,17 @@ export interface AutoEngageConfig {
   knownTopicBonus?: number;
 }
 
+export type ConversationInvolvementKind = 'direct' | 'reply_chain' | 'hot_thread' | 'none';
+
+export interface ConversationInvolvement {
+  kind: ConversationInvolvementKind;
+  /** Number of reply edges from the current message to a bot-authored ancestor, when known. */
+  replyDepth: number;
+  recentBotTurns: number;
+  recentBotBranchMessages: number;
+  reason: string;
+}
+
 export interface AutoEngageInputs {
   person: Person;
   context: ChatContext;
@@ -37,6 +48,8 @@ export interface AutoEngageInputs {
    * genuinely has something to add, so it lowers the bar - it never removes it.
    */
   knownTopic?: boolean;
+  /** Current bot username, used only to render/recognize Telegram reply arrows when available. */
+  botUsername?: string;
 }
 
 export interface AutoEngageDecision {
@@ -106,13 +119,29 @@ export class AutoEngageScorer {
 
     if (!autoengageEnabled) return no('autoengage disabled');
 
-    // Passive autoengage: enforce limits before spending an LLM call.
+    const involvement = analyzeConversationInvolvement(inputs);
+
+    // Passive autoengage: enforce limits before spending an LLM call. A reply-chain continuation is
+    // not the same as barging into unrelated chatter, so it gets a much shorter pacing floor while
+    // the hard hourly cap remains untouched.
     if (!this.hourlyCap.isUnderLimit(chatKey)) return no('hourly reply cap reached');
-    if (!this.chatCooldown.isReady(chatKey)) return no('chat cooldown active');
-    if (!this.userCooldown.isReady(`${chatKey}:${inputs.person.userHandle}`)) {
+    if (!cooldownReady(this.chatCooldown, chatKey, this.cfg.chatCooldownSeconds, involvement, 12)) {
+      return no('chat cooldown active');
+    }
+    if (
+      !cooldownReady(
+        this.userCooldown,
+        `${chatKey}:${inputs.person.userHandle}`,
+        this.cfg.userCooldownSeconds,
+        involvement,
+        8,
+      )
+    ) {
       return no('user cooldown active');
     }
-    if (!worthScoring(inputs.currentMessage)) return no('low-information passive message');
+    if (!worthScoring(inputs.currentMessage, involvement)) {
+      return no('low-information passive message');
+    }
 
     let score: AutoEngageScore;
     try {
@@ -128,6 +157,10 @@ export class AutoEngageScorer {
         recentBotReplies: inputs.history.filter((m) => m.isBot).length,
         conversationEnergy: inputs.history.length,
         botLabel: BOT_LABEL,
+        botUsername: inputs.botUsername,
+        replyToHandle: inputs.context.repliedToUserHandle,
+        replyToText: inputs.context.repliedToText,
+        involvement,
       });
       score = await this.llm.scoreAutoEngage({
         prompt,
@@ -140,34 +173,172 @@ export class AutoEngageScorer {
       return no('scoring failed');
     }
 
-    // Be more conservative after bad feedback, and slightly bolder when the bot actually knows
-    // the subject. Cooldowns and the hourly cap were already enforced above and are unaffected.
+    // Knowing a topic barely changes the threshold; already being part of the exact reply branch
+    // changes it materially. This is the difference between unsolicited punditry and continuing a
+    // conversation humans are already having with/about the bot.
+    const involvementBonus =
+      involvement.kind === 'reply_chain' ? 0.18 : involvement.kind === 'hot_thread' ? 0.08 : 0;
     const minConfidence = Math.max(
       0.05,
       this.cfg.minConfidence +
-        (inputs.recentNegativeFeedback ? 0.15 : 0) -
-        (inputs.knownTopic ? (this.cfg.knownTopicBonus ?? 0) : 0),
+        (inputs.recentNegativeFeedback ? 0.25 : 0) -
+        (inputs.knownTopic ? Math.min(0.03, this.cfg.knownTopicBonus ?? 0) : 0) -
+        involvementBonus +
+        (score.risk === 'medium' ? 0.08 : 0),
     );
-    if (!score.shouldReply) return no(`model declined: ${score.reason}`, score);
-    if (score.confidence < minConfidence) {
+    const semiAddressed =
+      involvement.kind === 'reply_chain' &&
+      involvement.replyDepth > 0 &&
+      involvement.replyDepth <= 2 &&
+      !inputs.recentNegativeFeedback;
+    if (score.risk === 'high') return no('high risk', score);
+    if (!score.shouldReply && !semiAddressed) return no(`model declined: ${score.reason}`, score);
+    if (score.confidence < minConfidence && !semiAddressed) {
       return no(`confidence ${score.confidence.toFixed(2)} < ${minConfidence.toFixed(2)}`, score);
     }
-    if (score.risk === 'high') return no('high risk', score);
+    if (!score.shouldReply && semiAddressed) {
+      log.debug(
+        {
+          chatId: inputs.context.chatId,
+          replyDepth: involvement.replyDepth,
+          modelReason: score.reason,
+        },
+        'reply-chain continuation treated as semi-addressed despite passive scorer decline',
+      );
+    }
     return {
       shouldReply: true,
-      reason: score.reason,
+      reason:
+        semiAddressed && !score.shouldReply
+          ? `reply-chain continuation: ${score.reason}`
+          : score.reason,
       score,
-      maxReplyLength: 'short',
-      shouldUseMemory: true,
+      // Passive participation should look like a quick human interjection, never a mini editorial.
+      maxReplyLength: 'tiny',
+      shouldUseMemory: false,
     };
   }
 }
 
-function worthScoring(message: string): boolean {
+export function analyzeConversationInvolvement(
+  inputs: Pick<AutoEngageInputs, 'context' | 'history' | 'botUsername'>,
+): ConversationInvolvement {
+  if (!inputs.context.isGroup || inputs.context.isBotMentioned || inputs.context.isReplyToBot) {
+    return {
+      kind: 'direct',
+      replyDepth: inputs.context.isReplyToBot ? 1 : 0,
+      recentBotTurns: inputs.history.filter((message) => message.isBot).length,
+      recentBotBranchMessages: 0,
+      reason: 'direct bot address',
+    };
+  }
+
+  const byId = new Map<number, StoredMessage>();
+  for (const message of inputs.history) {
+    if (typeof message.messageId === 'number') byId.set(message.messageId, message);
+  }
+  const botUsername = normalizeHandle(inputs.botUsername ?? '');
+  const pointsToBot = (message: StoredMessage): boolean => {
+    if (message.isBot) return true;
+    if (message.replyToHandle && botUsername) {
+      return normalizeHandle(message.replyToHandle) === botUsername;
+    }
+    if (typeof message.replyToMessageId === 'number') {
+      return byId.get(message.replyToMessageId)?.isBot === true;
+    }
+    return false;
+  };
+  const botAncestorDepth = (messageId: number | null | undefined, maxDepth = 3): number => {
+    let currentId = messageId;
+    for (let depth = 1; depth <= maxDepth; depth += 1) {
+      if (typeof currentId !== 'number') return 0;
+      const current = byId.get(currentId);
+      if (!current) return 0;
+      if (current.isBot) return depth;
+      if (pointsToBot(current)) return depth + 1;
+      currentId = current.replyToMessageId;
+    }
+    return 0;
+  };
+
+  const replyDepth = botAncestorDepth(inputs.context.repliedToMessageId, 3);
+  if (replyDepth > 0) {
+    return {
+      kind: 'reply_chain',
+      replyDepth,
+      recentBotTurns: inputs.history.filter((message) => message.isBot).length,
+      recentBotBranchMessages: 1,
+      reason: `current reply descends from a bot message (${replyDepth} edges)`,
+    };
+  }
+
+  const recent = inputs.history.slice(-8);
+  const recentBotTurns = recent.filter((message) => message.isBot).length;
+  const branchMessages = recent.filter(
+    (message) =>
+      !message.isBot && (pointsToBot(message) || botAncestorDepth(message.messageId, 2) > 0),
+  ).length;
+  const latestTs = recent.at(-1)?.message.timestamp?.getTime?.() ?? 0;
+  const latestBotTs = [...recent]
+    .reverse()
+    .find((message) => message.isBot)
+    ?.message.timestamp?.getTime?.();
+  const botRecentlyActive =
+    latestTs > 0 && typeof latestBotTs === 'number' && latestTs - latestBotTs <= 5 * 60_000;
+  if (botRecentlyActive && recentBotTurns >= 2 && branchMessages >= 2) {
+    return {
+      kind: 'hot_thread',
+      replyDepth: 0,
+      recentBotTurns,
+      recentBotBranchMessages: branchMessages,
+      reason: 'bot is already an active participant in the recent reply branch',
+    };
+  }
+
+  return {
+    kind: 'none',
+    replyDepth: 0,
+    recentBotTurns,
+    recentBotBranchMessages: branchMessages,
+    reason: 'no structural evidence that the bot is part of this branch',
+  };
+}
+
+function cooldownReady(
+  cooldown: Cooldown,
+  key: string,
+  configuredSeconds: number,
+  involvement: ConversationInvolvement,
+  involvedMinSeconds: number,
+): boolean {
+  const remaining = cooldown.remainingMs(key);
+  if (remaining === 0) return true;
+  if (involvement.kind !== 'reply_chain' && involvement.kind !== 'hot_thread') return false;
+  const intervalMs = Math.max(0, configuredSeconds * 1000);
+  const elapsedMs = Math.max(0, intervalMs - remaining);
+  return elapsedMs >= Math.min(intervalMs, involvedMinSeconds * 1000);
+}
+
+function normalizeHandle(value: string): string {
+  const clean = value.trim().toLowerCase();
+  return clean.startsWith('@') ? clean : clean ? `@${clean}` : '';
+}
+
+function worthScoring(message: string, involvement: ConversationInvolvement): boolean {
   const text = message.trim();
   if (text.length < 3) return false;
   if (/^[\p{P}\p{S}\s]+$/u.test(text)) return false;
   if (/^(?:ok|okay|s[iì]|no|boh|mah|lol|lmao|ahah+a?|grazie|thanks|thx)[.!?]*$/i.test(text)) {
+    return false;
+  }
+  // Short fragments like "13 mesi" are normally backchannel chatter. But the exact same fragment
+  // can be meaningful when it continues a reply branch in which the bot is already a participant.
+  if (
+    text.length <= 28 &&
+    !/[?!]/u.test(text) &&
+    involvement.kind !== 'reply_chain' &&
+    involvement.kind !== 'hot_thread'
+  ) {
     return false;
   }
   return true;
