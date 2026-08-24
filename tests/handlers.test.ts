@@ -320,7 +320,7 @@ describe('/nsfw command', () => {
 });
 
 describe('clearfacts permission adaptation', () => {
-  const notBotAdmin = { isBotAdmin: () => false };
+  const notBotAdmin = { isBotAdminPerson: () => false };
 
   it('blocks clearing another user’s facts without admin', async () => {
     const services = { lore: { expireForSubject: vi.fn() }, permissions: notBotAdmin };
@@ -353,7 +353,7 @@ describe('clearfacts permission adaptation', () => {
 
   it('allows a bot admin to clear others even without group admin', async () => {
     const expireForSubject = vi.fn().mockResolvedValue(1);
-    const services = { lore: { expireForSubject }, permissions: { isBotAdmin: () => true } };
+    const services = { lore: { expireForSubject }, permissions: { isBotAdminPerson: () => true } };
     const res = await clearfactsCommand.handle(
       input(services, ['@alice'], context({ isGroupAdmin: false })),
     );

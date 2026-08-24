@@ -476,6 +476,7 @@ export class Services {
     await Promise.all([
       this.storage.users.upsertFromPerson(person),
       this.storage.chatMembers.touch(context.chatId, person),
+      this.permissions.refreshBotAdminIdentity(person),
       this.usage.ensure(person.userHandle),
       this.social.recordPresence({
         chatId: context.chatId,
@@ -503,14 +504,14 @@ export class Services {
 
   /** Bot admins in private chat are operator sessions, not secondary/free groups. */
   bypassesGroupPlan(person: Person, context: ChatContext): boolean {
-    return !context.isGroup && this.permissions.isBotAdmin(person.userHandle);
+    return !context.isGroup && this.permissions.isBotAdminPerson(person);
   }
 
   /** Bulk archive authority: real group admin in groups, configured bot admin in private chat. */
   isAnimeArchiveAdmin(person: Person, context: ChatContext): boolean {
     return context.isGroup
-      ? context.isGroupAdmin || this.permissions.isBotAdmin(person.userHandle)
-      : this.permissions.isBotAdmin(person.userHandle);
+      ? context.isGroupAdmin || this.permissions.isBotAdminPerson(person)
+      : this.permissions.isBotAdminPerson(person);
   }
 
   attachAnimeArchiveTelegramApi(api: Api): void {
@@ -540,7 +541,7 @@ export class Services {
 
   /** True if the user/chat may use the model, media generation and link-media (admin/approved). */
   isApproved(person: Person, context: ChatContext): boolean {
-    const isAdmin = this.permissions.isBotAdmin(person.userHandle);
+    const isAdmin = this.permissions.isBotAdminPerson(person);
     return this.access.isApproved(person, context, isAdmin);
   }
 

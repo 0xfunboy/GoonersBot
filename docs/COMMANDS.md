@@ -2,9 +2,9 @@
 
 > GENERATED FILE — update `src/telegram/handlers/commands/helpCatalog.ts` or the command registry, then run `pnpm docs:commands`.
 
-Static commands: **50**. Capability Forge may install additional dynamic commands at runtime; use `/capabilities` to list those currently installed.
+Static commands: **54**. Capability Forge may install additional dynamic commands at runtime; use `/capabilities` to list those currently installed.
 
-Access model: `admin` means group administrator **or** configured bot admin; `bot admin` means an entry in `ADMIN_HANDLES`; `learn admin` means bot admin or an immutable local-development admin ID. Except for `/start`, `/tos`/`/terms`, and `/help`, commands also pass through the approval gate.
+Access model: `admin` means group administrator **or** bot admin; `bot admin` means either a bootstrap/root handle from `ADMIN_HANDLES` or a runtime grant persisted by immutable Telegram user ID; `learn admin` means bot admin or an immutable local-development admin ID. Except for `/start`, `/tos`/`/terms`, and `/help`, commands also pass through the approval gate.
 
 Anime note: `/anime` is the release/catalog command. AnimeUnity/HentaiSaturn availability, single-episode rehost, and current-season bulk rehost are natural-language `anime_archive` actions rather than separate slash commands. Archive delivery preserves the source and enforces one episode = one Telegram file.
 
@@ -267,6 +267,13 @@ Mostra dati live allowlisted dell’host: hardware/CPU/RAM/GPU, sensori/temperat
 - **Accesso:** utente/chat approvata
 - **Alias registrati:** `/systeminfo`, `/sysinfo`, `/specs`, `/sistema`
 
+#### `/id [@utente|telegram-id] oppure reply + /id`
+
+Mostra l’identità Telegram deterministica in YAML: ID raw/formattato, username e nome. Senza argomento mostra te stesso; in reply usa l’autore citato. Non usa LLM.
+
+- **Accesso:** utente/chat approvata
+- **Alias registrati:** —
+
 #### `/models`
 
 Mostra gli identificatori dei modelli configurati per i vari ruoli, senza endpoint, API key o altri segreti.
@@ -289,6 +296,20 @@ Mostra il consumo personale registrato nel periodo e il relativo limite utente.
 - **Alias registrati:** `/utilizzo`
 
 ### Amministrazione e sviluppo
+
+#### `/admin @utente | reply + /admin`
+
+Bot-admin only. Promuove un utente a bot admin persistendo l’autorità sul Telegram user ID immutabile; username/nome restano solo metadata.
+
+- **Accesso:** bot admin
+- **Alias registrati:** —
+
+#### `/admins`
+
+Bot-admin only. Elenca root admin bootstrap e grant runtime persistite per Telegram user ID.
+
+- **Accesso:** bot admin
+- **Alias registrati:** —
 
 #### `/approve [id]`
 
@@ -359,6 +380,13 @@ Admin diagnostics della memoria sociale: conteggi e lifecycle di facet, relazion
 
 - **Accesso:** admin
 - **Alias registrati:** `/communitystatus`, `/statosociale`
+
+#### `/unadmin @utente | reply + /unadmin`
+
+Bot-admin only. Revoca una grant runtime basata su Telegram ID. I root admin bootstrap definiti in ADMIN_HANDLES non sono revocabili da Telegram.
+
+- **Accesso:** bot admin
+- **Alias registrati:** —
 
 #### `/unapprove [id]`
 
@@ -633,6 +661,13 @@ Show allowlisted live host facts: hardware/CPU/RAM/GPU, sensors/temperatures/fan
 - **Access:** approved user/chat
 - **Registered aliases:** `/systeminfo`, `/sysinfo`, `/specs`, `/sistema`
 
+#### `/id [@user|telegram-id] or reply + /id`
+
+Show deterministic Telegram identity as YAML: raw/formatted ID, username, and name. With no argument it shows you; as a reply it targets the replied author. No LLM is used.
+
+- **Access:** approved user/chat
+- **Registered aliases:** —
+
 #### `/models`
 
 Show model identifiers configured for the different roles, without endpoints, API keys, or other secrets.
@@ -655,6 +690,20 @@ Show your recorded usage for the current period and your user limit.
 - **Registered aliases:** `/utilizzo`
 
 ### Administration & development
+
+#### `/admin @user | reply + /admin`
+
+Bot-admin only. Promote a user to bot admin, persisting authority on the immutable Telegram user ID; username/name are metadata only.
+
+- **Access:** bot admin
+- **Registered aliases:** —
+
+#### `/admins`
+
+Bot-admin only. List bootstrap root admins and runtime grants persisted by Telegram user ID.
+
+- **Access:** bot admin
+- **Registered aliases:** —
 
 #### `/approve [id]`
 
@@ -725,6 +774,13 @@ Admin social-memory diagnostics: counts/lifecycle for facets, relationships, jok
 
 - **Access:** admin
 - **Registered aliases:** `/communitystatus`, `/statosociale`
+
+#### `/unadmin @user | reply + /unadmin`
+
+Bot-admin only. Revoke a runtime Telegram-ID grant. Bootstrap root admins from ADMIN_HANDLES cannot be revoked from Telegram.
+
+- **Access:** bot admin
+- **Registered aliases:** —
 
 #### `/unapprove [id]`
 
@@ -999,6 +1055,13 @@ Muestra datos live permitidos del host: hardware/CPU/RAM/GPU, sensores/temperatu
 - **Acceso:** usuario/chat aprobado
 - **Alias registrados:** `/systeminfo`, `/sysinfo`, `/specs`, `/sistema`
 
+#### `/id [@usuario|telegram-id] o respuesta + /id`
+
+Muestra la identidad Telegram determinista en YAML: ID raw/formateado, username y nombre. Sin argumento te muestra a ti; como respuesta usa al autor citado. No usa LLM.
+
+- **Acceso:** usuario/chat aprobado
+- **Alias registrados:** —
+
 #### `/models`
 
 Muestra los identificadores de modelos configurados para los distintos roles, sin endpoints, API keys ni otros secretos.
@@ -1021,6 +1084,20 @@ Muestra tu uso registrado en el periodo actual y tu límite de usuario.
 - **Alias registrados:** `/utilizzo`
 
 ### Administración y desarrollo
+
+#### `/admin @usuario | respuesta + /admin`
+
+Solo admin del bot. Promueve un usuario a admin del bot persistiendo la autoridad sobre el Telegram user ID inmutable; username/nombre son solo metadata.
+
+- **Acceso:** admin del bot
+- **Alias registrados:** —
+
+#### `/admins`
+
+Solo admin del bot. Lista los root admins bootstrap y los permisos runtime persistidos por Telegram user ID.
+
+- **Acceso:** admin del bot
+- **Alias registrados:** —
 
 #### `/approve [id]`
 
@@ -1091,6 +1168,13 @@ Diagnóstico admin de memoria social: conteos/lifecycle de facets, relaciones, b
 
 - **Acceso:** admin
 - **Alias registrados:** `/communitystatus`, `/statosociale`
+
+#### `/unadmin @usuario | respuesta + /unadmin`
+
+Solo admin del bot. Revoca un permiso runtime basado en Telegram ID. Los root admins bootstrap de ADMIN_HANDLES no pueden revocarse desde Telegram.
+
+- **Acceso:** admin del bot
+- **Alias registrados:** —
 
 #### `/unapprove [id]`
 

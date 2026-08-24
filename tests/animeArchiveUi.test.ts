@@ -267,7 +267,7 @@ describe('anime archive mixed URL routing', () => {
       initializeContext: vi.fn().mockResolvedValue(undefined),
       permissions: {
         checkAll: vi.fn().mockResolvedValue(true),
-        isBotAdmin: vi.fn().mockReturnValue(false),
+        isBotAdminPerson: vi.fn().mockReturnValue(false),
       },
       conversation: {
         isStarted: vi.fn().mockResolvedValue(true),
@@ -387,7 +387,7 @@ describe('anime archive bulk authority', () => {
   it('does not inherit the generic private-chat-is-admin shortcut', () => {
     const call = (botAdmin: boolean, chat: ChatContext): boolean =>
       Services.prototype.isAnimeArchiveAdmin.call(
-        { permissions: { isBotAdmin: () => botAdmin } },
+        { permissions: { isBotAdminPerson: () => botAdmin } },
         person,
         chat,
       );

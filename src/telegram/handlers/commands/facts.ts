@@ -61,7 +61,7 @@ export const factsCommand: CommandSpec = {
   async handle({ services, context, person, args }) {
     const target = args[0] ? normalizeHandle(args[0]) : person.userHandle;
     const isSelf = target === person.userHandle;
-    const isAdmin = context.isGroupAdmin || services.permissions.isBotAdmin(person.userHandle);
+    const isAdmin = context.isGroupAdmin || services.permissions.isBotAdminPerson(person);
     if (!isSelf && !isAdmin) return { text: 'facts_forbidden' };
     const items = await services.lore.listForSubject(context.chatId, target);
     if (items.length === 0) {
@@ -85,7 +85,7 @@ export const clearfactsCommand: CommandSpec = {
   async handle({ services, context, person, args }) {
     const target = args[0] ? normalizeHandle(args[0]) : person.userHandle;
     const isSelf = target === person.userHandle;
-    const isAdmin = context.isGroupAdmin || services.permissions.isBotAdmin(person.userHandle);
+    const isAdmin = context.isGroupAdmin || services.permissions.isBotAdminPerson(person);
     if (!isSelf && !isAdmin) return { text: 'clearfacts_forbidden' };
     await Promise.all([
       services.lore.expireForSubject(context.chatId, target),
@@ -124,7 +124,7 @@ export const forgetCommand: CommandSpec = {
   needsTermsAccepted: false,
   priority: Priority.DEFAULT,
   async handle({ services, context, person, args }) {
-    const isAdmin = context.isGroupAdmin || services.permissions.isBotAdmin(person.userHandle);
+    const isAdmin = context.isGroupAdmin || services.permissions.isBotAdminPerson(person);
     if (args[0] && isAdmin) {
       const ok = await services.lore.expireById(context.chatId, args[0]);
       return ok ? { text: 'forget_done' } : { text: 'forget_none' };

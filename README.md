@@ -133,8 +133,9 @@ pnpm build && pnpm start
 
 1. Create a bot with [@BotFather](https://t.me/BotFather) and copy the token into `TELEGRAM_BOT_TOKEN`.
 2. Add the bot to your group.
-3. Put the deployer's `@handle` in `ADMIN_HANDLES` so they can run control commands anywhere, even
-   without being a group admin. `ALLOWED_HANDLES=*` lets everyone chat.
+3. Put the deployer's `@handle` in `ADMIN_HANDLES` as the bootstrap/root bot admin. Root handles can
+   then promote additional bot admins with `/admin` using immutable Telegram user IDs. `ALLOWED_HANDLES=*`
+   lets everyone chat.
 
 By default Telegram bots run with Privacy Mode ON: the bot only receives commands, replies to its own
 messages, and messages that mention it. Make the bot a group admin or disable Privacy Mode in
@@ -277,7 +278,7 @@ illegal, no doxxing. NSFW is opt-in per chat and meant for private, consenting a
 
 ## Commands
 
-GoonersBot currently registers **50 static slash commands**, plus any dynamic commands installed by
+GoonersBot currently registers **54 static slash commands**, plus any dynamic commands installed by
 Capability Forge. The complete reference is generated from the same command registry and detailed
 help catalog used by the runtime, so syntax, aliases and access requirements are not maintained in a
 second handwritten table.
@@ -289,8 +290,9 @@ second handwritten table.
   `pnpm docs:commands` in Italian, English and Spanish.
 - Runtime-only dynamic commands: `/capabilities` lists the capabilities currently installed by
   `/learn`.
-- `admin` means group admin **or** bot admin (`ADMIN_HANDLES`); `bot admin` means an entry in
-  `ADMIN_HANDLES`; `learn admin` also includes immutable local-development admin IDs.
+- `admin` means group admin **or** bot admin. `bot admin` means either a bootstrap/root handle in
+  `ADMIN_HANDLES` or a runtime `/admin` grant persisted by immutable Telegram user ID; `learn admin`
+  also includes immutable local-development admin IDs.
 - `/anime <title>` is the release/catalog command. AnimeUnity/HentaiSaturn availability and rehost
   are handled by the natural-language `anime_archive` action; archive delivery preserves the source
   and enforces **one episode = one Telegram file**.
@@ -312,6 +314,9 @@ never replies and nothing is generated for them.
   (`ADMIN_HANDLES`) for approval. No conversation, no generation.
 - **Groups**: a group only gets the full bot once its chat id is approved; non-approved groups stay
   silent.
+- **Bot admins**: `/admin @username` or reply + `/admin` creates a Mongo-backed grant keyed by the
+  immutable Telegram user ID; `/unadmin` revokes runtime grants and `/admins` lists root/runtime admins.
+  Bootstrap `ADMIN_HANDLES` remain non-revocable from Telegram.
 - **Approving**: a bot admin runs `/approve` inside a group to approve it, or `/approve <id>` from
   anywhere (negative id = chat, positive id = user). `/unapprove` and `/approved` manage the list.
 - Approval alone does not schedule background work. On boot the bot audits every approved group
@@ -1188,7 +1193,7 @@ The tables below list the common vars; see `.env.example` for the full set with 
 | `TELEGRAM_BOT_TOKEN` | required                              | Token from @BotFather.                                                |
 | `BOT_USERNAME`       | `GoonersBot`                          | Hint only; the real username is resolved at boot.                     |
 | `ALLOWED_HANDLES`    | `*`                                   | Comma `@handles` allowed to use the bot. Empty or `*` means everyone. |
-| `ADMIN_HANDLES`      | none                                  | Comma `@handles` that are bot admins.                                 |
+| `ADMIN_HANDLES`      | none                                  | Bootstrap/root bot-admin `@handles`; runtime grants use `/admin` and immutable Telegram IDs. |
 | `MONGO_URI`          | `mongodb://127.0.0.1:27017/goonerbot` | Connection string.                                                    |
 | `MONGO_DB`           | `goonerbot`                           | Database name.                                                        |
 | `NODE_ENV`           | `development`                         | `production` gives JSON logs.                                         |
@@ -1309,7 +1314,7 @@ GoonersBot is built for an authorized, self-hosted deployment.
 | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Secrets         | Only in `.env` (gitignored). No hardcoded tokens or keys in source. The LLM key is sent as a Bearer header and never logged.                                                                   |
 | Logging         | Structured (pino). The bot token, LLM key and Mongo URI are never logged.                                                                                                                      |
-| Auth            | Centralized permission service. Control commands require group admin or bot admin; `/ban` requires bot admin. Callback queries are permission-checked.                                         |
+| Auth            | Centralized permission service. Bootstrap admins come from `ADMIN_HANDLES`; runtime bot-admin grants are persisted by immutable Telegram ID. Control commands require group admin or bot admin; `/ban` and `/admin` require bot admin. Callback queries are permission-checked. |
 | Bans            | Gated on commands and in the message handler; timed bans auto-expire.                                                                                                                          |
 | NoSQL injection | Mongo queries use fixed field names with user input only as scalar values; no `$where` or `eval`; ids guarded by `ObjectId.isValid`.                                                           |
 | Rate limiting   | Per-user command cooldown, plan-aware per-group anti-flood, durable hourly/daily quotas, a serial three-RPM mining lane, globally serialized image jobs, usage limits and media download caps. |
@@ -1348,7 +1353,7 @@ pnpm tsx scripts/smoke-search.ts        # SearXNG query and grounding gating
 
 | Symptom                               | Cause and fix                                                                                                                       |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `/start` says you cannot do that here | You are not a group admin and not in `ADMIN_HANDLES`. Add your `@handle`.                                                           |
+| `/start` says you cannot do that here | You are neither a group admin nor a bot admin. Add the bootstrap handle to `ADMIN_HANDLES` or have a bot admin grant you with `/admin`. |
 | Bot ignores normal messages           | Privacy Mode is ON. Disable it in @BotFather (then re-add the bot) or make the bot a group admin.                                   |
 | Replies in the wrong language         | Existing chats keep their stored language; run `/language`. New chats use `DEFAULT_LANGUAGE`.                                       |
 | A capability is unavailable           | The relevant `LLM_*_MODEL` is not set (vision, image, transcription). Set it or ignore.                                             |

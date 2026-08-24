@@ -353,6 +353,54 @@ export const COMMAND_HELP: Readonly<Record<string, CommandHelpDefinition>> = {
       'Muestra la referencia completa de comandos registrados. Sin argumento sigue IT/EN/ES del chat (otros idiomas usan EN); it/en/es cambia solo el idioma de la ayuda.',
     ),
   },
+  id: {
+    category: 'diagnostics',
+    usage: l(
+      '/id [@utente|telegram-id] oppure reply + /id',
+      '/id [@user|telegram-id] or reply + /id',
+      '/id [@usuario|telegram-id] o respuesta + /id',
+    ),
+    description: l(
+      'Mostra l’identità Telegram deterministica in YAML: ID raw/formattato, username e nome. Senza argomento mostra te stesso; in reply usa l’autore citato. Non usa LLM.',
+      'Show deterministic Telegram identity as YAML: raw/formatted ID, username, and name. With no argument it shows you; as a reply it targets the replied author. No LLM is used.',
+      'Muestra la identidad Telegram determinista en YAML: ID raw/formateado, username y nombre. Sin argumento te muestra a ti; como respuesta usa al autor citado. No usa LLM.',
+    ),
+  },
+  admin: {
+    category: 'administration',
+    usage: l(
+      '/admin @utente | reply + /admin',
+      '/admin @user | reply + /admin',
+      '/admin @usuario | respuesta + /admin',
+    ),
+    description: l(
+      'Bot-admin only. Promuove un utente a bot admin persistendo l’autorità sul Telegram user ID immutabile; username/nome restano solo metadata.',
+      'Bot-admin only. Promote a user to bot admin, persisting authority on the immutable Telegram user ID; username/name are metadata only.',
+      'Solo admin del bot. Promueve un usuario a admin del bot persistiendo la autoridad sobre el Telegram user ID inmutable; username/nombre son solo metadata.',
+    ),
+  },
+  unadmin: {
+    category: 'administration',
+    usage: l(
+      '/unadmin @utente | reply + /unadmin',
+      '/unadmin @user | reply + /unadmin',
+      '/unadmin @usuario | respuesta + /unadmin',
+    ),
+    description: l(
+      'Bot-admin only. Revoca una grant runtime basata su Telegram ID. I root admin bootstrap definiti in ADMIN_HANDLES non sono revocabili da Telegram.',
+      'Bot-admin only. Revoke a runtime Telegram-ID grant. Bootstrap root admins from ADMIN_HANDLES cannot be revoked from Telegram.',
+      'Solo admin del bot. Revoca un permiso runtime basado en Telegram ID. Los root admins bootstrap de ADMIN_HANDLES no pueden revocarse desde Telegram.',
+    ),
+  },
+  admins: {
+    category: 'administration',
+    usage: l('/admins', '/admins', '/admins'),
+    description: l(
+      'Bot-admin only. Elenca root admin bootstrap e grant runtime persistite per Telegram user ID.',
+      'Bot-admin only. List bootstrap root admins and runtime grants persisted by Telegram user ID.',
+      'Solo admin del bot. Lista los root admins bootstrap y los permisos runtime persistidos por Telegram user ID.',
+    ),
+  },
   approve: {
     category: 'administration',
     usage: l('/approve [id]', '/approve [id]', '/approve [id]'),

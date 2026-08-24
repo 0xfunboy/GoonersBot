@@ -651,7 +651,7 @@ export async function handleMessage(
       passive: !addressed,
       allowLinkMedia: linkMediaAllowed,
       animeArchiveAdmin: services.isAnimeArchiveAdmin(person, context),
-      allowCapabilityInstall: services.permissions.isBotAdmin(person.userHandle),
+      allowCapabilityInstall: services.permissions.isBotAdminPerson(person),
     });
     const meteredUsage = currentLlmUsage();
     if (meteredUsage?.calls) {

@@ -160,10 +160,24 @@ describe('classifyExplicitSystemInfoRequest', () => {
     });
   });
 
-  it('routes identity requests to a fixed safe scope and expands a generic report minimally', () => {
+  it('routes only explicit host identity requests and never hijacks Telegram user-id discussion', () => {
     expect(
       classifyExplicitSystemInfoRequest('Dimmi IP, hostname e username del server', true),
     ).toEqual({ explicit: true, scopes: ['identity'] });
+    expect(classifyExplicitSystemInfoRequest('dimmi il tuo IP', true)).toEqual({
+      explicit: true,
+      scopes: ['identity'],
+    });
+    expect(
+      classifyExplicitSystemInfoRequest(
+        'si che ha scritto, normalizza l id nel tuo formato 1.234.567.890 o cerca per username @testuser',
+        true,
+      ),
+    ).toEqual({ explicit: false, scopes: [] });
+    expect(classifyExplicitSystemInfoRequest('chi è username @testuser?', true)).toEqual({
+      explicit: false,
+      scopes: [],
+    });
     expect(classifyExplicitSystemInfoRequest('Fammi un report di sistema', true)).toEqual({
       explicit: true,
       scopes: ['hardware', 'sensors', 'storage', 'models', 'quota'],
