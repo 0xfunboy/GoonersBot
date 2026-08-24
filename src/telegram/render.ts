@@ -14,6 +14,16 @@ import { formatQuotaRetry } from './quotaMessage.js';
 
 const log = childLogger('render');
 
+export function isTelegramReplyTargetMissingError(error: unknown): boolean {
+  const detail =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'object' && error !== null
+        ? JSON.stringify(error)
+        : String(error);
+  return /message to be replied not found|reply message not found/i.test(detail);
+}
+
 /** Schedule best-effort deletion of a message after `ttlMs` (used for ephemeral terms prompts). */
 export function scheduleDelete(
   ctx: Context,
@@ -184,9 +194,18 @@ export async function sendResponse(
     }
   } catch (err) {
     log.error({ err }, 'failed to send response');
-    // Fallback: try plain text without HTML in case of parse errors.
     if (response.text) {
       try {
+        // Telegram can delete the triggering message while generation is in flight. The prepared
+        // response is still valid; retry it as a normal chat message instead of converting a stale
+        // reply target into a fake generation failure.
+        if (isTelegramReplyTargetMissingError(err)) {
+          log.warn('reply target disappeared; retrying response without reply_parameters');
+          return await ctx.reply(telegramPlainText(response.text, textFormat), {
+            ...(reply_markup ? { reply_markup } : {}),
+          });
+        }
+        // Fallback: try plain text without HTML in case of parse errors.
         return await ctx.reply(telegramPlainText(response.text, textFormat), {
           ...replyOpts,
           ...(reply_markup ? { reply_markup } : {}),

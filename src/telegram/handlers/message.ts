@@ -4,7 +4,12 @@ import type { Services } from '../../services/index.js';
 import type { Env } from '../../config/env.js';
 import type { AddMessageMeta } from '../../storage/repositories/messages.js';
 import { termsKeyboard, termsHeader } from './shared.js';
-import { localizeResponse, sendResponse, scheduleDelete } from '../render.js';
+import {
+  isTelegramReplyTargetMissingError,
+  localizeResponse,
+  sendResponse,
+  scheduleDelete,
+} from '../render.js';
 import { fingerprint, escapeHtml } from '../../utils/text.js';
 import { Cooldown } from '../../utils/rateLimit.js';
 import { childLogger } from '../../utils/logger.js';
@@ -13,6 +18,7 @@ import type { LinkMediaResult } from '../../services/linkMedia.js';
 import { classifyExplicitSystemInfoRequest } from '../../services/systemInfo.js';
 import { extractUrls, mediaUrlKey } from '../../providers/media/linkMedia/url.js';
 import { extractJokePremises } from '../../brain/repetitionGuard.js';
+import { ReplyGenerationUnavailableError } from '../../brain/responseGenerator.js';
 import { inferTextFeedback } from '../../brain/textFeedback.js';
 import { currentLlmUsage } from '../../providers/llm/requestContext.js';
 import {
@@ -806,6 +812,15 @@ export async function handleMessage(
           };
           const sent = await ctx.reply(rendered.text, options).catch(async (err) => {
             log.warn({ err, chatId: context.chatId, index }, 'formatted text send failed');
+            if (index === 0 && isTelegramReplyTargetMissingError(err)) {
+              log.warn(
+                { chatId: context.chatId, inputMessageId: context.messageId },
+                'reply target disappeared; sending generated text without reply_parameters',
+              );
+              return ctx
+                .reply(rendered.text, { parse_mode: rendered.parseMode })
+                .catch(() => ctx.reply(telegramPlainText(chunk, 'markdown')));
+            }
             return ctx.reply(telegramPlainText(chunk, 'markdown'), {
               ...(index === 0 ? replyOpts : {}),
             });
@@ -1120,7 +1135,10 @@ export async function handleMessage(
     }
     log.error({ err }, 'reply generation failed');
     const localized = await localizeResponse(services, context.chatId, {
-      text: 'generation_failed',
+      text:
+        err instanceof ReplyGenerationUnavailableError
+          ? 'generation_unavailable'
+          : 'generation_failed',
     });
     await sendResponse(ctx, localized).catch(() => undefined);
   }
