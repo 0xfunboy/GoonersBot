@@ -1,0 +1,3 @@
+[submodule "third_party/telegram-bot-api"]
+	path = third_party/telegram-bot-api
+	url = https://github.com/tdlib/telegram-bot-api.git

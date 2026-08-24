@@ -19,6 +19,7 @@
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/generate-command-docs.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/generate-command-docs.ts\"",
     "docs:commands": "tsx scripts/generate-command-docs.ts",
+    "telegram-api:setup": "bash scripts/setup-telegram-bot-api.sh",
     "test": "vitest run",
     "test:watch": "vitest"
   },

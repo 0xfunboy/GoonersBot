@@ -6,6 +6,8 @@ After=goonerbot-mongodb.service
 Wants=goonerbot-mongodb.service
 After=searxng.service
 Wants=searxng.service
+After=telegram-bot-api.service
+Wants=telegram-bot-api.service
 StartLimitIntervalSec=0
 
 [Service]
