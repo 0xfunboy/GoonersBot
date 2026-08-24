@@ -361,9 +361,9 @@ export const COMMAND_HELP: Readonly<Record<string, CommandHelpDefinition>> = {
       '/id [@usuario|telegram-id] o respuesta + /id',
     ),
     description: l(
-      'Mostra l’identità Telegram deterministica in YAML: ID raw/formattato, username e nome. Senza argomento mostra te stesso; in reply usa l’autore citato. Non usa LLM.',
-      'Show deterministic Telegram identity as YAML: raw/formatted ID, username, and name. With no argument it shows you; as a reply it targets the replied author. No LLM is used.',
-      'Muestra la identidad Telegram determinista en YAML: ID raw/formateado, username y nombre. Sin argumento te muestra a ti; como respuesta usa al autor citado. No usa LLM.',
+      'Mostra l’identità Telegram deterministica in YAML: ID numerico raw, username e nome. Senza argomento mostra te stesso; in reply usa l’autore citato. Non usa LLM.',
+      'Show deterministic Telegram identity as YAML: raw numeric ID, username, and name. With no argument it shows you; as a reply it targets the replied author. No LLM is used.',
+      'Muestra la identidad Telegram determinista en YAML: ID numérico raw, username y nombre. Sin argumento te muestra a ti; como respuesta usa al autor citado. No usa LLM.',
     ),
   },
   admin: {

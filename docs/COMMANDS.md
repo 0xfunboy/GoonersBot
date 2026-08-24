@@ -269,7 +269,7 @@ Mostra dati live allowlisted dell’host: hardware/CPU/RAM/GPU, sensori/temperat
 
 #### `/id [@utente|telegram-id] oppure reply + /id`
 
-Mostra l’identità Telegram deterministica in YAML: ID raw/formattato, username e nome. Senza argomento mostra te stesso; in reply usa l’autore citato. Non usa LLM.
+Mostra l’identità Telegram deterministica in YAML: ID numerico raw, username e nome. Senza argomento mostra te stesso; in reply usa l’autore citato. Non usa LLM.
 
 - **Accesso:** utente/chat approvata
 - **Alias registrati:** —
@@ -663,7 +663,7 @@ Show allowlisted live host facts: hardware/CPU/RAM/GPU, sensors/temperatures/fan
 
 #### `/id [@user|telegram-id] or reply + /id`
 
-Show deterministic Telegram identity as YAML: raw/formatted ID, username, and name. With no argument it shows you; as a reply it targets the replied author. No LLM is used.
+Show deterministic Telegram identity as YAML: raw numeric ID, username, and name. With no argument it shows you; as a reply it targets the replied author. No LLM is used.
 
 - **Access:** approved user/chat
 - **Registered aliases:** —
@@ -1057,7 +1057,7 @@ Muestra datos live permitidos del host: hardware/CPU/RAM/GPU, sensores/temperatu
 
 #### `/id [@usuario|telegram-id] o respuesta + /id`
 
-Muestra la identidad Telegram determinista en YAML: ID raw/formateado, username y nombre. Sin argumento te muestra a ti; como respuesta usa al autor citado. No usa LLM.
+Muestra la identidad Telegram determinista en YAML: ID numérico raw, username y nombre. Sin argumento te muestra a ti; como respuesta usa al autor citado. No usa LLM.
 
 - **Acceso:** usuario/chat aprobado
 - **Alias registrados:** —

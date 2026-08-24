@@ -56,12 +56,12 @@ export const adminCommand: CommandSpec = {
     }
     if (result === 'existing') {
       return {
-        rawText: `✅ ${target.person.userHandle} è già bot admin (Telegram ID ${formatTelegramId(target.person.telegramId)}).`,
+        rawText: `✅ ${target.person.userHandle} è già bot admin (Telegram ID ${target.person.telegramId}).`,
         textFormat: 'plain',
       };
     }
     return {
-      rawText: `✅ ${target.person.userHandle} è ora bot admin. Grant persistita sul Telegram ID ${formatTelegramId(target.person.telegramId)}.`,
+      rawText: `✅ ${target.person.userHandle} è ora bot admin. Grant persistita sul Telegram ID ${target.person.telegramId}.`,
       textFormat: 'plain',
     };
   },
@@ -97,7 +97,7 @@ export const unadminCommand: CommandSpec = {
       };
     }
     return {
-      rawText: `✅ Grant bot-admin revocata a ${target.person.userHandle} (Telegram ID ${formatTelegramId(target.person.telegramId)}).`,
+      rawText: `✅ Grant bot-admin revocata a ${target.person.userHandle} (Telegram ID ${target.person.telegramId}).`,
       textFormat: 'plain',
     };
   },
@@ -121,7 +121,7 @@ export const adminsCommand: CommandSpec = {
       ...(runtime.length > 0
         ? runtime.map(
             (admin) =>
-              `• ${admin.handle} — ${formatTelegramId(admin.telegramId)}${displayName(admin) ? ` — ${displayName(admin)}` : ''}`,
+              `• ${admin.handle} — ${admin.telegramId}${displayName(admin) ? ` — ${displayName(admin)}` : ''}`,
           )
         : ['• nessuno']),
     );
@@ -183,15 +183,10 @@ function parseTelegramId(raw: string): number | null {
   return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
-export function formatTelegramId(id: number): string {
-  return new Intl.NumberFormat('it-IT', { useGrouping: true, maximumFractionDigits: 0 }).format(id);
-}
-
 function renderIdentityYaml(person: Person): string {
   return [
     '```yaml',
     `${person.telegramId}:`,
-    `  formatted_id: ${yamlString(formatTelegramId(person.telegramId))}`,
     `  username: ${person.userHandle.startsWith('@id') ? 'null' : yamlString(person.userHandle)}`,
     `  first_name: ${person.firstName ? yamlString(person.firstName) : 'null'}`,
     `  last_name: ${person.lastName ? yamlString(person.lastName) : 'null'}`,
