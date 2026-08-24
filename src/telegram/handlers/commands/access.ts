@@ -31,8 +31,12 @@ export const approveCommand: CommandSpec = {
   async handle({ services, context, args }: HandlerInput): Promise<CommandResponse | null> {
     const target = resolveTarget(args, context);
     if (!target) return { text: 'approve_usage' };
-    if (target.kind === 'chat') services.access.approveChat(target.id);
-    else services.access.approveUser(target.id);
+    if (target.kind === 'chat') {
+      services.access.approveChat(target.id);
+      await services.storage.chats.activateApprovedChat(target.id);
+    } else {
+      services.access.approveUser(target.id);
+    }
     return { text: 'approve_done', vars: { target: `${target.kind} ${target.id}` } };
   },
 };

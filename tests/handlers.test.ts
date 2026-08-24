@@ -211,6 +211,19 @@ describe('terms callback', () => {
 });
 
 describe('strict administrative arguments', () => {
+  it('/approve on a chat also starts it and enables conversation tracking', async () => {
+    const approveChat = vi.fn();
+    const activateApprovedChat = vi.fn().mockResolvedValue(undefined);
+    const services = {
+      access: { approveUser: vi.fn(), approveChat },
+      storage: { chats: { activateApprovedChat } },
+    };
+    const response = await approveCommand.handle(input(services, ['-1002314182610']));
+    expect(approveChat).toHaveBeenCalledWith(-1002314182610);
+    expect(activateApprovedChat).toHaveBeenCalledWith(-1002314182610);
+    expect(response?.text).toBe('approve_done');
+  });
+
   it('/approve rejects partial, zero and unsafe numeric ids', async () => {
     const approveUser = vi.fn();
     const approveChat = vi.fn();
