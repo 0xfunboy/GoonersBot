@@ -67,10 +67,10 @@ export class SelfKnowledgeService {
       '- If asked why a previous reply happened, use the LAST STORED BRAIN TURN below when present. Call it a stored brain/debug record, never “system logs”. If the audit contradicts the previous BOT claim, admit the exact mistake instead of defending it.',
     ];
 
-    if (/\bformatted[_ ]?id\b|(?:^|\s)\/id\b/iu.test(input.message)) {
+    if (/(?:^|\s)\/id\b/iu.test(input.message)) {
       lines.push(
         '- /id is a native deterministic command. It resolves Telegram identity from the current/replied user or the local observed-user registry; it does not use an LLM or web search.',
-        '- `formatted_id` is ONLY a GoonersBot presentation field produced with Italian digit grouping for readability. It is NOT a Telegram Bot API/MTProto standard field. Telegram user IDs themselves are ordinary integer IDs.',
+        '- /id returns the ordinary Telegram integer ID directly. There is no alternate punctuated/presentation ID field.',
       );
     }
     if (/(?:^|\s)\/(?:admin|unadmin|admins)\b/iu.test(input.message)) {
@@ -107,14 +107,6 @@ export class SelfKnowledgeService {
    * claims the runtime model can prove false from its own architecture, leaving ordinary prose alone.
    */
   repairUnsupportedSelfClaim(candidate: string, currentMessage: string): string | null {
-    const falseFormattedIdClaim =
-      /(?:formatted[_ ]?id.{0,100}(?:standard|formato (?:standard|ufficiale)|telegram.{0,30}api)|(?:standard|telegram.{0,30}api).{0,100}formatted[_ ]?id)/iu.test(
-        candidate,
-      );
-    if (falseFormattedIdClaim) {
-      return 'Il `formatted_id` non è uno standard Telegram: è solo una formattazione locale che aggiungo per leggibilità. L’ID Telegram reale è l’intero numerico.';
-    }
-
     const unsupportedLogClaim =
       /\b(?:leggo|vedo|controllo|ispeziono|ho accesso (?:a|ai|alle)|posso leggere)\b.{0,100}\b(?:journalctl|log di sistema|system logs?|notifiche (?:telegram|del client)|notification history|read receipts?|ricevute di lettura)\b/iu.test(
         candidate,

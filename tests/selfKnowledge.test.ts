@@ -35,15 +35,15 @@ const context = {
 };
 
 describe('SelfKnowledgeService', () => {
-  it('grounds /id implementation facts and explicitly rejects the fake Telegram-standard claim', async () => {
+  it('grounds /id implementation facts as raw integer output', async () => {
     const out = await service().buildContext({
       chatId: -100,
-      message: 'Per quale motivo usi il formatted id?',
+      message: 'Per quale motivo /id restituisce questo numero?',
       context,
     });
 
     expect(out).toContain('/id is a native deterministic command');
-    expect(out).toContain('NOT a Telegram Bot API/MTProto standard field');
+    expect(out).toContain('ordinary Telegram integer ID directly');
     expect(out).toContain('not an operating-system log');
     expect(out).toContain('do NOT have arbitrary journalctl/system-log access');
   });
@@ -71,10 +71,10 @@ describe('SelfKnowledgeService', () => {
     const s = service();
     expect(
       s.repairUnsupportedSelfClaim(
-        'Il formatted_id è lo standard usato dalle API Telegram per identificare gli utenti.',
-        'perché usi il formatted id?',
+        'Leggo direttamente i log di sistema per sapere gli ID.',
+        'come fai a sapere gli ID?',
       ),
-    ).toContain('non è uno standard Telegram');
+    ).toContain('Non leggo journal/log di sistema');
     expect(
       s.repairUnsupportedSelfClaim(
         'Leggo direttamente i log di sistema e le notifiche Telegram.',

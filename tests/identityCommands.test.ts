@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ChatContext, Person } from '../src/domain/types.js';
 import {
   adminCommand,
-  formatTelegramId,
   idCommand,
   unadminCommand,
 } from '../src/telegram/handlers/commands/identity.js';
@@ -72,7 +71,7 @@ describe('identity/admin commands', () => {
       }),
     );
     expect(result?.rawText).toContain('1234567890:');
-    expect(result?.rawText).toContain('formatted_id: "1.234.567.890"');
+    expect(result?.rawText).not.toContain('formatted_id');
     expect(result?.rawText).toContain('username: "@testuser"');
   });
 
@@ -81,7 +80,7 @@ describe('identity/admin commands', () => {
     const result = await idCommand.handle(input(s, { args: ['1.234.567.890'] }));
     expect(s.storage.users.getByTelegramId).toHaveBeenCalledWith(1_234_567_890);
     expect(result?.rawText).toContain('first_name: "Test User"');
-    expect(formatTelegramId(1_234_567_890)).toBe('1.234.567.890');
+    expect(result?.rawText).toContain('1234567890:');
   });
 
   it('/admin by username persists authority using the resolved Telegram id', async () => {
@@ -91,7 +90,7 @@ describe('identity/admin commands', () => {
       expect.objectContaining({ telegramId: 1_234_567_890, userHandle: '@testuser' }),
       actor,
     );
-    expect(result?.rawText).toContain('1.234.567.890');
+    expect(result?.rawText).toContain('1234567890');
   });
 
   it('/admin refuses a blind numeric target so a typo cannot promote an unknown id', async () => {
