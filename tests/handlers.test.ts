@@ -218,9 +218,9 @@ describe('strict administrative arguments', () => {
       access: { approveUser: vi.fn(), approveChat },
       storage: { chats: { activateApprovedChat } },
     };
-    const response = await approveCommand.handle(input(services, ['-1002314182610']));
-    expect(approveChat).toHaveBeenCalledWith(-1002314182610);
-    expect(activateApprovedChat).toHaveBeenCalledWith(-1002314182610);
+    const response = await approveCommand.handle(input(services, ['-1001234567890']));
+    expect(approveChat).toHaveBeenCalledWith(-1001234567890);
+    expect(activateApprovedChat).toHaveBeenCalledWith(-1001234567890);
     expect(response?.text).toBe('approve_done');
   });
 
