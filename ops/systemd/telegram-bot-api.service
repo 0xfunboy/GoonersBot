@@ -1,0 +1,17 @@
+[Unit]
+Description=Telegram Local Bot API server for GoonerBot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/goonerbot/telegram-bot-api.env
+ExecStart=%h/.local/bin/telegram-bot-api --local --http-ip-address=127.0.0.1 --http-port=8081 --dir=%h/.local/share/telegram-bot-api/data --temp-dir=%h/.local/share/telegram-bot-api/tmp
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+LimitNOFILE=1048576
+UMask=0077
+
+[Install]
+WantedBy=default.target

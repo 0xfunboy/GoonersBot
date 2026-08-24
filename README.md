@@ -31,6 +31,7 @@ notes.
 - [Highlights](#highlights)
 - [Quick start (no Docker)](#quick-start-no-docker)
 - [Telegram setup and Privacy Mode](#telegram-setup-and-privacy-mode)
+- [Telegram Local Bot API](#telegram-local-bot-api)
 - [LLM providers](#llm-providers)
 - [NSFW routing](#nsfw-routing)
 - [Commands](#commands)
@@ -96,7 +97,8 @@ notes.
 # 1. Node
 nvm use                      # picks up .nvmrc (24.18.0); or: nvm install 24.18.0
 
-# 2. Install
+# 2. Initialize pinned third-party sources and install Node dependencies
+git submodule update --init --recursive
 pnpm install
 
 # 3. MongoDB (any local instance). A helper for a user-local, auth-enabled mongod is included:
@@ -123,6 +125,7 @@ pnpm build && pnpm start
 | `pnpm lint` / `pnpm lint:fix`       | eslint                                     |
 | `pnpm format` / `pnpm format:check` | prettier                                   |
 | `pnpm test` / `pnpm test:watch`     | vitest                                     |
+| `pnpm telegram-api:setup`           | build/install the pinned Telegram Local Bot API submodule |
 
 ---
 
@@ -139,6 +142,26 @@ messages, and messages that mention it. Make the bot a group admin or disable Pr
 text as lightweight conversation context. Unaddressed messages never trigger STT, media handling,
 scene analysis, Cortex/evaluator calls, or any LLM request. A command, @mention, or reply to the bot
 is required for inference. No group ID is ever hardcoded.
+
+---
+
+## Telegram Local Bot API
+
+Large native Telegram uploads use the official `tdlib/telegram-bot-api` server in `--local` mode.
+The upstream source is pinned inside this repository as the recursive git submodule
+`third_party/telegram-bot-api`; build artifacts, application credentials and Telegram runtime data
+stay local and are never committed.
+
+```bash
+git submodule update --init --recursive
+pnpm telegram-api:setup
+```
+
+The setup installs the compiled binary under `~/.local/bin`, installs the versioned user-systemd
+unit from `ops/systemd/telegram-bot-api.service`, and creates the local `0600` credential file when
+missing. GoonersBot connects with `TELEGRAM_API_ROOT=http://127.0.0.1:8081`; its versioned systemd
+unit declares the Local Bot API service as a dependency. See
+[`docs/TELEGRAM_LOCAL_API.md`](docs/TELEGRAM_LOCAL_API.md) for build, secrets and update policy.
 
 ---
 
