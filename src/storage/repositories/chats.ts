@@ -71,6 +71,20 @@ export class ChatsRepo {
     await this.col.updateOne({ chatId }, { $set: { isStarted: true, updatedAt: new Date() } });
   }
 
+  /** Make an approved group immediately usable while keeping autonomous participation opt-in. */
+  async activateApprovedChat(chatId: number): Promise<void> {
+    await this.col.updateOne(
+      { chatId },
+      {
+        $set: {
+          isStarted: true,
+          conversationTracker: true,
+          updatedAt: new Date(),
+        },
+      },
+    );
+  }
+
   async stopChat(chatId: number): Promise<void> {
     await this.col.updateOne({ chatId }, { $set: { isStarted: false, updatedAt: new Date() } });
   }

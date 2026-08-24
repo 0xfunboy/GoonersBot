@@ -405,9 +405,9 @@ export const COMMAND_HELP: Readonly<Record<string, CommandHelpDefinition>> = {
     category: 'administration',
     usage: l('/approve [id]', '/approve [id]', '/approve [id]'),
     description: l(
-      'Bot-admin only. Approva una chat o un utente: ID negativo = chat, positivo = utente; senza ID dentro un gruppo approva la chat corrente.',
-      'Bot-admin only. Approve a chat or user: negative ID = chat, positive ID = user; with no ID inside a group it approves the current chat.',
-      'Solo admin del bot. Aprueba un chat o usuario: ID negativo = chat, positivo = usuario; sin ID dentro de un grupo aprueba el chat actual.',
+      'Bot-admin only. Approva una chat o un utente: ID negativo = chat, positivo = utente; approvare una chat la avvia e abilita anche il tracking conversazione, mentre autoengage resta opt-in. Senza ID dentro un gruppo approva la chat corrente.',
+      'Bot-admin only. Approve a chat or user: negative ID = chat, positive ID = user; approving a chat also starts it and enables conversation tracking, while autoengage stays opt-in. With no ID inside a group it approves the current chat.',
+      'Solo admin del bot. Aprueba un chat o usuario: ID negativo = chat, positivo = usuario; aprobar un chat también lo inicia y activa el tracking de conversación, mientras autoengage sigue siendo opcional. Sin ID dentro de un grupo aprueba el chat actual.',
     ),
   },
   unapprove: {
