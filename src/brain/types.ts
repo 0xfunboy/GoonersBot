@@ -204,6 +204,8 @@ export interface TurnEvaluation {
 
 export interface ProviderBundle {
   threadContext?: string;
+  /** Runtime-grounded facts about the bot itself, injected only for self-diagnostic turns. */
+  selfContext?: string;
   socialContext?: string;
   groupContext?: string;
   knowledgeContext?: string;

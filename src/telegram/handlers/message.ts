@@ -102,6 +102,20 @@ function durationLimitVars(result: LinkMediaResult): Record<string, string> | un
   };
 }
 
+function explicitlyTargetsRepliedMedia(text: string): boolean {
+  return /\b(?:trascrivi|trascrizione|cosa (?:dice|ha detto)|che (?:dice|ha detto)|audio|video|vocale|media)\b.{0,50}\b(?:a cui rispondo|citato|reply|sopra|quello|quella)\b|\b(?:a cui rispondo|messaggio citato|reply)\b.{0,50}\b(?:audio|video|vocale|media|trascrivi)\b/iu.test(
+    text,
+  );
+}
+
+export function shouldInspectRepliedMedia(hadCurrentMedia: boolean, authoredText: string): boolean {
+  return !hadCurrentMedia || explicitlyTargetsRepliedMedia(authoredText);
+}
+
+function currentMediaUnavailableMarker(kind: IncomingMessage['currentMediaKind']): string {
+  return `[CURRENT ${String(kind ?? 'media').toUpperCase()} PRESENT BUT NOT AVAILABLE FOR ANALYSIS]`;
+}
+
 function mediaRehostFailureText(
   services: Services,
   result: LinkMediaResult,
@@ -370,42 +384,63 @@ export async function handleMessage(
 
   const language = await services.getLanguage(context.chatId);
 
-  // Transcribe incoming voice/audio/video up-front so its words feed scene/autoengage/storage/reply.
-  const wasVoice = Boolean(message.audioBuffer);
-  if (wasVoice && services.stt.enabled && message.audioBuffer) {
+  // Transcribe CURRENT voice/audio/video first and retain explicit provenance in the semantic text.
+  // A current video replying to an older bot voice must never silently become "the replied audio".
+  const authoredTextBeforeMedia = message.messageText;
+  const hadCurrentMedia = message.currentMediaKind !== undefined;
+  const hadCurrentAudio = Boolean(message.audioBuffer);
+  const wasVoice = hadCurrentAudio;
+  let currentMediaTranscript = false;
+  if (hadCurrentAudio && services.stt.enabled && message.audioBuffer) {
     const spoken = await services.media.transcribeVoice(
       message.audioBuffer,
       message.audioMime ?? 'audio/ogg',
       { language },
     );
     if (spoken) {
-      message.messageText = message.messageText ? `${message.messageText} ${spoken}` : spoken;
-      log.info({ chatId: context.chatId, chars: spoken.length }, 'media transcribed');
+      message.messageText = `${message.messageText ? `${message.messageText}\n` : ''}[CURRENT ${String(message.currentMediaKind ?? 'MEDIA').toUpperCase()} TRANSCRIPT]: ${spoken}`;
+      currentMediaTranscript = true;
+      log.info(
+        { chatId: context.chatId, chars: spoken.length, mediaKind: message.currentMediaKind },
+        'current media transcribed',
+      );
     } else {
       log.info(
-        { chatId: context.chatId },
-        'media transcription empty (muted / no speech / failed)',
+        { chatId: context.chatId, mediaKind: message.currentMediaKind },
+        'current media transcription empty (muted / no speech / failed)',
       );
     }
     message.audioBuffer = undefined; // avoid re-transcription downstream
   }
 
-  // If the user is replying to a voice/audio/video (e.g. "@bot trascrivi l'audio"), transcribe THAT
-  // and inject it into the message so the reply can actually report/use it.
+  const currentMediaHasUsableVisual = Boolean(message.imageBuffer || message.videoBuffer);
+  if (hadCurrentMedia && !currentMediaTranscript && !currentMediaHasUsableVisual) {
+    message.messageText = `${message.messageText ? `${message.messageText}\n` : ''}${currentMediaUnavailableMarker(message.currentMediaKind)}`;
+  }
+
+  // Replied media is SECONDARY context. Automatically inspect it only when there is no current media,
+  // or when the user's authored text explicitly asks about the replied media. This prevents an old
+  // bot voice/video from hijacking a new attachment's topic when both exist in one Telegram update.
   const repliedMedia = message.repliedAudioBuffer ?? message.repliedVideoBuffer;
-  if (repliedMedia && services.stt.enabled) {
+  const mayUseRepliedMedia = shouldInspectRepliedMedia(hadCurrentMedia, authoredTextBeforeMedia);
+  if (repliedMedia && services.stt.enabled && mayUseRepliedMedia) {
     const spoken = await services.media.transcribeVoice(
       repliedMedia,
       message.repliedAudioMime ?? 'video/mp4',
       { language },
     );
     if (spoken) {
-      message.messageText = `${message.messageText ? `${message.messageText}\n` : ''}[transcript of the replied audio/video]: ${spoken}`;
+      message.messageText = `${message.messageText ? `${message.messageText}\n` : ''}[REPLIED MEDIA TRANSCRIPT — SECONDARY CONTEXT]: ${spoken}`;
       log.info({ chatId: context.chatId, chars: spoken.length }, 'replied media transcribed');
     } else {
       log.info({ chatId: context.chatId }, 'replied media transcription empty (muted / no speech)');
     }
-    message.repliedAudioBuffer = undefined; // consumed (keep repliedVideoBuffer for the vision frame)
+    message.repliedAudioBuffer = undefined; // consumed (keep repliedVideoBuffer for a referenced visual)
+  } else if (repliedMedia && hadCurrentMedia) {
+    log.info(
+      { chatId: context.chatId, currentMediaKind: message.currentMediaKind },
+      'replied media ignored because current media owns the turn',
+    );
   }
 
   // Link-media rehost: if the message has media URLs, download and re-upload them as Telegram

@@ -59,6 +59,7 @@ import { TermsService } from './terms.js';
 import { UsageService } from './usage.js';
 import { GroupQuotaService } from './groupQuota.js';
 import { SystemInfoService } from './systemInfo.js';
+import { SelfKnowledgeService } from './selfKnowledge.js';
 import { QUOTA_PLANS, type QuotaPlan, type QuotaPlanId } from '../quota/plans.js';
 import { ConversationThreadTracker } from './threadTracker.js';
 import { DocumentProcessor } from '../documents/documentProcessor.js';
@@ -82,6 +83,7 @@ export * from './reply.js';
 export * from './modelRouter.js';
 export * from './groupQuota.js';
 export * from './systemInfo.js';
+export * from './selfKnowledge.js';
 export * from '../anime/index.js';
 export * from '../ambient/index.js';
 export * from '../capabilities/localDevelopmentService.js';
@@ -101,6 +103,7 @@ export class Services {
   readonly usage: UsageService;
   readonly quota: GroupQuotaService;
   readonly systemInfo: SystemInfoService;
+  readonly selfKnowledge: SelfKnowledgeService;
   readonly threadTracker: ConversationThreadTracker;
   readonly conversation: ConversationService;
   readonly autoengage: AutoEngageScorer;
@@ -301,6 +304,7 @@ export class Services {
       storePath: env.CAPABILITY_STORE_PATH,
       autoInstallResearch: env.CAPABILITY_AUTO_INSTALL_RESEARCH,
     });
+    this.selfKnowledge = new SelfKnowledgeService(config, storage, this.capabilities);
     this.localDevelopment = LocalDevelopmentService.create(
       {
         enabled: env.CAPABILITY_LOCAL_DEVELOPMENT_ENABLED,
@@ -455,6 +459,7 @@ export class Services {
       this.anime,
       this.ambient,
       this.standing,
+      this.selfKnowledge,
     );
   }
 

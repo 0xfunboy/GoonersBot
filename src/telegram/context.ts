@@ -183,6 +183,8 @@ export async function buildIncomingMessage(
   const timestamp = msg?.date ? new Date(msg.date * 1000) : new Date();
 
   const out: IncomingMessage = { messageText: text, timestamp };
+  const currentMediaKind = telegramMediaKind(msg);
+  if (currentMediaKind) out.currentMediaKind = currentMediaKind;
 
   // ---- current-message media ----
   if (opts.image && msg?.photo && msg.photo.length > 0) {
@@ -228,6 +230,8 @@ export async function buildIncomingMessage(
 
   // ---- replied-to media (only when addressed): "chi è/cosa c'è in questo video", "cosa ha detto" ----
   const replied = msg?.reply_to_message;
+  const repliedMediaKind = telegramMediaKind(replied);
+  if (repliedMediaKind) out.repliedMediaKind = repliedMediaKind;
   if (opts.image && replied) {
     const repliedPhoto = replied.photo;
     if (repliedPhoto && repliedPhoto.length > 0) {
@@ -302,6 +306,30 @@ export function appendTextLinkUrls(
   });
   const missing = [...new Set(hiddenUrls)].filter((url) => !text.includes(url));
   return [text, ...missing].filter(Boolean).join('\n');
+}
+
+function telegramMediaKind(
+  message:
+    | {
+        photo?: unknown;
+        voice?: unknown;
+        audio?: unknown;
+        video?: unknown;
+        video_note?: unknown;
+        animation?: unknown;
+        document?: unknown;
+      }
+    | undefined,
+): IncomingMessage['currentMediaKind'] | undefined {
+  if (!message) return undefined;
+  if (message.photo) return 'photo';
+  if (message.video) return 'video';
+  if (message.video_note) return 'video_note';
+  if (message.animation) return 'animation';
+  if (message.voice) return 'voice';
+  if (message.audio) return 'audio';
+  if (message.document) return 'document';
+  return undefined;
 }
 
 function isAudioOrVideoDocument(mime: string | undefined): boolean {
