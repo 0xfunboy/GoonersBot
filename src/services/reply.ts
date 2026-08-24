@@ -31,6 +31,7 @@ import { parseAnimeIntent } from '../anime/knowledgeService.js';
 import type { AnimeArchivePreparationResult } from '../anime/archive/service.js';
 import type { AmbientRecallResult, AmbientRetriever } from '../ambient/retriever.js';
 import type { SocialStandingService } from '../social/standingService.js';
+import type { SelfKnowledgeService } from './selfKnowledge.js';
 import { resolveStance } from '../social/stanceService.js';
 import type { ImageFinder } from '../media/imageFinder.js';
 import type { NewsService } from '../news/newsService.js';
@@ -587,6 +588,7 @@ export class ReplyService {
     private readonly anime: AnimeKnowledgeService,
     private readonly ambient: AmbientRetriever,
     private readonly standing: SocialStandingService,
+    private readonly selfKnowledge: SelfKnowledgeService,
   ) {
     this.evaluator = new TurnEvaluator(llm, {
       enabled: config.brain.evaluatorEnabled,
@@ -630,6 +632,17 @@ export class ReplyService {
     if (message.videoBuffer) {
       const frame = await this.media.frameFromVideo(message.videoBuffer);
       if (frame) return { buffer: frame, mime: 'image/jpeg', kind: 'video', fromReply: false };
+    }
+    // If Telegram says the CURRENT message itself is visual media but we failed to download/decode
+    // it, fail closed. Never substitute the visual from the replied-to message and pretend that was
+    // the current photo/video.
+    if (
+      message.currentMediaKind === 'photo' ||
+      message.currentMediaKind === 'video' ||
+      message.currentMediaKind === 'video_note' ||
+      message.currentMediaKind === 'animation'
+    ) {
+      return null;
     }
     if (message.repliedImageBuffer) {
       return {
@@ -796,7 +809,14 @@ export class ReplyService {
       },
       'visual resolved',
     );
-    const history = await this.conversation.getRecent(ctx.context.chatId);
+    const [history, selfContext] = await Promise.all([
+      this.conversation.getRecent(ctx.context.chatId),
+      this.selfKnowledge.buildContext({
+        chatId: ctx.context.chatId,
+        message: transcribed.messageText ?? '',
+        context: ctx.context,
+      }),
+    ]);
     const mentioned = ctx.context.mentionedHandles ?? [];
     const threadState = await this.threadTracker.track({
       person: ctx.person,
@@ -830,7 +850,12 @@ export class ReplyService {
       maxNorms: 6,
     });
     const socialContext = renderSocialContext(socialSnapshot);
-    const cognitiveContext = [threadState.promptBlock, socialContext].filter(Boolean).join('\n\n');
+    const runtimeThreadContext = [selfContext, threadState.promptBlock]
+      .filter(Boolean)
+      .join('\n\n');
+    const cognitiveContext = [selfContext, threadState.promptBlock, socialContext]
+      .filter(Boolean)
+      .join('\n\n');
 
     // 1. scene
     const attachmentSummary = extractedDocuments.length
@@ -861,7 +886,7 @@ export class ReplyService {
       mentionedHandles: mentioned,
       botIsAddressed: ctx.context.isBotMentioned || ctx.context.isReplyToBot,
       botLabel: BOT_LABEL,
-      ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
+      ...(runtimeThreadContext ? { threadContext: runtimeThreadContext } : {}),
       model: ctx.internalModel,
     };
     // Autoengage already spent one focused model call deciding that a passive intervention is
@@ -1752,7 +1777,8 @@ export class ReplyService {
       ]),
     ];
     const providerBundle: ProviderBundle = { sources };
-    if (threadState.promptBlock) providerBundle.threadContext = threadState.promptBlock;
+    if (runtimeThreadContext) providerBundle.threadContext = runtimeThreadContext;
+    if (selfContext) providerBundle.selfContext = selfContext;
     if (socialContext) providerBundle.socialContext = socialContext;
     const groupContext = formatGroupContext(retrieved);
     // Curated culture and ambient facts share one prompt slot on purpose: its framing already
@@ -1892,7 +1918,7 @@ export class ReplyService {
               },
             }
           : {}),
-        ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
+        ...(runtimeThreadContext ? { threadContext: runtimeThreadContext } : {}),
         ...(socialContext ? { socialContext } : {}),
         ...(ctx.socialQuestionResolution
           ? { socialQuestionContext: socialQuestionPromptBlock(ctx.socialQuestionResolution) }
@@ -2085,7 +2111,7 @@ export class ReplyService {
               },
             }
           : {}),
-        ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
+        ...(runtimeThreadContext ? { threadContext: runtimeThreadContext } : {}),
         ...(socialContext ? { socialContext } : {}),
         ...(ctx.socialQuestionResolution
           ? { socialQuestionContext: socialQuestionPromptBlock(ctx.socialQuestionResolution) }
@@ -2165,6 +2191,20 @@ export class ReplyService {
         { chatId: ctx.context.chatId, action: plan.action, originalLength, chars: best.length },
         'overlong social reply compacted to chat-sized line',
       );
+    }
+
+    if (selfContext) {
+      const repairedSelfClaim = this.selfKnowledge.repairUnsupportedSelfClaim(
+        best,
+        transcribed.messageText ?? '',
+      );
+      if (repairedSelfClaim) {
+        log.warn(
+          { chatId: ctx.context.chatId, original: best.slice(0, 240), repaired: repairedSelfClaim },
+          'unsupported self-claim repaired from runtime ground truth',
+        );
+        best = repairedSelfClaim;
+      }
     }
 
     // Personal lore is useful only while ownership is exact. On turns involving multiple resolved

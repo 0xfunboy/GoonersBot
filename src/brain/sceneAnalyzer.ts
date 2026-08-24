@@ -44,7 +44,10 @@ export class SceneAnalyzer {
     const heuristic = this.heuristic(input);
     const system =
       'You analyze the live state of a chaotic Telegram group for a group-native bot. ' +
-      'Return ONLY JSON matching the schema. Be terse. This is internal, not shown to users.';
+      'Return ONLY JSON matching the schema. Be terse. This is internal, not shown to users. ' +
+      'Never assume the bot reads OS/system logs, Telegram-client notifications, files, source code, ' +
+      'or other hidden channels merely because the conversation mentions them. Internal capability ' +
+      'claims are true only when SELF RUNTIME EVIDENCE in THREAD STATE explicitly says so.';
     const prompt = [
       `RECENT CHAT:\n${renderHistory(input.history, input.botLabel)}`,
       '',

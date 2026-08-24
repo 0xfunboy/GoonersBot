@@ -59,6 +59,24 @@ export interface MessageAttachment {
 export interface IncomingMessage {
   messageText: string;
   timestamp: Date;
+  /** Platform-declared current media kind, retained even if the file could not be downloaded. */
+  currentMediaKind?:
+    | 'photo'
+    | 'voice'
+    | 'audio'
+    | 'video'
+    | 'video_note'
+    | 'animation'
+    | 'document';
+  /** Platform-declared replied-to media kind; provenance only, never interchangeable with current media. */
+  repliedMediaKind?:
+    | 'photo'
+    | 'voice'
+    | 'audio'
+    | 'video'
+    | 'video_note'
+    | 'animation'
+    | 'document';
   imageBuffer?: Buffer | undefined;
   imageMime?: string | undefined;
   audioBuffer?: Buffer | undefined;
