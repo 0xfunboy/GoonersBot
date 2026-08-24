@@ -28,7 +28,8 @@ describe('loadEnv', () => {
     expect(env.MINING_LLM_REQUEST_TIMEOUT_MS).toBe(180_000);
     expect(env.MEMORY_MINING_MAX_WINDOW_BYTES).toBe(12_000);
     expect(env.LLM_NSFW_DEFAULT_MODE).toBe('smart');
-    expect(env.REPLY_CANDIDATE_COUNT).toBe(3);
+    expect(env.REPLY_CANDIDATE_COUNT).toBe(1);
+    expect(env.REPLY_RESCUE_MODEL).toBeUndefined();
     expect(env.REPLY_MAX_REGENERATIONS).toBe(1);
     expect(env.MONGO_DB).toBe('goonerbot');
     expect(env.TELEGRAM_API_ROOT).toBeUndefined();

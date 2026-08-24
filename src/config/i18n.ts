@@ -1051,11 +1051,17 @@ export const translations: TranslationMap = {
     russian: 'Сейчас не могу - {capability} не настроен на этом бэкенде.',
     spanish: 'No puedo hacer eso ahora - {capability} no está configurado en este backend.',
   },
+  generation_unavailable: {
+    italian: 'Il modello non ha risposto in tempo. Riprova tra poco.',
+    english: 'The model did not answer in time. Try again shortly.',
+    russian: 'Модель не ответила вовремя. Попробуй ещё раз чуть позже.',
+    spanish: 'El modelo no respondió a tiempo. Inténtalo de nuevo en un momento.',
+  },
   generation_failed: {
-    italian: 'Si è rotto qualcosa da me. Riprova tra un attimo.',
-    english: 'That broke on my end. Try again in a sec.',
-    russian: 'Что-то сломалось. Попробуй ещё раз.',
-    spanish: 'Algo se rompió de mi lado. Inténtalo de nuevo.',
+    italian: 'Errore interno su questo turno. Riprova.',
+    english: 'Internal error on this turn. Try again.',
+    russian: 'Внутренняя ошибка на этом ходе. Попробуй ещё раз.',
+    spanish: 'Error interno en este turno. Inténtalo de nuevo.',
   },
   terms_accept_button: {
     italian: '✅ Accetto',

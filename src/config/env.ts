@@ -508,8 +508,12 @@ const envSchema = z.object({
   RANKER_TEMPERATURE: floatFromString(0.1),
   MEMORY_TEMPERATURE: floatFromString(0.1),
 
-  // Reply generation
-  REPLY_CANDIDATE_COUNT: intFromString(3),
+  // Reply generation. One primary candidate is enough after the deterministic planner/ranker
+  // hardening; parallel copies of the same 15-25k prompt only amplify upstream quota/outage bursts.
+  REPLY_CANDIDATE_COUNT: intFromString(1),
+  // Last-mile rescue only: used once when every primary reply candidate failed before producing text.
+  // This is intentionally separate from the global LLM fallback chain so Cortex/Scene are not retried.
+  REPLY_RESCUE_MODEL: optStr,
   REPLY_MAX_REGENERATIONS: intFromString(1),
   REPLY_TOP_P: floatFromString(0.95),
   REPLY_FREQUENCY_PENALTY: floatFromString(0.6),

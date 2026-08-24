@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ResponseRanker } from '../src/brain/responseRanker.js';
 import { rankCandidatesSafely } from '../src/brain/responseRanker.js';
-import { candidateCountForModel, ResponseGenerator } from '../src/brain/responseGenerator.js';
+import {
+  candidateCountForModel,
+  ReplyGenerationUnavailableError,
+  ResponseGenerator,
+  shouldSuppressUnavailableSocialReply,
+} from '../src/brain/responseGenerator.js';
 import { RepetitionGuard } from '../src/brain/repetitionGuard.js';
 import { decideReplyAcceptance } from '../src/brain/replyAcceptance.js';
 import { ReplyPlanner } from '../src/brain/replyPlanner.js';
@@ -233,6 +238,24 @@ describe('reply acceptance', () => {
 });
 
 describe('ResponseGenerator', () => {
+  it('suppresses provider outages only for disposable social turns', () => {
+    expect(
+      shouldSuppressUnavailableSocialReply(
+        emptyPlan({ action: 'react_short', replyIntent: 'react_short', mustBringValue: false }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldSuppressUnavailableSocialReply(
+        emptyPlan({ action: 'banter_only', replyIntent: 'roast_user', mustBringValue: false }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldSuppressUnavailableSocialReply(
+        emptyPlan({ action: 'answer', replyIntent: 'answer_question', mustBringValue: true }),
+      ),
+    ).toBe(false);
+  });
+
   it('uses one candidate for token-constrained Gemma and preserves fan-out for larger models', () => {
     expect(candidateCountForModel(3, 'gemma-4-26b-a4b-it')).toBe(1);
     expect(candidateCountForModel(3, 'google/gemma-4-31b-it')).toBe(1);
@@ -312,6 +335,113 @@ describe('ResponseGenerator', () => {
       /empty visible reply/i,
     );
     expect(chatCompletion).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses the distinct rescue model once when every primary reply candidate rejects', async () => {
+    const chatCompletion = vi.fn(async (request: { model?: string }) => {
+      if (request.model === 'gemini-3.7-flash') throw new Error('503 upstream exhausted');
+      return {
+        text: 'rescue riuscito',
+        model: request.model ?? null,
+        finishReason: 'stop',
+        usage: { inputTokens: 12, outputTokens: 4, estimated: false },
+      };
+    });
+    const styleEngine = new StyleEngine();
+    const currentScene = scene({ userIntent: 'random_chatter' });
+    const generator = new ResponseGenerator({ chatCompletion } as never, styleEngine, {
+      model: 'gemini-3.7-flash',
+      rescueModel: 'qwen/qwen3.5-397b-a17b',
+      temperature: 0.8,
+      topP: 0.9,
+      frequencyPenalty: 0,
+      presencePenalty: 0,
+      candidateCount: 1,
+      maxReplyChars: 420,
+    });
+    const result = await generator.generate({
+      botUsername: '@bot',
+      chatName: 'test',
+      language: 'italian',
+      modeName: 'Default',
+      modeDescription: 'natural',
+      nsfwEnabled: false,
+      scene: currentScene,
+      plan: emptyPlan({ action: 'react_short', replyIntent: 'react_short', maxChars: 90 }),
+      style: styleEngine.sample({
+        modeName: 'Default',
+        modeDescription: 'natural',
+        scene: currentScene,
+        recentBotReplies: [],
+        nsfwEnabled: false,
+        valueTarget: 'social_glue',
+        roastBudget: 'none',
+        socialRole: 'friend',
+      }),
+      history: [],
+      currentUser: { telegramId: 1, userHandle: '@bob' },
+      currentMessage: { messageText: 'ciao', timestamp: new Date() },
+      retrievedMemories: [],
+      botLabel: 'bot',
+      model: 'gemini-3.7-flash',
+    });
+
+    expect(result.candidates).toEqual(['rescue riuscito']);
+    expect(result.model).toBe('qwen/qwen3.5-397b-a17b');
+    expect(chatCompletion).toHaveBeenCalledTimes(2);
+    expect(chatCompletion.mock.calls[1]?.[0].model).toBe('qwen/qwen3.5-397b-a17b');
+  });
+
+  it('preserves provider failure reasons when primary and rescue generation both reject', async () => {
+    const chatCompletion = vi.fn(async (request: { model?: string }) => {
+      throw new Error(`${request.model}: upstream unavailable`);
+    });
+    const styleEngine = new StyleEngine();
+    const currentScene = scene({ userIntent: 'random_chatter' });
+    const generator = new ResponseGenerator({ chatCompletion } as never, styleEngine, {
+      model: 'gemini-3.7-flash',
+      rescueModel: 'qwen/qwen3.5-397b-a17b',
+      temperature: 0.8,
+      topP: 0.9,
+      frequencyPenalty: 0,
+      presencePenalty: 0,
+      candidateCount: 1,
+      maxReplyChars: 420,
+    });
+    const promise = generator.generate({
+      botUsername: '@bot',
+      chatName: 'test',
+      language: 'italian',
+      modeName: 'Default',
+      modeDescription: 'natural',
+      nsfwEnabled: false,
+      scene: currentScene,
+      plan: emptyPlan({ action: 'react_short', replyIntent: 'react_short', maxChars: 90 }),
+      style: styleEngine.sample({
+        modeName: 'Default',
+        modeDescription: 'natural',
+        scene: currentScene,
+        recentBotReplies: [],
+        nsfwEnabled: false,
+        valueTarget: 'social_glue',
+        roastBudget: 'none',
+        socialRole: 'friend',
+      }),
+      history: [],
+      currentUser: { telegramId: 1, userHandle: '@bob' },
+      currentMessage: { messageText: 'ciao', timestamp: new Date() },
+      retrievedMemories: [],
+      botLabel: 'bot',
+      model: 'gemini-3.7-flash',
+    });
+
+    await expect(promise).rejects.toBeInstanceOf(ReplyGenerationUnavailableError);
+    await expect(promise).rejects.toMatchObject({
+      failures: expect.arrayContaining([
+        expect.stringMatching(/gemini-3\.7-flash.*upstream unavailable/i),
+        expect.stringMatching(/qwen\/qwen3\.5-397b-a17b.*upstream unavailable/i),
+      ]),
+    });
   });
 
   it('rewrites a candidate only when the upstream reports an output-length stop', async () => {

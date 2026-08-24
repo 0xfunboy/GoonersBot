@@ -57,7 +57,11 @@ import type { RetrievedMemory } from '../memory/types.js';
 import { jaccard } from '../memory/memoryDeduper.js';
 import { StyleEngine } from '../brain/styleEngine.js';
 import { ReplyPlanner } from '../brain/replyPlanner.js';
-import { ResponseGenerator } from '../brain/responseGenerator.js';
+import {
+  ReplyGenerationUnavailableError,
+  ResponseGenerator,
+  shouldSuppressUnavailableSocialReply,
+} from '../brain/responseGenerator.js';
 import { rankCandidatesSafely, ResponseRanker } from '../brain/responseRanker.js';
 import { RepetitionGuard } from '../brain/repetitionGuard.js';
 import { decideReplyAcceptance, type AssessedReplyCandidate } from '../brain/replyAcceptance.js';
@@ -598,6 +602,7 @@ export class ReplyService {
     this.attributionVerifier = new AttributionVerifier(llm);
     this.generator = new ResponseGenerator(llm, this.styleEngine, {
       model: config.brain.replyModel,
+      rescueModel: config.env.REPLY_RESCUE_MODEL,
       temperature: config.brain.replyTemperature,
       topP: config.brain.replyTopP,
       frequencyPenalty: config.brain.replyFrequencyPenalty,
@@ -1852,45 +1857,91 @@ export class ReplyService {
         ? `HOSTILITY toward ${addressee}: ${hostility.level} (${hostility.heat}/100) - ${hostility.instruction}`
         : undefined;
 
-    // 4. generate candidates
-    const gen = await this.generator.generate({
-      botUsername: ctx.botUsername,
-      chatName: ctx.context.chatName,
-      language: ctx.language,
-      modeName: ctx.modeName,
-      modeDescription: ctx.modeDescription,
-      nsfwEnabled: generationNsfwEnabled,
-      scene,
-      plan,
-      style,
-      history,
-      currentUser: ctx.person,
-      currentMessage: transcribed,
-      retrievedMemories: retrieved,
-      botLabel: BOT_LABEL,
-      model: generationModel,
-      addressee,
-      ...(providerContextBlock ? { grounding: providerContextBlock } : {}),
-      ...(media ? { media } : {}),
-      ...(ctx.context.repliedToUserHandle || ctx.context.repliedToText
-        ? {
-            replyContext: {
-              ...(ctx.context.repliedToUserHandle
-                ? { handle: ctx.context.repliedToUserHandle }
-                : {}),
-              ...(ctx.context.repliedToText ? { text: ctx.context.repliedToText } : {}),
-            },
-          }
-        : {}),
-      ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
-      ...(socialContext ? { socialContext } : {}),
-      ...(ctx.socialQuestionResolution
-        ? { socialQuestionContext: socialQuestionPromptBlock(ctx.socialQuestionResolution) }
-        : {}),
-      ...(hostilityLine ? { hostility: hostilityLine } : {}),
-      ...(knowledgeBlock ? { knowledge: knowledgeBlock } : {}),
-      ...(documentContext ? { documents: documentContext } : {}),
-    });
+    // 4. generate candidates. A provider outage is different from a bad generated candidate: the
+    // generator logs every rejected upstream call and performs at most one distinct rescue-model call.
+    // For a disposable social interjection, total provider failure means silence rather than an NPC
+    // "something broke" bubble; substantive questions still surface a precise transient error.
+    let gen: Awaited<ReturnType<ResponseGenerator['generate']>>;
+    try {
+      gen = await this.generator.generate({
+        botUsername: ctx.botUsername,
+        chatName: ctx.context.chatName,
+        language: ctx.language,
+        modeName: ctx.modeName,
+        modeDescription: ctx.modeDescription,
+        nsfwEnabled: generationNsfwEnabled,
+        scene,
+        plan,
+        style,
+        history,
+        currentUser: ctx.person,
+        currentMessage: transcribed,
+        retrievedMemories: retrieved,
+        botLabel: BOT_LABEL,
+        model: generationModel,
+        addressee,
+        ...(providerContextBlock ? { grounding: providerContextBlock } : {}),
+        ...(media ? { media } : {}),
+        ...(ctx.context.repliedToUserHandle || ctx.context.repliedToText
+          ? {
+              replyContext: {
+                ...(ctx.context.repliedToUserHandle
+                  ? { handle: ctx.context.repliedToUserHandle }
+                  : {}),
+                ...(ctx.context.repliedToText ? { text: ctx.context.repliedToText } : {}),
+              },
+            }
+          : {}),
+        ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
+        ...(socialContext ? { socialContext } : {}),
+        ...(ctx.socialQuestionResolution
+          ? { socialQuestionContext: socialQuestionPromptBlock(ctx.socialQuestionResolution) }
+          : {}),
+        ...(hostilityLine ? { hostility: hostilityLine } : {}),
+        ...(knowledgeBlock ? { knowledge: knowledgeBlock } : {}),
+        ...(documentContext ? { documents: documentContext } : {}),
+      });
+    } catch (error) {
+      if (
+        error instanceof ReplyGenerationUnavailableError &&
+        shouldSuppressUnavailableSocialReply(plan)
+      ) {
+        log.warn(
+          {
+            chatId: ctx.context.chatId,
+            userHandle: ctx.person.userHandle,
+            action: plan.action,
+            requestedModel: error.requestedModel,
+            rescueModel: error.rescueModel,
+            failures: error.failures,
+          },
+          'social reply generation unavailable; suppressing disposable interjection',
+        );
+        return {
+          text: '',
+          suppressed: true,
+          transcribedUserMessage: transcribed,
+          usage: { inputTokens: 0, outputTokens: 0, estimated: true },
+          model: null,
+          visionCalls,
+          transcriptionCalls,
+          imageCalls: 0,
+          scene,
+          plan,
+          styleVariant: 'generation_unavailable_suppressed',
+          retrieved,
+          usedMemoryIds: [],
+          candidates: [],
+          ranked: [],
+          repetitionChecks: [],
+          evaluation,
+          ...(cortexDecision ? { cortex: cortexDecision } : {}),
+          providerBundle,
+          threadState,
+        };
+      }
+      throw error;
+    }
 
     let candidates = gen.candidates;
     let usage = gen.usage;

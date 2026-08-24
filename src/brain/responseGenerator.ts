@@ -28,12 +28,35 @@ export function candidateCountForModel(configuredCount: number, model: string | 
 
 export interface ResponseGeneratorConfig {
   model: string | undefined;
+  /** Distinct last-mile model used once only when every primary reply candidate rejects. */
+  rescueModel?: string | undefined;
   temperature: number;
   topP: number;
   frequencyPenalty: number;
   presencePenalty: number;
   candidateCount: number;
   maxReplyChars: number;
+}
+
+export function shouldSuppressUnavailableSocialReply(
+  plan: Pick<ReplyPlan, 'mustBringValue' | 'action'>,
+): boolean {
+  return (
+    !plan.mustBringValue &&
+    ['acknowledge', 'react_short', 'disagree_briefly', 'banter_only'].includes(plan.action)
+  );
+}
+
+export class ReplyGenerationUnavailableError extends Error {
+  override readonly name = 'ReplyGenerationUnavailableError';
+
+  constructor(
+    readonly failures: readonly string[],
+    readonly requestedModel: string | undefined,
+    readonly rescueModel: string | undefined,
+  ) {
+    super('reply generation providers produced no usable candidate');
+  }
 }
 
 export interface GenerateReplyInput {
@@ -139,7 +162,51 @@ export class ResponseGenerator {
     const ok = results
       .filter((r): r is PromiseFulfilledResult<ChatResult> => r.status === 'fulfilled')
       .map((r) => r.value);
-    return this.aggregate(ok, system, userPrompt);
+    const failures = rejectedReasons(results);
+    if (failures.length > 0) {
+      log.warn(
+        {
+          requestedModel: model,
+          candidateCount: n,
+          failedCandidates: failures.length,
+          failures,
+        },
+        ok.length > 0
+          ? 'some reply candidates failed; continuing with successful candidates'
+          : 'all primary reply candidates failed',
+      );
+    }
+    if (ok.length > 0) return this.aggregate(ok, system, userPrompt);
+
+    const rescueModel = this.cfg.rescueModel?.trim() || undefined;
+    if (rescueModel && rescueModel !== model) {
+      try {
+        const rescued = await this.callOne(
+          system,
+          userPrompt,
+          rescueModel,
+          input.plan.maxChars ?? this.cfg.maxReplyChars,
+        );
+        log.warn(
+          { requestedModel: model, rescueModel, returnedModel: rescued.model },
+          'reply generation recovered on last-mile rescue model',
+        );
+        return this.aggregate([rescued], system, userPrompt);
+      } catch (error) {
+        const rescueFailure = errorSummary(error);
+        log.error(
+          { requestedModel: model, rescueModel, failures, rescueFailure },
+          'reply generation rescue model also failed',
+        );
+        throw new ReplyGenerationUnavailableError(
+          [...failures, `rescue(${rescueModel}): ${rescueFailure}`],
+          model,
+          rescueModel,
+        );
+      }
+    }
+
+    throw new ReplyGenerationUnavailableError(failures, model, rescueModel);
   }
 
   /** Regenerate candidates with a stricter anti-repetition note appended. */
@@ -168,6 +235,13 @@ export class ResponseGenerator {
     const ok = results
       .filter((r): r is PromiseFulfilledResult<ChatResult> => r.status === 'fulfilled')
       .map((r) => r.value);
+    const failures = rejectedReasons(results);
+    if (failures.length > 0) {
+      log.warn(
+        { requestedModel: params.model, failedCandidates: failures.length, failures },
+        'reply regeneration candidate failed',
+      );
+    }
     return this.aggregate(ok, params.system, augmented);
   }
 
@@ -312,6 +386,23 @@ export class ResponseGenerator {
       userPrompt,
     };
   }
+}
+
+function rejectedReasons(results: readonly PromiseSettledResult<ChatResult>[]): string[] {
+  return results
+    .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    .map((result, index) => `candidate${index + 1}: ${errorSummary(result.reason)}`)
+    .slice(0, 6);
+}
+
+function errorSummary(error: unknown): string {
+  const text =
+    error instanceof Error
+      ? `${error.name}: ${error.message}`
+      : typeof error === 'string'
+        ? error
+        : String(error);
+  return text.replace(/\s+/g, ' ').trim().slice(0, 500);
 }
 
 function bumpedMaxTokens(
