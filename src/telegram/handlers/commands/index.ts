@@ -32,6 +32,7 @@ import { capabilitiesCommand, learnCommand } from './capabilities.js';
 import { communityCommand, socialstatusCommand } from './community.js';
 import { botinfoCommand, hardwareCommand, modelsCommand, quotaCommand } from './systemInfo.js';
 import { animeCommand, followCommand, followingCommand, unfollowCommand } from './anime.js';
+import { adminCommand, adminsCommand, idCommand, unadminCommand } from './identity.js';
 import { registerCommandCatalog } from './aliases.js';
 
 /** All command handlers (original parity + voice/traduci extras). */
@@ -82,6 +83,10 @@ export const commandHandlers: CommandSpec[] = [
   modelsCommand,
   quotaCommand,
   botinfoCommand,
+  idCommand,
+  adminCommand,
+  unadminCommand,
+  adminsCommand,
   animeCommand,
   followCommand,
   unfollowCommand,

@@ -248,6 +248,8 @@ describe('Telegram reply identity', () => {
 
     await expect(buildChatContext(ctx, 'GoonersBot')).resolves.toMatchObject({
       repliedToUserHandle: '@id42',
+      repliedToTelegramId: 42,
+      repliedToFirstName: 'Bob',
       repliedToMessageId: 54,
     });
   });
@@ -268,7 +270,7 @@ describe('/forget social provenance', () => {
         lore: { expireBySourceMessage },
         social: { forgetBySourceMessage },
         storage: { messages: { findByMessageId } },
-        permissions: { isBotAdmin: vi.fn().mockReturnValue(false) },
+        permissions: { isBotAdminPerson: vi.fn().mockReturnValue(false) },
       },
       person: { telegramId: 1, userHandle: '@alice' },
       context: {
@@ -308,7 +310,7 @@ describe('/forget social provenance', () => {
             }),
           },
         },
-        permissions: { isBotAdmin: vi.fn().mockReturnValue(false) },
+        permissions: { isBotAdminPerson: vi.fn().mockReturnValue(false) },
       },
       person: { telegramId: 1, userHandle: '@alice' },
       context: {
@@ -347,7 +349,7 @@ describe('/forget social provenance', () => {
             }),
           },
         },
-        permissions: { isBotAdmin: vi.fn().mockReturnValue(false) },
+        permissions: { isBotAdminPerson: vi.fn().mockReturnValue(false) },
       },
       person: { telegramId: 1, userHandle: '@alice' },
       context: {

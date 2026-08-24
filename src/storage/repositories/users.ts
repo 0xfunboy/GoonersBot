@@ -37,6 +37,18 @@ export class UsersRepo {
     return this.col.findOne({ handle });
   }
 
+  async findByHandle(handle: string): Promise<UserDoc | null> {
+    const exact = await this.getByHandle(handle);
+    if (exact) return exact;
+    const escaped = handle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return this.col.findOne({ handle: { $regex: `^${escaped}$`, $options: 'i' } });
+  }
+
+  /** Username changes can leave historical rows; newest observation wins for id lookup. */
+  async getByTelegramId(telegramId: number): Promise<UserDoc | null> {
+    return this.col.find({ telegramId }).sort({ updatedAt: -1 }).limit(1).next();
+  }
+
   /** Scrub PII for a user who declined terms (keep handle for safety bookkeeping). */
   async scrubPii(handle: string): Promise<void> {
     await this.col.updateOne(

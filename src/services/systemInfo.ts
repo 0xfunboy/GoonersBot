@@ -155,6 +155,14 @@ const TARGET_PATTERN =
   /\b(?:bot|goonerbot|gooneurobot|server|macchina|sistema|system|host|nodo|node|computer|pc|tu|te|tuo|tua|tuoi|tue|hai|usi|your)\b/;
 const GENERIC_REPORT_PATTERN =
   /\b(?:informazioni di sistema|info(?:rmazioni)? sul sistema|report (?:di|del) sistema|system info|system report|stato del sistema|diagnostica del sistema)\b/;
+const IDENTITY_TERM =
+  '(?:ip|hostname|host name|username|nome utente|utente di sistema|domain|dominio|dns|mac address|uuid|seriale|serial number|machine[ -]?id|mountpoint|mount point|percorso di sistema)';
+const SYSTEM_IDENTITY_TARGET =
+  '(?:bot|goonerbot|gooneurobot|server|macchina|sistema|system|host|nodo|node|computer|pc)';
+const EXPLICIT_SYSTEM_IDENTITY_PATTERN = new RegExp(
+  `(?:\\b(?:tuo|tua|your)\\s+${IDENTITY_TERM}\\b|\\b${IDENTITY_TERM}\\b.{0,32}\\b(?:del|della|di|of)\\s+${SYSTEM_IDENTITY_TARGET}\\b|\\b${SYSTEM_IDENTITY_TARGET}\\b.{0,32}\\b${IDENTITY_TERM}\\b)`,
+  'i',
+);
 const TERSE_SYSTEM_INFO_PATTERN =
   /^(?:(?:goonerbot|gooneurobot|bot)[,:]?\s+)?(?:(?:temp(?:eratura|erature)?|cpu|ram|gpu|hardware|sensori?|sensors?|ventole?|fans?|rpm|dischi?|disks?|storage|quota|quote|llm)(?:\s+(?:temp(?:eratura|erature)?|cpu|ram|gpu|hardware|sensori?|sensors?|ventole?|fans?|rpm|dischi?|disks?|storage|quota|quote|llm|modelli?|models?)){0,3})\??$/;
 
@@ -175,11 +183,15 @@ export function classifyExplicitSystemInfoRequest(
   const scopes = SYSTEM_INFO_SCOPES.filter((scope) =>
     SCOPE_PATTERNS[scope].some((pattern) => pattern.test(normalized)),
   );
+  const identityIndex = scopes.indexOf('identity');
+  if (identityIndex >= 0 && !EXPLICIT_SYSTEM_IDENTITY_PATTERN.test(normalized)) {
+    scopes.splice(identityIndex, 1);
+  }
   const genericReport = GENERIC_REPORT_PATTERN.test(normalized);
   if (genericReport && scopes.length === 0) {
     scopes.push('hardware', 'sensors', 'storage', 'models', 'quota');
   }
-  const safeOnlyRequest = scopes.includes('identity') || scopes.includes('privacy');
+  const safeOnlyRequest = scopes.includes('privacy');
   if (
     scopes.length === 0 ||
     (!TARGET_PATTERN.test(normalized) && !safeOnlyRequest && !terseRequest)

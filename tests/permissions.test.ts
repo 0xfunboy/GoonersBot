@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PermissionService } from '../src/services/permissions.js';
 import type { ChatContext, Person } from '../src/domain/types.js';
 import { fakeStorage } from './helpers.js';
@@ -44,10 +44,50 @@ describe('PermissionService', () => {
     expect(await s.check('group_admin', person, ctx({ isGroupAdmin: false }))).toBe(false);
     expect(await s.check('group_admin', person, ctx({ isGroupAdmin: true }))).toBe(true);
   });
-  it('bot_admin requires the handle in ADMIN_HANDLES', async () => {
+  it('bot_admin accepts bootstrap handles and runtime grants by immutable Telegram id', async () => {
     expect(await svc({ admins: null }).check('bot_admin', person, ctx())).toBe(false);
     expect(await svc({ admins: ['@bob'] }).check('bot_admin', person, ctx())).toBe(true);
+
+    const runtimeAdmin = { telegramId: person.telegramId, handle: '@old_bob' };
+    const storage = fakeStorage({
+      bans: { isBanned: async () => false },
+      botAdmins: {
+        list: async () => [runtimeAdmin],
+        grant: async () => undefined,
+        revoke: async () => true,
+        refreshIdentity: async () => undefined,
+      },
+    });
+    const permissions = new PermissionService(storage, null, null, []);
+    await permissions.initialize();
+    expect(await permissions.check('bot_admin', person, ctx())).toBe(true);
+    expect(permissions.isBotAdmin('@different_handle', person.telegramId)).toBe(true);
+    expect(permissions.isBotAdmin('@old_bob')).toBe(false);
   });
+  it('runtime grant/revoke remains authoritative by Telegram id across username changes', async () => {
+    const grant = vi.fn(async () => undefined);
+    const revoke = vi.fn(async () => true);
+    const refreshIdentity = vi.fn(async () => undefined);
+    const storage = fakeStorage({
+      bans: { isBanned: async () => false },
+      botAdmins: { list: async () => [], grant, revoke, refreshIdentity },
+    });
+    const permissions = new PermissionService(storage, null, ['@root'], []);
+    await permissions.initialize();
+
+    const target: Person = { telegramId: 77, userHandle: '@oldname' };
+    expect(await permissions.grantBotAdmin(target, person)).toBe('granted');
+    expect(grant).toHaveBeenCalledWith(target, person);
+    expect(permissions.isBotAdmin('@newname', 77)).toBe(true);
+
+    const renamed: Person = { telegramId: 77, userHandle: '@newname' };
+    expect(await permissions.revokeBotAdmin(renamed)).toBe('revoked');
+    expect(revoke).toHaveBeenCalledWith(77);
+    expect(permissions.isBotAdmin('@newname', 77)).toBe(false);
+
+    expect(await permissions.revokeBotAdmin({ telegramId: 999, userHandle: '@root' })).toBe('root');
+  });
+
   it('learn_admin accepts either the immutable Telegram ID or an existing bot-admin handle', async () => {
     expect(
       await svc({ learnAdmins: [person.telegramId] }).check('learn_admin', person, ctx()),

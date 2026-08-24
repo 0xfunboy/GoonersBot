@@ -26,6 +26,10 @@ export interface ChatContext {
   isGroupAdmin: boolean;
   /** handle of the user whose message was replied to, if any */
   repliedToUserHandle?: string | undefined;
+  /** immutable Telegram id of the replied-to user, if any */
+  repliedToTelegramId?: number | undefined;
+  repliedToFirstName?: string | undefined;
+  repliedToLastName?: string | undefined;
   /** id of the replied-to message, if any (used for reply-aware context and /forget) */
   repliedToMessageId?: number | undefined;
   /** text/caption of the replied-to message, if any (used for /traduci) */

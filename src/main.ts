@@ -159,6 +159,7 @@ async function main(): Promise<void> {
 
   // 4. Services.
   const services = new Services(config, storage, llm, miningLlm);
+  await services.permissions.initialize();
   await services.capabilities.initialize();
   await services.localDevelopment.initialize();
   for (const chatId of await storage.chats.listStartedChatIds(services.access.list().chats)) {

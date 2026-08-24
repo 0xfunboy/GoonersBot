@@ -102,6 +102,18 @@ export interface ChatMemberDoc {
   messageCount: number;
 }
 
+/** Runtime bot-admin grant. Authority is the immutable Telegram user id; handle/name are metadata. */
+export interface BotAdminDoc {
+  telegramId: number;
+  handle: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  grantedByTelegramId: number;
+  grantedByHandle: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface ModeDoc {
   chatId: number;
   name: string;

@@ -84,6 +84,9 @@ export async function buildChatContext(
     out.repliedToUserHandle = repliedFrom.username
       ? normalizeHandle(repliedFrom.username)
       : fallbackHandle(repliedFrom.id);
+    out.repliedToTelegramId = repliedFrom.id;
+    if (repliedFrom.first_name) out.repliedToFirstName = repliedFrom.first_name;
+    if (repliedFrom.last_name) out.repliedToLastName = repliedFrom.last_name;
   }
   if (ctx.message?.reply_to_message?.message_id !== undefined) {
     out.repliedToMessageId = ctx.message.reply_to_message.message_id;

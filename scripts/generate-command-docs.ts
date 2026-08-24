@@ -38,7 +38,7 @@ const lines: string[] = [
   '',
   `Static commands: **${commandHandlers.length}**. Capability Forge may install additional dynamic commands at runtime; use \`/capabilities\` to list those currently installed.`,
   '',
-  'Access model: `admin` means group administrator **or** configured bot admin; `bot admin` means an entry in `ADMIN_HANDLES`; `learn admin` means bot admin or an immutable local-development admin ID. Except for `/start`, `/tos`/`/terms`, and `/help`, commands also pass through the approval gate.',
+  'Access model: `admin` means group administrator **or** bot admin; `bot admin` means either a bootstrap/root handle from `ADMIN_HANDLES` or a runtime grant persisted by immutable Telegram user ID; `learn admin` means bot admin or an immutable local-development admin ID. Except for `/start`, `/tos`/`/terms`, and `/help`, commands also pass through the approval gate.',
   '',
   'Anime note: `/anime` is the release/catalog command. AnimeUnity/HentaiSaturn availability, single-episode rehost, and current-season bulk rehost are natural-language `anime_archive` actions rather than separate slash commands. Archive delivery preserves the source and enforces one episode = one Telegram file.',
   '',

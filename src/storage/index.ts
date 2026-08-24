@@ -32,6 +32,7 @@ import { TopicAffinityRepo } from './repositories/topicAffinity.js';
 import { SocialStandingRepo } from './repositories/socialStanding.js';
 import { SocialQuestionsRepo } from './repositories/socialQuestions.js';
 import { AnimeArchiveRepo } from './repositories/animeArchive.js';
+import { BotAdminsRepo } from './repositories/botAdmins.js';
 import { MongoSocialProfileStore } from '../social/mongoStore.js';
 
 const log = childLogger('storage');
@@ -71,6 +72,7 @@ export class Storage {
   readonly socialStanding: SocialStandingRepo;
   readonly socialQuestions: SocialQuestionsRepo;
   readonly animeArchive: AnimeArchiveRepo;
+  readonly botAdmins: BotAdminsRepo;
   readonly socialProfiles: MongoSocialProfileStore;
 
   private constructor(
@@ -112,6 +114,7 @@ export class Storage {
     this.socialStanding = new SocialStandingRepo(db);
     this.socialQuestions = new SocialQuestionsRepo(db);
     this.animeArchive = new AnimeArchiveRepo(db);
+    this.botAdmins = new BotAdminsRepo(db);
     this.socialProfiles = new MongoSocialProfileStore(db);
   }
 
@@ -151,6 +154,7 @@ export class Storage {
     await SocialStandingRepo.ensureIndexes(this.db);
     await SocialQuestionsRepo.ensureIndexes(this.db);
     await AnimeArchiveRepo.ensureIndexes(this.db);
+    await BotAdminsRepo.ensureIndexes(this.db);
     await MongoSocialProfileStore.ensureIndexes(this.db);
     log.info('indexes ensured');
   }

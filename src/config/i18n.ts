@@ -217,6 +217,30 @@ export const translations: TranslationMap = {
     russian: 'Полный справочник команд (IT/EN/ES)',
     spanish: 'Guía completa de comandos (IT/EN/ES)',
   },
+  id_description: {
+    italian: 'Mostra Telegram ID e identità dell’utente/reply target',
+    english: 'Show Telegram ID and identity for you/replied user',
+    russian: 'Показать Telegram ID пользователя или автора ответа',
+    spanish: 'Muestra Telegram ID e identidad del usuario citado',
+  },
+  admin_description: {
+    italian: 'Promuove un bot admin persistendo il Telegram user ID',
+    english: 'Promote a bot admin using the immutable Telegram user ID',
+    russian: 'Назначить админа бота по неизменяемому Telegram ID',
+    spanish: 'Promueve un admin del bot usando el Telegram user ID',
+  },
+  unadmin_description: {
+    italian: 'Revoca una grant bot-admin runtime per Telegram ID',
+    english: 'Revoke a runtime bot-admin grant by Telegram ID',
+    russian: 'Отозвать runtime-права админа бота по Telegram ID',
+    spanish: 'Revoca un permiso runtime de admin del bot por Telegram ID',
+  },
+  admins_description: {
+    italian: 'Elenca root admin e grant runtime del bot',
+    english: 'List root admins and runtime bot-admin grants',
+    russian: 'Показать root-админов и runtime-права админов бота',
+    spanish: 'Lista root admins y permisos runtime del bot',
+  },
   capabilities_description: {
     italian: 'Elenca le capacità dinamiche installate',
     english: 'List installed dynamic capabilities',
