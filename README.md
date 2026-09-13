@@ -1366,6 +1366,8 @@ pnpm tsx scripts/smoke-search.ts        # SearXNG query and grounding gating
 
 ## License
 
+Licensing scope and preserved third-party permissions are documented in [LICENSING.md](LICENSING.md). The [0xfunboy Non-Commercial License](LICENSE.md) covers eligible original material only.
+
 See [LICENSE](./LICENSE.md).
 
 Free for personal, educational, research, and other non-commercial use. Commercial use requires a separate license from 0xfunboy. Open an issue or use the contact information available on this GitHub profile to request permission.
