@@ -4,11 +4,13 @@ import { socialSignalSchema, turnEvaluationSchema } from './schemas.js';
 import type { BotReplyRecord, ProviderRequest, SceneAnalysis, TurnEvaluation } from './types.js';
 import { childLogger } from '../utils/logger.js';
 import { capRoast, classifySocialSignal, isSeriousSupport } from './socialAwareness.js';
+import { extractPageAuditUrl } from '../search/pageScanner.js';
 
 const log = childLogger('turn-evaluator');
 
 export interface TurnEvaluatorCapabilities {
   webSearch: boolean;
+  pageScan?: boolean;
   imageLookup: boolean;
   news: boolean;
   knowledge: boolean;
@@ -81,6 +83,8 @@ const VOICE_RE =
   /\b(vocalizza|voce|voice|tts|leggilo|leggimelo|mandalo vocale|nota vocale|voice note)\b/i;
 
 const LOW_VALUE_RE = /^(ok|lol|ahaha+|ahah|si|sì|no|boh|mah|k)\W*$/i;
+const PAGE_AUDIT_RE =
+  /(?:scansion|scansione|analizz|audit|qualit[aà]|header|sorgenti|source|vulnerabilit|security|sicurezza|codebase|codice)/i;
 
 export class TurnEvaluator {
   constructor(
@@ -168,6 +172,22 @@ export class TurnEvaluator {
       input.recentNegativeFeedback ||
       this.recentlyCriticized(input);
     const requests: ProviderRequest[] = [];
+
+    if (input.botIsAddressed && input.capabilities.pageScan && PAGE_AUDIT_RE.test(msg)) {
+      const url = extractPageAuditUrl(msg);
+      if (url) {
+        return this.turn({
+          shouldAct: true,
+          action: 'ground_search',
+          providerRequests: ['page_scan'],
+          valueTarget: 'technical_help',
+          roastBudget: 'none',
+          socialRole: 'technical_peer',
+          confidence: 0.92,
+          reason: 'explicit passive public-page audit request',
+        });
+      }
+    }
 
     if (input.capabilities.knowledge) requests.push('knowledge_rag');
     if (!recentCriticism) requests.push('group_rag');

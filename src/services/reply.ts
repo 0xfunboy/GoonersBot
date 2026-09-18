@@ -510,6 +510,7 @@ export function animeArchiveLookupFromAnswer(
 
 const TERMINAL_AGENT_TOOLS = new Set<CortexTool>([
   'web_search',
+  'page_scan',
   'image_lookup',
   'music',
   'link_media',
@@ -528,12 +529,14 @@ const TERMINAL_AGENT_TOOLS = new Set<CortexTool>([
 export function shouldUseTerminalAgentRuntime(
   decision: Pick<SourcedCortexDecision, 'toolCalls'> | undefined,
   hasDocumentContext: boolean,
+  providerRequests: TurnEvaluation['providerRequests'] = [],
 ): boolean {
   if (hasDocumentContext) return true;
   const hasAnimeKnowledge = Boolean(
     decision?.toolCalls.some((call) => call.tool === 'anime_knowledge'),
   );
   return Boolean(
+    providerRequests.includes('page_scan') ||
     decision?.toolCalls.some(
       (call) =>
         TERMINAL_AGENT_TOOLS.has(call.tool) && !(hasAnimeKnowledge && call.tool === 'web_search'),
@@ -935,6 +938,7 @@ export class ReplyService {
     const recentNegativeFeedback = ctx.recentBotReplies.some((r) => (r.feedbackScore ?? 0) < 0);
     const capabilities = {
       webSearch: this.grounding.enabled,
+      pageScan: this.grounding.pageAuditEnabled,
       imageLookup: this.grounding.enabled && ctx.allowVision && Boolean(visual),
       news: this.news.enabled,
       knowledge: this.knowledge.enabled,
@@ -1137,6 +1141,7 @@ export class ReplyService {
     const shouldUseAgentRuntime = shouldUseTerminalAgentRuntime(
       cortexDecision,
       Boolean(documentContext),
+      evaluation.providerRequests,
     );
     if (shouldUseAgentRuntime && semanticMessage.trim()) {
       try {
@@ -1157,6 +1162,15 @@ export class ReplyService {
             ...(call.args ? { args: call.args } : {}),
             reason: call.reason,
           })),
+          ...(cortexDecision
+            ? []
+            : evaluation.providerRequests
+                .filter((tool) => tool === 'page_scan')
+                .map(() => ({
+                  tool: 'page_scan' as const,
+                  query: semanticMessage,
+                  reason: 'deterministic passive public-page audit request',
+                }))),
         ];
         const coordinated = await this.agentRuntime.run({
           request: semanticMessage,

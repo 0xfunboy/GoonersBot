@@ -12,6 +12,7 @@ import {
   shouldUseTerminalAgentRuntime,
 } from '../src/services/reply.js';
 import { fakeLLM } from './helpers.js';
+import { fallbackCortex } from '../src/brain/cortex/fallback.js';
 
 const scene: SceneAnalysis = {
   currentTopic: '',
@@ -58,6 +59,35 @@ function decision(over: Partial<CortexDecision> = {}): CortexDecision {
 }
 
 describe('Cortex', () => {
+  it('routes an explicit public page audit to passive page_scan', () => {
+    const out = fallbackCortex({
+      currentMessage:
+        'fai una scansione approfondita di https://example.com, controlla qualità, header e vulnerabilità',
+      botIsAddressed: true,
+      availableTools: ['page_scan', 'web_search'],
+    });
+    expect(out.toolCalls).toEqual([
+      expect.objectContaining({
+        tool: 'page_scan',
+        args: { url: 'https://example.com/' },
+      }),
+    ]);
+    expect(out.toolCalls.some((call) => call.tool === 'link_media')).toBe(false);
+  });
+
+  it('accepts a bare domain in a page-audit request', () => {
+    const out = fallbackCortex({
+      currentMessage: 'controlla qualità, header e sicurezza di troie.vip',
+      botIsAddressed: true,
+      availableTools: ['page_scan'],
+    });
+    expect(out.toolCalls[0]).toEqual(
+      expect.objectContaining({
+        tool: 'page_scan',
+        args: { url: 'https://troie.vip/' },
+      }),
+    );
+  });
   it('uses a per-turn model override for evaluation', async () => {
     let model: string | undefined;
     const llm = fakeLLM({ json: decision() });

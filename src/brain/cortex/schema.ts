@@ -28,6 +28,7 @@ export const cortexIntentEnum = z.enum([
 
 export const cortexToolEnum = z.enum([
   'web_search',
+  'page_scan',
   'news',
   'image_lookup',
   'group_rag',

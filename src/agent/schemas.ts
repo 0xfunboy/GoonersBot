@@ -12,6 +12,7 @@ export const agentToolNameSchema = z.enum([
   'anime_knowledge',
   'anime_archive',
   'web_search',
+  'page_scan',
   'news',
   'page_scan',
   'document_read',

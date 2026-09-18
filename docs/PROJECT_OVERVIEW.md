@@ -44,6 +44,16 @@ with the running service, so **building on this machine changes what the next re
 unit is tracked at `ops/systemd/goonerbot.service` so its `PATH` (which now includes Deno, see §4)
 survives a redeploy.
 
+### Passive public-page audit
+
+The agent exposes a `page_scan` action for an explicit request that includes a public `http(s)`
+URL and asks for source/page quality, headers or a security review. It fetches at most one bounded
+HTML page through the existing SSRF-safe transport, then reports observable metadata, accessibility
+and performance hygiene signals, security headers and mixed-content/form indicators. It does not
+execute JavaScript, submit forms, crawl authenticated areas, probe ports, bypass access controls or
+claim a confirmed vulnerability. Server-side source code and the developer's actual competence cannot
+be inferred from a public HTML page alone; the response states that limitation explicitly.
+
 ---
 
 ## 2. How a message becomes a reply

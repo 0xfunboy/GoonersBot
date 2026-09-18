@@ -701,6 +701,18 @@ describe('TurnEvaluator', () => {
     expect(e.providerRequests).toContain('web_search');
   });
 
+  it('routes an addressed public page audit to page_scan when Cortex is unavailable', async () => {
+    const e = await evaluator.evaluate({
+      ...base,
+      capabilities: { ...base.capabilities, pageScan: true },
+      scene: scene({ userIntent: 'ask_bot' }),
+      currentMessage: 'controlla header e qualità di troie.vip',
+      botIsAddressed: true,
+    });
+    expect(e.action).toBe('ground_search');
+    expect(e.providerRequests).toEqual(['page_scan']);
+  });
+
   it('routes challenged claims to claim checking', async () => {
     const e = await evaluator.evaluate({
       ...base,

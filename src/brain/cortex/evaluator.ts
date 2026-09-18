@@ -15,6 +15,7 @@ const log = childLogger('cortex');
 
 export interface CortexCapabilities {
   webSearch: boolean;
+  pageScan?: boolean;
   imageLookup: boolean;
   news: boolean;
   knowledge: boolean;
@@ -139,6 +140,7 @@ export function normalizeDecision(
 export function availableToolsFor(capabilities: CortexCapabilities): CortexTool[] {
   const tools: CortexTool[] = [];
   if (capabilities.webSearch) tools.push('web_search');
+  if (capabilities.pageScan ?? capabilities.webSearch) tools.push('page_scan');
   if (capabilities.news) tools.push('news');
   if (capabilities.imageLookup) tools.push('image_lookup');
   if (capabilities.knowledge) tools.push('knowledge_rag');
@@ -216,7 +218,7 @@ function actionFromDecision(
   if (has('extend_capability') || tool('capability_forge')) return 'acquire_capability';
   if (has('news_context') && tool('news') && !has('answer')) return 'post_news';
   if (has('correct_claim')) return 'challenge_claim';
-  if (has('web_lookup') || tool('web_search'))
+  if (has('web_lookup') || tool('web_search') || tool('page_scan'))
     return has('news_context') ? 'bring_news_context' : 'ground_search';
   if (has('summarize')) return 'summarize_thread';
   if (has('recall_group')) return 'use_group_lore';

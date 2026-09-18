@@ -134,6 +134,7 @@ export type ProviderRequest =
   | 'anime_knowledge'
   | 'anime_archive'
   | 'web_search'
+  | 'page_scan'
   | 'news'
   | 'image_lookup'
   | 'music'

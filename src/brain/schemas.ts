@@ -198,6 +198,7 @@ export const turnEvaluationSchema = z.object({
         'group_rag',
         'knowledge_rag',
         'web_search',
+        'page_scan',
         'news',
         'image_lookup',
         'music',

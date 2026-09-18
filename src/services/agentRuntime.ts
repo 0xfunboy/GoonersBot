@@ -51,6 +51,8 @@ import { BOT_LABEL } from './conversation.js';
 import type { BotReplyRecord, ReplyPlan, SocialSignal } from '../brain/types.js';
 import type { AgentPlanningContext } from '../agent/types.js';
 import type { CoordinatedAgentResult } from '../agent/types.js';
+import { extractUrls } from '../providers/media/linkMedia/url.js';
+import { extractPageAuditUrl } from '../search/pageScanner.js';
 
 const log = childLogger('agent-runtime');
 
@@ -451,6 +453,13 @@ export class AgentRuntime {
         'read',
         { maxCalls: 2 },
       );
+    if (this.deps.grounding.pageAuditEnabled)
+      add(
+        'page_scan',
+        'passively audit one public HTML page for observable quality and security-header indicators; never exploit or bypass access controls',
+        'read',
+        { maxCalls: 1, timeoutMs: 30_000 },
+      );
     if (input.visual && this.deps.grounding.enabled)
       add('image_lookup', 'identify and web-ground the attached or replied image', 'read');
     if (input.documentContext)
@@ -655,6 +664,30 @@ export class AgentRuntime {
           evidence: result.sources.map((source) => ({ source })),
           confidence: result.sources.length ? 0.82 : 0.55,
           verified: result.sources.length > 0,
+        };
+      },
+
+      page_scan: async (toolCtx) => {
+        const requested =
+          stringArg(toolCtx, 'url') ?? toolCtx.action.query?.trim() ?? input.request;
+        const url = extractPageAuditUrl(requested) ?? extractUrls(requested, 1)[0];
+        if (!url) return failedOutput('La scansione richiede un singolo URL pubblico http(s).');
+        const result = await this.deps.grounding.auditPage(
+          url.toString(),
+          input.quotaBypass ? undefined : input.context.chatId,
+          toolCtx.signal,
+        );
+        if (!result) {
+          return failedOutput(
+            'La pagina non è stata analizzata: URL non raggiungibile, contenuto non HTML, limite o policy di rete.',
+          );
+        }
+        return {
+          summary: result.block,
+          data: { kind: 'text', text: result.block } satisfies RuntimeData,
+          evidence: [{ source: result.source, title: result.audit.title || undefined }],
+          confidence: 1,
+          verified: true,
         };
       },
 

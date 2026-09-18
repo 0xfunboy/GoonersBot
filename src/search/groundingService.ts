@@ -1,7 +1,7 @@
 import { childLogger } from '../utils/logger.js';
 import type { MediaProcessor } from '../providers/media/index.js';
 import type { WebSearchProvider, WebSearchResponse } from './types.js';
-import type { PageScanner, PageSummary } from './pageScanner.js';
+import type { PageAudit, PageScanner, PageSummary } from './pageScanner.js';
 import type { GroupQuotaService } from '../services/groupQuota.js';
 
 const log = childLogger('grounding');
@@ -18,6 +18,13 @@ export interface GroundingResult {
   block: string;
   query: string;
   sources: string[];
+}
+
+export interface PageAuditResult {
+  kind: 'page_audit';
+  block: string;
+  source: string;
+  audit: PageAudit;
 }
 
 export interface GroundImageInput {
@@ -56,6 +63,11 @@ export class GroundingService {
   get enabled(): boolean {
     // Both paths use the web backend (image lookup = vision identify + web search).
     return this.web.enabled && (this.cfg.webEnabled || this.cfg.imageEnabled);
+  }
+
+  /** Page audits use the SSRF-safe direct fetcher and do not depend on SearXNG being online. */
+  get pageAuditEnabled(): boolean {
+    return Boolean(this.scanner);
   }
 
   /** True if the text looks like a "what/who is this image" or product question. */
@@ -132,6 +144,24 @@ export class GroundingService {
     return res?.results.find((r) => /^https?:\/\//i.test(r.url))?.url ?? null;
   }
 
+  /** Perform one bounded passive audit of a public page, without forms, JS or active probes. */
+  async auditPage(
+    url: string,
+    chatId?: number,
+    signal?: AbortSignal,
+  ): Promise<PageAuditResult | null> {
+    if (!this.scanner) return null;
+    if (!(await this.reserve(chatId, 'page_scan'))) return null;
+    const audit = await this.scanner.audit(url, signal);
+    if (!audit) return null;
+    return {
+      kind: 'page_audit',
+      source: audit.finalUrl,
+      audit,
+      block: formatPageAudit(audit),
+    };
+  }
+
   private formatWeb(res: WebSearchResponse, pages: PageSummary[] = []): string {
     const lines = [
       `WEB CONTEXT (fresh results from a web search for "${res.query}" - use these facts to be ` +
@@ -175,6 +205,23 @@ export class GroundingService {
     }
     return lines.join('\n');
   }
+}
+
+export function formatPageAudit(audit: PageAudit): string {
+  const lines = [
+    `PASSIVE PAGE AUDIT: ${audit.finalUrl}`,
+    `HTTP ${audit.status}; ${audit.contentType}; ${audit.bytes} bytes; title=${audit.title || '(missing)'}`,
+    `quality score=${audit.quality.score}/100; security-header score=${audit.security.score}/100`,
+    `quality: lang=${audit.quality.language}, description=${audit.quality.description}, viewport=${audit.quality.viewport}, canonical=${audit.quality.canonical}, h1=${audit.quality.h1Count}, images=${audit.quality.imageCount} (missing alt=${audit.quality.imagesMissingAlt}), forms=${audit.quality.formCount}, scripts=${audit.quality.scriptCount}, external scripts=${audit.quality.externalScriptCount}, text chars=${audit.quality.textCharacters}`,
+    `headers: https=${audit.security.https}, HSTS=${audit.security.strictTransportSecurity}, CSP=${audit.security.contentSecurityPolicy}, frame protection=${audit.security.frameProtection}, nosniff=${audit.security.contentTypeOptions}, Referrer-Policy=${audit.security.referrerPolicy}, Permissions-Policy=${audit.security.permissionsPolicy}`,
+    'valutazione tecnica: questi segnali descrivono la pagina osservata; non bastano per giudicare la competenza del dev né per confermare una vulnerabilità.',
+  ];
+  if (audit.security.findings.length)
+    lines.push(`observations: ${audit.security.findings.join(' ')}`);
+  if (audit.recommendations.length)
+    lines.push(`recommendations: ${audit.recommendations.join(' ')}`);
+  lines.push(`limitations: ${audit.limitations.join(' ')}`);
+  return lines.join('\n');
 }
 
 function domainOf(url: string): string {

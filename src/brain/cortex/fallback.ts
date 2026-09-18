@@ -1,5 +1,6 @@
 import type { CortexDecision, CortexTool, SourcedCortexDecision } from './schema.js';
 import { extractUrls } from '../../providers/media/linkMedia/url.js';
+import { extractPageAuditUrl } from '../../search/pageScanner.js';
 
 const HINTS = {
   search: ['search', 'lookup', 'google', 'online', 'price', 'cost', 'cerca', 'prezzo', 'buscar'],
@@ -37,10 +38,25 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
   const calls: CortexDecision['toolCalls'] = [];
   const intents: CortexDecision['intents'] = [];
   const directMediaUrl = extractUrls(input.currentMessage, 1)[0];
+  const pageAuditUrl = extractPageAuditUrl(input.currentMessage);
+  const pageAuditRequested =
+    tools.has('page_scan') &&
+    /(?:scansion|scansione|analizz|audit|qualit[aà]|header|sorgenti|source|vulnerabilit|security|sicurezza|codebase|codice)/i.test(
+      msg,
+    ) &&
+    Boolean(pageAuditUrl);
 
   // A degraded evaluator must never invent a media download from prose. Rehosting a concrete URL
   // is deterministic; discovering one from a natural-language request belongs to the LLM cortex.
-  if (directMediaUrl && tools.has('link_media')) {
+  if (pageAuditRequested) {
+    intents.push('web_lookup', 'answer');
+    calls.push({
+      tool: 'page_scan',
+      query: pageAuditUrl?.toString() ?? '',
+      args: { url: pageAuditUrl?.toString() ?? '' },
+      reason: 'explicit bounded passive page audit request',
+    });
+  } else if (directMediaUrl && tools.has('link_media')) {
     intents.push('download_media');
     calls.push({
       tool: 'link_media',
