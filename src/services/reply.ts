@@ -69,7 +69,7 @@ import { decideReplyAcceptance, type AssessedReplyCandidate } from '../brain/rep
 import { TurnEvaluator } from '../brain/turnEvaluator.js';
 import { violatesSocialFloor } from '../brain/socialAwareness.js';
 import { AttributionVerifier, shouldVerifyAttribution } from '../brain/attributionVerifier.js';
-import { availableToolsFor, Cortex, cortexToTurnEvaluation } from '../brain/cortex/evaluator.js';
+import { Cortex, cortexToTurnEvaluation } from '../brain/cortex/evaluator.js';
 import { fallbackCortex } from '../brain/cortex/fallback.js';
 import type { CortexTool, SourcedCortexDecision } from '../brain/cortex/schema.js';
 import { isRefusal } from './modelRouter.js';
@@ -85,6 +85,13 @@ import type {
 } from '../brain/types.js';
 import { childLogger } from '../utils/logger.js';
 import { containsMinorMediaReference, MediaSafetyError } from '../safety/mediaSafety.js';
+import {
+  capabilitySnapshot,
+  cortexCapabilitiesFromSnapshot,
+  isTerminalCapability,
+  type BuiltinCapabilityId,
+  type CapabilityReadiness,
+} from '../companion/capabilities/catalog.js';
 
 const log = childLogger('reply');
 
@@ -508,20 +515,6 @@ export function animeArchiveLookupFromAnswer(
   };
 }
 
-const TERMINAL_AGENT_TOOLS = new Set<CortexTool>([
-  'web_search',
-  'page_scan',
-  'image_lookup',
-  'music',
-  'link_media',
-  'anime_archive',
-  'image_gen',
-  'video_gen',
-  'translate',
-  'tts',
-  'capability_forge',
-]);
-
 /**
  * Anime catalog facts belong to the normal styled reply pipeline. Ignore only a redundant web
  * search if an unnormalized model decision contains both; all other artifact tools stay terminal.
@@ -539,7 +532,7 @@ export function shouldUseTerminalAgentRuntime(
     providerRequests.includes('page_scan') ||
     decision?.toolCalls.some(
       (call) =>
-        TERMINAL_AGENT_TOOLS.has(call.tool) && !(hasAnimeKnowledge && call.tool === 'web_search'),
+        isTerminalCapability(call.tool) && !(hasAnimeKnowledge && call.tool === 'web_search'),
     ),
   );
 }
@@ -952,6 +945,51 @@ export class ReplyService {
       tts: this.tts.enabled,
       capabilityForge: this.capabilities.enabled,
     };
+    const readiness = (
+      enabled: boolean,
+      reason: string,
+    ): { state: CapabilityReadiness; reason?: string } =>
+      enabled ? { state: 'ready' } : { state: 'disabled', reason };
+    const capabilityReadiness: Partial<
+      Record<BuiltinCapabilityId, { state: CapabilityReadiness; reason?: string }>
+    > = {
+      group_rag: readiness(Boolean(socialContext), 'no scoped group context'),
+      knowledge_rag: readiness(capabilities.knowledge, 'knowledge index disabled'),
+      anime_knowledge: readiness(capabilities.anime, 'anime catalog disabled'),
+      anime_archive: readiness(capabilities.animeArchive, 'anime archive disabled'),
+      web_search: readiness(capabilities.webSearch, 'web grounding disabled'),
+      page_scan: readiness(capabilities.pageScan, 'public page audit disabled'),
+      news: readiness(capabilities.news, 'news sources disabled'),
+      image_lookup: readiness(capabilities.imageLookup, 'no usable visual or vision grounding'),
+      document_read: readiness(Boolean(documentContext), 'no readable document in this turn'),
+      media_prompt: readiness(
+        capabilities.imageGeneration || capabilities.videoGeneration,
+        'no media generator configured',
+      ),
+      image_gen: readiness(capabilities.imageGeneration, 'image provider disabled'),
+      video_gen: readiness(capabilities.videoGeneration, 'video provider disabled'),
+      music: readiness(capabilities.music, 'music provider disabled'),
+      link_media: readiness(capabilities.linkMedia, 'link-media disabled for this turn'),
+      translate: readiness(capabilities.translation, 'chat model unavailable'),
+      tts: readiness(capabilities.tts, 'TTS provider disabled'),
+      capability_forge: readiness(capabilities.capabilityForge, 'Capability Forge disabled'),
+    };
+    const runtimeCapabilitySnapshot = capabilitySnapshot(capabilityReadiness);
+    const capabilityDetails = [
+      ...runtimeCapabilitySnapshot
+        .filter((item) => item.readiness === 'ready' || item.readiness === 'degraded')
+        .map(
+          (item) =>
+            `${item.id}: ${item.description} Operations: ${item.operations.map((operation) => operation.id).join(', ')}.`,
+        ),
+      ...this.capabilities
+        .list()
+        .filter((item) => item.enabled)
+        .map(
+          (item) =>
+            `capability_forge installed recipe: command=${item.command}; id=${item.id}; ${item.description}. Select it with args.command="${item.command}"; no slash command is required.`,
+        ),
+    ];
     let cortexDecision: SourcedCortexDecision | undefined;
     const evaluation = passiveFastPath
       ? (() => {
@@ -960,7 +998,7 @@ export class ReplyService {
             // The autoengage gate is the addressing signal for this internal deterministic pass.
             botIsAddressed: true,
             passiveApproved: true,
-            availableTools: availableToolsFor(capabilities),
+            availableTools: cortexCapabilitiesFromSnapshot(runtimeCapabilitySnapshot),
           });
           cortexDecision = {
             ...cortexDecision,
@@ -977,6 +1015,8 @@ export class ReplyService {
               botIsAddressed: addressed,
               recentNegativeFeedback,
               capabilities,
+              capabilitySnapshot: runtimeCapabilitySnapshot,
+              capabilityDetails,
               ...(cognitiveContext ? { threadContext: cognitiveContext } : {}),
               model: ctx.internalModel,
             });
@@ -1189,6 +1229,7 @@ export class ReplyService {
           ...(documentContext ? { documentContext } : {}),
           ...(ambientRecall.block ? { ambientContext: ambientRecall.block } : {}),
           requestedActions,
+          capabilitySnapshot: runtimeCapabilitySnapshot,
           socialSignal: evaluation.socialSignal ?? scene.socialSignal,
           replyPlan: agentPlan,
           recentBotReplies: ctx.recentBotReplies,

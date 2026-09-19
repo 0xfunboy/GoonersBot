@@ -10,6 +10,11 @@ import {
 } from './schema.js';
 import { fallbackCortex } from './fallback.js';
 import { buildCortexPrompt, CORTEX_SYSTEM } from './prompt.js';
+import {
+  cortexCapabilitiesFromSnapshot,
+  legacyProviderFor,
+  type RuntimeCapabilitySnapshotItem,
+} from '../../companion/capabilities/catalog.js';
 
 const log = childLogger('cortex');
 
@@ -40,6 +45,10 @@ export interface CortexInput {
   botIsAddressed: boolean;
   recentNegativeFeedback: boolean;
   capabilities: CortexCapabilities;
+  /** Authoritative per-turn readiness, shared with planner and self-knowledge when available. */
+  capabilitySnapshot?: readonly RuntimeCapabilitySnapshotItem[];
+  /** Manifest/recipe summaries; descriptive only, authority still comes from the snapshot. */
+  capabilityDetails?: readonly string[];
   /** Per-turn model policy, applied to Cortex before any provider work is selected. */
   model?: string;
 }
@@ -58,7 +67,9 @@ export class Cortex {
   ) {}
 
   async evaluate(input: CortexInput): Promise<SourcedCortexDecision> {
-    const availableTools = availableToolsFor(input.capabilities);
+    const availableTools = input.capabilitySnapshot
+      ? cortexCapabilitiesFromSnapshot(input.capabilitySnapshot)
+      : availableToolsFor(input.capabilities);
     const degraded = fallbackCortex({
       currentMessage: input.currentMessage,
       botIsAddressed: input.botIsAddressed,
@@ -73,6 +84,7 @@ export class Cortex {
           currentMessage: input.currentMessage,
           threadContext: input.threadContext,
           availableTools,
+          availableCapabilityDetails: input.capabilityDetails,
           history: input.history,
           scene: input.scene,
           botIsAddressed: input.botIsAddressed,
@@ -193,11 +205,7 @@ export function cortexToTurnEvaluation(
 }
 
 function providerFromTool(tool: CortexTool): TurnEvaluation['providerRequests'][number] {
-  if (tool === 'image_gen') return 'image_generation';
-  if (tool === 'video_gen') return 'video_generation';
-  if (tool === 'translate') return 'translation';
-  if (tool === 'capability_forge') return 'capability_forge';
-  return tool;
+  return legacyProviderFor(tool) as TurnEvaluation['providerRequests'][number];
 }
 
 function actionFromDecision(

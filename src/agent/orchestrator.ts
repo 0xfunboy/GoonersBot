@@ -254,6 +254,7 @@ export function verifyOutput(
       }
     }
   }
+  problems.push(...(definition?.validateOutput?.(action, output) ?? []));
   return problems;
 }
 

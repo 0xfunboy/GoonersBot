@@ -454,9 +454,9 @@ export const COMMAND_HELP: Readonly<Record<string, CommandHelpDefinition>> = {
     category: 'diagnostics',
     usage: l('/capabilities', '/capabilities', '/capabilities'),
     description: l(
-      'Elenca i comandi dinamici/capacità persistenti installati dal Capability Forge, con la loro descrizione.',
-      'List persistent dynamic commands/capabilities installed by Capability Forge, with descriptions.',
-      'Lista los comandos/capacidades dinámicas persistentes instalados por Capability Forge, con sus descripciones.',
+      'Mostra le capacità naturali eseguibili, la readiness runtime e le recipe persistenti installate dal Capability Forge.',
+      'Show executable natural-language capabilities, runtime readiness, and persistent recipes installed by Capability Forge.',
+      'Muestra capacidades ejecutables en lenguaje natural, disponibilidad del entorno y recetas persistentes instaladas por Capability Forge.',
     ),
   },
   learn: {

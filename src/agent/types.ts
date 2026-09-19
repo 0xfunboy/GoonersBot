@@ -18,6 +18,10 @@ export interface AgentToolDefinition {
   timeoutMs?: number;
   /** Maximum artifacts one action may claim for each transport kind. */
   maxArtifactsPerKind?: Partial<Record<ActionArtifact['kind'], number>>;
+  /** Host-side manifest validation after model planning, before any handler can run. */
+  validateInput?: (action: PlannedAction) => string[];
+  /** Manifest output validation in addition to the action's acceptance contract. */
+  validateOutput?: (action: PlannedAction, output: ToolExecutionOutput) => string[];
 }
 
 export interface AgentPlanningContext {

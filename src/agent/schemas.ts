@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BUILTIN_CAPABILITY_IDS } from '../companion/capabilities/catalog.js';
 
 /**
  * Deliberately closed list of capabilities the autonomous coordinator may invoke.
@@ -6,26 +7,7 @@ import { z } from 'zod';
  * There is no shell, eval, filesystem-write or arbitrary HTTP tool here. New capabilities have
  * to be implemented and registered explicitly before the planner can select them.
  */
-export const agentToolNameSchema = z.enum([
-  'group_rag',
-  'knowledge_rag',
-  'anime_knowledge',
-  'anime_archive',
-  'web_search',
-  'page_scan',
-  'news',
-  'page_scan',
-  'document_read',
-  'image_lookup',
-  'media_prompt',
-  'image_gen',
-  'video_gen',
-  'music',
-  'link_media',
-  'translate',
-  'tts',
-  'capability_forge',
-]);
+export const agentToolNameSchema = z.enum(BUILTIN_CAPABILITY_IDS);
 
 export const actionEvidenceSchema = z.object({
   source: z.string().min(1).max(2_000),

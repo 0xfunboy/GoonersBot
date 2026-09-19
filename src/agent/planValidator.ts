@@ -47,6 +47,12 @@ export function validateActionPlan(
     if (definition.timeoutMs !== undefined) {
       action.timeoutMs = Math.max(500, Math.min(900_000, Math.round(definition.timeoutMs)));
     }
+    const inputProblems = definition.validateInput?.(action) ?? [];
+    if (inputProblems.length > 0) {
+      throw new ActionPlanValidationError(
+        `invalid input for ${action.tool}: ${inputProblems.join('; ')}`,
+      );
+    }
   }
   return parsed.data;
 }

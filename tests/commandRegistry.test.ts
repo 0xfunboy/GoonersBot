@@ -271,6 +271,13 @@ describe('dynamic capability commands', () => {
         capabilities: {
           list: () => [{ command: 'papers', description: 'Search technical papers' }],
         },
+        runtimeCapabilitySnapshot: () => [
+          {
+            id: 'page_scan',
+            readiness: 'ready',
+            reason: null,
+          },
+        ],
       }),
     );
     expect(response).toMatchObject({
@@ -278,7 +285,8 @@ describe('dynamic capability commands', () => {
       vars: {
         capabilities: {
           kind: 'trusted_html',
-          value: '/<code>papers</code> — Search technical papers',
+          value:
+            '<code>page_scan</code> · ready\n/<code>papers</code> · ready — Search technical papers',
         },
       },
     });

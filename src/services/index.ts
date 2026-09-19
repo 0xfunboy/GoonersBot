@@ -71,6 +71,12 @@ import {
   SocialProfileEngine,
   SocialQuestionService,
 } from '../social/index.js';
+import {
+  capabilitySnapshot,
+  type BuiltinCapabilityId,
+  type CapabilityReadiness,
+  type RuntimeCapabilitySnapshotItem,
+} from '../companion/capabilities/catalog.js';
 
 export * from './permissions.js';
 export * from './terms.js';
@@ -304,7 +310,9 @@ export class Services {
       storePath: env.CAPABILITY_STORE_PATH,
       autoInstallResearch: env.CAPABILITY_AUTO_INSTALL_RESEARCH,
     });
-    this.selfKnowledge = new SelfKnowledgeService(config, storage, this.capabilities);
+    this.selfKnowledge = new SelfKnowledgeService(config, storage, this.capabilities, () =>
+      this.runtimeCapabilitySnapshot(),
+    );
     this.localDevelopment = LocalDevelopmentService.create(
       {
         enabled: env.CAPABILITY_LOCAL_DEVELOPMENT_ENABLED,
@@ -429,6 +437,7 @@ export class Services {
       capabilities: this.capabilities,
       anime: this.anime,
       animeArchive: this.animeArchive,
+      news: this.news,
     });
     this.reply = new ReplyService(
       llm,
@@ -496,6 +505,40 @@ export class Services {
 
   getLanguage(chatId: number): Promise<string> {
     return this.storage.chats.getLanguage(chatId, this.config.env.DEFAULT_LANGUAGE);
+  }
+
+  /** Provider-level readiness used by /capabilities and runtime-grounded self-knowledge. */
+  runtimeCapabilitySnapshot(checkedAt = new Date()): RuntimeCapabilitySnapshotItem[] {
+    const ready = (
+      enabled: boolean,
+      reason: string,
+    ): { state: CapabilityReadiness; reason?: string } =>
+      enabled ? { state: 'ready' } : { state: 'needs_configuration', reason };
+    const states: Partial<
+      Record<BuiltinCapabilityId, { state: CapabilityReadiness; reason?: string }>
+    > = {
+      group_rag: { state: 'ready' },
+      knowledge_rag: ready(this.knowledge.enabled, 'knowledge index disabled'),
+      anime_knowledge: ready(this.anime.enabled, 'anime catalog disabled'),
+      anime_archive: ready(this.animeArchive.enabled, 'anime archive disabled'),
+      web_search: ready(this.grounding.enabled, 'web grounding disabled'),
+      page_scan: ready(this.grounding.pageAuditEnabled, 'page audit disabled'),
+      news: ready(this.news.enabled, 'news feeds not configured'),
+      image_lookup: ready(this.grounding.enabled, 'vision/web grounding unavailable'),
+      document_read: { state: 'ready' },
+      media_prompt: ready(
+        this.media.canGenerateImage || this.video.enabled,
+        'no media generator configured',
+      ),
+      image_gen: ready(this.media.canGenerateImage, 'image provider disabled'),
+      video_gen: ready(this.video.enabled, 'video provider disabled'),
+      music: ready(this.music.enabled, 'music provider disabled'),
+      link_media: ready(this.config.linkMedia.enabled, 'link-media disabled'),
+      translate: ready(this.llm.capabilities.chat, 'chat model unavailable'),
+      tts: ready(this.tts.enabled, 'TTS provider disabled'),
+      capability_forge: ready(this.capabilities.enabled, 'Capability Forge disabled'),
+    };
+    return capabilitySnapshot(states, checkedAt);
   }
 
   /** Free groups are always pinned to the economy model, including internal brain stages. */

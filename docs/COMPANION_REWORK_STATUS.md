@@ -1,8 +1,8 @@
 # Companion rework — implementation status
 
 This is the execution ledger for `/home/funboy/GOONERSBOT_COMPANION_REWORK_PLAN.md`.
-It records verified behavior, not intent. A package is `done` only after its acceptance tests and
-the repository-wide quality gates pass.
+It records verified behavior, not intent. States are `planned`, `in_progress`, `implemented`,
+`verified` and `blocked_external`; `verified` requires the package-specific acceptance evidence.
 
 ## Baseline
 
@@ -13,23 +13,23 @@ the repository-wide quality gates pass.
 
 ## Package ledger
 
-| Package | State | Verified delivery |
-| --- | --- | --- |
-| R00 | in progress | Correct atomic semaphore; custom persist-before-offset polling; one ordered recovery path; bot-scoped receipts; count/byte backpressure; owner/fence/heartbeat leases; expired legacy effects quarantined; terminal payload redaction; privacy erasure integration; intake-first bot shutdown. Repository-wide verification pending. |
-| R01 | pending | Executable capability catalog. |
-| R02 | pending | Natural turn understanding and request contract. |
-| R03 | pending | Unified provider/action dispatch. |
-| R04 | pending | Persistent tasks and concurrent task control dialogue. |
-| R05 | pending | Multi-artifact outbox and verified delivery. |
-| R06 | pending | Bounded continuation, correction and progress evaluation. |
-| R07 | pending | Common expression policy and naturalness evals. |
-| R08 | pending | Operational, personal and project memory scopes. |
-| R09 | pending | Shared resource governor and workload containment. |
-| R10 | pending | Web/document/data/code/media capability families. |
-| R11 | pending | Connected accounts and reusable delegations. |
-| R12 | pending | Reminders, monitors and relevant initiative. |
-| R13 | pending | Versioned workflow learning and capability discovery. |
-| R14 | pending | Parity migration, final recovery/load evals and release handoff. |
+| Package | State | Commit | Runtime path | Evidence (UTC) | Missing gate / next activity |
+| --- | --- | --- | --- | --- | --- |
+| R00 | implemented | `8616047` | `companion/ingress/*`, `telegram/bot`, `updateInbox` | 113 files / 1,311 tests, typecheck, lint, build; simulated fault tests; 2026-09-19 | Isolated real-Mongo legacy-index migration and process-level SIGTERM rehearsal before `verified`. |
+| R01 | implemented | pending commit | `companion/capabilities/catalog`, Cortex, AgentRuntime, SelfKnowledge | 116 files / 1,323 tests, typecheck, lint, build and format; natural installed-recipe execution; 2026-09-19 | Real-model semantic corpus and context-specific authorization/readiness remain release gates; R02 consumes the catalog contract. |
+| R02 | planned | — | — | — | Natural turn understanding and request contract. |
+| R03 | planned | — | — | — | Unified provider/action dispatch. |
+| R04 | planned | — | — | — | Persistent tasks and concurrent task control dialogue. |
+| R05 | planned | — | — | — | Multi-artifact outbox and verified delivery. |
+| R06 | planned | — | — | — | Bounded continuation, correction and progress evaluation. |
+| R07 | planned | — | — | — | Common expression policy and naturalness evals. |
+| R08 | planned | — | — | — | Operational, personal and project memory scopes. |
+| R09 | planned | — | — | — | Shared resource governor and workload containment. |
+| R10 | planned | — | — | — | Web/document/data/code/media capability families. |
+| R11 | planned | — | — | — | Connected accounts and reusable delegations. |
+| R12 | planned | — | — | — | Reminders, monitors and relevant initiative. |
+| R13 | planned | — | — | — | Versioned workflow learning and capability discovery. |
+| R14 | planned | — | — | — | Parity migration, final recovery/load evals and release handoff. |
 
 ## R00 evidence
 
@@ -42,12 +42,32 @@ Automated cases currently present:
 - Expired running work is classified `outcome_unknown`, not blindly executed a second time.
 - Terms decline redacts active inbox payloads through immutable Telegram actor id.
 
-Remaining R00 checks before changing the state to `done`:
+Remaining R00 checks before changing the state to `verified`:
 
-- repository-wide unit suite, typecheck, lint and build;
-- integration fault cases for recovery/live ordering, queue byte/count saturation and SIGTERM;
 - migration smoke test against a copy of the current Mongo index/receipt shape;
-- metrics/baseline inventory required by phase 0.
+- process-level SIGTERM rehearsal with a real long-poll request and Mongo test instance.
+
+Repository-wide unit tests, typecheck, lint, build, simulated recovery/live ordering, lease overrun,
+count/byte saturation, two-owner fencing and intake abort have passed. These do not masquerade as a
+real Mongo/process rehearsal. The architecture/provider inventory and seed corpus are versioned in
+`docs/COMPANION_BASELINE.md` and `tests/fixtures/companion-conversation-corpus.json`.
+
+## R01 evidence
+
+- One versioned runtime catalog owns capability identity, operation schemas, effects, retry and
+  idempotency policy, requirements, resource class, limits and legacy provider mapping.
+- Cortex schemas/prompts, planner definitions, handler validation, terminal routing, self-knowledge,
+  `/capabilities` and generated command documentation derive from that catalog or its per-turn
+  readiness snapshot.
+- Bootstrap tests reject a capability advertised without an executable handler; invocation and
+  output validation run at the execution boundary.
+- `news` and `document_read` are both executable through the agent runtime. A composite integration
+  test proves their verified results and news evidence reach one final answer.
+- An installed Forge recipe is exposed to Cortex and executes from a natural semantic selection via
+  `args.command`; no slash command or duplicate enum entry is required.
+- The repository-wide suite passes serially (116 files / 1,323 tests). A parallel-only collision in
+  the pre-existing local-development Git tests was reproduced and disappears under isolated file
+  execution; it is recorded as test-harness isolation debt rather than hidden as a runtime failure.
 
 ## Compatibility rules held throughout the rework
 

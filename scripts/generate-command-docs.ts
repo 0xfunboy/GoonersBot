@@ -36,7 +36,7 @@ const lines: string[] = [
   '',
   '> GENERATED FILE — update `src/telegram/handlers/commands/helpCatalog.ts` or the command registry, then run `pnpm docs:commands`.',
   '',
-  `Static commands: **${commandHandlers.length}**. Capability Forge may install additional dynamic commands at runtime; use \`/capabilities\` to list those currently installed.`,
+  `Static commands: **${commandHandlers.length}**. Capability Forge may install additional dynamic commands at runtime; use \`/capabilities\` for built-in readiness and installed recipes.`,
   '',
   'Access model: `admin` means group administrator **or** bot admin; `bot admin` means either a bootstrap/root handle from `ADMIN_HANDLES` or a runtime grant persisted by immutable Telegram user ID; `learn admin` means bot admin or an immutable local-development admin ID. Except for `/start`, `/tos`/`/terms`, and `/help`, commands also pass through the approval gate.',
   '',

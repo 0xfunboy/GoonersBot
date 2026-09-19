@@ -2,7 +2,7 @@
 
 > GENERATED FILE — update `src/telegram/handlers/commands/helpCatalog.ts` or the command registry, then run `pnpm docs:commands`.
 
-Static commands: **54**. Capability Forge may install additional dynamic commands at runtime; use `/capabilities` to list those currently installed.
+Static commands: **54**. Capability Forge may install additional dynamic commands at runtime; use `/capabilities` for built-in readiness and installed recipes.
 
 Access model: `admin` means group administrator **or** bot admin; `bot admin` means either a bootstrap/root handle from `ADMIN_HANDLES` or a runtime grant persisted by immutable Telegram user ID; `learn admin` means bot admin or an immutable local-development admin ID. Except for `/start`, `/tos`/`/terms`, and `/help`, commands also pass through the approval gate.
 
@@ -255,7 +255,7 @@ Mostra identità pubblica, autore e tecnologia dichiarata del progetto; esclude 
 
 #### `/capabilities`
 
-Elenca i comandi dinamici/capacità persistenti installati dal Capability Forge, con la loro descrizione.
+Mostra le capacità naturali eseguibili, la readiness runtime e le recipe persistenti installate dal Capability Forge.
 
 - **Accesso:** utente/chat approvata
 - **Alias registrati:** `/skills`, `/capacita`
@@ -649,7 +649,7 @@ Show the project’s public identity, author, and declared technology; operation
 
 #### `/capabilities`
 
-List persistent dynamic commands/capabilities installed by Capability Forge, with descriptions.
+Show executable natural-language capabilities, runtime readiness, and persistent recipes installed by Capability Forge.
 
 - **Access:** approved user/chat
 - **Registered aliases:** `/skills`, `/capacita`
@@ -1043,7 +1043,7 @@ Muestra la identidad pública, autor y tecnología declarada del proyecto; exclu
 
 #### `/capabilities`
 
-Lista los comandos/capacidades dinámicas persistentes instalados por Capability Forge, con sus descripciones.
+Muestra capacidades ejecutables en lenguaje natural, disponibilidad del entorno y recetas persistentes instaladas por Capability Forge.
 
 - **Acceso:** usuario/chat aprobado
 - **Alias registrados:** `/skills`, `/capacita`

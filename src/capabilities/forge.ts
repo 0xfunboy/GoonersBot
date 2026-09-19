@@ -146,6 +146,7 @@ export class CapabilityForge {
     language: string;
     chatId?: number;
     model?: string;
+    signal?: AbortSignal;
   }): Promise<CapabilityExecution | null> {
     await this.initialize();
     const normalized = normalizeCommand(params.command);
@@ -158,6 +159,7 @@ export class CapabilityForge {
       params.language,
       params.chatId,
       params.model,
+      params.signal,
     );
     return {
       ...result,

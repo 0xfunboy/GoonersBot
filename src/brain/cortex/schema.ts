@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CORTEX_CAPABILITY_IDS } from '../../companion/capabilities/catalog.js';
 
 export const cortexIntentEnum = z.enum([
   'answer',
@@ -26,23 +27,7 @@ export const cortexIntentEnum = z.enum([
   'stay_quiet',
 ]);
 
-export const cortexToolEnum = z.enum([
-  'web_search',
-  'page_scan',
-  'news',
-  'image_lookup',
-  'group_rag',
-  'knowledge_rag',
-  'anime_knowledge',
-  'anime_archive',
-  'music',
-  'link_media',
-  'image_gen',
-  'video_gen',
-  'translate',
-  'tts',
-  'capability_forge',
-]);
+export const cortexToolEnum = z.enum(CORTEX_CAPABILITY_IDS);
 
 export const cortexToolCallSchema = z.object({
   tool: cortexToolEnum,

@@ -109,9 +109,10 @@ export const CORTEX_SYSTEM = [
   '  Calde ep 2" should use intent=rehost, clean title="Gatte Calde", episode="2"; the host resolves',
   '  that title against the stored canonical shortlist instead of fuzzy-searching the whole source.',
   '  Never make a regex-like guess from keywords.',
-  '- capability_forge: ONLY when the user asks for an action that no available tool can perform.',
-  '  It may create a permanent read-only research recipe. External writes, credentials and local',
-  '  code become an honest setup proposal, never a pretend success. Put the full goal in query.',
+  '- capability_forge: use an installed recipe listed in AVAILABLE CAPABILITY DETAILS when it',
+  '  matches the request; put its command in args.command and the concrete request in query. Only',
+  '  propose a new recipe when no available operation matches. External writes, credentials and',
+  '  local code become an honest setup proposal, never a pretend success.',
   '',
   'SAFETY:',
   '- NSFW/adult content and adult search are FINE here (private adult group). Never refuse adult.',
@@ -211,6 +212,7 @@ export interface CortexPromptInput {
   currentMessage: string;
   threadContext?: string | undefined;
   availableTools: CortexTool[];
+  availableCapabilityDetails?: readonly string[];
   history: StoredMessage[];
   scene: SceneAnalysis;
   botIsAddressed: boolean;
@@ -225,6 +227,7 @@ export function buildCortexPrompt(input: CortexPromptInput): string {
     .join('\n');
   return [
     `AVAILABLE TOOLS: ${input.availableTools.join(', ') || 'none'}`,
+    `AVAILABLE CAPABILITY DETAILS:\n${input.availableCapabilityDetails?.join('\n') || '(none)'}`,
     `LATEST MESSAGE: ${input.currentMessage || '(empty)'}`,
     '',
     'RECENT CHAT:',

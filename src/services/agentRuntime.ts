@@ -53,6 +53,16 @@ import type { AgentPlanningContext } from '../agent/types.js';
 import type { CoordinatedAgentResult } from '../agent/types.js';
 import { extractUrls } from '../providers/media/linkMedia/url.js';
 import { extractPageAuditUrl } from '../search/pageScanner.js';
+import type { NewsService } from '../news/newsService.js';
+import {
+  BUILTIN_CAPABILITY_IDS,
+  assertCapabilityHandlerCoverage,
+  runtimeCapabilityManifest,
+  validateCapabilityInvocation,
+  validateCapabilityOutput,
+  type BuiltinCapabilityId,
+  type RuntimeCapabilitySnapshotItem,
+} from '../companion/capabilities/catalog.js';
 
 const log = childLogger('agent-runtime');
 
@@ -102,6 +112,8 @@ export interface AgentRuntimeInput {
   ambientContext?: string;
   /** Trusted intent already selected by Cortex; preserves composite requests if planner JSON fails. */
   requestedActions?: AgentPlanningContext['requestedActions'];
+  /** Same readiness view shown to Cortex; definitions remain the executable source of truth. */
+  capabilitySnapshot?: readonly RuntimeCapabilitySnapshotItem[];
   /** Deterministic social floor shared with the ordinary conversational pipeline. */
   socialSignal?: SocialSignal;
   /** Concrete reply contract and recent outputs used by the semantic repetition guard. */
@@ -152,6 +164,7 @@ export interface AgentRuntimeDependencies {
   capabilities: CapabilityForge;
   anime: AnimeKnowledgeService;
   animeArchive: AnimeArchiveService;
+  news?: NewsService;
 }
 
 /**
@@ -413,25 +426,25 @@ export class AgentRuntime {
   private definitions(input: AgentRuntimeInput): AgentToolDefinition[] {
     const defs: AgentToolDefinition[] = [];
     const add = (
-      name: AgentToolDefinition['name'],
-      description: string,
-      risk: AgentToolDefinition['risk'],
+      name: BuiltinCapabilityId,
       options: Pick<AgentToolDefinition, 'maxCalls' | 'timeoutMs' | 'maxArtifactsPerKind'> = {},
     ): void => {
-      defs.push({ name, description, risk, ...options });
+      const manifest = runtimeCapabilityManifest(name);
+      defs.push({
+        name,
+        description: manifest.description,
+        risk: manifest.adapterRisk,
+        maxCalls: manifest.defaultMaxCalls,
+        timeoutMs: manifest.defaultTimeoutMs,
+        validateInput: (action) => validateCapabilityInvocation(name, action),
+        validateOutput: (action, output) => validateCapabilityOutput(name, action, output),
+        ...options,
+      });
     };
 
-    if (input.socialContext || input.groupContext)
-      add('group_rag', 'recall relevant community members, relationships and group lore', 'read');
-    if (this.deps.knowledge.enabled)
-      add('knowledge_rag', 'retrieve stable curated technical and cultural knowledge', 'read');
-    if (this.deps.anime.enabled)
-      add(
-        'anime_knowledge',
-        "look up anime catalog metadata (status, latest episode, airing day) and manage this chat's follows",
-        'read',
-        { maxCalls: 2 },
-      );
+    if (input.socialContext || input.groupContext) add('group_rag');
+    if (this.deps.knowledge.enabled) add('knowledge_rag');
+    if (this.deps.anime.enabled) add('anime_knowledge', { maxCalls: 2 });
     const cortexRequestedAnimeArchive = Boolean(
       input.requestedActions?.some((action) => action.tool === 'anime_archive'),
     );
@@ -440,92 +453,60 @@ export class AgentRuntime {
       input.allowAnimeArchiveWrite &&
       cortexRequestedAnimeArchive
     )
-      add(
-        'anime_archive',
-        'search supported anime archives, preserve canonical source identities, verify episode availability and create/queue Telegram rehosts',
-        'external_write',
-        { maxCalls: 1, timeoutMs: 20_000 },
-      );
-    if (this.deps.grounding.enabled)
-      add(
-        'web_search',
-        'search current web results and scan the strongest pages for verification',
-        'read',
-        { maxCalls: 2 },
-      );
-    if (this.deps.grounding.pageAuditEnabled)
-      add(
-        'page_scan',
-        'passively audit one public HTML page for observable quality and security-header indicators; never exploit or bypass access controls',
-        'read',
-        { maxCalls: 1, timeoutMs: 30_000 },
-      );
-    if (input.visual && this.deps.grounding.enabled)
-      add('image_lookup', 'identify and web-ground the attached or replied image', 'read');
+      add('anime_archive', { maxCalls: 1, timeoutMs: 20_000 });
+    if (this.deps.grounding.enabled) add('web_search', { maxCalls: 2 });
+    if (this.deps.grounding.pageAuditEnabled) add('page_scan', { maxCalls: 1, timeoutMs: 30_000 });
+    if (this.deps.news?.enabled) add('news', { maxCalls: 2 });
+    if (input.visual && this.deps.grounding.enabled) add('image_lookup');
     if (input.documentContext)
-      add(
-        'document_read',
-        'read and faithfully analyze the already extracted attached or replied document',
-        'compute',
-        {
-          maxCalls: 1,
-          timeoutMs: documentAnalysisTimeout(this.deps.config),
-        },
-      );
+      add('document_read', {
+        maxCalls: 1,
+        timeoutMs: documentAnalysisTimeout(this.deps.config),
+      });
     if (this.deps.media.canGenerateImage || this.deps.video.enabled)
-      add('media_prompt', 'plan a coherent, context-aware image or video prompt', 'compute', {
+      add('media_prompt', {
         maxCalls: 2,
         timeoutMs: mediaPromptTimeout(this.deps.config),
       });
     if (this.deps.media.canGenerateImage)
-      add(
-        'image_gen',
-        'generate a real image artifact from the prepared visual brief',
-        'generate',
-        {
-          maxCalls: 1,
-          timeoutMs: imageGenerationTimeout(this.deps.config),
-          maxArtifactsPerKind: { image: 1 },
-        },
-      );
+      add('image_gen', {
+        maxCalls: 1,
+        timeoutMs: imageGenerationTimeout(this.deps.config),
+        maxArtifactsPerKind: { image: 1 },
+      });
     if (this.deps.video.enabled)
-      add('video_gen', 'generate and prepare a real short video artifact', 'generate', {
+      add('video_gen', {
         maxCalls: 1,
         timeoutMs: videoGenerationTimeout(this.deps.config),
         maxArtifactsPerKind: { video: 1 },
       });
     if (this.deps.music.enabled)
-      add('music', 'find, download and transcode a song into a Telegram voice note', 'generate', {
+      add('music', {
         maxCalls: 1,
         timeoutMs: Math.min(900_000, this.deps.config.music.timeoutMs + 10_000),
         maxArtifactsPerKind: { audio: 1 },
       });
     if (this.deps.config.linkMedia.enabled)
-      add('link_media', 'resolve an existing media URL for Telegram rehosting', 'read', {
+      add('link_media', {
         maxCalls: 1,
         maxArtifactsPerKind: { link: 1 },
       });
     if (this.deps.llm.capabilities.chat)
-      add('translate', 'translate supplied text or a dependency result precisely', 'compute', {
+      add('translate', {
         maxCalls: 2,
         timeoutMs: mediaPromptTimeout(this.deps.config),
       });
     if (this.deps.tts.enabled)
-      add('tts', 'synthesize supplied or dependency text as a Telegram voice note', 'generate', {
+      add('tts', {
         maxCalls: 1,
         timeoutMs: Math.min(900_000, (this.deps.config.voice?.tts?.timeoutMs ?? 60_000) + 10_000),
         maxArtifactsPerKind: { audio: 1 },
       });
     if (this.deps.capabilities.enabled)
-      add(
-        'capability_forge',
-        'research and install a safe persistent declarative research capability when authorized',
-        'compute',
-        {
-          maxCalls: 1,
-          timeoutMs: capabilityTimeout(this.deps.config),
-        },
-      );
+      add('capability_forge', {
+        maxCalls: 1,
+        timeoutMs: capabilityTimeout(this.deps.config),
+      });
     return defs;
   }
 
@@ -539,7 +520,7 @@ export class AgentRuntime {
       recentMessages: input.recentMessages.slice(-6),
     });
 
-    return defineAgentTools({
+    const handlers = defineAgentTools({
       group_rag: async () =>
         textOutput(
           [input.socialContext, input.groupContext].filter(Boolean).join('\n\n'),
@@ -687,6 +668,28 @@ export class AgentRuntime {
           data: { kind: 'text', text: result.block } satisfies RuntimeData,
           evidence: [{ source: result.source, title: result.audit.title || undefined }],
           confidence: 1,
+          verified: true,
+        };
+      },
+
+      news: async (toolCtx) => {
+        if (!this.deps.news) return failedOutput('News provider is not configured.');
+        const query = toolQuery(toolCtx, input.request);
+        const dynamicTerms = query
+          .split(/[^\p{L}\p{N}]+/u)
+          .map((term) => term.trim())
+          .filter((term) => term.length >= 3)
+          .slice(0, 12);
+        const items = (await this.deps.news.ranked({ dynamicTerms })).slice(0, 5);
+        if (items.length === 0) return failedOutput('No sufficiently recent news was available.');
+        const summary = items
+          .map((item) => `${item.title} — ${item.summary}`.slice(0, 1_500))
+          .join('\n');
+        return {
+          summary,
+          data: { kind: 'text', text: summary } satisfies RuntimeData,
+          evidence: items.map((item) => ({ source: item.link, title: item.title })),
+          confidence: 0.85,
           verified: true,
         };
       },
@@ -978,14 +981,29 @@ export class AgentRuntime {
       },
 
       capability_forge: async (toolCtx) => {
-        const result = await this.deps.capabilities.acquire({
-          request: toolQuery(toolCtx, input.request),
-          language: input.language,
-          allowInstall: Boolean(input.allowCapabilityInstall),
-          ...(input.quotaBypass ? {} : { chatId: input.context.chatId }),
-          ...(input.model ? { model: input.model } : {}),
-          signal: toolCtx.signal,
-        });
+        const request = toolQuery(toolCtx, input.request);
+        const requestedCommand = stringArg(toolCtx, 'command');
+        const existing =
+          requestedCommand && this.deps.capabilities.hasCommand(requestedCommand)
+            ? await this.deps.capabilities.executeCommand({
+                command: requestedCommand,
+                input: request,
+                language: input.language,
+                ...(input.quotaBypass ? {} : { chatId: input.context.chatId }),
+                ...(input.model ? { model: input.model } : {}),
+                signal: toolCtx.signal,
+              })
+            : null;
+        const result =
+          existing ??
+          (await this.deps.capabilities.acquire({
+            request,
+            language: input.language,
+            allowInstall: Boolean(input.allowCapabilityInstall),
+            ...(input.quotaBypass ? {} : { chatId: input.context.chatId }),
+            ...(input.model ? { model: input.model } : {}),
+            signal: toolCtx.signal,
+          }));
         const installed = isNewCapabilityInstallation(result);
         const reused = isVerifiedCapabilityReuse(result);
         const verified = isVerifiedCapabilityExecution(result);
@@ -1009,6 +1027,8 @@ export class AgentRuntime {
         };
       },
     });
+    assertCapabilityHandlerCoverage(BUILTIN_CAPABILITY_IDS, handlers);
+    return handlers;
   }
 
   private async reserveImage(input: AgentRuntimeInput): Promise<boolean> {

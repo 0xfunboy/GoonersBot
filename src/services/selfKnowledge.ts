@@ -7,6 +7,10 @@ import {
   registeredCommandCatalog,
 } from '../telegram/handlers/commands/aliases.js';
 import { helpDefinition } from '../telegram/handlers/commands/helpCatalog.js';
+import {
+  RUNTIME_CAPABILITY_MANIFESTS,
+  type RuntimeCapabilitySnapshotItem,
+} from '../companion/capabilities/catalog.js';
 
 const SELF_TOPIC_RE =
   /(?:\b(?:come|perch[eé]|why|how|cosa|che cosa)\b.{0,80}\b(?:funzion|hai fatto|hai detto|hai risposto|usi|leggi|vedi|sai|access|log|cronolog|notific|modello|model|tool|skill|capabilit|comando|command|runtime|repo|codice|code)\b|\b(?:formatted[_ ]?id|log di sistema|system logs?|journalctl|cronologia|notifiche|hai accesso|puoi leggere|come funzioni|come sei fatto|stai allucinando|hai mentito|ti sei inventato)\b|\/(?:id|admin|unadmin|admins|learn|brain|debuglast)\b)/iu;
@@ -30,6 +34,7 @@ export class SelfKnowledgeService {
     private readonly config: AppConfig,
     private readonly storage: Storage,
     private readonly capabilities: CapabilityForge,
+    private readonly runtimeSnapshot: () => readonly RuntimeCapabilitySnapshotItem[] = () => [],
   ) {}
 
   isRelevant(input: SelfKnowledgeInput): boolean {
@@ -53,9 +58,31 @@ export class SelfKnowledgeService {
       );
     });
     const dynamic = this.capabilities.list();
+    const runtime = this.runtimeSnapshot();
+    const readyRuntime = runtime.filter(
+      (item) => item.readiness === 'ready' || item.readiness === 'degraded',
+    );
+    const unavailableRuntime = runtime.filter(
+      (item) => item.readiness !== 'ready' && item.readiness !== 'degraded',
+    );
     const lines = [
       'SELF RUNTIME EVIDENCE (ground truth for claims about yourself; never embellish):',
       `- Static slash commands registered now: ${commands.length}. Dynamic installed capabilities: ${dynamic.length}${dynamic.length ? ` (${dynamic.map((item) => `/${item.command}`).join(', ')})` : ''}.`,
+      `- Executable natural-language capabilities ready now: ${readyRuntime.length ? readyRuntime.map((item) => item.id).join(', ') : 'none'}. Snapshot time: ${runtime[0]?.checkedAt ?? 'not evaluated'}.`,
+      `- Runtime operations come from the executable manifests: ${Object.values(
+        RUNTIME_CAPABILITY_MANIFESTS,
+      )
+        .map(
+          (manifest) => `${manifest.id}[${manifest.operations.map((item) => item.id).join('|')}]`,
+        )
+        .join(', ')}.`,
+      ...(unavailableRuntime.length
+        ? [
+            `- Not ready in the current runtime snapshot: ${unavailableRuntime
+              .map((item) => `${item.id} (${item.reason ?? item.readiness})`)
+              .join(', ')}.`,
+          ]
+        : []),
       `- Configured model roles right now: reply=${this.config.brain.replyModel ?? this.config.llm.model ?? 'none'}; Cortex=${this.config.brain.cortex.model ?? this.config.llm.model ?? 'none'}; scene=${this.config.brain.sceneModel ?? this.config.llm.model ?? 'none'}; evaluator=${this.config.brain.evaluatorModel ?? this.config.llm.model ?? 'none'}; planner=${this.config.brain.plannerModel ?? this.config.llm.model ?? 'none'}; NSFW=${this.config.llm.nsfwModel ?? 'none'}. A group plan/router/provider may still report a different returned model for one concrete call.`,
       '- Normal conversation input comes from the current Telegram update plus recent conversation state stored by GoonersBot. RECENT CHAT is chat history, not an operating-system log.',
       '- You do NOT have arbitrary journalctl/system-log access, Telegram-client notification history, read receipts, or arbitrary filesystem/source-code access in an ordinary chat reply. Never claim you inspected those unless an explicit supplied tool result says so.',

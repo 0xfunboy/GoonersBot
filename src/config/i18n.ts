@@ -1247,10 +1247,10 @@ export const translations: TranslationMap = {
       'No hay capacidades dinámicas instaladas. Un admin del bot puede usar /learn &lt;petición&gt;.',
   },
   capabilities_list: {
-    italian: '<strong>Capacità dinamiche</strong>\n{capabilities}',
-    english: '<strong>Dynamic capabilities</strong>\n{capabilities}',
-    russian: '<strong>Динамические возможности</strong>\n{capabilities}',
-    spanish: '<strong>Capacidades dinámicas</strong>\n{capabilities}',
+    italian: '<strong>Capacità eseguibili e stato runtime</strong>\n{capabilities}',
+    english: '<strong>Executable capabilities and runtime state</strong>\n{capabilities}',
+    russian: '<strong>Исполняемые возможности и состояние среды</strong>\n{capabilities}',
+    spanish: '<strong>Capacidades ejecutables y estado del entorno</strong>\n{capabilities}',
   },
   learn_usage: {
     italian:

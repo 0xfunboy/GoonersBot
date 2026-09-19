@@ -8,7 +8,7 @@ import {
 } from '../../../capabilities/localDevelopmentService.js';
 import type { LocalDevelopmentJob } from '../../../capabilities/localDevelopmentJobs.js';
 
-/** /capabilities (alias /skills) - list durable, dynamically acquired read-only capabilities. */
+/** /capabilities (alias /skills) - executable runtime readiness plus acquired recipes. */
 export const capabilitiesCommand: CommandSpec = {
   command: 'capabilities',
   aliases: ['skills'],
@@ -17,17 +17,21 @@ export const capabilitiesCommand: CommandSpec = {
   priority: Priority.LAST,
   async handle({ services }) {
     const installed = services.capabilities.list();
-    if (installed.length === 0) return { text: 'capabilities_empty' };
+    const runtime = services.runtimeCapabilitySnapshot();
     return {
       text: 'capabilities_list',
       vars: {
         capabilities: trustedHtml(
-          installed
-            .map(
+          [
+            ...runtime.map(
               (item) =>
-                `/<code>${escapeHtml(item.command)}</code> — ${escapeHtml(item.description)}`,
-            )
-            .join('\n'),
+                `<code>${escapeHtml(item.id)}</code> · ${escapeHtml(item.readiness)}${item.reason ? ` — ${escapeHtml(item.reason)}` : ''}`,
+            ),
+            ...installed.map(
+              (item) =>
+                `/<code>${escapeHtml(item.command)}</code> · ready — ${escapeHtml(item.description)}`,
+            ),
+          ].join('\n'),
         ),
       },
     };

@@ -610,6 +610,125 @@ describe('AgentRuntime live provider bridge', () => {
     expect(chatCompletion).toHaveBeenCalledOnce();
   });
 
+  it('keeps both document analysis and current news in one natural composite turn', async () => {
+    const jsonCompletion = vi
+      .fn()
+      .mockResolvedValueOnce({
+        goal: 'compare the attached brief with current security news',
+        actions: [
+          {
+            id: 'read_brief',
+            tool: 'document_read',
+            purpose: 'extract the security claims from the attached brief',
+            query: 'summarize the security claims',
+            args: {},
+            dependsOn: [],
+            optional: false,
+            timeoutMs: 5_000,
+            acceptance: { requireOutput: true, minEvidence: 0, requiredArtifactKinds: [] },
+          },
+          {
+            id: 'current_news',
+            tool: 'news',
+            purpose: 'find current security news to compare with the brief',
+            query: 'cybersecurity vulnerabilities',
+            args: {},
+            dependsOn: [],
+            optional: false,
+            timeoutMs: 5_000,
+            acceptance: { requireOutput: true, minEvidence: 1, requiredArtifactKinds: [] },
+          },
+        ],
+        finalResponse: {
+          language: 'Italian',
+          format: 'text',
+          mustInclude: ['document findings', 'current news'],
+          tone: 'direct and useful',
+        },
+      })
+      .mockResolvedValueOnce({
+        message:
+          'Il brief segnala dipendenze non aggiornate; la notizia corrente mostra che la stessa classe di rischio è già sfruttata attivamente.',
+        usedActionIds: ['read_brief', 'current_news'],
+        uncertainties: [],
+      });
+    const chatCompletion = vi.fn().mockResolvedValue({
+      text: 'Il brief segnala dipendenze non aggiornate e richiede una revisione immediata.',
+      model: 'test',
+      usage: { inputTokens: 10, outputTokens: 10, estimated: false },
+    });
+    const ranked = vi.fn().mockResolvedValue([
+      {
+        title: 'Active exploitation targets outdated dependencies',
+        summary: 'Maintainers published mitigations for an actively exploited dependency flaw.',
+        link: 'https://news.example/security-advisory',
+        source: 'Security Wire',
+        publishedAt: Date.now(),
+        score: 1,
+        matchedTopics: ['cybersecurity'],
+        matchedTerms: ['vulnerabilities'],
+      },
+    ]);
+    const runtime = new AgentRuntime({
+      config: {
+        brain: { cortex: { model: 'test' }, replyModel: 'test' },
+        env: { REPETITION_SIMILARITY_THRESHOLD: 0.78 },
+        llm: { requestTimeoutMs: 1_000, freeFallbacks: [] },
+        linkMedia: { enabled: false },
+        search: { timeoutMs: 1_000 },
+      } as never,
+      llm: { capabilities: { chat: true }, jsonCompletion, chatCompletion } as never,
+      media: { canGenerateImage: false } as never,
+      music: { enabled: false } as never,
+      video: { enabled: false } as never,
+      tts: { enabled: false } as never,
+      grounding: { enabled: false } as never,
+      knowledge: { enabled: false } as never,
+      imageFinder: {} as never,
+      imagePrompts: {} as never,
+      videoPrompts: {} as never,
+      quota: {} as never,
+      capabilities: { enabled: false } as never,
+      anime: { enabled: false } as never,
+      animeArchive: { enabled: false } as never,
+      news: { enabled: true, ranked } as never,
+    });
+
+    const result = await runtime.run({
+      request: 'Leggi il PDF e confrontalo con le notizie di sicurezza di oggi',
+      language: 'italian',
+      person: { telegramId: 1, userHandle: '@alice' },
+      context: {
+        chatId: -100,
+        isGroup: true,
+        isBotMentioned: true,
+        isGroupAdmin: false,
+        isReplyToBot: false,
+      },
+      documentContext:
+        '--- DOCUMENT name="security-brief.pdf" type=application/pdf ---\nLe dipendenze non aggiornate sono il rischio principale.\n--- END DOCUMENT ---',
+      requestedActions: [
+        { tool: 'document_read', reason: 'read the attached brief' },
+        { tool: 'news', query: 'cybersecurity vulnerabilities', reason: 'check current news' },
+      ],
+      recentMessages: [],
+      quotaBypass: true,
+    });
+
+    expect(result?.status).toBe('complete');
+    expect(result?.actionCount).toBe(2);
+    expect(result?.styleVariant).toBe('agent:document_read+news');
+    expect(result?.text).toContain('brief');
+    expect(result?.text).toContain('notizia');
+    expect(result?.sources).toEqual(['https://news.example/security-advisory']);
+    expect(chatCompletion).toHaveBeenCalledOnce();
+    expect(ranked).toHaveBeenCalledOnce();
+    const compositionPrompt = (jsonCompletion.mock.calls[1]?.[0] as { prompt?: string } | undefined)
+      ?.prompt;
+    expect(compositionPrompt).toContain('dipendenze non aggiornate');
+    expect(compositionPrompt).toContain('Active exploitation');
+  });
+
   it('keeps a pure link-media plan silent until Telegram attempts the rehost', async () => {
     const mediaUrl = 'https://www.instagram.com/reel/example/';
     const jsonCompletion = vi
