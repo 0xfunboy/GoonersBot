@@ -6,6 +6,12 @@ supergroup `-1002837751448` (the supplied `2837751448` was resolved with `getCha
 The service is live for its existing approved chats; this is not a separate staging bot.
 Operator-generated test messages are restricted to the chosen group.
 
+**Currently active code: `6cb1d44`**, started **15:31:28 UTC**, polling ready **15:31:29 UTC**.
+Release: `/home/funboy/.local/share/goonerbot/releases/6cb1d44-live-7WHURt`.
+The later documentation-only commit is not a different deployed binary. Owner notification in the
+chosen group was confirmed as message **192762** at **15:31:51 UTC**. It asks for another natural
+PDF request and passive audit, and explicitly identifies the remaining external search limitation.
+
 ## Activation and recovery material
 
 - Branch: `companion-rework/phase-1-ingress`; main remains `c1807d0`.
@@ -79,9 +85,16 @@ generation attempts as placeholders: **no file was delivered**. This demonstrate
 but did not pass document creation. Two small comparison requests with simple content-writing
 prompts returned full three-point checklists. The upstream service reported different Gemini
 versions on those responses despite the configured model alias; no global model configuration was
-changed. The document prompt is being narrowed to preserve the original request, omit empty evidence
-blocks and distinguish ordinary writing from source-backed reporting. A successful probe here must
-still be distinguished from an actual repeated Telegram delivery test.
+changed. The document prompt was narrowed to preserve the original request, omit empty evidence
+blocks and distinguish ordinary writing from source-backed reporting. Two added regression tests,
+34 targeted document/runtime tests, typecheck, scoped lint and a new isolated build passed.
+
+The actual handler probe on `6cb1d44` then **passed**: two model calls (one bounded retry), PDF
+**27,342 bytes**, reopened text containing the three requested phases: pre-production, recording
+and post-production/publication. It invoked the real configured model and native converter, but
+**did not send to Telegram or create a database task**. This is not a repeated full-ingress delivery
+pass. No active tasks or new chat messages existed during the final clean restart; old receipts
+were preserved and the shared production `dist` checksum was unchanged.
 
 ## Rollback safeguards
 

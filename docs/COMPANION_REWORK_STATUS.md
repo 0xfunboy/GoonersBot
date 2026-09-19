@@ -18,6 +18,8 @@ Read with [runtime](COMPANION_RUNTIME.md) and [acceptance / handoff](COMPANION_H
   Final integrated local gates are recorded below; the delivery commit identifies this working tree.
 - Production activation: **live branch trial authorized and started 2026-09-19**, without merge.
   See [live trial](COMPANION_LIVE_TEST.md) for actual failures and corrective-release evidence.
+  Active corrective code `6cb1d44`, 15:31:28 UTC; configured-model PDF probe passed after bounded
+  recovery, repeated Telegram content acceptance still open. SearXNG upstreams remain degraded.
   Shared `dist/` is preserved; live code uses isolated release directories.
 
 ## Package ledger
@@ -62,8 +64,9 @@ Read with [runtime](COMPANION_RUNTIME.md) and [acceptance / handoff](COMPANION_H
 
 ## Gates that must remain visible
 
-1. Real Telegram delivery/uncertain outcomes need an authorized test destination. Mocked API calls
-   and Mongo receipts are not live-send evidence.
+1. The authorized Telegram group and initial actual send receipts are recorded in the live trial.
+   The first PDF failed content acceptance despite successful transport. Repeat corrected PDF and
+   audit acceptance; ambiguous-send recovery and broader multi-file/media cases remain open.
 2. OCR/renderer remain disabled until binaries, language data and namespace isolation are ready.
    The persistent X/Firefox account session is not a substitute for the isolated renderer.
 3. Whole-process recovery, prolonged resource soak, real-model N01–N24 and human style evaluation
