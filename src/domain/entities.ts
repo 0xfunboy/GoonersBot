@@ -282,3 +282,25 @@ export interface JobDoc {
   error?: string | null;
   createdAt: Date;
 }
+
+/**
+ * Durable receipt for an inbound Telegram update.
+ *
+ * The payload is the original update envelope (without downloaded media). Keeping it lets a
+ * restarted process replay updates that were acknowledged by long polling but had not reached a
+ * terminal state yet. The unique Telegram update id is the idempotency boundary.
+ */
+export type UpdateInboxStatus = 'queued' | 'running' | 'done' | 'failed';
+
+export interface UpdateInboxDoc {
+  updateId: number;
+  conversationKey: string;
+  payload: Record<string, unknown>;
+  status: UpdateInboxStatus;
+  attempts: number;
+  leaseUntil: Date | null;
+  lastError?: string | null;
+  receivedAt: Date;
+  updatedAt: Date;
+  completedAt?: Date | null;
+}

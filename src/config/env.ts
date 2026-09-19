@@ -109,6 +109,20 @@ const envSchema = z.object({
   /** Optional self-hosted Telegram Bot API root, e.g. http://127.0.0.1:8081. */
   TELEGRAM_API_ROOT: optStr.pipe(z.string().url().optional()),
   BOT_USERNAME: z.string().default('GoonersBot'),
+  // Durable ingress is acknowledged before slow handlers run. Keep the first rollout bounded so
+  // one media job cannot starve unrelated conversations; increase only after measuring the host.
+  TELEGRAM_INGRESS_CONCURRENCY: intFromString(4).refine(
+    (value) => Number.isInteger(value) && value >= 1 && value <= 64,
+    'TELEGRAM_INGRESS_CONCURRENCY must be between 1 and 64',
+  ),
+  TELEGRAM_INGRESS_QUEUE_MAX: intFromString(256).refine(
+    (value) => Number.isInteger(value) && value >= 4 && value <= 10_000,
+    'TELEGRAM_INGRESS_QUEUE_MAX must be between 4 and 10000',
+  ),
+  TELEGRAM_INGRESS_LEASE_MS: intFromString(300_000).refine(
+    (value) => Number.isInteger(value) && value >= 10_000 && value <= 3_600_000,
+    'TELEGRAM_INGRESS_LEASE_MS must be between 10000 and 3600000',
+  ),
 
   // Access control (handles normalized to @handle; null => unrestricted)
   ALLOWED_HANDLES: csvHandles,

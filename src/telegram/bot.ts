@@ -1,4 +1,5 @@
 import { Bot } from 'grammy';
+import type { Update } from 'grammy/types';
 import type { AppConfig } from '../config/index.js';
 import type { Services } from '../services/index.js';
 import { commandHandlers } from './handlers/commands/index.js';
@@ -23,6 +24,36 @@ import { localizeResponse, sendResponse } from './render.js';
 import { renderTelegramText, splitTelegramMarkdown, telegramPlainText } from './format.js';
 import { auditApprovedChatMemberships, persistMyChatMemberUpdate } from './membership.js';
 import { parseAnimeArchiveConfirmationDecision } from '../anime/archive/service.js';
+import { ConversationExecutor, QueueCapacityError } from '../companion/ingress/executor.js';
+
+interface UpdateChatFields {
+  message?: { chat?: { id?: number }; message_thread_id?: number };
+  edited_message?: { chat?: { id?: number }; message_thread_id?: number };
+  channel_post?: { chat?: { id?: number }; message_thread_id?: number };
+  edited_channel_post?: { chat?: { id?: number }; message_thread_id?: number };
+  callback_query?: { message?: { chat?: { id?: number }; message_thread_id?: number } };
+  my_chat_member?: { chat?: { id?: number } };
+  chat_member?: { chat?: { id?: number } };
+  message_reaction?: { chat?: { id?: number } };
+}
+
+/** Stable local ordering key: Telegram topics are independent conversations. */
+function updateConversationKey(update: Update): string {
+  const raw = update as unknown as UpdateChatFields;
+  const message =
+    raw.message ??
+    raw.edited_message ??
+    raw.channel_post ??
+    raw.edited_channel_post ??
+    raw.callback_query?.message;
+  const chatId =
+    message?.chat?.id ??
+    raw.my_chat_member?.chat?.id ??
+    raw.chat_member?.chat?.id ??
+    raw.message_reaction?.chat?.id;
+  const threadId = message?.message_thread_id;
+  return `${chatId ?? 'global'}:${threadId ?? 0}`;
+}
 
 const log = childLogger('bot');
 
@@ -47,6 +78,64 @@ export async function createBot(config: AppConfig, services: Services): Promise<
   );
 
   const deps: DispatchDeps = { services, botUsername };
+  const ingress = new ConversationExecutor(
+    config.env.TELEGRAM_INGRESS_CONCURRENCY,
+    config.env.TELEGRAM_INGRESS_QUEUE_MAX,
+  );
+  let replayTimer: NodeJS.Timeout | undefined;
+
+  // Persist and claim every update before the normal handlers run. The middleware deliberately
+  // detaches the rest of the chain from grammY's sequential long-poll loop: a slow rehost or
+  // browser task therefore cannot hold the receive cursor hostage for unrelated chats.
+  bot.use(async (ctx, next) => {
+    const updateId = ctx.update.update_id;
+    const conversationKey = updateConversationKey(ctx.update);
+    await services.storage.updateInbox.enqueue({
+      updateId,
+      conversationKey,
+      payload: ctx.update as unknown as Record<string, unknown>,
+    });
+    if (
+      !(await services.storage.updateInbox.claim(
+        updateId,
+        new Date(),
+        config.env.TELEGRAM_INGRESS_LEASE_MS,
+      ))
+    ) {
+      return;
+    }
+    try {
+      ingress
+        .enqueue(conversationKey, async () => {
+          try {
+            await next();
+            await services.storage.updateInbox.complete(updateId);
+          } catch (error) {
+            await services.storage.updateInbox
+              .fail(updateId, error)
+              .catch((persistError) =>
+                log.error(
+                  { err: persistError, updateId },
+                  'failed to persist Telegram update error',
+                ),
+              );
+            throw error;
+          }
+        })
+        .catch((error) => ingress.reportFailure(error, { updateId, conversationKey }));
+    } catch (error) {
+      if (error instanceof QueueCapacityError) {
+        await services.storage.updateInbox.release(updateId, error.message);
+        log.warn(
+          { updateId, conversationKey, capacity: error.capacity },
+          'Telegram ingress backpressure',
+        );
+        return;
+      }
+      await services.storage.updateInbox.fail(updateId, error);
+      throw error;
+    }
+  });
 
   // Refresh membership before any scheduler is started. Mining/autopost queries fail closed until
   // Telegram has confirmed that an approved chat still contains the bot.
@@ -242,6 +331,25 @@ export async function createBot(config: AppConfig, services: Services): Promise<
     bot,
     start: async () => {
       log.info('starting long-polling');
+      const replayQueuedUpdates = async (): Promise<void> => {
+        const replayable = await services.storage.updateInbox.listReplayable(
+          Math.max(config.env.TELEGRAM_INGRESS_CONCURRENCY * 2, 8),
+        );
+        for (const entry of replayable) {
+          void bot
+            .handleUpdate(entry.payload as unknown as Update)
+            .catch((err) =>
+              log.warn({ err, updateId: entry.updateId }, 'queued Telegram update replay failed'),
+            );
+        }
+      };
+      await replayQueuedUpdates().catch((err) =>
+        log.warn({ err }, 'Telegram inbox recovery failed'),
+      );
+      replayTimer = setInterval(() => {
+        void replayQueuedUpdates().catch((err) => log.warn({ err }, 'Telegram inbox retry failed'));
+      }, 1_000);
+      replayTimer.unref();
       // grammY start() resolves only when the bot stops; run it detached.
       void bot
         .start({
@@ -255,6 +363,9 @@ export async function createBot(config: AppConfig, services: Services): Promise<
         });
     },
     stop: async () => {
+      if (replayTimer) clearInterval(replayTimer);
+      replayTimer = undefined;
+      await ingress.drain();
       await bot.stop();
     },
   };

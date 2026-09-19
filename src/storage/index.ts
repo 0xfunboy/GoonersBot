@@ -34,6 +34,7 @@ import { SocialQuestionsRepo } from './repositories/socialQuestions.js';
 import { AnimeArchiveRepo } from './repositories/animeArchive.js';
 import { BotAdminsRepo } from './repositories/botAdmins.js';
 import { MongoSocialProfileStore } from '../social/mongoStore.js';
+import { UpdateInboxRepo } from './repositories/updateInbox.js';
 
 const log = childLogger('storage');
 
@@ -74,6 +75,8 @@ export class Storage {
   readonly animeArchive: AnimeArchiveRepo;
   readonly botAdmins: BotAdminsRepo;
   readonly socialProfiles: MongoSocialProfileStore;
+  /** Durable Telegram ingress receipts used for deduplication and crash recovery. */
+  readonly updateInbox: UpdateInboxRepo;
 
   private constructor(
     private readonly connection: MongoConnection,
@@ -116,6 +119,7 @@ export class Storage {
     this.animeArchive = new AnimeArchiveRepo(db);
     this.botAdmins = new BotAdminsRepo(db);
     this.socialProfiles = new MongoSocialProfileStore(db);
+    this.updateInbox = new UpdateInboxRepo(db);
   }
 
   static async connect(env: Env): Promise<Storage> {
@@ -156,6 +160,7 @@ export class Storage {
     await AnimeArchiveRepo.ensureIndexes(this.db);
     await BotAdminsRepo.ensureIndexes(this.db);
     await MongoSocialProfileStore.ensureIndexes(this.db);
+    await UpdateInboxRepo.ensureIndexes(this.db);
     log.info('indexes ensured');
   }
 
