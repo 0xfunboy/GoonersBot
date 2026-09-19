@@ -1,6 +1,7 @@
 import { MongoServerError, type Collection, type Db } from 'mongodb';
 import { normalizeSocialHandle } from './evolution.js';
 import type { ChatSocialState, MemberSocialProfile, SocialProfileStore } from './types.js';
+import type { MemoryPrivacyGuard } from '../companion/memory/privacy.js';
 
 /**
  * Mongo persistence for social profiles.
@@ -12,7 +13,10 @@ export class MongoSocialProfileStore implements SocialProfileStore {
   private readonly members: Collection<MemberSocialProfile>;
   private readonly chats: Collection<ChatSocialState>;
 
-  constructor(db: Db) {
+  constructor(
+    db: Db,
+    private readonly privacy?: MemoryPrivacyGuard,
+  ) {
     this.members = db.collection<MemberSocialProfile>('social_member_profiles');
     this.chats = db.collection<ChatSocialState>('social_chat_states');
   }
@@ -47,12 +51,34 @@ export class MongoSocialProfileStore implements SocialProfileStore {
   }
 
   async saveMember(profile: MemberSocialProfile, expectedVersion: number): Promise<boolean> {
+    if (this.privacy) {
+      const facets = [];
+      for (const facet of profile.facets)
+        if (await this.privacy.allowsSources(profile.chatId, facet.sourceMessageIds))
+          facets.push(facet);
+      profile = { ...profile, facets };
+    }
+    if (
+      this.privacy &&
+      !(await this.privacy.allowsHandles(
+        [profile.handle, ...profile.aliases.filter((alias) => alias.startsWith('@'))],
+        profile.telegramId,
+      ))
+    )
+      return false;
     if (profile.version !== expectedVersion + 1) {
       throw new Error('social member profile version must increment by exactly one');
     }
     if (expectedVersion === 0) {
       try {
         await this.members.insertOne(profile);
+        if (
+          this.privacy &&
+          !(await this.privacy.allowsHandles([profile.handle], profile.telegramId))
+        ) {
+          await this.members.deleteOne({ chatId: profile.chatId, handle: profile.handle });
+          return false;
+        }
         return true;
       } catch (error) {
         if (error instanceof MongoServerError && error.code === 11000) return false;
@@ -63,12 +89,62 @@ export class MongoSocialProfileStore implements SocialProfileStore {
       { chatId: profile.chatId, handle: profile.handle, version: expectedVersion },
       profile,
     );
+    if (this.privacy && !(await this.privacy.allowsHandles([profile.handle], profile.telegramId))) {
+      await this.members.deleteOne({ chatId: profile.chatId, handle: profile.handle });
+      return false;
+    }
     return result.modifiedCount === 1;
   }
 
   async deleteMember(chatId: number, handle: string): Promise<boolean> {
     const result = await this.members.deleteOne({ chatId, handle });
     return result.deletedCount === 1;
+  }
+
+  /** Forget the other derived facets supported by the same erased human evidence. */
+  async forgetSource(chatId: number, sourceMessageId: number): Promise<void> {
+    await this.members.updateMany({ chatId, 'facets.sourceMessageIds': sourceMessageId }, [
+      {
+        $set: {
+          facets: {
+            $filter: {
+              input: '$facets',
+              as: 'facet',
+              cond: {
+                $eq: [
+                  { $in: [sourceMessageId, { $ifNull: ['$$facet.sourceMessageIds', []] }] },
+                  false,
+                ],
+              },
+            },
+          },
+          version: { $add: ['$version', 1] },
+          updatedAt: new Date(),
+        },
+      },
+    ]);
+    const fields = ['relationships', 'runningJokes', 'norms'];
+    const set = Object.fromEntries(
+      fields.map((field) => [
+        field,
+        {
+          $filter: {
+            input: { $ifNull: [`$${field}`, []] },
+            as: 'entry',
+            cond: {
+              $eq: [
+                { $in: [sourceMessageId, { $ifNull: ['$$entry.sourceMessageIds', []] }] },
+                false,
+              ],
+            },
+          },
+        },
+      ]),
+    );
+    await this.chats.updateMany(
+      { chatId, $or: fields.map((field) => ({ [`${field}.sourceMessageIds`]: sourceMessageId })) },
+      [{ $set: { ...set, version: { $add: ['$version', 1] }, updatedAt: new Date() } }],
+    );
   }
 
   /**
@@ -106,6 +182,7 @@ export class MongoSocialProfileStore implements SocialProfileStore {
         ]),
       ]),
     ].filter(Boolean);
+    await this.privacy?.blockHandles(handles);
 
     const membersResult = await this.members.deleteMany(
       {
@@ -171,12 +248,35 @@ export class MongoSocialProfileStore implements SocialProfileStore {
   }
 
   async saveChatState(state: ChatSocialState, expectedVersion: number): Promise<boolean> {
+    // Whole-chat CAS cannot reintroduce a relationship removed by erasure. Filter each target
+    // before persistence; deletion increments the stored version to fence in-flight old writes.
+    if (this.privacy) {
+      const relationships = [];
+      for (const relation of state.relationships)
+        if (
+          (await this.privacy.allowsHandles([relation.fromHandle, relation.toHandle])) &&
+          (await this.privacy.allowsSources(state.chatId, relation.sourceMessageIds))
+        )
+          relationships.push(relation);
+      const runningJokes = [];
+      for (const joke of state.runningJokes)
+        if (
+          (await this.privacy.allowsHandles(joke.targetHandles)) &&
+          (await this.privacy.allowsSources(state.chatId, joke.sourceMessageIds))
+        )
+          runningJokes.push(joke);
+      const norms = [];
+      for (const norm of state.norms)
+        if (await this.privacy.allowsSources(state.chatId, norm.sourceMessageIds)) norms.push(norm);
+      state = { ...state, relationships, runningJokes, norms };
+    }
     if (state.version !== expectedVersion + 1) {
       throw new Error('social chat state version must increment by exactly one');
     }
     if (expectedVersion === 0) {
       try {
         await this.chats.insertOne(state);
+        await this.removeErasedReferences(state);
         return true;
       } catch (error) {
         if (error instanceof MongoServerError && error.code === 11000) return false;
@@ -187,6 +287,26 @@ export class MongoSocialProfileStore implements SocialProfileStore {
       { chatId: state.chatId, version: expectedVersion },
       state,
     );
+    await this.removeErasedReferences(state);
     return result.modifiedCount === 1;
+  }
+
+  private async removeErasedReferences(state: ChatSocialState): Promise<void> {
+    if (!this.privacy) return;
+    const handles = new Set([
+      ...state.relationships.flatMap((relation) => [relation.fromHandle, relation.toHandle]),
+      ...state.runningJokes.flatMap((joke) => joke.targetHandles),
+    ]);
+    for (const handle of handles)
+      if (!(await this.privacy.allowsHandles([handle])))
+        await this.deleteByHandleEverywhere(handle);
+    const sources = new Set(
+      [...state.relationships, ...state.runningJokes, ...state.norms].flatMap(
+        (entry) => entry.sourceMessageIds,
+      ),
+    );
+    for (const sourceId of sources)
+      if (!(await this.privacy.allowsSources(state.chatId, [sourceId])))
+        await this.forgetSource(state.chatId, sourceId);
   }
 }

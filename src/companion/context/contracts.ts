@@ -15,6 +15,7 @@ import {
 import {
   BUILTIN_CAPABILITY_IDS,
   legacyProviderFor,
+  operationIdForInvocation,
   runtimeCapabilityManifest,
   type BuiltinCapabilityId,
   type RuntimeCapabilitySnapshotItem,
@@ -389,15 +390,26 @@ export function turnUnderstandingFromEvaluation(
 ): TurnUnderstanding {
   const calls = [
     ...contextualCalls,
-    ...evaluation.providerRequests.map((provider) => {
-      const capabilityId = capabilityForLegacyProvider(provider);
-      return {
-        capabilityId,
-        query: queryForEvaluation(capabilityId, evaluation, context),
-        args: argsForEvaluation(capabilityId, evaluation),
-        reason: evaluation.reason,
-      };
-    }),
+    ...(evaluation.toolCalls ?? []).map((call) => ({
+      capabilityId: call.tool,
+      query: call.query,
+      args: call.args,
+      reason: call.reason ?? evaluation.reason,
+    })),
+    ...evaluation.providerRequests
+      .filter(
+        (provider) =>
+          !(evaluation.toolCalls ?? []).some((call) => legacyProviderFor(call.tool) === provider),
+      )
+      .map((provider) => {
+        const capabilityId = capabilityForLegacyProvider(provider);
+        return {
+          capabilityId,
+          query: queryForEvaluation(capabilityId, evaluation, context),
+          args: argsForEvaluation(capabilityId, evaluation),
+          reason: evaluation.reason,
+        };
+      }),
   ].map((call, index) =>
     operationFromCall(call.capabilityId, call.query, call.args ?? {}, call.reason, index, context),
   );
@@ -573,19 +585,7 @@ function operationFromCall(
 }
 
 function operationIdFor(capabilityId: BuiltinCapabilityId, args: Record<string, unknown>): string {
-  const explicit = typeof args['operation'] === 'string' ? args['operation'] : undefined;
-  if (explicit) return explicit;
-  const intent = typeof args['intent'] === 'string' ? args['intent'] : undefined;
-  if (capabilityId === 'anime_archive')
-    return intent === 'series' ? 'series_rehost' : (intent ?? 'unknown');
-  if (capabilityId === 'workflow') return intent ?? 'unknown';
-  if (capabilityId === 'anime_knowledge') {
-    return intent === 'follow' || intent === 'unfollow' ? intent : 'lookup';
-  }
-  if (capabilityId === 'capability_forge') {
-    return typeof args['command'] === 'string' ? 'execute' : 'propose';
-  }
-  return runtimeCapabilityManifest(capabilityId).operations[0]?.id ?? 'unknown';
+  return operationIdForInvocation(capabilityId, args) ?? 'unknown';
 }
 
 function intentInteraction(intent: string): InteractionKind[] {
@@ -632,9 +632,22 @@ function missingSlotsFor(
     if (operation.capabilityId === 'workflow' && operation.input.args['intent'] === 'create') {
       const delay = Number(operation.input.args['delayMinutes']);
       const at = operation.input.args['runAt'];
-      if (!(Number.isFinite(delay) && delay > 0) && !(typeof at === 'string' && at.trim()))
+      const monitor = operation.input.args['kind'] === 'monitor';
+      const weekly =
+        Boolean(operation.input.args['weekdays']) && operation.input.args['hour'] !== undefined;
+      if (
+        !monitor &&
+        !weekly &&
+        !(Number.isFinite(delay) && delay > 0) &&
+        !(typeof at === 'string' && at.trim())
+      )
         missing.push(slot('schedule_time', 'Quando vuoi che te lo ricordi?', operation.id));
-      if (typeof at === 'string' && at.trim() && !operation.input.args['timezone'])
+      if (
+        (weekly ||
+          (typeof at === 'string' && at.trim()) ||
+          operation.input.args['quietStartHour'] !== undefined) &&
+        !operation.input.args['timezone']
+      )
         missing.push(slot('timezone', 'Quale fuso orario devo usare?', operation.id));
     }
     if (

@@ -9,11 +9,12 @@ import { childLogger } from '../utils/logger.js';
 const log = childLogger('lore-engine');
 
 function sameSubject(
-  left: Pick<MemoryItem, 'subjectType' | 'subjectHandle'>,
-  right: Pick<MemoryCandidate, 'subjectType' | 'subjectHandle'>,
+  left: Pick<MemoryItem, 'subjectType' | 'subjectHandle' | 'telegramTopicId'>,
+  right: Pick<MemoryCandidate, 'subjectType' | 'subjectHandle' | 'telegramTopicId'>,
 ): boolean {
   return (
     left.subjectType === right.subjectType &&
+    (left.telegramTopicId ?? null) === (right.telegramTopicId ?? null) &&
     (left.subjectHandle ?? '').trim().toLowerCase() ===
       (right.subjectHandle ?? '').trim().toLowerCase()
   );
@@ -70,6 +71,19 @@ export class LoreEngine {
     let updated = 0;
     let expired = 0;
     for (const c of candidates) {
+      const evidence = params.messages.filter(
+        (message) =>
+          !message.isBot &&
+          message.messageId != null &&
+          c.sourceMessageIds.includes(message.messageId),
+      );
+      const topics = new Set(evidence.map((message) => message.telegramTopicId ?? null));
+      // An aggregate about two forum topics has no safe single-topic provenance.
+      if (topics.size > 1) continue;
+      c.telegramTopicId = evidence[0]?.telegramTopicId ?? null;
+      c.subjectTelegramId =
+        evidence.find((message) => message.handle.toLowerCase() === c.subjectHandle?.toLowerCase())
+          ?.telegramId ?? null;
       const target =
         c.targetMemoryId != null
           ? existing.find((item) => item._id === c.targetMemoryId)

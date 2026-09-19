@@ -20,6 +20,7 @@ import { extractUrls, mediaUrlKey } from '../../providers/media/linkMedia/url.js
 import { extractJokePremises } from '../../brain/repetitionGuard.js';
 import { ReplyGenerationUnavailableError } from '../../brain/responseGenerator.js';
 import { inferTextFeedback } from '../../brain/textFeedback.js';
+import { compileOperationRequests } from '../../companion/capabilities/dispatch.js';
 import { currentLlmUsage } from '../../providers/llm/requestContext.js';
 import {
   parseAnimeArchiveConfirmationDecision,
@@ -157,6 +158,7 @@ function mediaRehostFailureText(
 /** Build message-storage metadata from the platform context. */
 function metaOf(person: Person, context: ChatContext): AddMessageMeta {
   const meta: AddMessageMeta = {
+    telegramTopicId: context.threadId ?? null,
     telegramId: person.telegramId,
     mentionedHandles: context.mentionedHandles ?? [],
   };
@@ -353,7 +355,7 @@ export async function handleMessage(
   }
 
   const [history, mode, recentGlobalReplies, recentPersonalReplies] = await Promise.all([
-    services.conversation.getRecent(context.chatId),
+    services.conversation.getRecent(context.chatId, undefined, context.threadId ?? null),
     services.modes.getActive(context.chatId),
     services.storage.botReplies.getRecent(context.chatId, 10),
     services.storage.botReplies.getRecentFor(context.chatId, person.userHandle, 8),
@@ -479,6 +481,58 @@ export async function handleMessage(
   // Honors the per-chat /linkmedia toggle (on by default).
   let initialLinkMedia: LinkMediaResult | undefined;
   let initialFailureNoticeMessageId: number | undefined;
+  if (linkMediaEnabled && services.companionWork && genericMediaUrls.length <= 4) {
+    const operations = compileOperationRequests(
+      genericMediaUrls.map((url, index) => ({
+        id: `operation:${index + 1}:link_media:resolve`,
+        capabilityId: 'link_media',
+        operationId: 'resolve',
+        input: { query: url.toString(), args: { url: url.toString() } },
+        purpose: 'Rehost the shared URL using the chat’s enabled auto-rehost policy',
+        expectedOutputs: ['link'],
+        effect: 'read',
+        referentIds: [],
+      })),
+    );
+    const input = {
+      request: message.messageText ?? '',
+      requestKey: `telegram:${ctx.me.id}:${ctx.update.update_id}`,
+      requestTime: message.timestamp.toISOString(),
+      language,
+      person,
+      context,
+      recentMessages: [],
+      quotaBypass: bypassGroupPlan,
+      requestedActions: operations.map((operation) => ({
+        tool: operation.capabilityId,
+        query: operation.input.query,
+        args: operation.input.args,
+        reason: operation.purpose,
+        operationRequest: operation,
+      })),
+    };
+    if (services.companionWork.canDefer(input)) {
+      const queued = await services.companionWork.submit(input, {
+        botId: ctx.me.id,
+        updateId: ctx.update.update_id,
+      });
+      const sent = await ctx.reply(queued.text);
+      await services.companionWork.attachMessage(queued.taskId, person, context, sent.message_id);
+      if (tracking)
+        await services.conversation.addUserMessage(
+          context.chatId,
+          person.userHandle,
+          {
+            messageText: message.messageText || null,
+            timestamp: message.timestamp,
+            imageDescription: null,
+            voiceDescription: null,
+          },
+          metaOf(person, context),
+        );
+      return;
+    }
+  }
   if (linkMediaEnabled && message.messageText) {
     initialLinkMedia = await services.linkMedia
       .handleMessage({
@@ -1141,7 +1195,10 @@ export async function handleMessage(
               ? 'voice note'
               : null,
       },
-      botMessageId !== undefined ? { messageId: botMessageId } : {},
+      {
+        telegramTopicId: context.threadId ?? null,
+        ...(botMessageId !== undefined ? { messageId: botMessageId } : {}),
+      },
     );
 
     // record usage

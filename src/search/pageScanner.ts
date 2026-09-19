@@ -10,6 +10,10 @@ const log = childLogger('page-scanner');
 
 export interface PageSummary {
   url: string;
+  /** Original requested identity survives a validated redirect; url is the final citation. */
+  requestedUrl?: string;
+  inspectedAt?: string;
+  extractedTextSha256?: string;
   title: string;
   text: string;
   facts: string[];
@@ -355,6 +359,9 @@ export class PageScanner {
         .slice(0, 12);
       return {
         url: finalUrl.toString(),
+        requestedUrl: url,
+        inspectedAt: new Date().toISOString(),
+        extractedTextSha256: createHash('sha256').update(mainText).digest('hex'),
         title,
         text: mainText,
         facts: extractFacts(mainText),

@@ -1,0 +1,294 @@
+{
+  "purpose": "Held-out human-language inputs for N01-N24; corpus integrity is not a semantic-model or Telegram end-to-end pass.",
+  "fewShot": false,
+  "variants": [
+    {
+      "family": "N01",
+      "texts": [
+        "Mi dai un'occhiata a example.org, anche agli script?",
+        "guarda cm è fatto example.org e se il codice è decente",
+        "Vorrei un parere tecnico sul markup pubblico di example.org",
+        "E questo sito, invece? Guarda pure HTML e JavaScript.",
+        "Review the public HTML and scripts on example.org, please.",
+        "No escanees example.org; solo explícame qué podrías revisar."
+      ],
+      "negativeIndexes": [5]
+    },
+    {
+      "family": "N02",
+      "texts": [
+        "Trova la home ufficiale di questo progetto e dimmi se è fatta bene",
+        "cerca sito progetto poi aprilo e commentalo",
+        "Rintraccia la pagina ufficiale e valuta quello che riesci a leggere",
+        "Quello ufficiale: cercalo e poi analizzalo.",
+        "Find the project's official website, open it, and review it.",
+        "Busca la web oficial del proyecto y analiza su contenido público."
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N03",
+      "texts": [
+        "Bello, quell'episodio me lo passi qua?",
+        "me lo mandi qui intero nn il trailer",
+        "Vorrei il file dell'episodio della notifica a cui rispondo",
+        "Questo qui, in chat.",
+        "Can you upload the episode from this notification here?",
+        "¿Me mandas aquí ese episodio completo?"
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N04",
+      "texts": [
+        "Non scaricare niente, guarda solo se l'episodio c'è",
+        "nn fare download solo disponibilità",
+        "Controlla se è uscito ma non inviarmi il video",
+        "Solo se c'è, eh. Non mandarlo.",
+        "Check availability only; do not download or send it.",
+        "No lo descargues, solo dime si está disponible."
+      ],
+      "negativeIndexes": [0, 1, 2, 3, 4, 5]
+    },
+    {
+      "family": "N05",
+      "texts": [
+        "Aspetta, volevo solo il sette, mica la stagione intera",
+        "dicevo ep7 nn tt la serie correggi",
+        "Modifica quel download: episodio 7 soltanto",
+        "Il 7. Gli altri no.",
+        "I meant episode seven only, not the whole season.",
+        "Me refería solo al episodio siete, no a toda la serie."
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N06",
+      "texts": [
+        "Come va il download? Anzi fermalo, non mi serve più.",
+        "a ke punto sei? lascia stare annulla",
+        "Dimmi lo stato del lavoro in corso, poi interrompilo",
+        "E quello? Basta, fermati.",
+        "How is the download going? Cancel it now, please.",
+        "¿Cómo va la descarga? Déjala, cancélala."
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N07",
+      "texts": [
+        "Mi confronti questi tre e mi fai un PDF con le fonti?",
+        "confronta sti 3 prodotti prezzi aggiornati e pdf",
+        "Prepara un confronto documentato fra tutti e tre i prodotti, in PDF",
+        "Tutti e tre, con prezzi e fonti. In PDF.",
+        "Compare all three products with current sources and send a PDF.",
+        "Compara estos tres productos con fuentes y mándame un PDF."
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N08",
+      "texts": [
+        "Quel report ora traducilo in inglese e leggimelo a voce",
+        "inglese pls poi vocale dello stesso report",
+        "Usa questo documento per una traduzione inglese e una nota vocale",
+        "Ora questo in inglese, anche audio.",
+        "Translate this report into English, then read the translation aloud.",
+        "Traduce este informe al inglés y léeme la traducción."
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N09",
+      "texts": [
+        "Questo è un trailer, voglio l'episodio vero",
+        "è solo trailer nn episodio cerca meglio",
+        "Hai individuato il contenuto sbagliato: verifica e trova l'episodio completo",
+        "Quello vero, non questa anteprima.",
+        "That's a trailer. Find and verify the actual episode instead.",
+        "Eso es un tráiler; busca el episodio completo y verifica cuál es."
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N10",
+      "texts": [
+        "Dai cazzo, finisci quel report",
+        "muoviti e finisci sto report pls",
+        "Porta a termine il report che stai già preparando",
+        "Su, quello va finito.",
+        "Come on, finish the report you're already working on.",
+        "Vamos, termina el informe que ya estás preparando."
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N11",
+      "texts": [
+        "Grazie fratello. A proposito, che ore sono?",
+        "grz bro ma domani è lunedì?",
+        "Ti ringrazio. Intanto posso chiederti una cosa veloce?",
+        "Grande, grazie. E il meteo?",
+        "Thanks, mate. By the way, what time is it?",
+        "Gracias, amigo. Por cierto, ¿qué día es hoy?"
+      ],
+      "negativeIndexes": [0, 1, 2, 3, 4, 5]
+    },
+    {
+      "family": "N12",
+      "texts": [
+        "Marco mi ha detto: ‘scaricami tutta la serie’. Stavo ridendo.",
+        "luca ha scritto scarica tt ma parlava con me nn col bot",
+        "Sto raccontando a Giulia che ieri qualcuno chiedeva un download",
+        "Lui diceva ‘fallo tu’, non io a te.",
+        "Alex told Sam, ‘download the whole season’; I'm only quoting them.",
+        "Pedro le dijo a Ana ‘descarga la serie’; solo estoy citando la charla."
+      ],
+      "negativeIndexes": [0, 1, 2, 3, 4, 5]
+    },
+    {
+      "family": "N13",
+      "texts": [
+        "Controlla queste fonti e finisci il riepilogo anche se una è giù",
+        "se fonte dà errore riprova poi continua report",
+        "Completa la ricerca usando il lavoro già verificato quando la fonte ritorna",
+        "Riparti da dove eri arrivato.",
+        "Finish the research when the temporarily unavailable source recovers.",
+        "Termina la investigación cuando vuelva la fuente temporalmente caída."
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N14",
+      "texts": [
+        "Avvisami quando esce. Poi basta, non seguirla più.",
+        "quando esce pingami poi stop avvisi se te lo dico",
+        "Segui l'uscita di questa serie; ora revoca il seguito",
+        "Questa sì. Ora basta avvisi.",
+        "Notify me when it releases. Now stop those notifications.",
+        "Avísame cuando salga. Ahora deja de enviarme esos avisos."
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N15",
+      "texts": [
+        "Ma le pagine le puoi aprire o no? Guarda cosa hai disponibile",
+        "hai tool per leggere html? controlla i tuoi tools",
+        "Verifica le tue capacità attive prima di dirmi che non puoi leggere il sito",
+        "E leggerla? Ce l'hai lo strumento?",
+        "Check your actual tools: can you read public web pages?",
+        "Mira tus herramientas actuales: ¿puedes leer páginas públicas?"
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N16",
+      "texts": [
+        "Fammi quel controllo delle release che hai appena imparato",
+        "controllo versioni come hai imparato prima ma per questo pacchetto",
+        "Usa il workflow acquisito per verificare quanto è aggiornato questo progetto",
+        "Stesso controllo, stavolta su quest'altro.",
+        "Use the release-checking workflow you learned for this other package.",
+        "Usa el flujo que aprendiste para revisar la versión de este otro paquete."
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N17",
+      "texts": [
+        "Mandami il documento quando hai finito",
+        "inviami file appena pronto",
+        "Consegna il risultato verificato del lavoro",
+        "Quello, appena pronto.",
+        "Send me the completed document once it's ready.",
+        "Envíame el documento terminado cuando esté listo."
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N18",
+      "texts": [
+        "Rifai quello",
+        "rifai qllo di prima",
+        "Puoi ripetere uno dei lavori precedenti?",
+        "Quell'altro.",
+        "Redo that one.",
+        "Repite ese trabajo."
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N19",
+      "texts": [
+        "Per questo lavoro niente battute, adesso facciamo sul serio",
+        "no battute ora serio pls",
+        "Mantieni il lavoro in corso ma usa un tono strettamente professionale",
+        "Serio, stavolta.",
+        "Keep working on it, but no jokes for this task.",
+        "Sigue con el trabajo, pero ahora sin bromas."
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N20",
+      "texts": [
+        "Fammi tre immagini e altre due versioni della prima",
+        "3 immagini +2 varianti della 1a",
+        "Genera tre originali e deriva due varianti dal primo risultato",
+        "Tre, poi due varianti di quella iniziale.",
+        "Create three images and two variations of the first image.",
+        "Crea tres imágenes y dos variantes de la primera."
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N21",
+      "texts": [
+        "Mi analizzi il CSV e mi fai vedere un grafico?",
+        "analizza sti dati csv e grafico pls",
+        "Calcola le statistiche di questi dati e prepara un grafico riproducibile",
+        "Questi dati, anche in grafico.",
+        "Analyze the attached CSV and chart the results.",
+        "Analiza el CSV adjunto y crea un gráfico con los resultados."
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N22",
+      "texts": [
+        "Controlla questo repository e preparami una patch, senza deploy",
+        "guarda sto repo e fix pronto ma nn applicare",
+        "Indaga il problema nel repository autorizzato e consegna una correzione revisionabile",
+        "Qui, prepara la patch. Non pubblicarla.",
+        "Inspect this authorized repository and prepare a patch without deploying it.",
+        "Revisa este repositorio autorizado y prepara un parche sin desplegarlo."
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N23",
+      "texts": [
+        "Quella preferenza privata dimenticala proprio",
+        "cancella preferenza in dm nn tenerla nel gruppo",
+        "Elimina la mia preferenza e ogni copia derivata, non quella degli altri",
+        "Quella mia, dimenticala.",
+        "Forget my private preference and any derived copies of it.",
+        "Olvida mi preferencia privada y cualquier copia derivada."
+      ],
+      "negativeIndexes": []
+    },
+    {
+      "family": "N24",
+      "texts": [
+        "Ti voglio bene. Però non sono d'accordo. Ora seriamente mi aiuti?",
+        "tvb bro ma stavolta no. ora aiutami serio",
+        "Mi piace scherzare con te, ma su questo ho bisogno di una risposta seria",
+        "Ahah scemo. Ora però sul serio.",
+        "Love you, mate, but I disagree. Now can you seriously help me?",
+        "Te tengo cariño, pero no estoy de acuerdo. Ahora ayúdame en serio."
+      ],
+      "negativeIndexes": [0, 1, 2, 3, 4, 5]
+    }
+  ]
+}

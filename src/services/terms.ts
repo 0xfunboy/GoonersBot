@@ -34,6 +34,16 @@ export class TermsService {
     // reply context, so active receipts participate in the same erasure boundary.
     const user = await this.storage.users.findByHandle(handle);
     if (user?.telegramId && this.eraseWork) await this.eraseWork(user.telegramId);
+    // Historical usernames are linked only through observed immutable IDs. Fence miners before
+    // deleting source rows, including jobs whose model call started before this revocation.
+    const aliases =
+      user?.telegramId && this.storage.users.listAliasesByTelegramId
+        ? await this.storage.users.listAliasesByTelegramId(user.telegramId)
+        : [handle];
+    if (user?.telegramId && this.storage.eraseMemoryDerivedData)
+      await this.storage.eraseMemoryDerivedData(user.telegramId, [
+        ...new Set([handle, ...aliases]),
+      ]);
     await Promise.all([
       this.storage.messages.deleteByUser(handle),
       this.storage.facts.deleteByUser(handle),
@@ -43,5 +53,14 @@ export class TermsService {
       this.storage.socialProfiles.deleteByHandleEverywhere(handle),
       ...(user?.telegramId ? [this.storage.updateInbox.redactByActor(user.telegramId)] : []),
     ]);
+    for (const alias of aliases.filter((alias) => alias.toLowerCase() !== handle.toLowerCase())) {
+      await Promise.all([
+        this.storage.messages.deleteByUser(alias),
+        this.storage.facts.deleteByUser(alias),
+        this.storage.memoryItems.deleteByHandleEverywhere(alias),
+        this.storage.socialProfiles.deleteByHandleEverywhere(alias),
+        this.storage.users.scrubPii(alias),
+      ]);
+    }
   }
 }

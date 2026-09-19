@@ -79,6 +79,12 @@ import {
 } from '../companion/capabilities/catalog.js';
 import { ExistingVisibleWorkReader } from '../companion/context/visibleWork.js';
 import { CompanionWorkService } from './companionWork.js';
+import { deliverCompanionLink } from './companionLinkTransport.js';
+import {
+  IntegrationService,
+  TelegramConnector,
+  parseTelegramRecipient,
+} from '../integrations/index.js';
 import { CompanionArtifactStore } from '../companion/artifacts/store.js';
 import type { ReminderService } from '../companion/workflows/index.js';
 
@@ -148,6 +154,7 @@ export class Services {
   readonly videoPrompts: VideoPromptService;
   readonly agentRuntime: AgentRuntime;
   readonly companionWork: CompanionWorkService;
+  integrations?: IntegrationService;
   readonly workflows?: ReminderService;
   private companionApi?: Api;
   readonly social: SocialProfileEngine;
@@ -171,6 +178,13 @@ export class Services {
       enabled: env.DOCUMENTS_ENABLED,
       maxCharsPerFile: env.DOCUMENT_MAX_CHARS_PER_FILE,
       maxFilesPerTurn: env.DOCUMENT_MAX_FILES_PER_TURN,
+      ocr: {
+        enabled: env.DOCUMENT_OCR_ENABLED,
+        tesseractCommand: env.DOCUMENT_TESSERACT_COMMAND,
+        pdfRendererCommand: env.DOCUMENT_PDFTOPPM_COMMAND,
+        language: env.DOCUMENT_OCR_LANGUAGE,
+        maxPages: 5,
+      },
     });
     this.tts = new TtsProvider(config.voice.tts);
     this.stt = new SttProvider(config.voice.stt);
@@ -241,6 +255,7 @@ export class Services {
     this.terms = new TermsService(storage, async (actorId) => {
       await this.companionWork.eraseActor(actorId);
       await this.workflows?.revokeActor(actorId);
+      await this.integrations?.eraseOwner(actorId);
     });
     this.bans = new BanService(storage, env.DEFAULT_BAN_SECONDS);
     this.modes = new ModeService(storage);
@@ -433,6 +448,20 @@ export class Services {
     );
     if (env.COMPANION_TASKS_ENABLED) {
       this.workflows = storage.createReminderService({
+        observe: async (workflow, signal) => {
+          const urls = workflow.sourceUrls ?? [];
+          if (!urls.length) throw new Error('No public sources configured');
+          const pages = await pageScanner.scan(urls, signal);
+          if (pages.length !== urls.length)
+            throw new Error('Not all monitored sources could be read; baseline unchanged');
+          return {
+            sources: pages.map((page) => ({
+              url: page.requestedUrl ?? page.url,
+              title: page.title,
+              text: page.text,
+            })),
+          };
+        },
         authorize: async (scope) => {
           const user = await storage.users.getByTelegramId(scope.actorTelegramId);
           if (
@@ -487,6 +516,9 @@ export class Services {
       anime: this.anime,
       animeArchive: this.animeArchive,
       news: this.news,
+      companionMemory: storage.companionMemory,
+      integrations: () => this.integrations,
+      localDevelopment: this.localDevelopment,
       ...(this.workflows ? { workflows: this.workflows } : {}),
     });
     this.companionWork = new CompanionWorkService({
@@ -497,6 +529,10 @@ export class Services {
       concurrency: env.COMPANION_TASK_CONCURRENCY,
       extractDocuments: async (files) =>
         this.documents.formatForPrompt(await this.documents.extractAll(files)),
+      deliverLink: async (input, url, task, authorize) => {
+        if (!this.companionApi) throw new Error('Telegram transport unavailable');
+        return deliverCompanionLink(this.companionApi, this.linkMedia, input, url, task, authorize);
+      },
       authorize: async (input) => {
         const current = await storage.users.getByTelegramId(input.person.telegramId);
         const person = { ...input.person, userHandle: current?.handle ?? input.person.userHandle };
@@ -533,7 +569,7 @@ export class Services {
             usage.inputTokens + usage.outputTokens,
           );
       },
-      remember: async (input, text, messageIds) => {
+      remember: async (input, text, messageIds, work) => {
         await this.conversation.addBotMessage(
           input.context.chatId,
           {
@@ -543,10 +579,31 @@ export class Services {
             voiceDescription: null,
           },
           {
+            telegramTopicId: input.context.threadId ?? null,
             ...(messageIds[0] ? { messageId: messageIds[0] } : {}),
             ...(input.context.messageId ? { repliedToMessageId: input.context.messageId } : {}),
           },
         );
+        if (work && text.trim())
+          await storage.companionMemory.execute(
+            {
+              ownerTelegramId: input.person.telegramId,
+              chatId: input.context.chatId,
+              telegramTopicId: input.context.threadId ?? null,
+            },
+            {
+              operation: 'remember',
+              kind: 'operational',
+              text: `${input.request.slice(0, 500)}\nEsito operativo (non biografia): ${text.slice(0, 1800)}`,
+            },
+            {
+              source: 'task',
+              taskId: work.taskId,
+              artifactIds: work.artifactIds,
+              requestKey: `task:${work.taskId}`,
+              sourceAt: input.requestTime ? new Date(input.requestTime) : new Date(),
+            },
+          );
       },
     });
     const legacyWork = new ExistingVisibleWorkReader(storage, this.localDevelopment);
@@ -581,6 +638,8 @@ export class Services {
       this.standing,
       this.selfKnowledge,
       {
+        control: (understanding, person, context, language) =>
+          legacyWork.control(understanding, person, context, language),
         listVisible: async (query) => {
           const [legacy, companion] = await Promise.all([
             legacyWork.listVisible(query),
@@ -592,6 +651,7 @@ export class Services {
         },
       },
       this.companionWork,
+      storage.companionMemory,
     );
   }
 
@@ -651,6 +711,12 @@ export class Services {
       document_read: { state: 'ready' },
       document_create: ready(this.llm.capabilities.chat, 'chat model unavailable'),
       workflow: ready(Boolean(this.workflows), 'persistent schedules disabled'),
+      companion_memory: { state: 'ready' },
+      connected_service: ready(Boolean(this.integrations), 'Telegram connection not attached'),
+      code_work: ready(
+        this.llm.capabilities.chat,
+        'public repository reviewer unavailable; local execution requires configured workspace',
+      ),
       data_analysis: { state: 'ready' },
       media_prompt: ready(
         this.media.canGenerateImage || this.video.enabled,
@@ -690,6 +756,43 @@ export class Services {
 
   attachAnimeArchiveTelegramApi(api: Api): void {
     this.companionApi = api;
+    this.integrations = new IntegrationService(this.storage.integrations, {
+      adapters: [new TelegramConnector(api)],
+      authorize: async (owner, request) => {
+        const user = await this.storage.users.getByTelegramId(owner);
+        if (!user || !(await this.terms.hasAccepted(user.handle))) return false;
+        const target = parseTelegramRecipient(request.recipient);
+        const person: Person = {
+          telegramId: owner,
+          userHandle: user.handle,
+          firstName: user.firstName ?? '',
+          lastName: user.lastName ?? undefined,
+        };
+        const context: ChatContext = {
+          chatId: target.chatId,
+          isGroup: target.chatId < 0,
+          isGroupAdmin: false,
+          isBotMentioned: false,
+          isReplyToBot: false,
+          threadId: target.threadId,
+        };
+        if (!(await this.conversation.isStarted(target.chatId))) return false;
+        if (target.chatId > 0 && target.chatId !== owner) return false;
+        if (target.chatId < 0) {
+          const member = await api.getChatMember(target.chatId, owner);
+          if (
+            member.status === 'left' ||
+            member.status === 'kicked' ||
+            (member.status === 'restricted' && !member.is_member)
+          )
+            return false;
+        }
+        return (
+          this.access.isApproved(person, context, this.permissions.isBotAdminPerson(person)) &&
+          (await this.permissions.checkAll(['allowed_user', 'not_banned'], person, context))
+        );
+      },
+    });
     this.animeArchiveWorker.attachTelegramApi(api);
     this.companionWork.attachTelegramApi(api);
     this.workflows?.start();

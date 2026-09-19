@@ -85,6 +85,7 @@ export interface ActionRunResult {
 }
 
 export interface AgentExecutionReport {
+  progress?: import('./progress.js').NextStepDecision;
   plan: AgentActionPlan;
   status: 'complete' | 'partial' | 'failed';
   startedAt: Date;
@@ -104,6 +105,7 @@ export interface CompositeAnswer {
 }
 
 export interface CoordinatedAgentResult {
+  nextStep?: import('./progress.js').NextStepDecision;
   plan: AgentActionPlan;
   execution: AgentExecutionReport;
   answer: CompositeAnswer;

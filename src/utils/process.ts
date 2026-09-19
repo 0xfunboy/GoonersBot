@@ -1,6 +1,11 @@
 import { spawn } from 'node:child_process';
 import { redactSecrets } from './secrets.js';
 import { resourceGovernor, type ResourcePriority } from '../companion/resources/governor.js';
+import {
+  boundedChildCommand,
+  defaultChildLimits,
+  watchChildResources,
+} from '../companion/resources/processLimits.js';
 
 export interface RunProcessOptions {
   timeoutMs: number;
@@ -18,6 +23,11 @@ export interface RunProcessOptions {
   maxOutputBytes?: number;
   ownerKey?: string;
   priority?: ResourcePriority;
+  /** Actual process-group RSS watchdog, including decoder/downloader descendants. */
+  maxRssBytes?: number;
+  /** Linux hard inherited RLIMIT_CPU and RLIMIT_FSIZE, enforced independently of Node. */
+  maxCpuSeconds?: number;
+  maxFileBytes?: number;
 }
 
 export interface RunProcessResult {
@@ -53,9 +63,14 @@ export async function runProcess(
   if (
     !Number.isFinite(opts.timeoutMs) ||
     opts.timeoutMs <= 0 ||
-    [maxStdoutBytes, maxStderrBytes, maxOutputBytes].some(
-      (value) => !Number.isSafeInteger(value) || value < 1,
-    )
+    [
+      maxStdoutBytes,
+      maxStderrBytes,
+      maxOutputBytes,
+      ...(opts.maxRssBytes !== undefined ? [opts.maxRssBytes] : []),
+      ...(opts.maxCpuSeconds !== undefined ? [opts.maxCpuSeconds] : []),
+      ...(opts.maxFileBytes !== undefined ? [opts.maxFileBytes] : []),
+    ].some((value) => !Number.isSafeInteger(value) || value < 1)
   ) {
     throw new TypeError('process limits must be positive finite values');
   }
@@ -95,7 +110,14 @@ function runAdmittedProcess(
       return;
     }
     const detached = process.platform !== 'win32';
-    const child = spawn(bin, args, {
+    const defaults = defaultChildLimits(opts.timeoutMs);
+    const resourceLimits = {
+      maxRssBytes: opts.maxRssBytes ?? defaults.maxRssBytes,
+      maxCpuSeconds: opts.maxCpuSeconds ?? defaults.maxCpuSeconds,
+      maxFileBytes: opts.maxFileBytes ?? defaults.maxFileBytes,
+    };
+    const command = boundedChildCommand(bin, args, resourceLimits);
+    const child = spawn(command.bin, command.args, {
       stdio: [opts.input ? 'pipe' : 'ignore', opts.collectStdout ? 'pipe' : 'ignore', 'pipe'],
       detached,
     });
@@ -116,8 +138,10 @@ function runAdmittedProcess(
     let outputBytes = 0;
     let stderrTruncated = false;
     let settled = false;
+    let stopWatchdog = (): void => undefined;
     const cleanup = (): void => {
       clearTimeout(timer);
+      stopWatchdog();
       opts.signal?.removeEventListener('abort', onAbort);
     };
     const rejectOnce = (error: Error): void => {
@@ -136,6 +160,11 @@ function runAdmittedProcess(
       killTree();
       rejectOnce(new Error('process timed out'));
     }, opts.timeoutMs);
+    if (child.pid !== undefined)
+      stopWatchdog = watchChildResources(child.pid, resourceLimits, (error) => {
+        killTree();
+        rejectOnce(error);
+      });
     opts.signal?.addEventListener('abort', onAbort, { once: true });
     const countOutput = (bytes: number): boolean => {
       outputBytes += bytes;

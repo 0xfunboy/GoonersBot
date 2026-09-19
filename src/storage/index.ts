@@ -37,6 +37,14 @@ import { MongoSocialProfileStore } from '../social/mongoStore.js';
 import { UpdateInboxRepo } from './repositories/updateInbox.js';
 import { CompanionTaskRepository } from '../companion/tasks/repository.js';
 import { ReminderService, type ReminderServiceOptions } from '../companion/workflows/index.js';
+import { WorkflowTickCoordinator } from '../companion/workflows/index.js';
+import { MongoIntegrationRepository } from '../integrations/index.js';
+import {
+  CompanionMemoryService,
+  MongoMemoryRepository,
+  MemoryPrivacyGuard,
+  type CompanionMemory,
+} from '../companion/memory/index.js';
 
 const log = childLogger('storage');
 
@@ -80,6 +88,10 @@ export class Storage {
   /** Durable Telegram ingress receipts used for deduplication and crash recovery. */
   readonly updateInbox: UpdateInboxRepo;
   readonly companionTasks: CompanionTaskRepository;
+  readonly companionMemory: CompanionMemoryService;
+  readonly memoryPrivacy: MemoryPrivacyGuard;
+  readonly integrations: MongoIntegrationRepository;
+  readonly workflowTicks: WorkflowTickCoordinator;
 
   private constructor(
     private readonly connection: MongoConnection,
@@ -101,7 +113,8 @@ export class Storage {
     this.terms = new TermsRepo(db);
     this.media = new MediaRepo(db);
     this.jobs = new JobsRepo(db);
-    this.memoryItems = new MemoryItemsRepo(db);
+    this.memoryPrivacy = new MemoryPrivacyGuard(db);
+    this.memoryItems = new MemoryItemsRepo(db, this.memoryPrivacy);
     this.botReplies = new BotRepliesRepo(db, env.BOT_REPLIES_RETENTION_DAYS);
     this.brainDebug = new BrainDebugRepo(db, env.BRAIN_DEBUG_TTL_DAYS);
     this.userHeat = new UserHeatRepo(db);
@@ -121,9 +134,73 @@ export class Storage {
     this.socialQuestions = new SocialQuestionsRepo(db);
     this.animeArchive = new AnimeArchiveRepo(db);
     this.botAdmins = new BotAdminsRepo(db);
-    this.socialProfiles = new MongoSocialProfileStore(db);
+    this.socialProfiles = new MongoSocialProfileStore(db, this.memoryPrivacy);
     this.updateInbox = new UpdateInboxRepo(db);
     this.companionTasks = new CompanionTaskRepository(db);
+    this.integrations = new MongoIntegrationRepository(db);
+    this.workflowTicks = new WorkflowTickCoordinator(db);
+    this.companionMemory = new CompanionMemoryService(new MongoMemoryRepository(db), {
+      list: async (scope) => {
+        const aliases = await this.users.listAliasesByTelegramId(scope.ownerTelegramId);
+        if (
+          !aliases.length ||
+          !(await this.memoryPrivacy.allowsHandles(aliases, scope.ownerTelegramId))
+        )
+          return [];
+        const knownAliases = new Set(aliases.map((alias) => alias.toLowerCase()));
+        const [items, messages] = await Promise.all([
+          this.memoryItems.listActive(scope.chatId, 300),
+          this.messages.getRecent(scope.chatId, 2_000, scope.telegramTopicId ?? null),
+        ]);
+        const humanIds = new Set(
+          messages.filter((message) => !message.isBot).map((message) => message.messageId),
+        );
+        return items
+          .filter((item) => {
+            if (
+              !item._id ||
+              !item.subjectHandle ||
+              !knownAliases.has(item.subjectHandle.toLowerCase())
+            )
+              return false;
+            if (item.sourceMessageIds.length)
+              return item.sourceMessageIds.every((id) => humanIds.has(id));
+            // Legacy manual rows have no topic provenance. Never project them into a forum topic.
+            return (
+              scope.telegramTopicId == null &&
+              ['admin', 'self_declared', 'migration'].includes(item.source)
+            );
+          })
+          .map(
+            (item): CompanionMemory => ({
+              id: `legacy:${item._id}`,
+              chatId: scope.chatId,
+              telegramTopicId: scope.telegramTopicId ?? null,
+              kind: 'social',
+              category: item.category,
+              text: item.text,
+              provenance: {
+                source: 'human',
+                messageId: item.sourceMessageIds[0],
+                sourceAt: item.firstSeenAt,
+              },
+              revision: item.revision ?? 1,
+              createdAt: item.createdAt,
+              updatedAt: item.updatedAt,
+            }),
+          );
+      },
+      forget: async (scope, items) => {
+        let count = 0;
+        for (const item of items) {
+          if (item.provenance.messageId)
+            await this.socialProfiles.forgetSource(scope.chatId, item.provenance.messageId);
+          if (await this.memoryItems.forgetById(scope.chatId, item.id.slice('legacy:'.length)))
+            count++;
+        }
+        return count;
+      },
+    });
   }
 
   static async connect(env: Env): Promise<Storage> {
@@ -171,6 +248,8 @@ export class Storage {
     await UpdateInboxRepo.ensureIndexes(this.db, this.env.TELEGRAM_INGRESS_RETENTION_DAYS);
     await CompanionTaskRepository.ensureIndexes(this.db);
     await ReminderService.ensureIndexes(this.db);
+    await MongoIntegrationRepository.ensureIndexes(this.db);
+    await WorkflowTickCoordinator.ensureIndexes(this.db);
     log.info('indexes ensured');
   }
 
@@ -195,6 +274,14 @@ export class Storage {
       const handle: string | null = (f['userHandle'] as string) ?? null;
       const subjectType = handle ? 'user' : 'group';
       const normalizedText = text.toLowerCase().replace(/\s+/g, ' ').trim();
+      if (
+        !(await this.memoryPrivacy.allowsMemory(chatId, {
+          text,
+          sourceMessageIds: [],
+          subjectHandle: handle,
+        }))
+      )
+        continue;
       // Check every status/source. If this legacy item was deliberately expired, importing it
       // again would undo /clearfacts or /forget on the next restart.
       const existing = await memCol.findOne(
@@ -210,7 +297,7 @@ export class Storage {
           ? legacyCreatedAt
           : now;
       try {
-        await memCol.insertOne({
+        await this.memoryItems.insertRaw({
           chatId,
           subjectType,
           subjectHandle: handle,
@@ -251,6 +338,41 @@ export class Storage {
 
   async close(): Promise<void> {
     await this.connection.close();
+  }
+
+  /** Clear derived prompt/debug material in affected chats after fencing memory producers. */
+  async eraseMemoryDerivedData(actorTelegramId: number, aliases: string[]): Promise<void> {
+    await this.memoryPrivacy.blockHandles(aliases, actorTelegramId);
+    await this.companionMemory.eraseActor(actorTelegramId);
+    const messages = this.db.collection('messages');
+    const chats = await messages.distinct('chatId', {
+      $or: [{ telegramId: actorTelegramId }, { userHandle: { $in: aliases } }],
+    });
+    const profileChats = await this.db
+      .collection('social_member_profiles')
+      .distinct('chatId', { $or: [{ telegramId: actorTelegramId }, { handle: { $in: aliases } }] });
+    const chatIds = [...new Set([...chats, ...profileChats])].filter((id) =>
+      Number.isSafeInteger(id),
+    );
+    // These collections are disposable derived context, not Telegram messages or user files.
+    for (const name of [
+      'brain_debug_turns',
+      'bot_replies',
+      'conversation_threads',
+      'conversation_entities',
+    ]) {
+      if (chatIds.length) await this.db.collection(name).deleteMany({ chatId: { $in: chatIds } });
+    }
+    await this.db.collection('social_questions').deleteMany({
+      $or: [
+        { targetTelegramId: actorTelegramId },
+        { targetHandle: { $in: aliases } },
+        { subjectHandle: { $in: aliases } },
+      ],
+    });
+    await messages.deleteMany({
+      $or: [{ telegramId: actorTelegramId }, { userHandle: { $in: aliases } }],
+    });
   }
 }
 

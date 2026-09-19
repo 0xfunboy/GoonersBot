@@ -71,13 +71,17 @@ export class Scheduler {
     if (this.config.auto.autopostEnabled && this.autopostTick) {
       const tick = this.autopostTick;
       this.every(this.config.auto.autopostIntervalMinutes * 60_000, 120_000, () =>
-        this.safe('autopost', () => tick()),
+        this.safe('autopost', () =>
+          this.workflowTick('autopost', this.config.auto.autopostIntervalMinutes * 60_000, tick),
+        ),
       );
     }
     if (this.config.anime.follows.enabled && this.animeReleaseTick) {
       const tick = this.animeReleaseTick;
       this.every(this.config.anime.follows.pollMinutes * 60_000, 90_000, () =>
-        this.safe('anime-releases', () => tick()),
+        this.safe('anime-releases', () =>
+          this.workflowTick('anime-releases', this.config.anime.follows.pollMinutes * 60_000, tick),
+        ),
       );
     }
     if (this.learnNotifyTick) {
@@ -88,7 +92,13 @@ export class Scheduler {
     if (this.config.auto.generatedImageAutopostEnabled && this.generatedImageTick) {
       const tick = this.generatedImageTick;
       this.every(this.config.auto.generatedImageAutopostIntervalMinutes * 60_000, 150_000, () =>
-        this.safe('generated-image-autopost', () => tick()),
+        this.safe('generated-image-autopost', () =>
+          this.workflowTick(
+            'generated-image-autopost',
+            this.config.auto.generatedImageAutopostIntervalMinutes * 60_000,
+            tick,
+          ),
+        ),
       );
     }
     if (this.config.animeArchive.enabled && this.animeArchiveTick) {
@@ -115,6 +125,19 @@ export class Scheduler {
     }, intervalMs);
     interval.unref();
     this.timers.push(first, interval);
+  }
+
+  private async workflowTick(
+    key: string,
+    intervalMs: number,
+    fn: () => Promise<void>,
+  ): Promise<void> {
+    if (this.storage.workflowTicks) {
+      await this.storage.workflowTicks.run({ key, intervalMs }, fn);
+    } else {
+      // Compatibility for embedders/test hosts predating the workflow repository.
+      await fn();
+    }
   }
 
   private safe(name: string, fn: () => Promise<void>): Promise<void> {

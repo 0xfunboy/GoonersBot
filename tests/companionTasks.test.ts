@@ -4,6 +4,7 @@ import {
   CompanionTaskRepository,
   CompanionTaskService,
   createRequestContract,
+  TaskRetryableError,
   type CompanionTask,
 } from '../src/companion/tasks/index.js';
 
@@ -45,6 +46,73 @@ afterEach(() => {
 });
 
 describe('durable companion task boundaries', () => {
+  it.each([false, true])(
+    'persists scheduled retries and respects the deadline (expires soon: %s)',
+    async (expiresSoon) => {
+      const task = taskFixture();
+      if (expiresSoon) task.contract.deadline = new Date(Date.now() + 4000).toISOString();
+      const finish = vi.fn().mockResolvedValue(true);
+      const repository = {
+        recoverExpired: vi.fn().mockResolvedValue(0),
+        claim: vi.fn().mockResolvedValueOnce(task).mockResolvedValue(null),
+        hasAuthority: vi.fn().mockResolvedValue(true),
+        heartbeat: vi.fn().mockResolvedValue(true),
+        finish,
+      } as unknown as CompanionTaskRepository;
+      const service = new CompanionTaskService(repository, {
+        execute: async () => {
+          throw new TaskRetryableError('Provider unavailable', 5000);
+        },
+      });
+      const started = Date.now();
+      service.start();
+      try {
+        await vi.waitFor(() => expect(finish).toHaveBeenCalled());
+        const outcome = finish.mock.calls[0]?.[1];
+        expect(outcome.status).toBe(expiresSoon ? 'partial' : 'retry_scheduled');
+        if (expiresSoon) expect(outcome.resumeAt).toBeUndefined();
+        else expect(outcome.resumeAt.getTime()).toBeGreaterThanOrEqual(started + 5000);
+      } finally {
+        await service.stop();
+      }
+    },
+  );
+  it('changes presentation in the exact actor/topic scope without invalidating work or leases', async () => {
+    const updateOne = vi.fn().mockResolvedValue({ matchedCount: 1 });
+    const repo = new CompanionTaskRepository({
+      collection: () => ({ updateOne }),
+    } as unknown as Db);
+    const signal = {
+      situation: 'practical_help',
+      supportNeed: 'none',
+      posture: 'practical',
+      humorAllowed: false,
+      roastCeiling: 'none',
+      memoryPolicy: 'avoid_callbacks',
+      responseOrder: 'answer_then_color',
+      confidence: 1,
+      cues: ['serious tone requested'],
+    } as const;
+    expect(
+      await repo.patchPresentation('task-a', { actorTelegramId: 10, chatId: -20, threadId: 3 }, 2, {
+        ...signal,
+        cues: [...signal.cues],
+      }),
+    ).toBe(true);
+    const [filter, update] = updateOne.mock.calls[0]!;
+    expect(filter).toMatchObject({
+      id: 'task-a',
+      version: 2,
+      'contract.scope.actorTelegramId': 10,
+      'contract.scope.chatId': -20,
+      'contract.scope.threadId': 3,
+    });
+    expect(update.$set['payload.presentation'].socialSignal.humorAllowed).toBe(false);
+    expect(update.$set).not.toHaveProperty('contract');
+    expect(update.$set).not.toHaveProperty('ownerId');
+    expect(update).not.toHaveProperty('$inc');
+    expect(update.$set).not.toHaveProperty('checkpoints');
+  });
   it('fences external intents by owner, claim, revision, live lease and unique effect key', async () => {
     const updateOne = vi.fn().mockResolvedValue({ matchedCount: 1 });
     const repo = new CompanionTaskRepository({

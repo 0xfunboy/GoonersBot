@@ -300,6 +300,7 @@ describe('existing visible-work adapter', () => {
       chatId: -100,
       threadId: 42,
       limit: 12,
+      includeRecentTerminal: true,
     });
     expect(listVisible).not.toHaveBeenCalled();
     expect(group).toEqual([

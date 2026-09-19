@@ -190,3 +190,18 @@ export class TaskRetryableError extends Error {
     this.name = 'TaskRetryableError';
   }
 }
+
+/** Shared scheduling policy: the conversation must not promise a retry the worker cannot admit. */
+export function taskRetryResumeAt(
+  task: CompanionTask,
+  error: TaskRetryableError,
+  now = Date.now(),
+): Date | null {
+  if (task.attempts >= task.contract.budget.maxAttempts) return null;
+  const requested = Number.isFinite(error.retryAfterMs) ? error.retryAfterMs : 5000;
+  const delay = Math.min(300_000, Math.max(1000, requested) * 2 ** Math.max(0, task.attempts - 1));
+  const resumeAt = new Date(now + delay);
+  if (task.contract.deadline && resumeAt.getTime() >= Date.parse(task.contract.deadline))
+    return null;
+  return resumeAt;
+}

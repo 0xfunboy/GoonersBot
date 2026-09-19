@@ -45,6 +45,9 @@ import type { CapabilityForge } from '../capabilities/forge.js';
 import { isNewCapabilityInstallation, isVerifiedCapabilityReuse } from '../capabilities/types.js';
 import type { AgentRuntime, RuntimeArtifactData } from './agentRuntime.js';
 import type { CompanionWorkService } from './companionWork.js';
+import type { CompanionMemoryService } from '../companion/memory/service.js';
+import { learnedRecipeContext } from '../companion/learning/index.js';
+import { renderedPageReadiness } from '../search/renderedPage.js';
 import { providerObservation } from '../companion/capabilities/dispatch.js';
 import {
   createConversationContract,
@@ -609,6 +612,7 @@ export function shouldUseTerminalAgentRuntime(
  * Memory is never dumped; it flows through the retriever and is used implicitly.
  */
 export class ReplyService {
+  private optionalRuntimeEvidence?: Promise<string>;
   private readonly styleEngine = new StyleEngine();
   private readonly planner = new ReplyPlanner();
   private readonly evaluator: TurnEvaluator;
@@ -652,6 +656,7 @@ export class ReplyService {
     private readonly selfKnowledge: SelfKnowledgeService,
     private readonly visibleWork: VisibleWorkReader = { listVisible: async () => [] },
     private readonly companionWork?: CompanionWorkService,
+    private readonly companionMemory?: CompanionMemoryService,
   ) {
     this.evaluator = new TurnEvaluator(llm, {
       enabled: config.brain.evaluatorEnabled,
@@ -885,7 +890,7 @@ export class ReplyService {
       'visual resolved',
     );
     const [history, selfContext] = await Promise.all([
-      this.conversation.getRecent(ctx.context.chatId),
+      this.conversation.getRecent(ctx.context.chatId, undefined, ctx.context.threadId ?? null),
       this.selfKnowledge.buildContext({
         chatId: ctx.context.chatId,
         message: transcribed.messageText ?? '',
@@ -925,7 +930,19 @@ export class ReplyService {
       maxNorms: 6,
     });
     const socialContext = renderSocialContext(socialSnapshot);
-    let runtimeThreadContext = [selfContext, threadState.promptBlock].filter(Boolean).join('\n\n');
+    const projectMemory = await this.companionMemory
+      ?.recallContext(
+        {
+          ownerTelegramId: ctx.person.telegramId,
+          chatId: ctx.context.chatId,
+          telegramTopicId: ctx.context.threadId ?? null,
+        },
+        transcribed.messageText ?? '',
+      )
+      .catch(() => '');
+    let runtimeThreadContext = [selfContext, threadState.promptBlock, projectMemory]
+      .filter(Boolean)
+      .join('\n\n');
     const cognitiveContext = [selfContext, threadState.promptBlock, socialContext]
       .filter(Boolean)
       .join('\n\n');
@@ -1043,6 +1060,12 @@ export class ReplyService {
       document_create: readiness(this.llm.capabilities.chat, 'chat model unavailable'),
       data_analysis: readiness(true, ''),
       workflow: readiness(this.config.env.COMPANION_TASKS_ENABLED, 'persistent schedules disabled'),
+      companion_memory: readiness(Boolean(this.companionMemory), 'scoped memory unavailable'),
+      connected_service: readiness(Boolean(this.companionWork), 'Telegram connection unavailable'),
+      code_work: readiness(
+        this.llm.capabilities.chat,
+        'public source reviewer needs chat model; local patch worker separately requires admin private workspace',
+      ),
       media_prompt: readiness(
         capabilities.imageGeneration || capabilities.videoGeneration,
         'no media generator configured',
@@ -1057,6 +1080,23 @@ export class ReplyService {
     };
     const runtimeCapabilitySnapshot = capabilitySnapshot(capabilityReadiness);
     const capabilityDetails = [
+      await (this.optionalRuntimeEvidence ??= Promise.all([
+        this.documents.ocrStatus?.() ??
+          Promise.resolve({ enabled: false, images: false, pdf: false, reason: 'OCR unavailable' }),
+        renderedPageReadiness({
+          enabled: this.config.env.COMPANION_RENDER_ENABLED,
+          chromiumCommand: this.config.env.COMPANION_CHROMIUM_COMMAND,
+          sandboxCommand: this.config.env.COMPANION_SANDBOX_COMMAND,
+        }),
+      ])
+        .then(
+          ([ocr, renderer]) =>
+            `HOST OPTIONAL READER STATUS: OCR images=${ocr.images}, scanned PDF=${ocr.pdf}; ${ocr.reason ?? ''}. page_scan mode=rendered ready=${renderer.ready}; ${renderer.reason ?? 'offline isolated snapshot only'}. Static page_scan remains available independently.`,
+        )
+        .catch(() => 'Optional OCR/rendering readiness unavailable; use static readers only.')),
+      ...(typeof this.capabilities.semanticDescriptors === 'function'
+        ? [learnedRecipeContext(this.capabilities.semanticDescriptors()) ?? '']
+        : []),
       ...runtimeCapabilitySnapshot
         .filter((item) => item.readiness === 'ready' || item.readiness === 'degraded')
         .map(
@@ -1146,6 +1186,8 @@ export class ReplyService {
               ),
             },
             visibleWork,
+            capabilitySnapshot: runtimeCapabilitySnapshot,
+            capabilityDetails,
             model: ctx.internalModel,
           });
     const transformsRepliedWork = cortexDecision
@@ -1304,13 +1346,41 @@ export class ReplyService {
       };
     }
 
-    const controlReply = await this.companionWork?.control(
-      understanding,
-      ctx.person,
-      ctx.context,
-      ctx.language,
-      semanticMessage,
+    const controlRequested = understanding.interactions.some((item) =>
+      ['status', 'pause', 'cancel', 'resume', 'continue_work', 'amend_work'].includes(item.kind),
     );
+    const explicitWorkRefs = new Set(
+      understanding.interactions
+        .flatMap((item) => item.referentIds)
+        .filter((id) => id.startsWith('work:'))
+        .map((id) => id.slice(5)),
+    );
+    const activeCandidates = visibleWork.filter(
+      (work) => !['completed', 'done', 'failed', 'cancelled', 'applied'].includes(work.state),
+    );
+    if (
+      controlRequested &&
+      ctx.context.repliedToMessageId === undefined &&
+      activeCandidates.length > 1 &&
+      explicitWorkRefs.size !== 1
+    ) {
+      return immediateOutcome({
+        text: `Ho più lavori aperti: ${activeCandidates
+          .slice(0, 3)
+          .map((work) => work.label.slice(0, 100))
+          .join('; ')}. A quale ti riferisci?`,
+        styleVariant: 'companion:clarification',
+      });
+    }
+    const controlReply =
+      (await this.companionWork?.control(
+        understanding,
+        ctx.person,
+        ctx.context,
+        ctx.language,
+        semanticMessage,
+      )) ??
+      (await this.visibleWork.control?.(understanding, ctx.person, ctx.context, ctx.language));
     if (
       controlReply &&
       (understanding.proposedOperations.length === 0 ||
@@ -1364,6 +1434,7 @@ export class ReplyService {
         const runtimeInput = {
           request: semanticMessage,
           requestKey: `telegram:${ctx.botId ?? 0}:${ctx.updateId ?? ctx.context.messageId ?? 0}`,
+          requestTime: new Date(ctx.message.timestamp).toISOString(),
           language: ctx.language,
           person: ctx.person,
           context: ctx.context,
@@ -1962,6 +2033,7 @@ export class ReplyService {
       wantsGroupRag
         ? this.memoryRetriever.retrieve({
             chatId: ctx.context.chatId,
+            telegramTopicId: ctx.context.threadId ?? null,
             currentMessage: ctx.message.messageText,
             currentHandle: ctx.person.userHandle,
             scene,

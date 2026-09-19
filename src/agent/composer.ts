@@ -123,6 +123,9 @@ export function buildCompositionPrompt(
       ? `NON-NEGOTIABLE SOCIAL CONTRACT: ${socialContract.slice(0, 800)}`
       : 'NON-NEGOTIABLE SOCIAL CONTRACT: complete the useful work before any personality color',
     `EXECUTION STATUS: ${report.status}`,
+    ...(report.progress
+      ? [`VERIFIED PROGRESS DECISION: ${JSON.stringify(report.progress).slice(0, 6_000)}`]
+      : []),
     `FINAL CONTRACT: ${JSON.stringify(report.plan.finalResponse)}`,
     'VERIFIED ACTION RESULTS:',
     JSON.stringify(results).slice(0, 24_000),

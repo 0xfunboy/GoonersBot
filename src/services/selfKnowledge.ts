@@ -58,6 +58,7 @@ export class SelfKnowledgeService {
       );
     });
     const dynamic = this.capabilities.list();
+    const learned = this.capabilities.semanticDescriptors?.() ?? [];
     const runtime = this.runtimeSnapshot();
     const readyRuntime = runtime.filter(
       (item) => item.readiness === 'ready' || item.readiness === 'degraded',
@@ -69,6 +70,11 @@ export class SelfKnowledgeService {
       'SELF RUNTIME EVIDENCE (ground truth for claims about yourself; never embellish):',
       `- Static slash commands registered now: ${commands.length}. Dynamic installed capabilities: ${dynamic.length}${dynamic.length ? ` (${dynamic.map((item) => `/${item.command}`).join(', ')})` : ''}.`,
       `- Executable natural-language capabilities ready now: ${readyRuntime.length ? readyRuntime.map((item) => item.id).join(', ') : 'none'}. Snapshot time: ${runtime[0]?.checkedAt ?? 'not evaluated'}.`,
+      ...(learned.length
+        ? [
+            `- Installed reusable read-only workflows (no commands required): ${JSON.stringify(learned)}. Proposed, disabled or retired recipes are never ready capabilities.`,
+          ]
+        : []),
       `- Runtime operations come from the executable manifests: ${Object.values(
         RUNTIME_CAPABILITY_MANIFESTS,
       )

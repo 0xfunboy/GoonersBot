@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BUILTIN_CAPABILITY_IDS } from '../companion/capabilities/catalog.js';
 
 /** Zod schemas for LLM-produced brain JSON (scene, plan, ranker). */
 
@@ -167,6 +168,17 @@ export const rankerSchema = z.object({
 });
 
 export const turnEvaluationSchema = z.object({
+  toolCalls: z
+    .array(
+      z.object({
+        tool: z.enum(BUILTIN_CAPABILITY_IDS),
+        query: z.string().max(2000).optional(),
+        args: z.record(z.unknown()).default({}),
+        reason: z.string().max(500).optional(),
+      }),
+    )
+    .max(10)
+    .optional(),
   shouldAct: z.boolean().default(true),
   action: z
     .enum([
@@ -210,6 +222,9 @@ export const turnEvaluationSchema = z.object({
         'document_create',
         'data_analysis',
         'workflow',
+        'companion_memory',
+        'connected_service',
+        'code_work',
         'capability_forge',
       ]),
     )

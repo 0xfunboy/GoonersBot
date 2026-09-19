@@ -77,6 +77,50 @@ describe('CapabilityForge', () => {
         language: 'italian',
       }),
     ).resolves.toMatchObject({ handled: true, text: 'Versione corrente verificata.' });
+    expect(reloaded.semanticDescriptors()).toEqual([
+      expect.objectContaining({
+        id: 'package_freshness',
+        revision: 1,
+        readiness: 'ready',
+        effect: 'read',
+      }),
+    ]);
+    // Semantic routing can use a fresh paraphrase without relying on command text or lexical match.
+    await expect(
+      reloaded.executeRecipe({
+        recipeId: 'package_freshness',
+        revision: 1,
+        input: 'A che release siamo arrivati per frobnicator?',
+        language: 'italian',
+      }),
+    ).resolves.toMatchObject({ handled: true });
+    await expect(reloaded.setLifecycle('package_freshness', 'disabled', false)).rejects.toThrow(
+      'authority',
+    );
+    await reloaded.setLifecycle('package_freshness', 'disabled', true);
+    expect(reloaded.semanticDescriptors()).toEqual([]);
+    expect(reloaded.hasCommand('pkgfresh')).toBe(false);
+    await expect(
+      reloaded.executeRecipe({
+        recipeId: 'package_freshness',
+        input: 'latest?',
+        language: 'italian',
+      }),
+    ).resolves.toBeNull();
+    await reloaded.setLifecycle('package_freshness', 'active', true);
+    expect(reloaded.semanticDescriptors()[0]?.revision).toBe(3);
+    await expect(
+      reloaded.executeRecipe({
+        recipeId: 'package_freshness',
+        revision: 1,
+        input: 'latest?',
+        language: 'italian',
+      }),
+    ).resolves.toBeNull();
+    await reloaded.setLifecycle('package_freshness', 'retired', true);
+    await expect(reloaded.setLifecycle('package_freshness', 'active', true)).rejects.toThrow(
+      'Retired',
+    );
   });
 
   it('does not reuse a capability just because generic research words overlap', async () => {

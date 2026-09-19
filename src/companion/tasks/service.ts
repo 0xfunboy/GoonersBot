@@ -4,6 +4,7 @@ import {
   TaskAuthorityError,
   TaskEffectUnknownError,
   TaskRetryableError,
+  taskRetryResumeAt,
   type CompanionTask,
   type TaskClaim,
   type TaskControlEvent,
@@ -325,15 +326,15 @@ export class CompanionTaskService {
           summary: 'Ho raggiunto il tempo disponibile. I risultati verificati sono conservati.',
           reason: 'budget_exhausted',
         });
-      } else if (error instanceof TaskRetryableError && task.attempts < budget.maxAttempts) {
+      } else if (error instanceof TaskRetryableError) {
+        const resumeAt = taskRetryResumeAt(task, error);
         await this.repository.finish(claim, {
-          status: 'retry_scheduled',
-          summary: error.message.slice(0, 1000),
-          reason: 'temporary_provider_failure',
-          resumeAt: new Date(
-            Date.now() +
-              Math.min(300_000, Math.max(1000, error.retryAfterMs) * 2 ** (task.attempts - 1)),
-          ),
+          status: resumeAt ? 'retry_scheduled' : 'partial',
+          summary: resumeAt
+            ? error.message.slice(0, 1000)
+            : 'Il prossimo tentativo supererebbe il budget o la scadenza. I risultati verificati sono conservati.',
+          reason: resumeAt ? 'temporary_provider_failure' : 'retry_budget_or_deadline',
+          ...(resumeAt ? { resumeAt } : {}),
         });
       } else {
         await this.repository.finish(claim, {

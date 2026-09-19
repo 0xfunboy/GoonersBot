@@ -3,6 +3,15 @@ import { MongoServerError, type Collection, type Db, type Filter } from 'mongodb
 import { z } from 'zod';
 import { childLogger } from '../../utils/logger.js';
 import type { TaskScope } from '../tasks/contracts.js';
+import {
+  isQuietAt,
+  localDateKey,
+  nextAllowedNotificationAt,
+  renderWorkflowObservation,
+  snapshotObservation,
+  type ObservationSnapshot,
+  type WorkflowObservation,
+} from './observation.js';
 
 const log = childLogger('companion-reminders');
 const scopeSchema = z
@@ -34,6 +43,29 @@ const weeklySchema = z
   })
   .strict();
 
+const quietHoursSchema = z
+  .object({
+    startHour: z.number().int().min(0).max(23),
+    endHour: z.number().int().min(0).max(23),
+  })
+  .strict()
+  .refine((value) => value.startHour !== value.endHour, 'Quiet hours cannot occupy the entire day');
+
+const sourceUrlsSchema = z
+  .array(
+    z
+      .string()
+      .url()
+      .max(2000)
+      .refine((value) => {
+        const url = new URL(value);
+        return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password;
+      }, 'Workflow sources require public HTTP(S) URLs without credentials'),
+  )
+  .min(1)
+  .max(4)
+  .refine((urls) => new Set(urls).size === urls.length, 'Duplicate workflow source');
+
 export const createReminderSchema = z
   .object({
     key: z.string().min(1).max(240),
@@ -45,20 +77,58 @@ export const createReminderSchema = z
     weeklyWallTime: weeklySchema.optional(),
     expiresAt: z.string().datetime({ offset: true }).optional(),
     maxOccurrences: z.number().int().min(1).max(10000).optional(),
+    kind: z.enum(['reminder', 'monitor', 'report']).optional(),
+    sourceUrls: sourceUrlsSchema.optional(),
+    quietHours: quietHoursSchema.optional(),
+    maxChecks: z.number().int().min(1).max(10000).optional(),
+    maxNotificationsPerDay: z.number().int().min(1).max(100).optional(),
+    notifyOnFirstObservation: z.boolean().optional(),
   })
   .strict()
   .refine(
     (input) => !input.intervalMinutes || !input.weeklyWallTime,
     'Choose elapsed interval or weekly wall time, not both',
+  )
+  .refine(
+    (input) => !input.kind || input.kind === 'reminder' || Boolean(input.sourceUrls?.length),
+    'Monitors and reports need at least one source URL',
+  )
+  .refine(
+    (input) => input.kind !== 'monitor' || Boolean(input.intervalMinutes || input.weeklyWallTime),
+    'Monitors require a recurring schedule',
+  )
+  .refine(
+    (input) => input.kind !== 'monitor' || !input.intervalMinutes || input.intervalMinutes >= 5,
+    'Monitor checks must be at least five minutes apart',
   );
 
 export type CreateReminderInput = z.infer<typeof createReminderSchema>;
-export type ReminderStatus = 'active' | 'sending' | 'completed' | 'cancelled' | 'delivery_unknown';
+export type ReminderStatus =
+  | 'active'
+  | 'checking'
+  | 'sending'
+  | 'paused'
+  | 'completed'
+  | 'cancelled'
+  | 'delivery_unknown';
 export interface Reminder {
   id: string;
   key: string;
   scope: TaskScope;
   text: string;
+  kind?: 'reminder' | 'monitor' | 'report';
+  sourceUrls?: string[];
+  quietHours?: z.infer<typeof quietHoursSchema>;
+  maxChecks?: number;
+  checkCount?: number;
+  maxNotificationsPerDay?: number;
+  notifyOnFirstObservation?: boolean;
+  notifiedDay?: string;
+  notifiedToday?: number;
+  lastObservedHash?: string;
+  lastNotifiedHash?: string;
+  baselineHash?: string;
+  failureCount?: number;
   timezone: string;
   nextRunAt: Date;
   intervalMinutes?: number;
@@ -96,12 +166,20 @@ export interface UpdateReminderInput {
   intervalMinutes?: number | null;
   weeklyWallTime?: z.infer<typeof weeklySchema> | null;
   expiresAt?: string | null;
+  sourceUrls?: string[];
+  quietHours?: z.infer<typeof quietHoursSchema> | null;
+  maxOccurrences?: number;
+  maxChecks?: number;
+  maxNotificationsPerDay?: number;
+  notifyOnFirstObservation?: boolean;
 }
 
 export interface ReminderServiceOptions {
   send: (reminder: Reminder, signal: AbortSignal) => Promise<{ messageId: number }>;
   /** Check current terms/membership/access immediately before every delivery. */
   authorize?: (scope: TaskScope) => Promise<boolean>;
+  /** Host-owned bounded SSRF-safe reader. Source content is untrusted data, not instructions. */
+  observe?: (reminder: Reminder, signal: AbortSignal) => Promise<WorkflowObservation>;
   pollMs?: number;
   concurrency?: number;
 }
@@ -215,6 +293,8 @@ export class ReminderService {
     const parsed = createReminderSchema.parse(input);
     const existing = await this.col.findOne({ key: parsed.key, ...scoped(parsed.scope) });
     if (existing) return existing;
+    if (parsed.kind && parsed.kind !== 'reminder' && !this.options.observe)
+      throw new Error('Live source observation is unavailable; no monitor or report was created');
     if (this.options.authorize && !(await this.options.authorize(parsed.scope)))
       throw new Error('Reminder access is unavailable');
     const now = new Date();
@@ -227,7 +307,7 @@ export class ReminderService {
       (await this.col.countDocuments(
         {
           'scope.actorTelegramId': parsed.scope.actorTelegramId,
-          status: { $in: ['active', 'sending', 'delivery_unknown'] },
+          status: { $in: ['active', 'checking', 'sending', 'paused', 'delivery_unknown'] },
         },
         { limit: 32 },
       )) >= 32
@@ -238,11 +318,22 @@ export class ReminderService {
       key: parsed.key,
       scope: parsed.scope,
       text: parsed.text,
+      kind: parsed.kind ?? 'reminder',
+      ...(parsed.sourceUrls ? { sourceUrls: parsed.sourceUrls } : {}),
+      ...(parsed.quietHours ? { quietHours: parsed.quietHours } : {}),
+      maxChecks: parsed.maxChecks ?? 10000,
+      checkCount: 0,
+      maxNotificationsPerDay: parsed.maxNotificationsPerDay ?? 20,
+      notifyOnFirstObservation: parsed.notifyOnFirstObservation ?? false,
       timezone: parsed.timezone,
       nextRunAt: runAt,
       ...(parsed.intervalMinutes ? { intervalMinutes: parsed.intervalMinutes } : {}),
       ...(parsed.weeklyWallTime ? { weeklyWallTime: parsed.weeklyWallTime } : {}),
-      ...(parsed.expiresAt ? { expiresAt: new Date(parsed.expiresAt) } : {}),
+      ...(parsed.expiresAt
+        ? { expiresAt: new Date(parsed.expiresAt) }
+        : parsed.kind === 'monitor' || parsed.kind === 'report'
+          ? { expiresAt: new Date(runAt.getTime() + 30 * 86_400_000) }
+          : {}),
       maxOccurrences: parsed.maxOccurrences ?? 1000,
       deliveredCount: 0,
       version: 1,
@@ -266,7 +357,10 @@ export class ReminderService {
 
   list(scope: TaskScope): Promise<Reminder[]> {
     return this.col
-      .find({ ...scoped(scope), status: { $in: ['active', 'sending', 'delivery_unknown'] } })
+      .find({
+        ...scoped(scope),
+        status: { $in: ['active', 'checking', 'sending', 'paused', 'delivery_unknown'] },
+      })
       .sort({ nextRunAt: 1 })
       .limit(32)
       .toArray();
@@ -277,7 +371,7 @@ export class ReminderService {
       id: input.id,
       ...scoped(input.scope),
       version: input.expectedVersion,
-      status: 'active',
+      status: { $in: ['active', 'paused'] },
     });
     if (!current) return null;
     const parsed = createReminderSchema.parse({
@@ -298,18 +392,43 @@ export class ReminderService {
         input.expiresAt === null
           ? undefined
           : (input.expiresAt ?? current.expiresAt?.toISOString()),
-      maxOccurrences: current.maxOccurrences,
+      maxOccurrences: input.maxOccurrences ?? current.maxOccurrences,
+      kind: current.kind ?? 'reminder',
+      sourceUrls: input.sourceUrls ?? current.sourceUrls,
+      quietHours: input.quietHours === null ? undefined : (input.quietHours ?? current.quietHours),
+      maxChecks: input.maxChecks ?? current.maxChecks,
+      maxNotificationsPerDay: input.maxNotificationsPerDay ?? current.maxNotificationsPerDay,
+      notifyOnFirstObservation: input.notifyOnFirstObservation ?? current.notifyOnFirstObservation,
     });
     const nextRunAt = new Date(parsed.runAt);
     if (input.runAt && nextRunAt.getTime() < Date.now() - 60_000)
       throw new Error('Reminder time is in the past');
+    if (parsed.expiresAt && Date.parse(parsed.expiresAt) <= nextRunAt.getTime())
+      throw new Error('Reminder expiry must follow its next occurrence');
     const result = await this.col.findOneAndUpdate(
-      { id: input.id, ...scoped(input.scope), version: input.expectedVersion, status: 'active' },
+      {
+        id: input.id,
+        ...scoped(input.scope),
+        version: input.expectedVersion,
+        status: { $in: ['active', 'paused'] },
+      },
       {
         $set: {
           text: parsed.text,
+          status: 'active',
+          failureCount: 0,
           timezone: parsed.timezone,
           nextRunAt,
+          maxOccurrences: parsed.maxOccurrences ?? current.maxOccurrences,
+          ...(parsed.sourceUrls ? { sourceUrls: parsed.sourceUrls } : {}),
+          ...(parsed.quietHours ? { quietHours: parsed.quietHours } : {}),
+          ...(parsed.maxChecks ? { maxChecks: parsed.maxChecks } : {}),
+          ...(parsed.maxNotificationsPerDay
+            ? { maxNotificationsPerDay: parsed.maxNotificationsPerDay }
+            : {}),
+          ...(parsed.notifyOnFirstObservation !== undefined
+            ? { notifyOnFirstObservation: parsed.notifyOnFirstObservation }
+            : {}),
           updatedAt: new Date(),
           ...(parsed.intervalMinutes ? { intervalMinutes: parsed.intervalMinutes } : {}),
           ...(parsed.weeklyWallTime ? { weeklyWallTime: parsed.weeklyWallTime } : {}),
@@ -319,6 +438,14 @@ export class ReminderService {
           ...(!parsed.intervalMinutes ? { intervalMinutes: '' as const } : {}),
           ...(!parsed.weeklyWallTime ? { weeklyWallTime: '' as const } : {}),
           ...(!parsed.expiresAt ? { expiresAt: '' as const } : {}),
+          ...(!parsed.quietHours ? { quietHours: '' as const } : {}),
+          ...(input.sourceUrls
+            ? {
+                lastObservedHash: '' as const,
+                lastNotifiedHash: '' as const,
+                baselineHash: '' as const,
+              }
+            : {}),
         },
         $inc: { version: 1, fence: 1 },
       },
@@ -339,7 +466,7 @@ export class ReminderService {
         id: input.id,
         ...scoped(input.scope),
         ...(input.expectedVersion !== undefined ? { version: input.expectedVersion } : {}),
-        status: { $in: ['active', 'sending', 'delivery_unknown'] },
+        status: { $in: ['active', 'checking', 'sending', 'paused', 'delivery_unknown'] },
       },
       {
         $set: {
@@ -372,6 +499,7 @@ export class ReminderService {
           updatedAt: now,
           terminalAt: now,
         },
+        $unset: { sourceUrls: '', lastObservedHash: '', lastNotifiedHash: '', baselineHash: '' },
         $inc: { version: 1, fence: 1 },
       },
     );
@@ -407,7 +535,7 @@ export class ReminderService {
   private authority(reminder: Reminder): Filter<Reminder> {
     return {
       id: reminder.id,
-      status: 'sending',
+      status: { $in: ['checking', 'sending'] },
       ownerId: this.ownerId,
       version: reminder.version,
       fence: reminder.fence,
@@ -434,8 +562,23 @@ export class ReminderService {
           $inc: { fence: 1 },
         },
       );
+      // Reading public sources has no external effect: a crashed check can safely retry.
       await this.col.updateMany(
-        { status: 'active', expiresAt: { $lte: now } },
+        { status: 'checking', leaseUntil: { $lte: now } },
+        {
+          $set: {
+            status: 'active',
+            ownerId: null,
+            leaseUntil: null,
+            nextRunAt: new Date(now.getTime() + 5 * 60_000),
+            updatedAt: now,
+            reason: 'Source check interrupted; safely rescheduled',
+          },
+          $inc: { fence: 1 },
+        },
+      );
+      await this.col.updateMany(
+        { status: { $in: ['active', 'paused'] }, expiresAt: { $lte: now } },
         {
           $set: {
             status: 'completed',
@@ -450,31 +593,15 @@ export class ReminderService {
         const startedAt = new Date();
         const reminder = await this.col.findOneAndUpdate(
           { status: 'active', nextRunAt: { $lte: startedAt } },
-          [
-            {
-              $set: {
-                status: 'sending',
-                ownerId: this.ownerId,
-                leaseUntil: new Date(startedAt.getTime() + this.leaseMs),
-                fence: { $add: ['$fence', 1] },
-                updatedAt: startedAt,
-                lastObservedAt: startedAt,
-                delivery: {
-                  key: {
-                    $concat: [
-                      '$id',
-                      ':',
-                      { $toString: '$version' },
-                      ':',
-                      { $toString: '$nextRunAt' },
-                    ],
-                  },
-                  status: 'pending',
-                  startedAt,
-                },
-              },
+          {
+            $set: {
+              status: 'checking',
+              ownerId: this.ownerId,
+              leaseUntil: new Date(startedAt.getTime() + this.leaseMs),
+              updatedAt: startedAt,
             },
-          ],
+            $inc: { fence: 1 },
+          },
           { sort: { nextRunAt: 1 }, returnDocument: 'after' },
         );
         if (!reminder) break;
@@ -534,8 +661,20 @@ export class ReminderService {
     );
     timeout.unref();
     let abortListener: (() => void) | undefined;
+    let sending = false;
+    let snapshot: ObservationSnapshot | undefined;
+    const awaitBounded = <T>(operation: Promise<T>): Promise<T> =>
+      Promise.race([
+        operation,
+        new Promise<never>((_resolve, reject) => {
+          if (abortListener) controller.signal.removeEventListener('abort', abortListener);
+          abortListener = () => reject(controller.signal.reason);
+          if (controller.signal.aborted) abortListener();
+          else controller.signal.addEventListener('abort', abortListener, { once: true });
+        }),
+      ]);
     try {
-      if (this.options.authorize && !(await this.options.authorize(reminder.scope))) {
+      if (this.options.authorize && !(await awaitBounded(this.options.authorize(reminder.scope)))) {
         await this.col.updateOne(this.authority(reminder), {
           $set: {
             status: 'cancelled',
@@ -552,37 +691,129 @@ export class ReminderService {
         !(await this.col.findOne(this.authority(reminder), { projection: { _id: 1 } }))
       )
         return;
-      const receipt = await Promise.race([
-        this.options.send(reminder, controller.signal),
-        new Promise<never>((_resolve, reject) => {
-          abortListener = () => reject(controller.signal.reason);
-          if (controller.signal.aborted) abortListener();
-          else controller.signal.addEventListener('abort', abortListener, { once: true });
-        }),
-      ]);
+      const now = new Date();
+      if (
+        reminder.deliveredCount >= reminder.maxOccurrences ||
+        (reminder.checkCount ?? 0) >= (reminder.maxChecks ?? 10000)
+      ) {
+        await this.releaseCheck(reminder, now, undefined, 'Workflow budget exhausted');
+        return;
+      }
+      let outgoing = reminder;
+      if (reminder.kind === 'monitor' || reminder.kind === 'report') {
+        if (!this.options.observe || !reminder.sourceUrls?.length)
+          throw new Error('Workflow source reader is unavailable');
+        const counted = await this.col.updateOne(this.authority(reminder), {
+          $inc: { checkCount: 1 },
+        });
+        if (!counted.matchedCount) return;
+        reminder.checkCount = (reminder.checkCount ?? 0) + 1;
+        snapshot = snapshotObservation(
+          await awaitBounded(this.options.observe(reminder, controller.signal)),
+          reminder.sourceUrls,
+        );
+        controller.signal.throwIfAborted();
+        const observedAt = new Date();
+        const observed = await this.col.updateOne(this.authority(reminder), {
+          $set: {
+            lastObservedAt: observedAt,
+            lastObservedHash: snapshot.hash,
+            ...(reminder.baselineHash ? {} : { baselineHash: snapshot.hash }),
+            failureCount: 0,
+            updatedAt: observedAt,
+          },
+        });
+        if (!observed.matchedCount) return;
+        const changed =
+          reminder.notifyOnFirstObservation && !reminder.lastNotifiedAt
+            ? true
+            : reminder.baselineHash || reminder.lastObservedHash
+              ? snapshot.hash !==
+                (reminder.lastNotifiedHash ?? reminder.baselineHash ?? reminder.lastObservedHash)
+              : Boolean(reminder.notifyOnFirstObservation);
+        if (reminder.kind === 'monitor' && !changed) {
+          await this.releaseCheck(
+            reminder,
+            observedAt,
+            this.nextOccurrence(reminder, observedAt),
+            'No source change',
+          );
+          return;
+        }
+        outgoing = { ...reminder, text: renderWorkflowObservation(reminder, snapshot, observedAt) };
+      }
+      const notificationTime = new Date();
+      const day = localDateKey(notificationTime, reminder.timezone);
+      const notifiedToday = reminder.notifiedDay === day ? (reminder.notifiedToday ?? 0) : 0;
+      const dailyBudgetReached = notifiedToday >= (reminder.maxNotificationsPerDay ?? 20);
+      if (
+        dailyBudgetReached ||
+        isQuietAt(notificationTime, reminder.timezone, reminder.quietHours)
+      ) {
+        await this.releaseCheck(
+          reminder,
+          notificationTime,
+          nextAllowedNotificationAt(
+            notificationTime,
+            reminder.timezone,
+            reminder.quietHours,
+            dailyBudgetReached,
+          ),
+          dailyBudgetReached ? 'Daily notification budget reached' : 'Quiet hours',
+        );
+        return;
+      }
+      if (this.options.authorize && !(await awaitBounded(this.options.authorize(reminder.scope)))) {
+        await this.cancel({
+          id: reminder.id,
+          scope: reminder.scope,
+          expectedVersion: reminder.version,
+        });
+        return;
+      }
+      controller.signal.throwIfAborted();
+      // Persist effect intent immediately before Telegram, never while merely fetching a page.
+      sending = true;
+      const intent = await this.col.updateOne(
+        { ...this.authority(reminder), status: 'checking' },
+        {
+          $set: {
+            status: 'sending',
+            delivery: {
+              key: `${reminder.id}:${reminder.version}:${reminder.nextRunAt.toISOString()}`,
+              status: 'pending',
+              startedAt: new Date(),
+            },
+          },
+        },
+      );
+      if (!intent.matchedCount) return;
+      controller.signal.throwIfAborted();
+      const receipt = await awaitBounded(this.options.send(outgoing, controller.signal));
       if (!Number.isSafeInteger(receipt.messageId) || receipt.messageId <= 0)
         throw new Error('Missing Telegram delivery receipt');
-      const now = new Date();
-      const next = reminder.weeklyWallTime
-        ? nextWeeklyAt(now, reminder.timezone, reminder.weeklyWallTime, reminder.nextRunAt)
-        : reminder.intervalMinutes
-          ? nextIntervalAt(reminder.nextRunAt, reminder.intervalMinutes, now)
-          : undefined;
+      const deliveredAt = new Date();
+      const next = this.nextOccurrence(reminder, deliveredAt);
       const complete =
         !next ||
         reminder.deliveredCount + 1 >= reminder.maxOccurrences ||
+        (reminder.checkCount ?? 0) >= (reminder.maxChecks ?? 10000) ||
         Boolean(reminder.expiresAt && next >= reminder.expiresAt);
       const result = await this.col.updateOne(this.authority(reminder), {
         $set: {
           status: complete ? 'completed' : 'active',
           ownerId: null,
           leaseUntil: null,
-          updatedAt: now,
-          lastNotifiedAt: now,
+          updatedAt: deliveredAt,
+          lastNotifiedAt: deliveredAt,
+          ...(snapshot ? { lastNotifiedHash: snapshot.hash } : { lastObservedAt: deliveredAt }),
+          notifiedDay: day,
+          notifiedToday: notifiedToday + 1,
+          failureCount: 0,
           'delivery.status': 'confirmed',
           'delivery.messageId': receipt.messageId,
-          'delivery.confirmedAt': now,
-          ...(complete ? { terminalAt: now } : { nextRunAt: next! }),
+          'delivery.confirmedAt': deliveredAt,
+          ...(complete ? { terminalAt: deliveredAt } : { nextRunAt: next! }),
         },
         $inc: { deliveredCount: 1 },
       });
@@ -592,6 +823,43 @@ export class ReminderService {
           'reminder accepted but durable authority changed before receipt',
         );
     } catch (error) {
+      if (!sending) {
+        // Failures before intent are safely retryable, but bounded to avoid endless busy loops.
+        const failures = (reminder.failureCount ?? 0) + 1;
+        const now = new Date();
+        await this.col
+          .updateOne(this.authority(reminder), {
+            $set: {
+              failureCount: failures,
+              status: failures >= 5 ? 'paused' : 'active',
+              reason:
+                failures >= 5
+                  ? 'Source observation repeatedly unavailable'
+                  : 'Source observation unavailable; retry scheduled',
+              ownerId: null,
+              leaseUntil: null,
+              updatedAt: now,
+              ...(failures >= 5
+                ? {}
+                : {
+                    nextRunAt: new Date(
+                      now.getTime() + Math.min(60, 5 * 2 ** (failures - 1)) * 60_000,
+                    ),
+                  }),
+            },
+          })
+          .catch((dbError) =>
+            log.warn(
+              { dbError, reminderId: reminder.id },
+              'source check recovery deferred to lease expiry',
+            ),
+          );
+        log.warn(
+          { error, reminderId: reminder.id },
+          'workflow source check failed before any send',
+        );
+        return;
+      }
       // Includes Telegram accepting a message followed by a failed DB write. Never replay blindly.
       await this.col
         .updateOne(this.authority(reminder), {
@@ -616,5 +884,35 @@ export class ReminderService {
       clearTimeout(timeout);
       if (abortListener) controller.signal.removeEventListener('abort', abortListener);
     }
+  }
+
+  private nextOccurrence(reminder: Reminder, now: Date): Date | undefined {
+    return reminder.weeklyWallTime
+      ? nextWeeklyAt(now, reminder.timezone, reminder.weeklyWallTime, reminder.nextRunAt)
+      : reminder.intervalMinutes
+        ? nextIntervalAt(reminder.nextRunAt, reminder.intervalMinutes, now)
+        : undefined;
+  }
+
+  private async releaseCheck(
+    reminder: Reminder,
+    now: Date,
+    next: Date | undefined,
+    reason: string,
+  ): Promise<void> {
+    const complete =
+      !next ||
+      Boolean(reminder.expiresAt && next >= reminder.expiresAt) ||
+      (reminder.checkCount ?? 0) >= (reminder.maxChecks ?? 10000);
+    await this.col.updateOne(this.authority(reminder), {
+      $set: {
+        status: complete ? 'completed' : 'active',
+        reason,
+        ownerId: null,
+        leaseUntil: null,
+        updatedAt: now,
+        ...(complete ? { terminalAt: now } : { nextRunAt: next }),
+      },
+    });
   }
 }

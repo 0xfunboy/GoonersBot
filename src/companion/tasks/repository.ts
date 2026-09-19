@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { MongoServerError, type Collection, type Db, type Filter } from 'mongodb';
+import { socialSignalSchema } from '../../brain/schemas.js';
+import type { SocialSignal } from '../../brain/types.js';
 import {
   requestContractSchema,
   type CompanionTask,
@@ -148,6 +150,31 @@ export class CompanionTaskRepository {
     const result = await this.col.updateOne(
       { id: taskId, ...scopeFilter(scope), 'messageIds.63': { $exists: false } },
       { $addToSet: { messageIds: messageId } },
+    );
+    return result.matchedCount === 1;
+  }
+
+  /** Presentation is not a new execution revision: do not revoke a running tool's fence. */
+  async patchPresentation(
+    taskId: string,
+    scope: TaskScope,
+    expectedVersion: number,
+    signal: SocialSignal,
+  ): Promise<boolean> {
+    const socialSignal = socialSignalSchema.parse(signal);
+    boundedJson(socialSignal, 8 * 1024);
+    const now = new Date();
+    const result = await this.col.updateOne(
+      { id: taskId, ...scopeFilter(scope), version: expectedVersion, status: { $in: [...ACTIVE] } },
+      {
+        $set: { 'payload.presentation': { socialSignal, updatedAt: now }, updatedAt: now },
+        $push: {
+          events: {
+            $each: [{ at: now, type: 'presentation_updated', version: expectedVersion }],
+            $slice: -100,
+          },
+        },
+      },
     );
     return result.matchedCount === 1;
   }

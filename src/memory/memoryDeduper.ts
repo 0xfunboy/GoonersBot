@@ -35,6 +35,7 @@ export function findDuplicate(
   const candNorm = candidate.normalizedText.trim().toLowerCase();
   for (const item of existing) {
     if (item.status !== 'active') continue;
+    if ((item.telegramTopicId ?? null) !== (candidate.telegramTopicId ?? null)) continue;
     const sameSubject =
       item.subjectType === candidate.subjectType &&
       (item.subjectHandle ?? '').trim().toLowerCase() ===

@@ -3,6 +3,8 @@ import type { MessageDoc } from '../../domain/entities.js';
 import type { TranscribedMessage } from '../../domain/types.js';
 
 export interface StoredMessage {
+  telegramId?: number | null;
+  telegramTopicId?: number | null;
   messageId?: number | null;
   handle: string;
   isBot: boolean;
@@ -12,6 +14,7 @@ export interface StoredMessage {
 }
 
 export interface AddMessageMeta {
+  telegramTopicId?: number | null;
   messageId?: number | null;
   telegramId?: number | null;
   replyToMessageId?: number | null;
@@ -67,6 +70,7 @@ export class MessagesRepo {
       messageId: meta.messageId ?? null,
       userHandle: handle,
       telegramId: meta.telegramId ?? null,
+      telegramTopicId: meta.telegramTopicId ?? null,
       isBot,
       messageText: message.messageText,
       imageDescription: message.imageDescription ?? null,
@@ -97,9 +101,13 @@ export class MessagesRepo {
   }
 
   /** Return the last N messages in chronological order. */
-  async getRecent(chatId: number, limit: number): Promise<StoredMessage[]> {
+  async getRecent(
+    chatId: number,
+    limit: number,
+    telegramTopicId?: number | null,
+  ): Promise<StoredMessage[]> {
     const docs = await this.col
-      .find({ chatId })
+      .find({ chatId, ...(telegramTopicId !== undefined ? { telegramTopicId } : {}) })
       .sort({ timestamp: -1, _id: -1 })
       .limit(limit)
       .toArray();
@@ -109,6 +117,8 @@ export class MessagesRepo {
   private toStored(d: MessageDoc): StoredMessage {
     return {
       messageId: d.messageId ?? null,
+      telegramId: d.telegramId ?? null,
+      telegramTopicId: d.telegramTopicId ?? null,
       handle: d.userHandle,
       isBot: d.isBot,
       replyToMessageId: d.replyToMessageId ?? null,
@@ -131,16 +141,18 @@ export class MessagesRepo {
     messageId: number,
     before: number,
     after: number,
+    telegramTopicId?: number | null,
   ): Promise<StoredMessage[]> {
-    const center = await this.col.findOne({ chatId, messageId });
-    if (!center) return this.getRecent(chatId, before + after + 1);
+    const topic = telegramTopicId !== undefined ? { telegramTopicId } : {};
+    const center = await this.col.findOne({ chatId, messageId, ...topic });
+    if (!center) return this.getRecent(chatId, before + after + 1, telegramTopicId);
     const beforeDocs = await this.col
-      .find({ chatId, timestamp: { $lte: center.timestamp } })
+      .find({ chatId, ...topic, timestamp: { $lte: center.timestamp } })
       .sort({ timestamp: -1, _id: -1 })
       .limit(before + 1)
       .toArray();
     const afterDocs = await this.col
-      .find({ chatId, timestamp: { $gt: center.timestamp } })
+      .find({ chatId, ...topic, timestamp: { $gt: center.timestamp } })
       .sort({ timestamp: 1, _id: 1 })
       .limit(after)
       .toArray();

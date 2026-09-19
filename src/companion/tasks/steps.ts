@@ -9,6 +9,7 @@ import {
   validateCapabilityOutput,
 } from '../capabilities/catalog.js';
 import type { TaskExecutionContext } from './service.js';
+import { TaskRetryableError } from './contracts.js';
 
 export interface DurableActionCodec {
   /** Replace every binary output with a scoped artifact reference before durable storage. */
@@ -90,7 +91,11 @@ export async function runDurableAction(
   const signature = createHash('sha256')
     .update(
       stableJson({
-        version: context.task.contract.acceptedVersion,
+        // Unchanged public reads survive language/tone corrections. Context-dependent and effect
+        // outputs stay revision-scoped; their inputs can include material outside action.args.
+        version: ['web_search', 'page_scan', 'news', 'knowledge_rag'].includes(action.tool)
+          ? 0
+          : context.task.contract.acceptedVersion,
         requestId: action.requestId ?? action.id,
         tool: action.tool,
         operation: operationId,
@@ -101,7 +106,7 @@ export async function runDurableAction(
     )
     .digest('hex')
     .slice(0, 32);
-  const prefix = `step:v${context.task.contract.acceptedVersion}:${action.tool}:${signature}`;
+  const prefix = `step:${action.tool}:${signature}`;
   const verify = (output: ToolExecutionOutput): boolean =>
     verifyOutput(action, output, {
       name: action.tool,
@@ -144,7 +149,14 @@ export async function runDurableAction(
   let attempts = context.getCheckpoint<number>(attemptsKey) ?? 0;
   if (!Number.isSafeInteger(attempts) || attempts < 0)
     throw new Error('Invalid persisted action attempt count');
-  while (attempts < 2) {
+  const resumeKey = `${prefix}:resumeAt`;
+  const resumeAt = context.getCheckpoint<number>(resumeKey);
+  if (resumeAt && resumeAt > Date.now())
+    throw new TaskRetryableError(
+      'Attendo il prossimo tentativo del provider.',
+      resumeAt - Date.now(),
+    );
+  while (attempts < 3) {
     await authority();
     attempts += 1;
     await context.checkpoint(attemptsKey, attempts);
@@ -152,9 +164,37 @@ export async function runDurableAction(
     try {
       output = await invoke();
     } catch (error) {
+      // Only a completed read handler may schedule after its per-action timeout. A still-running
+      // SDK, task cancellation or lost lease must never be interpreted as permission to retry.
+      if (
+        actionSignal?.aborted &&
+        !context.signal.aborted &&
+        actionSignal.reason instanceof Error &&
+        /tool timed out/i.test(actionSignal.reason.message) &&
+        attempts < 3
+      ) {
+        await context.assertAuthority();
+        await context.checkpoint(resumeKey, Date.now() + 5000);
+        throw new TaskRetryableError('La lettura è scaduta; riprenderò dal passo rimasto.', 5000);
+      }
       await authority();
-      if (attempts >= 2 || !isTransientReadFailure(error)) throw error;
-      // Short retries stay in this bounded lane. Longer waits belong to the task scheduler.
+      if (attempts >= 3 || !isTransientReadFailure(error)) throw error;
+      const suppliedDelay =
+        error && typeof error === 'object' && 'retryAfterMs' in error
+          ? Number(error.retryAfterMs)
+          : 0;
+      const retryAfterMs = Number.isFinite(suppliedDelay)
+        ? Math.min(300_000, Math.max(0, suppliedDelay))
+        : 0;
+      if (attempts >= 2 || retryAfterMs >= 1000) {
+        const waitMs = Math.max(5000, retryAfterMs);
+        await context.checkpoint(resumeKey, Date.now() + waitMs);
+        throw new TaskRetryableError(
+          'Il provider è temporaneamente indisponibile; il lavoro riprenderà automaticamente.',
+          waitMs,
+        );
+      }
+      // One short retry is local. Longer waits release the lane and survive restart.
       await delay(400 * attempts, undefined, { signal });
       continue;
     }

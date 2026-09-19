@@ -59,6 +59,29 @@ function timestampOf(message: StoredMessage): number {
   return new Date(message.message.timestamp).getTime();
 }
 
+/** A missing retained prefix is evidence of a possible gap, not a count of lost messages. */
+export function miningRetentionGap(
+  messages: StoredMessage[],
+  cursor: MiningCursor,
+): {
+  checkpointAt: number;
+  oldestRetainedAt: number;
+  gapMs: number;
+} | null {
+  if (cursor.timestamp <= 0) return null;
+  const oldest = messages
+    .filter((message) => !message.isBot)
+    .map(timestampOf)
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b)[0];
+  if (oldest === undefined || oldest <= cursor.timestamp) return null;
+  return {
+    checkpointAt: cursor.timestamp,
+    oldestRetainedAt: oldest,
+    gapMs: oldest - cursor.timestamp,
+  };
+}
+
 function isAfterCursor(message: StoredMessage, cursor: MiningCursor): boolean {
   if (message.isBot) return false;
   if (message.messageId != null && cursor.messageId > 0) {
@@ -275,6 +298,23 @@ export async function runMemoryMiningJob(
           storage.chats.getLoreMiningCursor(chat.chatId),
           storage.chats.getSocialMiningCursor(chat.chatId),
         ]);
+        for (const [pipeline, cursor] of [
+          ['lore', loreCursor],
+          ['social', socialCursor],
+        ] as const) {
+          const gap = miningRetentionGap(messages, cursor);
+          if (gap) {
+            log.warn(
+              { chatId: chat.chatId, pipeline, ...gap },
+              'mining checkpoint precedes retained history; possible retention gap',
+            );
+            await storage.jobs.record('memory_retention_gap', 'done', {
+              chatId: chat.chatId,
+              pipeline,
+              ...gap,
+            });
+          }
+        }
         const loreWindows = buildMiningWindows(
           messages,
           loreCursor,

@@ -3,6 +3,7 @@ import { plannedActionSchema } from '../src/agent/schemas.js';
 import {
   createRequestContract,
   runDurableAction,
+  TaskRetryableError,
   type CompanionTask,
   type TaskExecutionContext,
 } from '../src/companion/tasks/index.js';
@@ -92,5 +93,76 @@ describe('durable per-action continuation', () => {
       'User cancelled',
     );
     expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses an unchanged public read across amendments but invalidates a changed query', async () => {
+    const { context, codec } = fixture();
+    const action = plannedActionSchema.parse({
+      id: 'search',
+      tool: 'web_search',
+      purpose: 'find sources for the report',
+      query: 'original subject',
+    });
+    const invoke = vi.fn().mockResolvedValue({
+      summary: 'Inspected source',
+      verified: true,
+      evidence: [{ source: 'https://example.org/report' }],
+    });
+    await runDurableAction(context, action, invoke, codec);
+    context.task.contract.acceptedVersion += 1;
+    await runDurableAction(context, action, invoke, codec);
+    expect(invoke).toHaveBeenCalledTimes(1);
+    await runDurableAction(context, { ...action, query: 'corrected subject' }, invoke, codec);
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it('persists a long retry deadline and resumes the same bounded read after restart', async () => {
+    const { context, codec } = fixture();
+    const action = plannedActionSchema.parse({
+      id: 'search',
+      tool: 'web_search',
+      purpose: 'find source',
+      query: 'subject',
+    });
+    const invoke = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error('rate limited'), { status: 429, retryAfterMs: 5000 }),
+      )
+      .mockResolvedValue({
+        summary: 'Source found',
+        verified: true,
+        evidence: [{ source: 'https://example.org' }],
+      });
+    await expect(runDurableAction(context, action, invoke, codec)).rejects.toBeInstanceOf(
+      TaskRetryableError,
+    );
+    await expect(runDurableAction(context, action, invoke, codec)).rejects.toBeInstanceOf(
+      TaskRetryableError,
+    );
+    expect(invoke).toHaveBeenCalledTimes(1);
+    const future = Date.now() + 6000;
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(future);
+    try {
+      expect((await runDurableAction(context, action, invoke, codec)).verified).toBe(true);
+      await runDurableAction(context, action, invoke, codec);
+      expect(invoke).toHaveBeenCalledTimes(2);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('schedules a timed-out read only after its handler acknowledges cancellation', async () => {
+    const { context, codec } = fixture();
+    const actionTimeout = new AbortController();
+    const action = plannedActionSchema.parse({ id: 'search', tool: 'web_search', purpose: 'read' });
+    const invoke = vi.fn(async () => {
+      actionTimeout.abort(new Error('tool timed out after 100ms'));
+      throw actionTimeout.signal.reason;
+    });
+    await expect(
+      runDurableAction(context, action, invoke, codec, actionTimeout.signal),
+    ).rejects.toBeInstanceOf(TaskRetryableError);
+    expect(invoke).toHaveBeenCalledOnce();
   });
 });

@@ -39,8 +39,16 @@ export class ConversationService {
     return this.storage.messages.add(chatId, BOT_LABEL, true, message, meta);
   }
 
-  getRecent(chatId: number, limit?: number): Promise<StoredMessage[]> {
-    return this.storage.messages.getRecent(chatId, limit ?? this.maxContextMessages);
+  getRecent(
+    chatId: number,
+    limit?: number,
+    telegramTopicId?: number | null,
+  ): Promise<StoredMessage[]> {
+    return this.storage.messages.getRecent(
+      chatId,
+      limit ?? this.maxContextMessages,
+      telegramTopicId,
+    );
   }
 
   getWindowAroundMessage(
@@ -48,8 +56,15 @@ export class ConversationService {
     messageId: number,
     before: number,
     after: number,
+    telegramTopicId?: number | null,
   ): Promise<StoredMessage[]> {
-    return this.storage.messages.getWindowAroundMessage(chatId, messageId, before, after);
+    return this.storage.messages.getWindowAroundMessage(
+      chatId,
+      messageId,
+      before,
+      after,
+      telegramTopicId,
+    );
   }
 
   reset(chatId: number): Promise<void> {

@@ -11,6 +11,18 @@ export const capabilityManifestSchema = z.object({
   createdFrom: z.string().min(3).max(500),
   createdAt: z.string().datetime(),
   enabled: z.boolean(),
+  /** Schema version remains 1; revision versions the installed recipe content/lifecycle. */
+  revision: z.number().int().positive().optional(),
+  lifecycle: z.enum(['active', 'disabled', 'retired']).optional(),
+  examples: z.array(z.string().min(3).max(300)).max(8).optional(),
+  conditions: z.array(z.string().min(3).max(240)).max(8).optional(),
+  verification: z
+    .object({
+      verifiedAt: z.string().datetime(),
+      sourceCount: z.number().int().positive(),
+      sequence: z.tuple([z.literal('web_search.search'), z.literal('grounded_synthesis')]),
+    })
+    .optional(),
 });
 
 export type CapabilityManifest = z.infer<typeof capabilityManifestSchema>;

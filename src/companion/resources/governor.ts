@@ -11,7 +11,12 @@ export type ResourcePriority = 'interactive' | 'background';
 
 export interface ResourceWait {
   resource: ResourceKind;
-  reason: 'concurrency' | 'interactive_reserve';
+  reason:
+    | 'concurrency'
+    | 'interactive_reserve'
+    | 'memory_pressure'
+    | 'disk_pressure'
+    | 'shared_concurrency';
   queuedAt: number;
 }
 
@@ -39,6 +44,7 @@ export interface ResourceGovernorConfig {
   interactiveReserve?: number;
   maxPending?: number;
   limits?: Partial<Record<ResourceKind, number>>;
+  host?: HostResourceCoordinator;
 }
 
 const DEFAULT_LIMITS: Record<ResourceKind, number> = {
@@ -64,7 +70,7 @@ export class ResourceGovernor {
   private lastOwner: string | undefined;
   private closed = false;
 
-  constructor(config: ResourceGovernorConfig = {}) {
+  constructor(private readonly config: ResourceGovernorConfig = {}) {
     this.concurrency = config.concurrency ?? 8;
     this.interactiveReserve = config.interactiveReserve ?? Math.min(2, this.concurrency - 1);
     this.maxPending = config.maxPending ?? 128;
@@ -100,9 +106,31 @@ export class ResourceGovernor {
     operation: () => Promise<T>,
     options: ResourceAdmissionOptions = {},
   ): Promise<T> {
+    const admissionStartedAt = Date.now();
     const release = await this.acquire(resource, signal, options);
     try {
       signal?.throwIfAborted();
+      if (this.config.host) {
+        return await this.config.host.run(
+          resource,
+          signal,
+          operation,
+          Math.max(1, (options.maxWaitMs ?? 30_000) - (Date.now() - admissionStartedAt)),
+          (reason) => {
+            try {
+              void Promise.resolve(
+                options.onWait?.({
+                  resource,
+                  reason: reason as ResourceWait['reason'],
+                  queuedAt: Date.now(),
+                }),
+              ).catch(() => undefined);
+            } catch {
+              /* reporting is non-authoritative */
+            }
+          },
+        );
+      }
       return await operation();
     } finally {
       release();
@@ -224,4 +252,5 @@ function abortError(signal: AbortSignal | undefined): Error {
   return signal?.reason instanceof Error ? signal.reason : new Error('resource wait cancelled');
 }
 
-export const resourceGovernor = new ResourceGovernor();
+export const resourceGovernor = new ResourceGovernor({ host: hostResourceCoordinator });
+import { hostResourceCoordinator, type HostResourceCoordinator } from './host.js';

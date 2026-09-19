@@ -663,6 +663,9 @@ export interface AnimeArchiveJobSummary {
 }
 
 export interface AnimeArchiveJobDoc {
+  paused?: boolean;
+  /** User amendments preserve delivered rows and a bounded record of former selections. */
+  previousSelections?: Array<{ at: Date; episodeIds: string[] }>;
   id: string;
   idempotencyKey: string;
   offerId: string | null;
@@ -1068,13 +1071,21 @@ export class AnimeArchiveJobsRepo {
     chatId: number;
     threadId?: number;
     limit?: number;
+    includeRecentTerminal?: boolean;
   }): Promise<AnimeArchiveJobDoc[]> {
     const limit = clampLimit(input.limit ?? 12);
     const filter: Filter<AnimeArchiveJobDoc> = {
       requesterTelegramId: input.actorTelegramId,
       'destination.chatId': input.chatId,
       'destination.threadId': input.threadId ?? null,
-      state: { $in: ['queued', 'running'] },
+      ...(input.includeRecentTerminal
+        ? {
+            $or: [
+              { state: { $in: ['queued', 'running'] as AnimeArchiveJobState[] } },
+              { updatedAt: { $gte: new Date(Date.now() - 7 * 86_400_000) } },
+            ],
+          }
+        : { state: { $in: ['queued', 'running'] as AnimeArchiveJobState[] } }),
     };
     return this.col.find(filter).sort({ updatedAt: -1, id: 1 }).limit(limit).toArray();
   }
@@ -1538,9 +1549,14 @@ export class AnimeArchiveJobsRepo {
   }
 
   /** Durable cancellation. Done rows stay done; an interrupted row becomes resumable. */
-  async cancelJob(id: string, now: Date = new Date()): Promise<AnimeArchiveJobDoc | null> {
+  async cancelJob(
+    id: string,
+    now: Date = new Date(),
+    authority?: AnimeArchiveControlScope,
+    paused = false,
+  ): Promise<AnimeArchiveJobDoc | null> {
     return this.col.findOneAndUpdate(
-      { id, state: { $in: ['queued', 'running'] } },
+      { id, state: { $in: ['queued', 'running'] }, ...archiveControlFilter(authority) },
       [
         {
           $set: {
@@ -1597,6 +1613,7 @@ export class AnimeArchiveJobsRepo {
               },
             },
             state: 'cancelled',
+            paused,
             leaseOwner: null,
             leaseExpiresAt: null,
             leaseRenewedAt: null,
@@ -1613,9 +1630,17 @@ export class AnimeArchiveJobsRepo {
    * Requeues a terminal/cancelled job without touching completed episodes. Failed/interrupted rows
    * get a fresh bounded attempt cycle while `totalAttempts` keeps their lifetime history.
    */
-  async resumeJob(id: string, now: Date = new Date()): Promise<AnimeArchiveResumeResult> {
+  async resumeJob(
+    id: string,
+    now: Date = new Date(),
+    authority?: AnimeArchiveControlScope,
+  ): Promise<AnimeArchiveResumeResult> {
     const job = await this.col.findOneAndUpdate(
-      { id, state: { $in: ['cancelled', 'partial', 'failed'] } },
+      {
+        id,
+        state: { $in: ['cancelled', 'partial', 'failed'] },
+        ...archiveControlFilter(authority),
+      },
       [
         {
           $set: {
@@ -1684,6 +1709,7 @@ export class AnimeArchiveJobsRepo {
               },
             },
             state: 'queued',
+            paused: false,
             leaseOwner: null,
             leaseExpiresAt: null,
             leaseRenewedAt: null,
@@ -1698,8 +1724,93 @@ export class AnimeArchiveJobsRepo {
       { returnDocument: 'after' },
     );
     if (job) return { resumed: true, job };
-    return { resumed: false, job: await this.get(id) };
+    return {
+      resumed: false,
+      job: await this.col.findOne({ id, ...archiveControlFilter(authority) }),
+    };
   }
+
+  /** Narrow only to a provider-verified episode already in this job. No guessed URLs or replay. */
+  async amendEpisode(
+    id: string,
+    number: number,
+    authority: AnimeArchiveControlScope,
+    now = new Date(),
+  ): Promise<AnimeArchiveJobDoc | null> {
+    const current = await this.col.findOne({
+      id,
+      ...archiveControlFilter(authority),
+      state: { $in: ['queued', 'cancelled', 'partial', 'failed'] },
+    });
+    if (
+      !current ||
+      current.episodes.some(
+        (episode) =>
+          episode.deliveryToken || episode.deliveryOutcomeUnknown || episode.status === 'running',
+      )
+    )
+      return null;
+    const episode = current.episodes.find((entry) => entry.number === number);
+    if (!episode) return null;
+    const selected = current.episodes
+      .filter((entry) => entry.status === 'done' || entry.id === episode.id)
+      .map((entry) =>
+        entry.status === 'done'
+          ? entry
+          : {
+              ...entry,
+              status: 'pending' as const,
+              failureReason: null,
+              completedAt: null,
+              updatedAt: now,
+            },
+      );
+    return this.col.findOneAndUpdate(
+      {
+        id,
+        ...archiveControlFilter(authority),
+        updatedAt: current.updatedAt,
+        episodes: current.episodes,
+      },
+      {
+        $set: {
+          episodes: selected,
+          state: 'queued',
+          scope: 'episode',
+          paused: false,
+          summary: null,
+          finishedAt: null,
+          cancelledAt: null,
+          updatedAt: now,
+        },
+        $push: {
+          previousSelections: {
+            $each: [{ at: now, episodeIds: current.episodes.map((entry) => entry.id) }],
+            $slice: -8,
+          },
+        },
+      },
+      { returnDocument: 'after' },
+    );
+  }
+}
+
+export interface AnimeArchiveControlScope {
+  actorTelegramId: number;
+  chatId: number;
+  threadId?: number;
+  updatedAt?: Date;
+}
+
+function archiveControlFilter(scope?: AnimeArchiveControlScope): Filter<AnimeArchiveJobDoc> {
+  return scope
+    ? {
+        requesterTelegramId: scope.actorTelegramId,
+        'destination.chatId': scope.chatId,
+        'destination.threadId': scope.threadId ?? null,
+        ...(scope.updatedAt ? { updatedAt: scope.updatedAt } : {}),
+      }
+    : {};
 }
 
 /** Storage facade for the two collections; kept adapter-independent on purpose. */

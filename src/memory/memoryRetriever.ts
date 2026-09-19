@@ -11,6 +11,7 @@ export interface MemoryRetrieverConfig {
 }
 
 export interface MemoryRetrievalInput {
+  telegramTopicId?: number | null;
   chatId: number;
   currentMessage: string;
   /** Current speaker. Personal lore about unrelated active users should not leak into their turn. */
@@ -42,7 +43,12 @@ export class MemoryRetriever {
 
     const fetched = await this.storage.memoryItems.listActive(input.chatId, 250);
     // Deterministic cross-chat isolation guard (drop anything not belonging to this chat).
-    const all = fetched.filter((i) => i.chatId === input.chatId);
+    const all = fetched.filter(
+      (i) =>
+        i.chatId === input.chatId &&
+        (input.telegramTopicId === undefined ||
+          (i.telegramTopicId ?? null) === input.telegramTopicId),
+    );
     if (all.length === 0) return [];
 
     const now = Date.now();

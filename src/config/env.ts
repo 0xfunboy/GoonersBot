@@ -470,6 +470,13 @@ const envSchema = z.object({
   DOCUMENTS_ENABLED: boolFromString(true),
   DOCUMENT_MAX_CHARS_PER_FILE: intFromString(50_000),
   DOCUMENT_MAX_FILES_PER_TURN: intFromString(3),
+  DOCUMENT_OCR_ENABLED: boolFromString(false),
+  DOCUMENT_TESSERACT_COMMAND: z.string().default('/usr/bin/tesseract'),
+  DOCUMENT_PDFTOPPM_COMMAND: z.string().default('/usr/bin/pdftoppm'),
+  DOCUMENT_OCR_LANGUAGE: z.string().default('eng'),
+  COMPANION_RENDER_ENABLED: boolFromString(false),
+  COMPANION_CHROMIUM_COMMAND: z.string().default('/usr/bin/chromium'),
+  COMPANION_SANDBOX_COMMAND: z.string().default('/usr/bin/bwrap'),
 
   // Capability Forge: persists safe, declarative research recipes learned from capability gaps.
   // It never loads or executes generated source code inside the bot process.

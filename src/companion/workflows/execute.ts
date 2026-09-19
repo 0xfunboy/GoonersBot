@@ -32,6 +32,51 @@ export async function executeReminderOperation(input: {
     return value;
   };
   const intent = string('intent');
+  const kind = string('kind');
+  if (kind && !['reminder', 'monitor', 'report'].includes(kind))
+    throw new Error('Unsupported workflow kind');
+  const intervalMinutes =
+    number('intervalMinutes') ??
+    (intent === 'create' && kind === 'monitor' && !string('weekdays') ? 30 : undefined);
+  const sourcesArg = input.args['sourceUrls'];
+  let sourceUrls: string[] | undefined;
+  if (Array.isArray(sourcesArg)) {
+    if (!sourcesArg.every((url): url is string => typeof url === 'string'))
+      throw new Error('Workflow sources must be URLs');
+    sourceUrls = sourcesArg.map((url) => url.trim());
+  } else if (typeof sourcesArg === 'string' && sourcesArg.trim()) {
+    if (sourcesArg.trim().startsWith('[')) {
+      const decoded: unknown = JSON.parse(sourcesArg);
+      if (
+        !Array.isArray(decoded) ||
+        !decoded.every((url): url is string => typeof url === 'string')
+      )
+        throw new Error('Workflow sources must be URLs');
+      sourceUrls = decoded.map((url) => url.trim());
+    } else
+      sourceUrls = sourcesArg
+        .split(/[\n,]/u)
+        .map((url) => url.trim())
+        .filter(Boolean);
+  }
+  const firstObservation = input.args['notifyOnFirstObservation'];
+  if (
+    firstObservation !== undefined &&
+    ![true, false, 'true', 'false'].includes(firstObservation as string | boolean)
+  )
+    throw new Error('Invalid first-observation notification flag');
+  const notifyOnFirstObservation =
+    firstObservation === undefined
+      ? undefined
+      : firstObservation === true || firstObservation === 'true';
+  const quietStartHour = number('quietStartHour');
+  const quietEndHour = number('quietEndHour');
+  if ((quietStartHour === undefined) !== (quietEndHour === undefined))
+    throw new Error('Quiet hours require both start and end');
+  const quietHours =
+    quietStartHour !== undefined && quietEndHour !== undefined
+      ? { startHour: quietStartHour, endHour: quietEndHour }
+      : undefined;
   const text = (message: string): ToolExecutionOutput => ({
     summary: message,
     data: { kind: 'text', text: message },
@@ -44,14 +89,22 @@ export async function executeReminderOperation(input: {
     return text(
       reminders.length
         ? reminders.map((reminder) => reminderLabel(reminder, input.language)).join('\n')
-        : 'Non hai promemoria attivi in questa conversazione.',
+        : 'Non hai promemoria o monitoraggi attivi in questa conversazione.',
     );
   }
   const active = intent === 'create' ? [] : await input.service.list(input.scope);
   const id = string('id');
   const match = string('match')?.toLocaleLowerCase();
   const matches = active.filter((reminder) =>
-    id ? reminder.id === id : match ? reminder.text.toLocaleLowerCase().includes(match) : true,
+    kind && (reminder.kind ?? 'reminder') !== kind
+      ? false
+      : id
+        ? reminder.id === id
+        : match
+          ? `${reminder.text} ${reminder.sourceUrls?.join(' ') ?? ''}`
+              .toLocaleLowerCase()
+              .includes(match)
+          : true,
   );
   const target = matches.length === 1 ? matches[0] : undefined;
   if (intent !== 'create' && !target) {
@@ -81,7 +134,9 @@ export async function executeReminderOperation(input: {
   if (delay !== undefined && (delay <= 0 || delay > 525600))
     throw new Error('Reminder delay must be within one year');
   const timezone =
-    string('timezone') ?? target?.timezone ?? (delay !== undefined ? 'UTC' : undefined);
+    string('timezone') ??
+    target?.timezone ??
+    ((delay !== undefined || intervalMinutes !== undefined) && !quietHours ? 'UTC' : undefined);
   if (!timezone) return text('Quale fuso orario devo usare per questo promemoria?');
   const weekly: CreateReminderInput['weeklyWallTime'] = string('weekdays')
     ? {
@@ -109,10 +164,23 @@ export async function executeReminderOperation(input: {
     delay !== undefined
       ? new Date(Date.now() + delay * 60_000).toISOString()
       : (string('runAt') ??
-        (weekly ? nextWeeklyAt(new Date(), timezone, weekly).toISOString() : undefined));
+        (weekly
+          ? nextWeeklyAt(new Date(), timezone, weekly).toISOString()
+          : kind === 'monitor'
+            ? new Date().toISOString()
+            : intervalMinutes !== undefined
+              ? new Date(Date.now() + intervalMinutes * 60_000).toISOString()
+              : undefined));
   if (!runAt && intent === 'create') return text('Per quando devo impostare il promemoria?');
   const message = string('text');
-  if (!message && intent === 'create') return text('Che cosa devo ricordarti?');
+  if (!message && intent === 'create')
+    return text(
+      kind === 'reminder' || !kind
+        ? 'Che cosa devo ricordarti?'
+        : 'Che cosa devo monitorare o includere nel riepilogo?',
+    );
+  if (intent === 'create' && (kind === 'monitor' || kind === 'report') && !sourceUrls?.length)
+    return text('Quali pagine devo usare come fonti? Mandami i link da osservare.');
   input.signal.throwIfAborted();
   let reminder: Reminder | null;
   if (intent === 'create') {
@@ -125,10 +193,16 @@ export async function executeReminderOperation(input: {
       text: message!,
       runAt: runAt!,
       timezone,
-      intervalMinutes: number('intervalMinutes'),
+      intervalMinutes,
       weeklyWallTime: weekly,
       expiresAt: string('expiresAt'),
       maxOccurrences: number('maxOccurrences'),
+      kind: kind as CreateReminderInput['kind'],
+      sourceUrls,
+      quietHours,
+      maxChecks: number('maxChecks'),
+      maxNotificationsPerDay: number('maxNotificationsPerDay'),
+      notifyOnFirstObservation,
     });
   } else {
     if (
@@ -136,7 +210,14 @@ export async function executeReminderOperation(input: {
       !runAt &&
       !string('timezone') &&
       number('intervalMinutes') === undefined &&
-      !weekly
+      !weekly &&
+      !sourceUrls &&
+      !quietHours &&
+      !string('expiresAt') &&
+      number('maxChecks') === undefined &&
+      number('maxOccurrences') === undefined &&
+      number('maxNotificationsPerDay') === undefined &&
+      notifyOnFirstObservation === undefined
     ) {
       return text('Che cosa vuoi cambiare del promemoria?');
     }
@@ -147,9 +228,15 @@ export async function executeReminderOperation(input: {
       text: message,
       runAt,
       timezone,
-      intervalMinutes: weekly ? null : number('intervalMinutes'),
-      weeklyWallTime: number('intervalMinutes') !== undefined ? null : weekly,
+      intervalMinutes: weekly ? null : intervalMinutes,
+      weeklyWallTime: intervalMinutes !== undefined ? null : weekly,
       expiresAt: string('expiresAt'),
+      sourceUrls,
+      quietHours,
+      maxChecks: number('maxChecks'),
+      maxOccurrences: number('maxOccurrences'),
+      maxNotificationsPerDay: number('maxNotificationsPerDay'),
+      notifyOnFirstObservation,
     });
   }
   if (!reminder)
@@ -157,7 +244,7 @@ export async function executeReminderOperation(input: {
       'Il promemoria è cambiato mentre lo aggiornavo; controlla il suo stato prima di riprovare.',
     );
   return {
-    summary: `${intent === 'create' ? 'Promemoria impostato' : 'Promemoria aggiornato'}: ${reminderLabel(reminder, input.language)}`,
+    summary: `${reminder.kind === 'monitor' ? 'Monitoraggio' : reminder.kind === 'report' ? 'Riepilogo programmato' : 'Promemoria'} ${intent === 'create' ? 'impostato' : 'aggiornato'}: ${reminderLabel(reminder, input.language)}`,
     data: {
       kind: 'workflow',
       receiptId: reminder.id,
@@ -166,6 +253,9 @@ export async function executeReminderOperation(input: {
       nextRunAt: reminder.nextRunAt.toISOString(),
       timezone: reminder.timezone,
       text: reminder.text,
+      workflowKind: reminder.kind ?? 'reminder',
+      sourceUrls: reminder.sourceUrls,
+      expiresAt: reminder.expiresAt?.toISOString(),
     },
     verified: true,
   };
@@ -183,5 +273,20 @@ function reminderLabel(reminder: Reminder, language: string): string {
     : reminder.intervalMinutes
       ? ` · ogni ${reminder.intervalMinutes} minuti`
       : '';
-  return `${reminder.text} — ${date} (${reminder.timezone})${cadence}`;
+  const kind =
+    reminder.kind === 'monitor'
+      ? '[monitoraggio] '
+      : reminder.kind === 'report'
+        ? '[riepilogo] '
+        : '';
+  const expiry = reminder.expiresAt
+    ? ` · fino al ${new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeZone: reminder.timezone }).format(reminder.expiresAt)}`
+    : '';
+  const uncertain =
+    reminder.status === 'delivery_unknown'
+      ? ' · invio dall’esito incerto, sospeso per evitare duplicati'
+      : reminder.status === 'paused'
+        ? ' · sospeso: le fonti non sono leggibili; puoi correggere il link o riprogrammarlo'
+        : '';
+  return `${kind}${reminder.text} — ${date} (${reminder.timezone})${cadence}${expiry}${uncertain}`;
 }

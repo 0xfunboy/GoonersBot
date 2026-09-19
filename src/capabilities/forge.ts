@@ -1,10 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { link, mkdir, open, readFile, readdir, unlink } from 'node:fs/promises';
+import { link, mkdir, open, readFile, readdir, rename, unlink } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import type { LLMProvider } from '../providers/llm/types.js';
 import type { GroundingService } from '../search/groundingService.js';
 import { childLogger } from '../utils/logger.js';
 import { throwIfAborted } from '../utils/abort.js';
+import {
+  describeLearnedRecipe,
+  type LearnedRecipeDescriptor,
+} from '../companion/learning/index.js';
 import {
   capabilityManifestSchema,
   capabilityPlanSchema,
@@ -36,7 +40,7 @@ export interface CapabilityForgeStatus {
  *
  * A model may author a declarative research recipe, but never executable JavaScript. The recipe can
  * combine a grounded search with a constrained synthesis prompt and becomes available immediately
- * as /<command>. Requests needing credentials, writes or machine access are saved as an explicit
+ * both semantically and as /<command>. Requests needing credentials, writes or machine access are saved as an explicit
  * proposal instead of being falsely reported as completed.
  */
 export class CapabilityForge {
@@ -44,6 +48,7 @@ export class CapabilityForge {
   private readonly storePath: string;
   private readonly manifests = new Map<string, CapabilityManifest>();
   private readonly manifestsById = new Map<string, CapabilityManifest>();
+  private readonly manifestPaths = new Map<string, string>();
   private readonly reservedCommands = new Set<string>();
   private initialization: Promise<void> | null = null;
   private installationQueue: Promise<void> = Promise.resolve();
@@ -82,7 +87,7 @@ export class CapabilityForge {
         const parsed = capabilityManifestSchema.safeParse(
           JSON.parse(await readFile(join(this.storePath, file), 'utf8')),
         );
-        if (parsed.success && parsed.data.enabled) {
+        if (parsed.success) {
           const commandOwner = this.manifests.get(parsed.data.command);
           const idOwner = this.manifestsById.get(parsed.data.id);
           if (commandOwner || idOwner) {
@@ -99,6 +104,7 @@ export class CapabilityForge {
             continue;
           }
           this.registerManifest(parsed.data);
+          this.manifestPaths.set(parsed.data.id, join(this.storePath, file));
         } else if (!parsed.success) {
           log.warn({ file, issues: parsed.error.issues }, 'invalid capability manifest ignored');
         }
@@ -112,8 +118,90 @@ export class CapabilityForge {
 
   list(): CapabilityManifest[] {
     return [...this.manifests.values()]
-      .filter((manifest) => !this.reservedCommands.has(manifest.command))
+      .filter(
+        (manifest) =>
+          manifest.enabled &&
+          (!manifest.lifecycle || manifest.lifecycle === 'active') &&
+          !this.reservedCommands.has(manifest.command),
+      )
       .sort((a, b) => a.command.localeCompare(b.command));
+  }
+
+  semanticDescriptors(): LearnedRecipeDescriptor[] {
+    return this.list().flatMap((manifest) => {
+      const descriptor = describeLearnedRecipe(
+        manifest,
+        this.enabled && this.llm.capabilities.chat && this.grounding.enabled,
+      );
+      return descriptor ? [descriptor] : [];
+    });
+  }
+
+  /** Explicit ID/revision binding supports arbitrary paraphrases selected by the semantic router. */
+  async executeRecipe(params: {
+    recipeId: string;
+    revision?: number;
+    input: string;
+    language: string;
+    chatId?: number;
+    model?: string;
+    signal?: AbortSignal;
+  }): Promise<CapabilityExecution | null> {
+    await this.initialize();
+    const manifest = this.manifestsById.get(params.recipeId);
+    if (!manifest || !this.list().some((item) => item.id === manifest.id)) return null;
+    if (params.revision !== undefined && params.revision !== (manifest.revision ?? 1)) return null;
+    return this.executeCommand({ ...params, command: manifest.command });
+  }
+
+  /** Revocation is durable and removes the recipe from natural and slash discovery immediately. */
+  async setLifecycle(
+    id: string,
+    state: 'active' | 'disabled' | 'retired',
+    authorized: boolean,
+  ): Promise<CapabilityManifest> {
+    if (!authorized) throw new Error('Recipe lifecycle changes require installation authority');
+    await this.initialize();
+    return this.serializeInstallation(async () => {
+      const manifest = this.manifestsById.get(id);
+      if (!manifest) throw new Error('Installed recipe not found');
+      if (manifest.lifecycle === 'retired' && state !== 'retired')
+        throw new Error('Retired recipes must be verified and installed under a new identity');
+      if ((manifest.lifecycle ?? (manifest.enabled ? 'active' : 'disabled')) === state)
+        return manifest;
+      const updated = capabilityManifestSchema.parse({
+        ...manifest,
+        enabled: state === 'active',
+        lifecycle: state,
+        revision: (manifest.revision ?? 1) + 1,
+      });
+      const history = join(this.storePath, 'versions');
+      await mkdir(history, { recursive: true });
+      await atomicCreateJson(
+        join(history, `${manifest.id}.${manifest.revision ?? 1}.json`),
+        manifest,
+      ).catch((error: unknown) => {
+        if (!isAlreadyExists(error)) throw error;
+      });
+      const target =
+        this.manifestPaths.get(manifest.id) ?? join(this.storePath, `${manifest.id}.json`);
+      const temp = `${target}.${randomUUID()}.tmp`;
+      const handle = await open(temp, 'wx', 0o600);
+      try {
+        await handle.writeFile(JSON.stringify(updated, null, 2));
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      try {
+        await rename(temp, target);
+      } finally {
+        await unlink(temp).catch(() => undefined);
+      }
+      this.manifests.set(updated.command, updated);
+      this.manifestsById.set(updated.id, updated);
+      return updated;
+    });
   }
 
   status(): CapabilityForgeStatus {
@@ -137,7 +225,10 @@ export class CapabilityForge {
   /** Fast in-memory route check used before admitting a dynamic Telegram command turn. */
   hasCommand(command: string): boolean {
     const normalized = normalizeCommand(command);
-    return !this.reservedCommands.has(normalized) && this.manifests.has(normalized);
+    return (
+      !this.reservedCommands.has(normalized) &&
+      this.list().some((manifest) => manifest.command === normalized)
+    );
   }
 
   async executeCommand(params: {
@@ -152,7 +243,8 @@ export class CapabilityForge {
     const normalized = normalizeCommand(params.command);
     if (this.reservedCommands.has(normalized)) return null;
     const manifest = this.manifests.get(normalized);
-    if (!manifest) return null;
+    if (!manifest || !manifest.enabled || (manifest.lifecycle && manifest.lifecycle !== 'active'))
+      return null;
     const result = await this.executeManifest(
       manifest,
       params.input,
@@ -489,7 +581,22 @@ export class CapabilityForge {
       // reserveCommands() is synchronous but can run while the smoke request is awaiting I/O.
       // Allocate again immediately before the durable commit.
       command = this.availableCommand(plan.command);
-      const committedDraft = { ...draft, command };
+      const committedDraft: CapabilityManifest = {
+        ...draft,
+        command,
+        revision: 1,
+        lifecycle: 'active',
+        examples: [params.request.slice(0, 300)],
+        conditions: [
+          'Read-only research grounded in current web sources.',
+          'No credentials, account mutations, filesystem access or deployment.',
+        ],
+        verification: {
+          verifiedAt: new Date().toISOString(),
+          sourceCount: smoke.sources.length,
+          sequence: ['web_search.search', 'grounded_synthesis'],
+        },
+      };
       let persisted: { manifest: CapabilityManifest; path: string } | null = null;
       try {
         persisted = await this.persistManifestExclusive(committedDraft);
@@ -502,6 +609,7 @@ export class CapabilityForge {
           throw new Error('capability identity became occupied during commit');
         }
         this.registerManifest(persisted.manifest);
+        this.manifestPaths.set(persisted.manifest.id, persisted.path);
       } catch (err) {
         if (persisted) await unlink(persisted.path).catch(() => undefined);
         throw err;
@@ -583,7 +691,7 @@ export class CapabilityForge {
         diagnostic('web_grounding_no_results', [], true),
       );
     }
-    if (!grounded) {
+    if (!grounded || grounded.sources.length === 0) {
       return empty(
         language === 'italian'
           ? `/${manifest.command} non ha trovato fonti sufficienti o ha esaurito la quota di ricerca.`

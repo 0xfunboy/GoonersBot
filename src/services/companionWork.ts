@@ -11,7 +11,11 @@ import {
   type ArtifactScope,
 } from '../companion/artifacts/store.js';
 import { CompanionTaskService } from '../companion/tasks/service.js';
-import { createRequestContract } from '../companion/tasks/contracts.js';
+import {
+  createRequestContract,
+  TaskRetryableError,
+  taskRetryResumeAt,
+} from '../companion/tasks/contracts.js';
 import { requestedActionsFromUnderstanding } from '../companion/context/contracts.js';
 import type { CompanionTaskRepository } from '../companion/tasks/repository.js';
 import type { TaskExecutionContext } from '../companion/tasks/service.js';
@@ -30,7 +34,10 @@ import { createConversationContract, renderResultEnvelope } from '../companion/e
 
 const log = childLogger('companion-work');
 
-type StoredInput = Omit<AgentRuntimeInput, 'signal' | 'visual' | 'executeAction'> & {
+type StoredInput = Omit<
+  AgentRuntimeInput,
+  'signal' | 'visual' | 'executeAction' | 'continuation' | 'readPresentation'
+> & {
   visualRef?: ArtifactRef;
 };
 interface WorkPayload {
@@ -44,6 +51,7 @@ interface StoredResult {
   status: AgentRuntimeResult['status'];
   artifacts: Array<{ ref: ArtifactRef; spoiler?: boolean; videoMeta?: VideoSendMeta }>;
   satisfiedOperationIds?: string[];
+  linkUrls?: string[];
 }
 interface CompanionWorkDependencies {
   repository: CompanionTaskRepository;
@@ -57,8 +65,19 @@ interface CompanionWorkDependencies {
     usage: NonNullable<ReturnType<typeof currentLlmUsage>>,
     media?: { imageCalls: number; visionCalls: number },
   ): Promise<void>;
-  remember(input: AgentRuntimeInput, text: string, messageIds: number[]): Promise<void>;
+  remember(
+    input: AgentRuntimeInput,
+    text: string,
+    messageIds: number[],
+    work?: { taskId: string; artifactIds: string[] },
+  ): Promise<void>;
   extractDocuments?(files: MessageAttachment[]): Promise<string | null>;
+  deliverLink?(
+    input: AgentRuntimeInput,
+    url: string,
+    task: TaskExecutionContext,
+    authorize: () => Promise<void>,
+  ): Promise<{ handled: boolean; messageIds?: number[] }>;
 }
 
 /** Durable handoff: conversation chooses work; a bounded worker executes and sends its receipts. */
@@ -71,6 +90,9 @@ export class CompanionWorkService implements VisibleWorkReader {
       concurrency: deps.concurrency,
       execute: (ctx) =>
         this.execute(ctx).catch(async (error: unknown) => {
+          // A scheduled retry is still active work, not a failed request to announce in chat.
+          if (error instanceof TaskRetryableError && taskRetryResumeAt(ctx.task, error))
+            throw error;
           await this.notifyFailure(ctx).catch((noticeError) =>
             log.debug({ noticeError, taskId: ctx.task.id }, 'task failure notice not sent'),
           );
@@ -236,12 +258,16 @@ export class CompanionWorkService implements VisibleWorkReader {
 
   canDefer(input: AgentRuntimeInput): boolean {
     // These adapters already own their persistent queue/confirmation/transport lifecycle.
-    const externallyOwned = new Set(['anime_archive', 'link_media', 'capability_forge']);
+    const externallyOwned = new Set(['anime_archive']);
     return Boolean(
       this.deps.enabled &&
       this.api &&
       input.requestedActions?.length &&
-      !input.requestedActions.some((action) => externallyOwned.has(action.tool)),
+      !input.requestedActions.some(
+        (action) =>
+          externallyOwned.has(action.tool) ||
+          (action.tool === 'code_work' && action.args?.['intent'] !== 'review'),
+      ),
     );
   }
 
@@ -250,7 +276,14 @@ export class CompanionWorkService implements VisibleWorkReader {
     identity: { botId: number; updateId: number; resolvesClarification?: boolean },
   ): Promise<{ taskId: string; text: string }> {
     const scope = artifactScope(input);
-    const { signal: _signal, executeAction: _executeAction, visual, ...serializable } = input;
+    const {
+      signal: _signal,
+      executeAction: _executeAction,
+      continuation: _continuation,
+      readPresentation: _presentation,
+      visual,
+      ...serializable
+    } = input;
     const visualRef = visual
       ? await this.deps.artifacts.put(visual.buffer, {
           ...scope,
@@ -361,6 +394,7 @@ export class CompanionWorkService implements VisibleWorkReader {
         .flatMap((operation) => operation.referentIds)
         .map((id) => id.replace(/^work:/, '')),
     );
+    if (referenced.size > 0 && !tasks.some((task) => referenced.has(task.id))) return null;
     let candidates =
       context.repliedToMessageId !== undefined
         ? tasks.filter((task) => task.messageIds.includes(context.repliedToMessageId!))
@@ -392,6 +426,25 @@ export class CompanionWorkService implements VisibleWorkReader {
       if (operation.kind === 'amend_work') {
         const oldPayload = task.payload as unknown as WorkPayload;
         const actions = requestedActionsFromUnderstanding(understanding);
+        const presentation = understanding.socialPosture?.socialSignal;
+        if (!actions.length && presentation?.humorAllowed === false) {
+          const updated = await this.deps.repository.patchPresentation(
+            task.id,
+            scope,
+            task.version,
+            presentation,
+          );
+          replies.push(
+            updated
+              ? isItalian(language)
+                ? 'Ricevuto: niente battute. Il lavoro continua senza cambiare il risultato richiesto.'
+                : 'Understood: no jokes. The work continues with the same requested result.'
+              : isItalian(language)
+                ? 'Il lavoro è cambiato nel frattempo; non ho modificato una versione superata.'
+                : 'The work changed before the presentation preference could be saved.',
+          );
+          continue;
+        }
         if (!actions.length || !authoredText?.trim()) {
           replies.push(
             isItalian(language)
@@ -470,6 +523,14 @@ export class CompanionWorkService implements VisibleWorkReader {
         reason: 'missing_input',
       };
     const input: AgentRuntimeInput = { ...payload.input, signal: ctx.signal };
+    input.readPresentation = async () => {
+      await ctx.assertAuthority();
+      const current = await this.tasks.getVisible(ctx.task.id, ctx.task.contract.scope);
+      const presentation = current?.payload['presentation'] as
+        | { socialSignal?: AgentRuntimeInput['socialSignal'] }
+        | undefined;
+      return presentation?.socialSignal;
+    };
     if (!this.api || !(await this.deps.authorize(input)))
       return {
         status: 'waiting_for_access' as const,
@@ -482,6 +543,15 @@ export class CompanionWorkService implements VisibleWorkReader {
         mime: payload.input.visualRef.mime,
       };
     const version = ctx.task.contract.acceptedVersion;
+    input.continuation = {
+      load: () => ctx.getCheckpoint(`progress:v${version}`),
+      usedRevisions: ctx.getCheckpoint<number>('progress:revisions') ?? 0,
+      maxRevisions: Math.max(0, ctx.task.contract.budget.maxRevisions - ctx.task.revisions),
+      save: async (state) => {
+        await ctx.checkpoint('progress:revisions', state.revisions);
+        await ctx.checkpoint(`progress:v${version}`, state);
+      },
+    };
     const knownBuffers = new WeakMap<Buffer, ArtifactRef>();
     const mediaUsage = { imageCalls: 0, visionCalls: 0 };
     input.executeAction = (action, invoke, actionSignal) =>
@@ -544,6 +614,25 @@ export class CompanionWorkService implements VisibleWorkReader {
     }
     await ctx.phase('delivering');
     const messageIds: number[] = [];
+    for (const url of result.linkUrls ?? []) {
+      if (!this.deps.deliverLink) throw new Error('Durable link transport unavailable');
+      const delivered = await this.deps.deliverLink(input, url, ctx, () =>
+        this.assertDeliveryAllowed(ctx, input),
+      );
+      if (!delivered.handled) {
+        result = {
+          ...result,
+          status: 'partial',
+          text: isItalian(input.language)
+            ? 'Non sono riuscito a consegnare il file da questa fonte. Il lavoro resta parziale, non risulta completato.'
+            : 'The file could not be delivered from this source. The request remains partial.',
+        };
+      }
+      for (const id of delivered.messageIds ?? []) {
+        messageIds.push(id);
+        await this.tasks.attachMessage(ctx.task.id, ctx.task.contract.scope, id);
+      }
+    }
     const options = {
       ...(input.context.threadId !== undefined
         ? { message_thread_id: input.context.threadId }
@@ -610,7 +699,10 @@ export class CompanionWorkService implements VisibleWorkReader {
       await this.tasks.attachMessage(ctx.task.id, ctx.task.contract.scope, receipt.messageId);
     }
     await this.deps
-      .remember(input, result.text, messageIds)
+      .remember(input, result.text, messageIds, {
+        taskId: ctx.task.id,
+        artifactIds: result.artifacts.map((artifact) => artifact.ref.id),
+      })
       .catch((error) =>
         log.warn({ error, taskId: ctx.task.id }, 'task conversation recall update failed'),
       );
@@ -685,6 +777,9 @@ export class CompanionWorkService implements VisibleWorkReader {
       sources: output.sources,
       status: output.status,
       artifacts,
+      linkUrls: (output.runtimeArtifacts ?? []).flatMap((artifact) =>
+        artifact.data.kind === 'link_media' ? [artifact.data.url] : [],
+      ),
       satisfiedOperationIds:
         output.observations
           ?.filter((observation) => observation.status === 'succeeded')

@@ -3,6 +3,7 @@ import type { MediaProcessor } from '../providers/media/index.js';
 import type { WebSearchProvider, WebSearchResponse } from './types.js';
 import type { PageAudit, PageScanner, PageSummary } from './pageScanner.js';
 import type { GroupQuotaService } from '../services/groupQuota.js';
+import { runBoundedResearch, type ResearchResult } from './research.js';
 
 const log = childLogger('grounding');
 
@@ -142,6 +143,31 @@ export class GroundingService {
       signal,
     });
     return res?.results.find((r) => /^https?:\/\//i.test(r.url))?.url ?? null;
+  }
+
+  /** Iterative evidence gathering shares the normal search/page quotas, not a second provider path. */
+  async research(
+    query: string,
+    language?: string,
+    chatId?: number,
+    signal?: AbortSignal,
+  ): Promise<ResearchResult | null> {
+    if (!this.cfg.webEnabled || !this.web.enabled || !query.trim()) return null;
+    return runBoundedResearch(
+      query,
+      {
+        search: async (searchQuery, abort) => {
+          if (!(await this.reserve(chatId, 'web_search'))) return null;
+          return this.web.search(searchQuery, { language, max: 4, signal: abort });
+        },
+        read: async (urls, abort) => {
+          if (!this.scanner || !(await this.reserve(chatId, 'page_scan', urls.length))) return [];
+          return this.scanner.scan(urls, abort);
+        },
+      },
+      signal,
+      language,
+    );
   }
 
   /** Perform one bounded passive audit of a public page, without forms, JS or active probes. */

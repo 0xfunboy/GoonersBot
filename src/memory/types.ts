@@ -52,6 +52,8 @@ export interface MemoryRevision {
 export interface MemoryItem {
   _id?: string;
   chatId: number;
+  telegramTopicId?: number | null;
+  subjectTelegramId?: number | null;
 
   subjectType: MemorySubjectType;
   subjectHandle?: string | null;
@@ -91,6 +93,9 @@ export interface MemoryItem {
 
 /** A freshly mined candidate, before dedupe/persist. */
 export interface MemoryCandidate {
+  /** Added by the host from human evidence after extraction, never trusted from model output. */
+  telegramTopicId?: number | null;
+  subjectTelegramId?: number | null;
   subjectType: MemorySubjectType;
   subjectHandle?: string | null;
   involvedHandles: string[];

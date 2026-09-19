@@ -49,6 +49,15 @@ export class UsersRepo {
     return this.col.find({ telegramId }).sort({ updatedAt: -1 }).limit(1).next();
   }
 
+  /** Only aliases observed on the immutable Telegram id; no model/name-based linking. */
+  async listAliasesByTelegramId(telegramId: number): Promise<string[]> {
+    const users = await this.col
+      .find({ telegramId }, { projection: { handle: 1 } })
+      .limit(100)
+      .toArray();
+    return [...new Set(users.map((user) => user.handle))];
+  }
+
   /** Scrub PII for a user who declined terms (keep handle for safety bookkeeping). */
   async scrubPii(handle: string): Promise<void> {
     await this.col.updateOne(

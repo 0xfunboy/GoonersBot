@@ -1,4 +1,9 @@
 import { childLogger } from '../utils/logger.js';
+import {
+  TaskAuthorityError,
+  TaskEffectUnknownError,
+  TaskRetryableError,
+} from '../companion/tasks/contracts.js';
 import { actionLayers, validateActionPlan } from './planValidator.js';
 import type { AgentToolName, PlannedAction } from './schemas.js';
 import type {
@@ -22,6 +27,8 @@ export interface ExecutePlanOptions {
   request: string;
   metadata?: Readonly<Record<string, unknown>>;
   signal?: AbortSignal;
+  /** Host-owned successful outputs from the same revision loop; never repeat their effects. */
+  previousResults?: readonly ActionRunResult[];
 }
 
 /**
@@ -50,14 +57,30 @@ export class ToolOrchestrator {
     const started = Date.now();
     const plan = validateActionPlan(candidate, this.definitions);
     const completed = new Map<string, ActionRunResult>();
+    for (const prior of options.previousResults ?? []) {
+      const action = plan.actions.find((item) => item.id === prior.action.id);
+      if (
+        prior.status === 'succeeded' &&
+        action &&
+        JSON.stringify(action) === JSON.stringify(prior.action)
+      )
+        completed.set(action.id, prior);
+    }
 
     for (const layer of actionLayers(plan.actions)) {
       for (let offset = 0; offset < layer.length; offset += this.maxConcurrency) {
         const batch = layer.slice(offset, offset + this.maxConcurrency);
-        const results = await Promise.all(
-          batch.map((action) => this.runOrSkip(action, completed, options)),
+        const settled = await Promise.allSettled(
+          batch.map(
+            (action) => completed.get(action.id) ?? this.runOrSkip(action, completed, options),
+          ),
         );
-        for (const result of results) completed.set(result.action.id, result);
+        // Drain in-flight peers before releasing the task lease for a scheduled retry. Their
+        // checkpoints/receipts must settle under this owner, never race the replacement worker.
+        for (const result of settled)
+          if (result.status === 'fulfilled') completed.set(result.value.action.id, result.value);
+        const rejected = settled.find((result) => result.status === 'rejected');
+        if (rejected?.status === 'rejected') throw rejected.reason;
       }
     }
 
@@ -165,6 +188,11 @@ export class ToolOrchestrator {
             verificationProblems: [],
           };
         }
+        if (
+          settledAfterAbort.state === 'rejected' &&
+          settledAfterAbort.error instanceof TaskRetryableError
+        )
+          throw settledAfterAbort.error;
         const reason =
           controller.signal.reason instanceof Error
             ? controller.signal.reason
@@ -201,6 +229,12 @@ export class ToolOrchestrator {
         verificationProblems: [],
       };
     } catch (error) {
+      if (
+        error instanceof TaskRetryableError ||
+        error instanceof TaskAuthorityError ||
+        error instanceof TaskEffectUnknownError
+      )
+        throw error;
       const timedOut =
         controller.signal.aborted &&
         controller.signal.reason instanceof Error &&

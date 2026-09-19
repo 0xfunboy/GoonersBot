@@ -13,14 +13,22 @@ import type {
   MemorySubjectType,
 } from '../../memory/types.js';
 import { normalizeSocialHandle } from '../../social/evolution.js';
+import type { MemoryPrivacyGuard } from '../../companion/memory/privacy.js';
 
 type MemoryDoc = Omit<MemoryItem, '_id'>;
 
-export const ACTIVE_MEMORY_SUBJECT_TEXT_UNIQUE_INDEX = 'memory_active_subject_text_unique_v2';
+export const ACTIVE_MEMORY_SUBJECT_TEXT_UNIQUE_INDEX = 'memory_active_subject_topic_text_unique_v3';
 
 const LEGACY_ACTIVE_TEXT_KEY = { chatId: 1, normalizedText: 1 } as const;
+const LEGACY_ACTIVE_SUBJECT_TEXT_KEY = {
+  chatId: 1,
+  subjectType: 1,
+  subjectHandle: 1,
+  normalizedText: 1,
+} as const;
 const ACTIVE_SUBJECT_TEXT_KEY = {
   chatId: 1,
+  telegramTopicId: 1,
   subjectType: 1,
   subjectHandle: 1,
   normalizedText: 1,
@@ -42,7 +50,10 @@ function indexKeyMatches(key: unknown, expected: Readonly<Record<string, number>
 export class MemoryItemsRepo {
   private readonly col: Collection<MemoryDoc>;
 
-  constructor(db: Db) {
+  constructor(
+    db: Db,
+    private readonly privacy?: MemoryPrivacyGuard,
+  ) {
     this.col = db.collection<MemoryDoc>('memory_items');
   }
 
@@ -79,7 +90,8 @@ export class MemoryItemsRepo {
     const legacyIndexes = indexes.filter(
       (index) =>
         index.name != null &&
-        indexKeyMatches(index.key, LEGACY_ACTIVE_TEXT_KEY) &&
+        (indexKeyMatches(index.key, LEGACY_ACTIVE_TEXT_KEY) ||
+          indexKeyMatches(index.key, LEGACY_ACTIVE_SUBJECT_TEXT_KEY)) &&
         index.unique === true,
     );
     for (const index of legacyIndexes) {
@@ -98,9 +110,13 @@ export class MemoryItemsRepo {
     source: MemoryItem['source'],
     createdByHandle: string | null,
   ): Promise<MemoryItem> {
+    if (this.privacy && !(await this.privacy.allowsMemory(chatId, { ...c, createdByHandle })))
+      throw new Error('Memory evidence was erased');
     const now = new Date();
     const doc: MemoryDoc = {
       chatId,
+      telegramTopicId: c.telegramTopicId ?? null,
+      subjectTelegramId: c.subjectTelegramId ?? null,
       subjectType: c.subjectType,
       subjectHandle: c.subjectHandle ?? null,
       involvedHandles: c.involvedHandles ?? [],
@@ -127,12 +143,19 @@ export class MemoryItemsRepo {
       history: [],
     };
     const res = await this.col.insertOne(doc);
+    if (this.privacy && !(await this.privacy.allowsMemory(chatId, doc))) {
+      await this.col.deleteOne({ _id: res.insertedId });
+      throw new Error('Memory evidence was erased during extraction');
+    }
     return { ...doc, _id: res.insertedId.toString() };
   }
 
   /** Insert a pre-built item (used by migration). */
   async insertRaw(item: MemoryDoc): Promise<void> {
-    await this.col.insertOne(item);
+    if (this.privacy && !(await this.privacy.allowsMemory(item.chatId, item))) return;
+    const result = await this.col.insertOne(item);
+    if (this.privacy && !(await this.privacy.allowsMemory(item.chatId, item)))
+      await this.col.deleteOne({ _id: result.insertedId });
   }
 
   async findActiveByNormalized(
@@ -205,6 +228,7 @@ export class MemoryItemsRepo {
     if (!ObjectId.isValid(id)) return false;
     const current = await this.col.findOne({ _id: new ObjectId(id), status: 'active' });
     if (!current) return false;
+    if (this.privacy && !(await this.privacy.allowsMemory(current.chatId, c))) return false;
     const now = new Date();
     const revision = {
       text: current.text,
@@ -220,6 +244,8 @@ export class MemoryItemsRepo {
         {
           $set: {
             subjectType: c.subjectType,
+            telegramTopicId: c.telegramTopicId ?? null,
+            subjectTelegramId: c.subjectTelegramId ?? null,
             subjectHandle: c.subjectHandle ?? null,
             involvedHandles: c.involvedHandles ?? [],
             text: c.text,
@@ -237,6 +263,10 @@ export class MemoryItemsRepo {
           $addToSet: { sourceMessageIds: { $each: c.sourceMessageIds ?? [] } },
         },
       );
+      if (this.privacy && !(await this.privacy.allowsMemory(current.chatId, c))) {
+        await this.col.deleteOne({ _id: current._id });
+        return false;
+      }
       return res.modifiedCount > 0;
     } catch (error) {
       // A revised value may already exist as another active item. The caller can then deduplicate
@@ -409,6 +439,10 @@ export class MemoryItemsRepo {
   /** Soft-delete: set status=expired. */
   async expireById(chatId: number, id: string): Promise<boolean> {
     if (!ObjectId.isValid(id)) return false;
+    if (this.privacy) {
+      const current = await this.col.findOne({ _id: new ObjectId(id), chatId });
+      if (current) await this.privacy.blockMemory(chatId, current.text, current.sourceMessageIds);
+    }
     const res = await this.col.updateOne(
       { _id: new ObjectId(id), chatId },
       { $set: { status: 'expired', updatedAt: new Date() } },
@@ -417,6 +451,14 @@ export class MemoryItemsRepo {
   }
 
   async expireBySubject(chatId: number, subjectHandle: string): Promise<number> {
+    if (this.privacy) {
+      const current = await this.col
+        .find({ chatId, subjectHandle, status: 'active' })
+        .limit(2_000)
+        .toArray();
+      for (const item of current)
+        await this.privacy.blockMemory(chatId, item.text, item.sourceMessageIds);
+    }
     const res = await this.col.updateMany(
       { chatId, subjectHandle, status: 'active' },
       { $set: { status: 'expired', updatedAt: new Date() } },
@@ -434,6 +476,7 @@ export class MemoryItemsRepo {
   async deleteByHandleEverywhere(handle: string): Promise<number> {
     const normalizedHandle = normalizeSocialHandle(handle);
     if (!normalizedHandle) return 0;
+    await this.privacy?.blockHandles([normalizedHandle]);
     const res = await this.col.deleteMany(
       {
         $or: [
@@ -448,6 +491,14 @@ export class MemoryItemsRepo {
   }
 
   async expireBySourceMessage(chatId: number, messageId: number): Promise<number> {
+    if (this.privacy) {
+      const memories = await this.col
+        .find({ chatId, sourceMessageIds: messageId })
+        .limit(2_000)
+        .toArray();
+      for (const item of memories)
+        await this.privacy.blockMemory(chatId, item.text, item.sourceMessageIds);
+    }
     const res = await this.col.updateMany(
       { chatId, sourceMessageIds: messageId, status: 'active' },
       { $set: { status: 'expired', updatedAt: new Date() } },
@@ -457,5 +508,13 @@ export class MemoryItemsRepo {
 
   async countActive(chatId: number, filter: Filter<MemoryDoc> = {}): Promise<number> {
     return this.col.countDocuments({ chatId, status: 'active', ...filter });
+  }
+
+  async forgetById(chatId: number, id: string): Promise<boolean> {
+    if (!ObjectId.isValid(id)) return false;
+    const item = await this.col.findOne({ _id: new ObjectId(id), chatId });
+    if (!item) return false;
+    await this.privacy?.blockMemory(chatId, item.text, item.sourceMessageIds);
+    return (await this.col.deleteOne({ _id: item._id, chatId })).deletedCount === 1;
   }
 }

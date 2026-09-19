@@ -69,6 +69,7 @@ function fixture() {
     attachMessage: vi.fn().mockResolvedValue(true),
     listVisible: vi.fn().mockResolvedValue([task]),
     control: vi.fn().mockResolvedValue({ ...task, status: 'cancelled', version: 2 }),
+    patchPresentation: vi.fn().mockResolvedValue(true),
   };
   const blobs = new Map<string, Buffer>();
   let index = 0;
@@ -181,5 +182,29 @@ describe('companion work host bridge', () => {
     });
     expect(f.runtime.run).not.toHaveBeenCalled();
     expect(f.api.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('a request for a serious tone preserves the active plan and execution', async () => {
+    const f = fixture();
+    const text = await f.service.control(
+      {
+        interactions: [{ kind: 'amend_work', referentIds: ['work:task-a'] }],
+        proposedOperations: [],
+        socialPosture: { socialSignal: { humorAllowed: false } },
+      } as never,
+      f.input.person,
+      f.input.context,
+      'it',
+      'parla seriamente',
+    );
+    expect(text).toContain('niente battute');
+    expect(f.repository.patchPresentation).toHaveBeenCalledWith(
+      'task-a',
+      { actorTelegramId: 10, chatId: -20, threadId: 3 },
+      1,
+      { humorAllowed: false },
+    );
+    expect(f.repository.control).not.toHaveBeenCalled();
+    expect(f.runtime.run).not.toHaveBeenCalled();
   });
 });

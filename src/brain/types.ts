@@ -146,6 +146,9 @@ export type ProviderRequest =
   | 'document_create'
   | 'data_analysis'
   | 'workflow'
+  | 'companion_memory'
+  | 'connected_service'
+  | 'code_work'
   | 'capability_forge';
 
 export type ValueTarget =
@@ -198,6 +201,12 @@ export type SocialRole =
   | 'technical_peer';
 
 export interface TurnEvaluation {
+  toolCalls?: Array<{
+    tool: import('../companion/capabilities/catalog.js').BuiltinCapabilityId;
+    query?: string;
+    args: Record<string, unknown>;
+    reason?: string;
+  }>;
   shouldAct: boolean;
   action: TurnAction;
   providerRequests: ProviderRequest[];

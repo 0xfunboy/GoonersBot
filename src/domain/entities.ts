@@ -138,6 +138,7 @@ export interface FactDoc {
 }
 
 export interface MessageDoc {
+  telegramTopicId?: number | null;
   chatId: number;
   messageId?: number | null;
   userHandle: string;

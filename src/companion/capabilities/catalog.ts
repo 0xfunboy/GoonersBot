@@ -13,6 +13,9 @@ export const BUILTIN_CAPABILITY_IDS = [
   'document_create',
   'data_analysis',
   'workflow',
+  'companion_memory',
+  'connected_service',
+  'code_work',
   'media_prompt',
   'image_gen',
   'video_gen',
@@ -24,6 +27,9 @@ export const BUILTIN_CAPABILITY_IDS = [
 ] as const;
 
 export const CORTEX_CAPABILITY_IDS = [
+  'companion_memory',
+  'connected_service',
+  'code_work',
   'data_analysis',
   'workflow',
   'document_create',
@@ -176,6 +182,104 @@ const operation = (
 ): ManifestSeed['operations'][number] => ({ id, description, effect, examples, ...options });
 
 const seeds: Record<BuiltinCapabilityId, ManifestSeed> = {
+  companion_memory: {
+    description:
+      'Remember, recall, correct, export or forget the requester’s scoped personal and project memories, with provenance and erasure fences.',
+    examples: [
+      'ricorda questa decisione per il progetto',
+      'cosa ricordi di me?',
+      'dimentica questa preferenza',
+    ],
+    operations: ['remember', 'recall', 'list', 'correct', 'export', 'forget'].map((id) =>
+      operation(
+        id,
+        `${id} scoped memory`,
+        ['recall', 'list', 'export'].includes(id) ? 'read' : id === 'forget' ? 'delete' : 'write',
+        [],
+        { requiredReferents: [], idempotency: 'effect_key', retry: 'checkpoint_only' },
+      ),
+    ),
+    adapterRisk: 'compute',
+    cortexVisible: true,
+    terminal: true,
+    requirements: ['accepted terms', 'immutable actor scope'],
+    resourceClass: 'interactive',
+    defaultTimeoutMs: 20_000,
+    defaultMaxCalls: 3,
+    outputKinds: ['text', 'document'],
+    legacyProviderId: 'companion_memory',
+  },
+  connected_service: {
+    description:
+      'Use the configured Telegram bot connection: scoped metadata, message drafts, delegated sends, access inspection and revocation. Not a personal Telegram account.',
+    examples: [
+      'prepara una bozza per questa chat',
+      'autorizzo gli invii in questa conversazione',
+      'revoca la delega',
+    ],
+    operations: ['list', 'read', 'draft', 'send', 'grant', 'revoke'].map((id) =>
+      operation(
+        id,
+        `${id} current-chat connection`,
+        id === 'send'
+          ? 'send'
+          : id === 'grant'
+            ? 'write'
+            : id === 'revoke'
+              ? 'delete'
+              : id === 'draft'
+                ? 'draft'
+                : 'read',
+        [],
+        { requiredReferents: [], idempotency: 'effect_key', retry: 'never_blindly' },
+      ),
+    ),
+    adapterRisk: 'compute',
+    cortexVisible: true,
+    terminal: true,
+    requirements: ['configured Telegram connection', 'exact delegation'],
+    resourceClass: 'network',
+    defaultTimeoutMs: 30_000,
+    defaultMaxCalls: 2,
+    outputKinds: ['text'],
+    legacyProviderId: 'connected_service',
+  },
+  code_work: {
+    description:
+      'Review public GitHub repository sources and prepare an apply-checked patch without running repository code. For the configured local repository, authorized admin private chats can prepare patch/tests, inspect status/diff or cancel. No automatic apply or deployment.',
+    examples: [
+      'prepara una correzione del repository configurato',
+      'fammi vedere la patch',
+      'annulla la modifica',
+    ],
+    operations: ['review', 'propose', 'status', 'diff', 'cancel'].map((id) =>
+      operation(
+        id,
+        `${id} isolated code work`,
+        id === 'review'
+          ? 'generate'
+          : id === 'propose'
+            ? 'write'
+            : id === 'cancel'
+              ? 'delete'
+              : 'read',
+        [],
+        { requiredReferents: [], idempotency: 'effect_key', retry: 'checkpoint_only' },
+      ),
+    ),
+    adapterRisk: 'compute',
+    cortexVisible: true,
+    terminal: true,
+    requirements: [
+      'public GitHub repository and chat model for review',
+      'authorized admin private chat and configured worker for local development',
+    ],
+    resourceClass: 'interactive',
+    defaultTimeoutMs: 130_000,
+    defaultMaxCalls: 1,
+    outputKinds: ['text', 'document'],
+    legacyProviderId: 'code_work',
+  },
   group_rag: {
     description: 'Recall relevant community members, relationships and group lore.',
     examples: ['ricordati cosa avevamo deciso', 'chi è coinvolto in questa storia?'],
@@ -544,7 +648,7 @@ const seeds: Record<BuiltinCapabilityId, ManifestSeed> = {
     requirements: ['supported URL', 'safe downloader'],
     resourceClass: 'media',
     defaultTimeoutMs: 60_000,
-    defaultMaxCalls: 1,
+    defaultMaxCalls: 4,
     outputKinds: ['link'],
     legacyProviderId: 'link_media',
   },
@@ -586,6 +690,13 @@ const seeds: Record<BuiltinCapabilityId, ManifestSeed> = {
     description: 'Research, propose and optionally install a safe declarative research workflow.',
     examples: ['impara a cercare questi dati'],
     operations: [
+      ...['disable', 'enable', 'retire'].map((id) =>
+        operation(id, `${id} an installed versioned recipe`, 'write', [], {
+          requiredReferents: ['installed recipe', 'authorized actor'],
+          idempotency: 'effect_key',
+          retry: 'checkpoint_only',
+        }),
+      ),
       operation('execute', 'Execute an installed declarative recipe.', 'read', [
         'usa la capacità già installata',
       ]),
@@ -735,12 +846,19 @@ export function operationIdForInvocation(
   const intent = typeof args['intent'] === 'string' ? args['intent'] : null;
   if (id === 'anime_archive') return intent === 'series' ? 'series_rehost' : intent;
   if (id === 'workflow') return intent;
+  if (id === 'companion_memory') return intent || 'recall';
+  if (id === 'connected_service') return intent || 'list';
+  if (id === 'code_work') return intent || 'status';
+  if (id === 'data_analysis')
+    return typeof args['operation'] === 'string' ? args['operation'] : 'summarize';
   if (id === 'anime_knowledge') {
     if (intent === 'follow' || intent === 'unfollow') return intent;
     return 'lookup';
   }
   if (id === 'capability_forge') {
-    if (typeof args['command'] === 'string') return 'execute';
+    if (intent && ['disable', 'enable', 'retire'].includes(intent)) return intent;
+    if (typeof args['command'] === 'string' || typeof args['recipeId'] === 'string')
+      return 'execute';
     return 'propose';
   }
   return runtimeCapabilityManifest(id).operations[0]?.id ?? null;

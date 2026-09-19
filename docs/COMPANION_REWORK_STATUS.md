@@ -1,100 +1,75 @@
 # Companion rework — implementation status
 
-This is the execution ledger for `/home/funboy/GOONERSBOT_COMPANION_REWORK_PLAN.md`.
-It records verified behavior, not intent. States are `planned`, `in_progress`, `implemented`,
-`verified` and `blocked_external`; `verified` requires the package-specific acceptance evidence.
+Execution ledger for `/home/funboy/GOONERSBOT_COMPANION_REWORK_PLAN.md`, updated 2026-09-19.
+Read with [runtime](COMPANION_RUNTIME.md) and [acceptance / handoff](COMPANION_HANDOFF.md).
 
-## Baseline
+- `implemented`: executable code integrated; not certification of every acceptance scenario.
+- `verified_local`: named local checks passed, limited to that evidence.
+- `blocked_external`: a specific proof requires consented live access, installed prerequisites or
+  an authorized real-model/human evaluation session.
+- `in_progress`: implementation or final acceptance remains. A green corpus inventory/unit suite
+  does not mean the complete plan passed.
 
-- Branch: `companion-rework/phase-1-ingress`
-- Pre-rework baseline: `c1807d0`
-- Durable-ingress starting commits: `9f74ed9`, `383e804`
-- Production activation: not performed by this implementation work
+## Revision and rollout baseline
+
+- Branch: `companion-rework/phase-1-ingress`; pre-rework `c1807d0`.
+- Ingress starting commits: `9f74ed9`, `383e804`; R00/R01/R02: `8616047`, `056af95`, `3fd3d32`.
+- Prior integrated checkpoint: `8ec700c`; this ledger additionally covers current completion changes.
+  Final integrated local gates are recorded below; the delivery commit identifies this working tree.
+- Production activation: **not performed**. Shared `dist/` is not a validation-build target.
 
 ## Package ledger
 
-| Package | State | Commit | Runtime path | Evidence (UTC) | Missing gate / next activity |
-| --- | --- | --- | --- | --- | --- |
-| R00 | implemented | `8616047` | `companion/ingress/*`, `telegram/bot`, `updateInbox` | 113 files / 1,311 tests, typecheck, lint, build; simulated fault tests; 2026-09-19 | Isolated real-Mongo legacy-index migration and process-level SIGTERM rehearsal before `verified`. |
-| R01 | implemented | `056af95` | `companion/capabilities/catalog`, Cortex, AgentRuntime, SelfKnowledge | 116 files / 1,323 tests, typecheck, lint, build and format; natural installed-recipe execution; 2026-09-19 | Real-model semantic corpus and context-specific authorization/readiness remain release gates; R02 consumes the catalog contract. |
-| R02 | implemented | `3fd3d32` + current changes | `companion/context`, Cortex/TurnEvaluator adapters, ReplyService | Existing 1,332-test baseline plus targeted context/control regressions | Real-model multilingual corpus remains a release gate. Generic pending clarification now persists. |
-| R03 | implemented | current changes | `companion/capabilities/dispatch`, planner/orchestrator, ReplyService | Typed request bindings, explicit unmet operations, provider observations, no composer-triggered re-execution | Real-model natural corpus. |
-| R04 | in_progress | current changes | `companion/tasks`, `services/companionWork`, ReplyService, Services | Durable handoff, scoped controls, fencing/CAS, deadline, pending clarification, reply correlation | Real-Mongo/process recovery rehearsal and legacy anime/learn control cutover remain. |
-| R05 | in_progress | current changes | `companion/artifacts`, task effects, Telegram delivery | Ordered multi-artifacts; scoped hash-checked private files; intent/receipt on one task document; unknown effects quarantined | Real Telegram ambiguous-delivery/reconciliation rehearsal; legacy transport unification remains. |
-| R06 | in_progress | current changes | `companion/tasks/steps`, AgentRuntime executeAction | Verified step reuse after interruption; bounded transient read retry; generation receipts; revision fences | Semantic strategy revision, wrong-result feedback and minimal invalidation across amendments remain. |
-| R07 | implemented | current changes | `companion/expression`, composer, ReplyService, async bridge | Shared conversation contract, receipt-backed promises, safe operational wording | Real-model transcript evaluation remains; deterministic progress intentionally uses no extra LLM call. |
-| R08 | in_progress | current changes | task scopes, artifact ownership, exact reply links, TermsService | Actor/chat/topic isolation, reopened report documents, revocation erases task state and files | Full project-memory model, natural memory export/correction/forget and mining tombstones remain. |
-| R09 | in_progress | current changes | `companion/resources`, `utils/process`, artifact store | Reserved interactive admission, bounded queues/process output/storage, retained Firefox watchdog | OS-wide CPU/RAM/disk enforcement, cross-process governor and sustained load rehearsal remain. |
-| R10 | in_progress | current changes | page scanner, document_create, data_analysis, existing media/code adapters | Bounded HTML/CSS/JS audit; native decimal CSV/JSON statistics and SVG; Markdown/CSV/JSON/PDF/DOCX output | Browser rendering/OCR if configured, broader comparison/iterative research and natural repository-work coverage remain. |
-| R11 | planned | — | — | — | Connected accounts and reusable delegations. |
-| R12 | in_progress | current changes | `companion/workflows`, workflow capability, Services | Natural reminders, recurring messages, timezone/DST, coalesced downtime, send receipts | Content-change monitors, dynamic scheduled reports, quiet hours and follow/autopost migration remain. |
-| R13 | planned | — | — | — | Versioned workflow learning and capability discovery. |
-| R14 | in_progress | current changes | targeted regressions and `docs/COMPANION_RUNTIME.md` | 170 tests / 25 affected files, global typecheck + lint + format, isolated build; no production mutation | Production rollout, full natural corpus, Mongo fault rehearsal and soak remain. |
+| Package | Implementation | Local evidence / integrated behavior | Remaining acceptance gate |
+| --- | --- | --- | --- |
+| R00 ingress | implemented; verified_local | Ordered bounded ingress, durable offset/admission, fencing; ingress tests and real-Mongo legacy-index/dedup/lease checks | Whole-bot SIGTERM/long-poll rehearsal; no rollout proof |
+| R01 catalog | implemented; verified_local | Manifest-backed schemas/handlers/readiness and semantic recipe descriptors; catalog/natural-routing tests | Real-model paraphrase and readiness evaluation |
+| R02 turn contract | implemented; verified_local | Scope/provenance, Cortex/evaluator adapters, persisted clarification and visible work | Full multilingual model corpus |
+| R03 dispatch | implemented; verified_local | Typed bindings, unmet deliverables, provider observations, no composer-triggered reexecution | Real-model multi-intent acceptance |
+| R04 durable work | implemented with specialized-owner adapters; verified_local | Generic worker, responsive scoped controls, archive pause/resume/narrowing/cancel, local-code controls, CAS/fences | Whole-process/real-transport recovery and latency rehearsal; legacy workers intentionally keep one owner |
+| R05 delivery | implemented; verified_local | Ordered scoped artifacts, per-effect receipts, private file reuse, link-media delivery bridge | Real Telegram multi-file/ambiguous-send/reconciliation in consenting chat |
+| R06 continuation | implemented; verified_local | Typed NextStepDecision, persisted initial plan and verified progress deltas; two bounded semantic revisions, observed same-origin alternatives, safe step reuse, three read attempts and durable resumeAt | Whole-process/model recovery acceptance; no arbitrary provider/privilege/URL/acceptance changes |
+| R07 expression | implemented; verified_local guards | Shared policy, real-receipt promises, social floor, serious-tone updates | Human before/after naturalness/persona evaluation |
+| R08 memory | implemented; verified_local | Six-kind scoped memory/project references, natural export/correct/forget, provenance/CAS, tombstones and legacy adapters | Real ingress/mining/restart privacy rehearsal |
+| R09 resources | implemented; verified_local | Interactive reserve, cross-process locks, pressure gates, RSS/CPU/file/output bounds; retained Firefox guards | Sustained mixed-workload soak; watchdog is not instantaneous kernel memory containment |
+| R10 families | implemented for documented scope; verified_local available paths | Research/audit/documents/data/community/media; commit-pinned public GitHub review/apply-checked patch and configured local code worker; isolated renderer/OCR readiness | blocked_external: missing Tesseract/Chromium/live proof; public review does not execute remote repository tests |
+| R11 connections | implemented with real Telegram bot adapter; verified_local contracts | Immutable owner, credential references, exact delegated read/draft/send, receipt/revocation | blocked_external: consented actual Telegram send rehearsal; no personal-account/email/calendar integration claimed |
+| R12 routines | implemented; verified_local | Reminders/monitors/fresh digests, DST/quiet/budgets/expiry, observed/notified state, durable legacy tick adapter | Real downtime/restart/notification/revocation rehearsal |
+| R13 learning | implemented for verified research recipes; verified_local lifecycle/Forge tests | Revision-bound semantic descriptors, disable/retire, fixed handler, proposal/install distinction | Held-out real-model reuse; arbitrary executable workflows are not auto-installed |
+| R14 release | in_progress; final local gates verified_local | Acceptance mapping, 144-variant inventory, 140-file/1,420-test suite, typecheck/lint/format/isolated build, real Mongo26 and staged runbook | Real-model/human corpus, whole-process/transport rehearsal, soak and production activation |
 
-## R00 evidence
+## Evidence already obtained
 
-Automated cases currently present:
+- Checkpoint `8ec700c`: 170 targeted tests, global typecheck/lint/format, isolated build and real local
+  Unicode PDF/DOCX conversion. This historical count is not the final revision-wide test count.
+- Current workflow/research/document area: 41 distinct targeted tests passed, typecheck and scoped
+  lint. Other package regressions are mapped in the handoff.
+- Final global local gate: **140 files / 1,420 tests passed**, 42.37 seconds, starting 2026-09-19
+  14:53:21 UTC; typecheck, ESLint, formatting and diff checks passed. Final isolated build passed at
+  `/tmp/goonerbot-companion-final-build-WsovhL`, live `dist/` untouched. This supersedes the earlier
+  139-file/1,411-test and intermediate targeted runs. See [COMPANION_LOCAL_VERIFICATION.md](COMPANION_LOCAL_VERIFICATION.md).
+- Extended isolated real Mongo: **26 check groups passed**, zero external effects, production
+  untouched. This supersedes the initial 14-group result and covers ingress migration/dedup,
+  competing claims, checkpoints, receipt reuse, stale-owner/scope rejection, uncertain effects,
+  memory CAS/erasure and topic-aware legacy index migration. Two added checks prove durable retry
+  due-time gating across worker replacement and due recovery with preserved attempts/checkpoints/fence.
+- `scripts/verify-companion-isolated.ts` launches an already-installed Mongo binary with private
+  temporary dbpath/port, runs checks, stops it and removes only its own directory.
+- `companionCorpusIntegrity` validates 24 families × 6 variants and negative-case inventory.
+  **It does not invoke a model or measure semantic accuracy/naturalness.**
 
-- 20-conversation burst proves the executor never exceeds its configured concurrency.
-- A durable admission failure proves the next Telegram poll does not acknowledge past the failed
-  update; the same update is retried at the preserved offset.
-- Fenced completion proves bot id, owner id and claim generation are all required.
-- Expired running work is classified `outcome_unknown`, not blindly executed a second time.
-- Terms decline redacts active inbox payloads through immutable Telegram actor id.
+## Gates that must remain visible
 
-Remaining R00 checks before changing the state to `verified`:
-
-- migration smoke test against a copy of the current Mongo index/receipt shape;
-- process-level SIGTERM rehearsal with a real long-poll request and Mongo test instance.
-
-Repository-wide unit tests, typecheck, lint, build, simulated recovery/live ordering, lease overrun,
-count/byte saturation, two-owner fencing and intake abort have passed. These do not masquerade as a
-real Mongo/process rehearsal. The architecture/provider inventory and seed corpus are versioned in
-`docs/COMPANION_BASELINE.md` and `tests/fixtures/companion-conversation-corpus.json`.
-
-## R01 evidence
-
-- One versioned runtime catalog owns capability identity, operation schemas, effects, retry and
-  idempotency policy, requirements, resource class, limits and legacy provider mapping.
-- Cortex schemas/prompts, planner definitions, handler validation, terminal routing, self-knowledge,
-  `/capabilities` and generated command documentation derive from that catalog or its per-turn
-  readiness snapshot.
-- Bootstrap tests reject a capability advertised without an executable handler; invocation and
-  output validation run at the execution boundary.
-- `news` and `document_read` are both executable through the agent runtime. A composite integration
-  test proves their verified results and news evidence reach one final answer.
-- An installed Forge recipe is exposed to Cortex and executes from a natural semantic selection via
-  `args.command`; no slash command or duplicate enum entry is required.
-- The repository-wide suite passes serially (116 files / 1,323 tests). A parallel-only collision in
-  the pre-existing local-development Git tests was reproduced and disappears under isolated file
-  execution; it is recorded as test-harness isolation debt rather than hidden as a runtime failure.
-
-## R02 evidence
-
-- `TurnContext` and `TurnUnderstanding` are strict versioned schemas used by the real reply path,
-  not detached interfaces. They preserve immutable actor/chat/topic scope, authored text versus STT,
-  exact reply and attachment provenance, per-turn capability readiness and visible work.
-- Cortex, its degraded fallback and the alternate TurnEvaluator converge through adapters without
-  adding another LLM round trip. Multiple operations and speech acts survive together; a stray
-  `stay_quiet` cannot erase requested work.
-- Existing anime-archive and local-development work is exposed through a read-only scope-filtered
-  adapter. Model-selected task references do not grant authority.
-- Quoted reply contents are context rather than commands in the degraded path. Explicit
-  no-download negation suppresses automatic link rehost selection.
-- Missing material inputs produce one bounded clarification contract and skip provider execution;
-  commands remain optional shortcuts rather than prerequisites.
-- Brain debug traces retain the normalized understanding. The final expression path sees visible
-  work as untrusted facts, so status answers need not invent job state.
-- The current R04 integration persists/resumes pending clarification and executes scoped generic
-  task controls. Legacy worker control migration and real-process recovery remain open; these are
-  distinct from the implemented generic transitions.
-
-## Compatibility rules held throughout the rework
-
-- Cortex, evaluators and semantic provider/action selection remain the natural-language control
-  plane. Slash commands may expose the same protocol but may not become required to start work.
-- Long-running work must not impersonate conversational completion: acknowledgement, progress,
-  artifacts and delivery receipts are distinct states.
-- Existing archive identity, source-file behavior, security boundaries and social/personality
-  behavior stay covered until a replacement has demonstrated parity.
-- No production restart, migration or feature activation is implied by a development package.
+1. Real Telegram delivery/uncertain outcomes need an authorized test destination. Mocked API calls
+   and Mongo receipts are not live-send evidence.
+2. OCR/renderer remain disabled until binaries, language data and namespace isolation are ready.
+   The persistent X/Firefox account session is not a substitute for the isolated renderer.
+3. Whole-process recovery, prolonged resource soak, real-model N01–N24 and human style evaluation
+   are not replaced by unit tests or fixture strings.
+4. Final local gates cover the delivered working tree. R14 and Definition-of-Done item 17 remain
+   open because of the separate live/model/human/soak obligations, not a missing local suite/build.
+5. No deployment, production migration or external effect is implied by development handoff.
+6. R06 now includes typed decisions, verified progress, observed-source alternatives and durable
+   backoff. The policy remains bounded to compatible reads and at most two semantic revisions;
+   arbitrary provider/privilege changes are not advertised. Final integrated local gates passed;
+   separate live/model acceptance must not be inferred from them.

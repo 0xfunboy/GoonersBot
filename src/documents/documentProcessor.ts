@@ -2,6 +2,7 @@ import { extname } from 'node:path';
 import { load as loadHtml } from 'cheerio';
 import type { MessageAttachment } from '../domain/types.js';
 import { childLogger } from '../utils/logger.js';
+import { DocumentOcr, type DocumentOcrConfig, type OcrReadiness } from './ocr.js';
 
 const log = childLogger('documents');
 
@@ -74,6 +75,7 @@ export interface DocumentProcessorConfig {
   enabled: boolean;
   maxCharsPerFile: number;
   maxFilesPerTurn: number;
+  ocr?: DocumentOcrConfig;
 }
 
 /**
@@ -82,15 +84,26 @@ export interface DocumentProcessorConfig {
  */
 export class DocumentProcessor {
   readonly enabled: boolean;
+  private readonly ocr: DocumentOcr;
 
   constructor(private readonly cfg: DocumentProcessorConfig) {
     this.enabled = cfg.enabled;
+    this.ocr = new DocumentOcr(cfg.ocr ?? { enabled: false });
   }
 
-  async extractAll(attachments: MessageAttachment[]): Promise<ExtractedDocument[]> {
+  ocrStatus(): Promise<OcrReadiness> {
+    return this.ocr.status();
+  }
+
+  async extractAll(
+    attachments: MessageAttachment[],
+    signal?: AbortSignal,
+  ): Promise<ExtractedDocument[]> {
     if (!this.enabled) return [];
     const picked = attachments.slice(0, Math.max(1, this.cfg.maxFilesPerTurn));
-    const settled = await Promise.allSettled(picked.map((attachment) => this.extract(attachment)));
+    const settled = await Promise.allSettled(
+      picked.map((attachment) => this.extract(attachment, signal)),
+    );
     return settled.flatMap((result, index) => {
       if (result.status === 'fulfilled') return result.value ? [result.value] : [];
       log.warn(
@@ -101,8 +114,12 @@ export class DocumentProcessor {
     });
   }
 
-  async extract(attachment: MessageAttachment): Promise<ExtractedDocument | null> {
+  async extract(
+    attachment: MessageAttachment,
+    signal?: AbortSignal,
+  ): Promise<ExtractedDocument | null> {
     if (!this.enabled) return null;
+    signal?.throwIfAborted();
     const mime = attachment.mime.toLowerCase().split(';', 1)[0] ?? '';
     const extension = extname(attachment.fileName).toLowerCase();
     let text = '';
@@ -122,7 +139,25 @@ export class DocumentProcessor {
       if (!text.trim()) {
         warning =
           'No selectable text was found. The PDF may be scanned and require an OCR capability.';
+        const readiness = await this.ocr.status();
+        if (readiness.pdf) {
+          try {
+            const result = await this.ocr.extract(attachment.buffer, 'application/pdf', signal);
+            text = result.text;
+            warning = `Text was recognized by OCR and may contain recognition errors. Inspected ${result.pages} of ${pages ?? 'unknown'} pages.`;
+            if (pages && pages > result.pages)
+              warning += ' Remaining pages were not inspected because of the OCR page budget.';
+          } catch (error) {
+            signal?.throwIfAborted();
+            log.warn({ error, fileName: attachment.fileName }, 'bounded PDF OCR failed');
+            warning += ' The configured OCR attempt failed; no recognized text is available.';
+          }
+        } else if (readiness.enabled) warning += ` ${readiness.reason ?? 'OCR is unavailable.'}`;
       }
+    } else if (mime.startsWith('image/') && (await this.ocr.status()).images) {
+      const result = await this.ocr.extract(attachment.buffer, mime, signal);
+      text = result.text;
+      warning = 'Text was recognized by OCR and may contain recognition errors.';
     } else if (
       mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
       extension === '.docx'

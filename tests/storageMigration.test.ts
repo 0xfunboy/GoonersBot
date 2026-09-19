@@ -67,10 +67,17 @@ describe('storage migration compatibility', () => {
     } as unknown as Db;
     const migrate = Storage.prototype.migrateLegacyFacts as unknown as (this: {
       db: Db;
+      memoryPrivacy: { allowsMemory: () => Promise<boolean> };
+      memoryItems: MemoryItemsRepo;
     }) => Promise<number>;
 
-    expect(await migrate.call({ db })).toBe(1);
-    expect(await migrate.call({ db })).toBe(0);
+    const storage = {
+      db,
+      memoryPrivacy: { allowsMemory: async () => true },
+      memoryItems: new MemoryItemsRepo(db),
+    };
+    expect(await migrate.call(storage)).toBe(1);
+    expect(await migrate.call(storage)).toBe(0);
     expect(insertOne).toHaveBeenCalledTimes(1);
     expect(memories).toContainEqual(
       expect.objectContaining({
@@ -108,7 +115,7 @@ describe('storage migration compatibility', () => {
     await MemoryItemsRepo.ensureIndexes(db);
 
     expect(createIndex).toHaveBeenCalledWith(
-      { chatId: 1, subjectType: 1, subjectHandle: 1, normalizedText: 1 },
+      { chatId: 1, telegramTopicId: 1, subjectType: 1, subjectHandle: 1, normalizedText: 1 },
       {
         name: ACTIVE_MEMORY_SUBJECT_TEXT_UNIQUE_INDEX,
         unique: true,

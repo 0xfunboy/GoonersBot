@@ -28,10 +28,16 @@ export class VectorMemoryRetriever {
     const fetched = await this.storage.memoryItems.listActive(input.chatId, 250);
     // Deterministic cross-chat isolation: never consider an item that does not belong to this chat,
     // even if a query ever returned one. A mismatch is an upstream bug, so make it loud.
-    const all = fetched.filter((i) => i.chatId === input.chatId);
-    if (all.length !== fetched.length) {
+    const all = fetched.filter(
+      (i) =>
+        i.chatId === input.chatId &&
+        (input.telegramTopicId === undefined ||
+          (i.telegramTopicId ?? null) === input.telegramTopicId),
+    );
+    const crossChatCount = fetched.filter((item) => item.chatId !== input.chatId).length;
+    if (crossChatCount) {
       log.error(
-        { chatId: input.chatId, dropped: fetched.length - all.length },
+        { chatId: input.chatId, dropped: crossChatCount },
         'cross-chat memory items returned by query; dropped (isolation guard)',
       );
     }
