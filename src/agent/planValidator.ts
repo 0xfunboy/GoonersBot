@@ -5,6 +5,34 @@ import {
   type PlannedAction,
 } from './schemas.js';
 import type { AgentToolDefinition } from './types.js';
+import { z } from 'zod';
+
+/** Host policy supplies the default and ceiling, but never lengthens an explicit short deadline. */
+export function resolveActionTimeout(timeoutMs?: number, hostTimeoutMs?: number): number {
+  const ceiling =
+    hostTimeoutMs === undefined
+      ? 900_000
+      : Math.max(500, Math.min(900_000, Math.round(hostTimeoutMs)));
+  return Math.min(timeoutMs ?? (hostTimeoutMs === undefined ? 30_000 : ceiling), ceiling);
+}
+
+/** Apply host defaults BEFORE schema parsing would erase an omitted deadline with its generic 30s. */
+export function actionPlanSchemaForDefinitions(definitions: AgentToolDefinition[]) {
+  const byName = new Map(definitions.map((definition) => [definition.name, definition]));
+  return z.preprocess((candidate) => {
+    if (!candidate || typeof candidate !== 'object' || !('actions' in candidate)) return candidate;
+    if (!Array.isArray(candidate.actions)) return candidate;
+    return {
+      ...candidate,
+      actions: candidate.actions.map((action: unknown) => {
+        if (!action || typeof action !== 'object' || !('tool' in action)) return action;
+        if ('timeoutMs' in action && action.timeoutMs !== undefined) return action;
+        const definition = byName.get(action.tool as AgentToolName);
+        return { ...action, timeoutMs: resolveActionTimeout(undefined, definition?.timeoutMs) };
+      }),
+    };
+  }, agentActionPlanSchema);
+}
 
 export class ActionPlanValidationError extends Error {
   constructor(message: string) {
@@ -23,7 +51,7 @@ export function validateActionPlan(
   candidate: unknown,
   definitions: AgentToolDefinition[],
 ): AgentActionPlan {
-  const parsed = agentActionPlanSchema.safeParse(candidate);
+  const parsed = actionPlanSchemaForDefinitions(definitions).safeParse(candidate);
   if (!parsed.success) {
     throw new ActionPlanValidationError(
       parsed.error.issues.map((issue) => issue.message).join('; '),
@@ -44,9 +72,7 @@ export function validateActionPlan(
         `tool ${action.tool} exceeds its per-plan call budget (${definition.maxCalls})`,
       );
     }
-    if (definition.timeoutMs !== undefined) {
-      action.timeoutMs = Math.max(500, Math.min(900_000, Math.round(definition.timeoutMs)));
-    }
+    action.timeoutMs = resolveActionTimeout(action.timeoutMs, definition.timeoutMs);
     const inputProblems = definition.validateInput?.(action) ?? [];
     if (inputProblems.length > 0) {
       throw new ActionPlanValidationError(

@@ -123,8 +123,37 @@ The original unit and original shared dist are retained. Before returning to it:
 
 ## Remaining acceptance
 
-Repeat PDF delivery and passive audit in the selected group after the corrective release. Record
-actual artifact content, routing, user-facing answer and receipts. Search remains externally
+### First repeated end-to-end delivery
+
+The owner's natural request **“creami un pdf con relazione e analisi di qualità del sito troie.vip”**,
+message **192764**, produced task `7dc8fd70-c4dd-4a02-a8c2-74cfc71edb0d`. The compiled plan correctly
+selected **page_scan → document_create**, with an evidence dependency and no generic web search.
+Acknowledgement **192765**, final text **192768/192769**, PDF **192770**; all delivery receipts
+confirmed, task completed at approximately **15:34:06 UTC**.
+
+The actual stored/delivered PDF was reopened independently: **44,287 bytes**, **4 pages**,
+**4,743 extracted characters**, source URL and quality/security sections present. Artifact ID
+`030125e3-63ff-4875-8b3d-b053a1481615`; SHA256
+`c5a3af4c0dcb86c01116f680c13180972efcbacb864df485c302890c05b03d45`.
+This passes the repeated acquisition, non-empty generation and Telegram transport path.
+
+**It does not pass full report-quality acceptance.** The model overstated missing CSP as proof of
+XSS susceptibility, viewport as guaranteed responsive behavior, and heuristic scores as general
+quality grades. The deterministic chat fallback also repeated an unnecessarily long document
+excerpt; Markdown layout remained basic. An explicit factual correction was sent as reply
+**192771** to the PDF, without editing or deleting the historical result. The final tightening
+keeps verified text in composer data rather than the public fallback and explicitly constrains
+source-backed audit conclusions; that prompt change still needs real-model/human acceptance.
+
+The apparent 30-second document timeout in the stored plan was also examined: runtime validation
+actually selected the host's longer timeout, allowing the 43-second generation to complete. Align
+the persisted plan with the host default, while retaining explicit shorter deadlines, rather than
+misdiagnosing the successful generation as a timeout.
+
+### Open gates
+
+Repeat semantic accuracy and naturalness acceptance after the final tightening; acquisition and
+transport evidence above does not certify every statement in a generated document. Search remains externally
 degraded until upstream engines recover or a separately approved search configuration is changed.
 No provider replacement, CAPTCHA bypass or extra credentials were introduced in this trial.
 Whole-process crash/uncertain-send tests, media/rehost, model corpus, human style review and prolonged

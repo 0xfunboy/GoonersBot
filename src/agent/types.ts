@@ -15,7 +15,7 @@ export interface AgentToolDefinition {
   risk: ToolRisk;
   /** Planner-side budget; the validator rejects plans that exceed it. */
   maxCalls?: number;
-  /** Host-enforced timeout; overrides optimistic/incorrect values emitted by the planner. */
+  /** Host default and maximum timeout; an explicitly shorter action deadline is preserved. */
   timeoutMs?: number;
   /** Maximum artifacts one action may claim for each transport kind. */
   maxArtifactsPerKind?: Partial<Record<ActionArtifact['kind'], number>>;

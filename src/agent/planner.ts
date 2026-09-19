@@ -1,7 +1,12 @@
 import type { LLMProvider } from '../providers/llm/types.js';
 import { childLogger } from '../utils/logger.js';
 import { agentActionPlanSchema, type AgentActionPlan } from './schemas.js';
-import { ActionPlanValidationError, validateActionPlan } from './planValidator.js';
+import {
+  ActionPlanValidationError,
+  actionPlanSchemaForDefinitions,
+  resolveActionTimeout,
+  validateActionPlan,
+} from './planValidator.js';
 import type { AgentPlanningContext } from './types.js';
 import type { z } from 'zod';
 import { unmetOperationSchema } from '../companion/capabilities/dispatch.js';
@@ -58,7 +63,7 @@ export class MultiActionPlanner {
       const candidate = await this.llm.jsonCompletion({
         system: PLANNER_SYSTEM,
         prompt: buildPlannerPrompt(context),
-        schema: agentActionPlanSchema,
+        schema: actionPlanSchemaForDefinitions(context.availableTools),
         temperature: this.config.temperature ?? 0.1,
         maxTokens: this.config.maxTokens ?? 1_800,
         signal,
@@ -331,6 +336,7 @@ function fallbackPlan(context: AgentPlanningContext): AgentActionPlan {
       args: requested.args ?? {},
       dependsOn: [...new Set(dependsOn)],
       optional: false,
+      timeoutMs: resolveActionTimeout(undefined, definition.timeoutMs),
       acceptance: {
         requireOutput: true,
         minEvidence: 0,
@@ -338,10 +344,7 @@ function fallbackPlan(context: AgentPlanningContext): AgentActionPlan {
       },
     };
     const problems =
-      definition.validateInput?.({
-        ...candidate,
-        timeoutMs: definition.timeoutMs ?? 30_000,
-      } as AgentActionPlan['actions'][number]) ?? [];
+      definition.validateInput?.(candidate as AgentActionPlan['actions'][number]) ?? [];
     if (problems.length) {
       unmet('invalid_input', problems.join('; ').slice(0, 2_000));
       continue;

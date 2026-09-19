@@ -50,6 +50,30 @@ const definitions: AgentToolDefinition[] = [
 ];
 
 describe('compiled companion dispatch', () => {
+  it('persists actual manifest deadlines in the typed audit-to-document plan', async () => {
+    const typedRequests = requests(['page_scan', 'document_create']);
+    Object.assign(typedRequests[0]!.args!, { url: 'https://example.org' });
+    typedRequests[0]!.operationRequest!.inputProblems = [];
+    const plan = await new MultiActionPlanner(null, { enabled: false }).plan({
+      request: 'audit the public page and prepare a PDF report',
+      availableTools: [
+        { name: 'page_scan', description: 'audit', risk: 'read', timeoutMs: 65_000 },
+        {
+          name: 'document_create',
+          description: 'create report',
+          risk: 'generate',
+          timeoutMs: runtimeCapabilityManifest('document_create').defaultTimeoutMs,
+        },
+      ],
+      requestedActions: typedRequests,
+    });
+    expect(plan.actions.map((action) => [action.tool, action.timeoutMs])).toEqual([
+      ['page_scan', 65_000],
+      ['document_create', 180_000],
+    ]);
+    expect(plan.actions[1]?.dependsOn).toEqual([plan.actions[0]?.id]);
+  });
+
   it('uses the actual provider search result as the passive audit target in the live runtime bridge', async () => {
     const groundWeb = vi.fn().mockResolvedValue({
       block: 'Project documentation is available.',
@@ -58,7 +82,19 @@ describe('compiled companion dispatch', () => {
     const auditPage = vi.fn().mockResolvedValue({
       block: 'Canonical URL verified.',
       source: 'https://example.org/project',
-      audit: { title: 'Project' },
+      audit: {
+        title: 'Project',
+        finalUrl: 'https://example.org/project',
+        status: 200,
+        quality: {
+          description: true,
+          language: true,
+          viewport: true,
+          h1Count: 1,
+          imagesMissingAlt: 0,
+        },
+        security: { findings: [] },
+      },
     });
     const runtime = new AgentRuntime({
       config: {

@@ -127,7 +127,7 @@ describe('multi-action agent orchestration', () => {
     expect(trace).toEqual(['search', 'scan-after-true', 'image-after-true']);
   });
 
-  it('uses the host timeout instead of an optimistic planner timeout', () => {
+  it('respects an explicit shorter deadline within the host timeout ceiling', () => {
     const plan = validateActionPlan(
       {
         goal: 'render',
@@ -144,7 +144,51 @@ describe('multi-action agent orchestration', () => {
         definition.name === 'image_gen' ? { ...definition, timeoutMs: 420_000 } : definition,
       ),
     );
-    expect(plan.actions[0]?.timeoutMs).toBe(420_000);
+    expect(plan.actions[0]?.timeoutMs).toBe(500);
+  });
+
+  it.each([
+    { supplied: undefined, host: 180_000, expected: 180_000 },
+    { supplied: 20_000, host: 180_000, expected: 20_000 },
+    { supplied: 300_000, host: 180_000, expected: 180_000 },
+    { supplied: undefined, host: 2_000_000, expected: 900_000 },
+    { supplied: undefined, host: 10, expected: 500 },
+    { supplied: undefined, host: undefined, expected: 30_000 },
+  ])('resolves missing and capped action deadlines: %j', ({ supplied, host, expected }) => {
+    const plan = validateActionPlan(
+      {
+        goal: 'create a report',
+        actions: [
+          {
+            id: 'report',
+            tool: 'document_create',
+            purpose: 'create the PDF report',
+            ...(supplied === undefined ? {} : { timeoutMs: supplied }),
+          },
+        ],
+      },
+      [{ name: 'document_create', description: 'create', risk: 'generate', timeoutMs: host }],
+    );
+    expect(plan.actions[0]?.timeoutMs).toBe(expected);
+  });
+
+  it('applies the host deadline before LLM schema parsing fills an absent field', async () => {
+    const planner = new MultiActionPlanner(
+      fakeLLM({
+        json: {
+          goal: 'create a report',
+          actions: [{ id: 'report', tool: 'document_create', purpose: 'create the PDF report' }],
+        },
+      }),
+      { enabled: true },
+    );
+    const plan = await planner.plan({
+      request: 'prepare the PDF',
+      availableTools: [
+        { name: 'document_create', description: 'create', risk: 'generate', timeoutMs: 180_000 },
+      ],
+    });
+    expect(plan.actions[0]?.timeoutMs).toBe(180_000);
   });
 
   it('rejects artifact counts above the transport capacity', async () => {
