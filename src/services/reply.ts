@@ -92,6 +92,14 @@ import {
   type BuiltinCapabilityId,
   type CapabilityReadiness,
 } from '../companion/capabilities/catalog.js';
+import {
+  buildTurnContext,
+  requestedActionsFromUnderstanding,
+  turnUnderstandingFromCortex,
+  turnUnderstandingFromEvaluation,
+  type TurnUnderstanding,
+  type VisibleWorkReader,
+} from '../companion/context/index.js';
 
 const log = childLogger('reply');
 
@@ -294,6 +302,34 @@ function firstUrl(text: string | undefined): string | undefined {
   return text?.match(/https?:\/\/[^\s<>"']+/i)?.[0];
 }
 
+function clarificationPrompt(key: string, fallback: string, language: string): string {
+  const normalized = language.toLowerCase();
+  const english = normalized.startsWith('en');
+  const spanish = normalized.startsWith('es');
+  if (key === 'track') {
+    return english
+      ? 'Which track do you want?'
+      : spanish
+        ? '¿Qué canción quieres?'
+        : 'Quale brano vuoi?';
+  }
+  if (key === 'public_url') {
+    return english
+      ? 'Which public page should I inspect?'
+      : spanish
+        ? '¿Qué página pública debo analizar?'
+        : 'Quale pagina pubblica devo analizzare?';
+  }
+  if (key === 'document') {
+    return english
+      ? 'Which document should I read?'
+      : spanish
+        ? '¿Qué documento debo leer?'
+        : 'Quale documento devo leggere?';
+  }
+  return fallback;
+}
+
 function imageProfileFromTool(value: string | undefined): ImageProfile | undefined {
   if (value === 'manga' || value === 'anime' || value === 'realistic' || value === 'nsfw') {
     return value;
@@ -420,9 +456,14 @@ interface Visual {
 }
 
 export interface ReplyContext {
+  /** Telegram transport identity; required in production and defaulted only by isolated tests. */
+  botId?: number | undefined;
+  updateId?: number | undefined;
   person: Person;
   context: ChatContext;
   message: IncomingMessage;
+  /** Human-authored text before STT provenance markers are appended by the Telegram adapter. */
+  originalMessageText?: string | undefined;
   botUsername: string;
   language: string;
   modeName: string;
@@ -481,6 +522,8 @@ export interface ReplyOutcome {
   ranked: RankedReply[];
   repetitionChecks: RepetitionCheck[];
   evaluation: TurnEvaluation;
+  /** Versioned semantic contract shared by the immediate and future persistent runtimes. */
+  understanding: TurnUnderstanding;
   cortex?: SourcedCortexDecision;
   providerBundle: ProviderBundle;
   threadState?: ConversationThreadState;
@@ -585,6 +628,7 @@ export class ReplyService {
     private readonly ambient: AmbientRetriever,
     private readonly standing: SocialStandingService,
     private readonly selfKnowledge: SelfKnowledgeService,
+    private readonly visibleWork: VisibleWorkReader = { listVisible: async () => [] },
   ) {
     this.evaluator = new TurnEvaluator(llm, {
       enabled: config.brain.evaluatorEnabled,
@@ -783,6 +827,16 @@ export class ReplyService {
       visual,
       ctx.allowVision,
     );
+    const visibleWorkPromise = this.visibleWork
+      .listVisible({
+        actorTelegramId: ctx.person.telegramId,
+        chatId: ctx.context.chatId,
+        ...(ctx.context.threadId !== undefined ? { threadId: ctx.context.threadId } : {}),
+      })
+      .catch((error) => {
+        log.warn({ error, chatId: ctx.context.chatId }, 'visible work context unavailable');
+        return [];
+      });
     const extractedDocuments = await this.documents.extractAll(ctx.message.attachments ?? []);
     const documentContext =
       this.documents.formatForPrompt(extractedDocuments) ??
@@ -846,9 +900,7 @@ export class ReplyService {
       maxNorms: 6,
     });
     const socialContext = renderSocialContext(socialSnapshot);
-    const runtimeThreadContext = [selfContext, threadState.promptBlock]
-      .filter(Boolean)
-      .join('\n\n');
+    let runtimeThreadContext = [selfContext, threadState.promptBlock].filter(Boolean).join('\n\n');
     const cognitiveContext = [selfContext, threadState.promptBlock, socialContext]
       .filter(Boolean)
       .join('\n\n');
@@ -990,6 +1042,30 @@ export class ReplyService {
             `capability_forge installed recipe: command=${item.command}; id=${item.id}; ${item.description}. Select it with args.command="${item.command}"; no slash command is required.`,
         ),
     ];
+    const visibleWork = await visibleWorkPromise;
+    if (visibleWork.length > 0) {
+      runtimeThreadContext = [
+        runtimeThreadContext,
+        'VISIBLE WORK (host-scoped facts; never claim a control succeeded until its service confirms it):',
+        ...visibleWork.map(
+          (work) =>
+            `- ${work.id} [${work.kind}/${work.state}${work.revision === undefined ? '' : `/revision ${work.revision}`}]: ${work.label}`,
+        ),
+      ]
+        .filter(Boolean)
+        .join('\n');
+    }
+    const turnContext = buildTurnContext({
+      botId: ctx.botId ?? 1,
+      updateId: ctx.updateId ?? ctx.context.messageId ?? 0,
+      person: ctx.person,
+      context: ctx.context,
+      message: ctx.message,
+      ...(ctx.originalMessageText !== undefined ? { originalText: ctx.originalMessageText } : {}),
+      transcribed,
+      capabilitySnapshot: runtimeCapabilitySnapshot,
+      visibleWork,
+    });
     let cortexDecision: SourcedCortexDecision | undefined;
     const evaluation = passiveFastPath
       ? (() => {
@@ -999,6 +1075,7 @@ export class ReplyService {
             botIsAddressed: true,
             passiveApproved: true,
             availableTools: cortexCapabilitiesFromSnapshot(runtimeCapabilitySnapshot),
+            visibleWorkCount: visibleWork.length,
           });
           cortexDecision = {
             ...cortexDecision,
@@ -1017,6 +1094,7 @@ export class ReplyService {
               capabilities,
               capabilitySnapshot: runtimeCapabilitySnapshot,
               capabilityDetails,
+              turnContext,
               ...(cognitiveContext ? { threadContext: cognitiveContext } : {}),
               model: ctx.internalModel,
             });
@@ -1038,8 +1116,21 @@ export class ReplyService {
                 this.grounding.wantsImageLookup(ctx.message.messageText || ''),
               ),
             },
+            visibleWork,
             model: ctx.internalModel,
           });
+    const contextualCalls = documentContext
+      ? [
+          {
+            capabilityId: 'document_read' as const,
+            query: semanticMessage,
+            reason: 'read and answer from the attached or replied document',
+          },
+        ]
+      : [];
+    const understanding = cortexDecision
+      ? turnUnderstandingFromCortex(cortexDecision, turnContext, contextualCalls)
+      : turnUnderstandingFromEvaluation(evaluation, turnContext, contextualCalls);
     const callFor = (tool: CortexTool) =>
       cortexDecision?.toolCalls.find((call) => call.tool === tool);
     const t = (key: string, vars: Record<string, string | number> = {}): string =>
@@ -1102,6 +1193,7 @@ export class ReplyService {
         ranked: [],
         repetitionChecks: [],
         evaluation,
+        understanding,
         ...(cortexDecision ? { cortex: cortexDecision } : {}),
         providerBundle: {
           ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
@@ -1157,6 +1249,7 @@ export class ReplyService {
         ranked: [],
         repetitionChecks: [],
         evaluation,
+        understanding,
         ...(cortexDecision ? { cortex: cortexDecision } : {}),
         providerBundle: {
           ...(threadState.promptBlock ? { threadContext: threadState.promptBlock } : {}),
@@ -1164,6 +1257,14 @@ export class ReplyService {
         },
         threadState,
       };
+    }
+
+    const blockedSlot = understanding.missingSlots[0];
+    if (blockedSlot) {
+      return immediateOutcome({
+        text: clarificationPrompt(blockedSlot.key, blockedSlot.prompt, ctx.language),
+        styleVariant: `clarification:${blockedSlot.key}`,
+      });
     }
 
     // `anime_knowledge` is deliberately absent: it retrieves facts, it does not produce an
@@ -1186,32 +1287,7 @@ export class ReplyService {
     if (shouldUseAgentRuntime && semanticMessage.trim()) {
       try {
         const agentPlan = makeImmediatePlan();
-        const requestedActions = [
-          ...(documentContext
-            ? [
-                {
-                  tool: 'document_read' as const,
-                  query: semanticMessage,
-                  reason: 'read and answer from the attached or replied document',
-                },
-              ]
-            : []),
-          ...(cortexDecision?.toolCalls ?? []).map((call) => ({
-            tool: call.tool,
-            ...(call.query ? { query: call.query } : {}),
-            ...(call.args ? { args: call.args } : {}),
-            reason: call.reason,
-          })),
-          ...(cortexDecision
-            ? []
-            : evaluation.providerRequests
-                .filter((tool) => tool === 'page_scan')
-                .map(() => ({
-                  tool: 'page_scan' as const,
-                  query: semanticMessage,
-                  reason: 'deterministic passive public-page audit request',
-                }))),
-        ];
+        const requestedActions = requestedActionsFromUnderstanding(understanding);
         const coordinated = await this.agentRuntime.run({
           request: semanticMessage,
           language: ctx.language,
@@ -1395,6 +1471,7 @@ export class ReplyService {
           ranked: [],
           repetitionChecks: [],
           evaluation,
+          understanding,
           ...(cortexDecision ? { cortex: cortexDecision } : {}),
           providerBundle,
         };
@@ -1417,6 +1494,7 @@ export class ReplyService {
           ranked: [],
           repetitionChecks: [],
           evaluation,
+          understanding,
           ...(cortexDecision ? { cortex: cortexDecision } : {}),
           providerBundle,
         };
@@ -1440,6 +1518,7 @@ export class ReplyService {
           ranked: [],
           repetitionChecks: [],
           evaluation,
+          understanding,
           ...(cortexDecision ? { cortex: cortexDecision } : {}),
           providerBundle,
         };
@@ -1462,6 +1541,7 @@ export class ReplyService {
         ranked: [],
         repetitionChecks: [],
         evaluation,
+        understanding,
         ...(cortexDecision ? { cortex: cortexDecision } : {}),
         providerBundle,
       };
@@ -2016,6 +2096,7 @@ export class ReplyService {
           ranked: [],
           repetitionChecks: [],
           evaluation,
+          understanding,
           ...(cortexDecision ? { cortex: cortexDecision } : {}),
           providerBundle,
           threadState,
@@ -2400,6 +2481,7 @@ export class ReplyService {
       ranked,
       repetitionChecks,
       evaluation,
+      understanding,
       ...(cortexDecision ? { cortex: cortexDecision } : {}),
       providerBundle,
       threadState,

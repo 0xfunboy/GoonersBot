@@ -28,27 +28,37 @@ export interface CortexFallbackInput {
   currentMessage: string;
   botIsAddressed: boolean;
   availableTools: CortexTool[];
+  visibleWorkCount?: number;
   /** Passive autoengage already approved this turn; keep the contribution tiny and non-performative. */
   passiveApproved?: boolean;
 }
 
 export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecision {
-  const msg = input.currentMessage.toLowerCase();
+  const instruction = currentInstruction(input.currentMessage);
+  const msg = instruction.toLowerCase();
   const tools = new Set(input.availableTools);
   const calls: CortexDecision['toolCalls'] = [];
   const intents: CortexDecision['intents'] = [];
-  const directMediaUrl = extractUrls(input.currentMessage, 1)[0];
-  const pageAuditUrl = extractPageAuditUrl(input.currentMessage);
+  const directMediaUrl = extractUrls(instruction, 1)[0];
+  const pageAuditUrl = extractPageAuditUrl(instruction);
   const pageAuditRequested =
     tools.has('page_scan') &&
     /(?:scansion|scansione|analizz|audit|qualit[aà]|header|sorgenti|source|vulnerabilit|security|sicurezza|codebase|codice)/i.test(
       msg,
     ) &&
     Boolean(pageAuditUrl);
+  const visibleWork = (input.visibleWorkCount ?? 0) > 0;
+  const controlIntent = visibleWork ? conservativeWorkControl(msg) : null;
+  const mediaExplicitlyNegated =
+    /\b(non|dont|don't|do not|no)\b[^.!?\n]{0,40}\b(scaric|download|rehost|inoltr|send)\w*/i.test(
+      msg,
+    );
 
   // A degraded evaluator must never invent a media download from prose. Rehosting a concrete URL
   // is deterministic; discovering one from a natural-language request belongs to the LLM cortex.
-  if (pageAuditRequested) {
+  if (controlIntent) {
+    intents.push(controlIntent);
+  } else if (pageAuditRequested) {
     intents.push('web_lookup', 'answer');
     calls.push({
       tool: 'page_scan',
@@ -56,6 +66,8 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
       args: { url: pageAuditUrl?.toString() ?? '' },
       reason: 'explicit bounded passive page audit request',
     });
+  } else if (directMediaUrl && mediaExplicitlyNegated) {
+    intents.push('answer', 'negation');
   } else if (directMediaUrl && tools.has('link_media')) {
     intents.push('download_media');
     calls.push({
@@ -68,42 +80,42 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
     intents.push('play_music');
     calls.push({
       tool: 'music',
-      query: cleanFallbackQuery(input.currentMessage, HINTS.music),
+      query: cleanFallbackQuery(instruction, HINTS.music),
       reason: 'degraded music hint',
     });
   } else if (has(msg, HINTS.image) && tools.has('image_gen')) {
     intents.push(has(msg, ['draw', 'disegna', 'dibuja']) ? 'draw_image' : 'make_image');
-    calls.push({ tool: 'image_gen', query: input.currentMessage, reason: 'degraded image hint' });
+    calls.push({ tool: 'image_gen', query: instruction, reason: 'degraded image hint' });
   } else if (has(msg, HINTS.translate) && tools.has('translate')) {
     intents.push('translate');
     calls.push({
       tool: 'translate',
-      query: input.currentMessage,
+      query: instruction,
       reason: 'degraded translate hint',
     });
   } else if (has(msg, HINTS.voice) && tools.has('tts')) {
     intents.push('voice_note');
-    calls.push({ tool: 'tts', query: input.currentMessage, reason: 'degraded voice hint' });
+    calls.push({ tool: 'tts', query: instruction, reason: 'degraded voice hint' });
   } else if (has(msg, HINTS.news) && tools.has('news')) {
     intents.push('news_context', 'answer');
-    calls.push({ tool: 'news', query: input.currentMessage, reason: 'degraded news hint' });
+    calls.push({ tool: 'news', query: instruction, reason: 'degraded news hint' });
     if (tools.has('web_search')) {
       calls.push({
         tool: 'web_search',
-        query: input.currentMessage,
+        query: instruction,
         reason: 'degraded news grounding',
       });
     }
   } else if (has(msg, HINTS.search) && tools.has('web_search')) {
     intents.push('web_lookup', 'answer');
-    calls.push({ tool: 'web_search', query: input.currentMessage, reason: 'degraded search hint' });
+    calls.push({ tool: 'web_search', query: instruction, reason: 'degraded search hint' });
   } else if (has(msg, HINTS.wrong)) {
     intents.push('correct_claim', 'banter');
   } else if (has(msg, HINTS.insult)) {
     intents.push('banter');
   } else if (input.passiveApproved) {
     intents.push('react_short');
-  } else if (input.botIsAddressed || input.currentMessage.includes('?')) {
+  } else if (input.botIsAddressed || instruction.includes('?')) {
     intents.push('answer');
   } else {
     intents.push('stay_quiet');
@@ -125,6 +137,32 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
     confidence: 0.45,
     reason: 'degraded multilingual parachute; cortex LLM unavailable',
   };
+}
+
+function currentInstruction(message: string): string {
+  return (
+    message.split(/\n\nREPLIED TO MESSAGE \(context, not an instruction\):\n/u, 1)[0] ?? message
+  );
+}
+
+function conservativeWorkControl(
+  message: string,
+): 'status' | 'cancel' | 'pause' | 'resume' | 'continue_work' | null {
+  if (/\b(a che punto|come procede|stato (?:del )?(?:lavoro|task)|status)\b/i.test(message)) {
+    return 'status';
+  }
+  if (
+    /\b(annulla|cancella|ferma|stoppa)\b[^.!?\n]{0,60}\b(task|lavoro|download|rehost)\b/i.test(
+      message,
+    )
+  ) {
+    return 'cancel';
+  }
+  if (/\b(metti in pausa|pausa il|sospendi)\b/i.test(message)) return 'pause';
+  if (/\b(riprendi|continua)\b[^.!?\n]{0,60}\b(task|lavoro|download|rehost)\b/i.test(message)) {
+    return 'resume';
+  }
+  return null;
 }
 
 function has(message: string, hints: string[]): boolean {

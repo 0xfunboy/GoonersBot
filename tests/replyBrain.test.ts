@@ -735,6 +735,28 @@ describe('TurnEvaluator', () => {
     expect(e.action).toBe('stay_quiet');
   });
 
+  it('keeps natural task-status control compatible when Cortex is disabled', async () => {
+    const e = await evaluator.evaluate({
+      ...base,
+      scene: scene({ userIntent: 'ask_bot' }),
+      currentMessage: 'a che punto sei col lavoro?',
+      botIsAddressed: true,
+      visibleWork: [
+        {
+          id: 'task-1',
+          kind: 'companion_task',
+          state: 'running',
+          label: 'report',
+          revision: 2,
+          updatedAt: '2026-09-19T07:00:00.000Z',
+        },
+      ],
+    });
+    expect(e.action).toBe('answer');
+    expect(e.providerRequests).toEqual([]);
+    expect(e.interactions).toEqual(['status']);
+  });
+
   it('uses LLM JSON to force explicit online search with a precise query', async () => {
     const llmEvaluator = new TurnEvaluator(
       fakeLLM({

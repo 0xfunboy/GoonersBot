@@ -77,6 +77,7 @@ import {
   type CapabilityReadiness,
   type RuntimeCapabilitySnapshotItem,
 } from '../companion/capabilities/catalog.js';
+import { ExistingVisibleWorkReader } from '../companion/context/visibleWork.js';
 
 export * from './permissions.js';
 export * from './terms.js';
@@ -469,6 +470,7 @@ export class Services {
       this.ambient,
       this.standing,
       this.selfKnowledge,
+      new ExistingVisibleWorkReader(storage, this.localDevelopment),
     );
   }
 

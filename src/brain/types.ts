@@ -155,6 +155,19 @@ export type ValueTarget =
 
 export type RoastBudget = 'none' | 'light' | 'medium' | 'heavy';
 
+/** Transitional semantic controls emitted by the alternate evaluator and normalized by R02. */
+export type TurnInteractionHint =
+  | 'conversation'
+  | 'new_work'
+  | 'continue_work'
+  | 'amend_work'
+  | 'status'
+  | 'cancel'
+  | 'pause'
+  | 'resume'
+  | 'clarification_answer'
+  | 'stay_quiet';
+
 /**
  * The comic mechanism, not merely the tone. Rotating this prevents every response from being the
  * same insult wearing a different adjective.
@@ -190,6 +203,8 @@ export interface TurnEvaluation {
   socialRole: SocialRole;
   confidence: number;
   reason: string;
+  /** Adapter hint for task controls; authority remains host-side. */
+  interactions?: TurnInteractionHint[];
   /** Hard social calibration inferred from the actual turn, not personality flavor. */
   socialSignal?: SocialSignal;
   searchQuery?: string;
@@ -313,6 +328,7 @@ export interface BrainDebugTurn {
   createdAt: Date;
   scene: SceneAnalysis;
   evaluation: TurnEvaluation;
+  understanding?: import('../companion/context/contracts.js').TurnUnderstanding;
   cortex?: import('./cortex/schema.js').SourcedCortexDecision;
   providerSources: string[];
   providerBundle?: ProviderBundle;

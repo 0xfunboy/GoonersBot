@@ -221,6 +221,23 @@ export const turnEvaluationSchema = z.object({
   socialSignal: socialSignalSchema.optional(),
   confidence: z.number().min(0).max(1).default(0.5),
   reason: z.string().default(''),
+  interactions: z
+    .array(
+      z.enum([
+        'conversation',
+        'new_work',
+        'continue_work',
+        'amend_work',
+        'status',
+        'cancel',
+        'pause',
+        'resume',
+        'clarification_answer',
+        'stay_quiet',
+      ]),
+    )
+    .max(10)
+    .optional(),
   searchQuery: z.string().optional(),
   musicQuery: z.string().optional(),
   mediaQuery: z.string().optional(),

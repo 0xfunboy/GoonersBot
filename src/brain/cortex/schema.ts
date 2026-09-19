@@ -24,6 +24,16 @@ export const cortexIntentEnum = z.enum([
   'download_media',
   'archive_anime',
   'extend_capability',
+  'continue_work',
+  'amend_work',
+  'status',
+  'cancel',
+  'pause',
+  'resume',
+  'clarification_answer',
+  'negation',
+  'quotation',
+  'capability_question',
   'stay_quiet',
 ]);
 

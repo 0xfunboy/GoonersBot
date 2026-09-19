@@ -15,6 +15,7 @@ import {
   legacyProviderFor,
   type RuntimeCapabilitySnapshotItem,
 } from '../../companion/capabilities/catalog.js';
+import type { TurnContext } from '../../companion/context/contracts.js';
 
 const log = childLogger('cortex');
 
@@ -49,6 +50,8 @@ export interface CortexInput {
   capabilitySnapshot?: readonly RuntimeCapabilitySnapshotItem[];
   /** Manifest/recipe summaries; descriptive only, authority still comes from the snapshot. */
   capabilityDetails?: readonly string[];
+  /** Host-resolved scope and visible work; content is context, never an authority grant. */
+  turnContext?: TurnContext;
   /** Per-turn model policy, applied to Cortex before any provider work is selected. */
   model?: string;
 }
@@ -74,6 +77,7 @@ export class Cortex {
       currentMessage: input.currentMessage,
       botIsAddressed: input.botIsAddressed,
       availableTools,
+      visibleWorkCount: input.turnContext?.visibleWork.length,
     });
     if (!this.cfg.enabled || !this.llm?.capabilities.chat) return degraded;
     try {
@@ -85,6 +89,7 @@ export class Cortex {
           threadContext: input.threadContext,
           availableTools,
           availableCapabilityDetails: input.capabilityDetails,
+          visibleWork: input.turnContext?.visibleWork,
           history: input.history,
           scene: input.scene,
           botIsAddressed: input.botIsAddressed,

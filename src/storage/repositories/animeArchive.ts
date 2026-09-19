@@ -1062,6 +1062,23 @@ export class AnimeArchiveJobsRepo {
     return this.col.findOne({ offerId });
   }
 
+  /** Active work visible to one actor in one Telegram scope; used only for natural references. */
+  async listVisibleForActor(input: {
+    actorTelegramId: number;
+    chatId: number;
+    threadId?: number;
+    limit?: number;
+  }): Promise<AnimeArchiveJobDoc[]> {
+    const limit = clampLimit(input.limit ?? 12);
+    const filter: Filter<AnimeArchiveJobDoc> = {
+      requesterTelegramId: input.actorTelegramId,
+      'destination.chatId': input.chatId,
+      'destination.threadId': input.threadId ?? null,
+      state: { $in: ['queued', 'running'] },
+    };
+    return this.col.find(filter).sort({ updatedAt: -1, id: 1 }).limit(limit).toArray();
+  }
+
   /**
    * Create the stable series job or atomically CAS-merge a newer source snapshot into it. The CAS
    * includes the complete episode array, so a worker transition can never be overwritten by a

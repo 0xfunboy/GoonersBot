@@ -667,9 +667,12 @@ export async function handleMessage(
   let pendingNaturalOfferId: string | undefined;
   try {
     const outcome = await services.reply.generateReply({
+      ...(ctx.me?.id !== undefined ? { botId: ctx.me.id } : {}),
+      ...(ctx.update?.update_id !== undefined ? { updateId: ctx.update.update_id } : {}),
       person,
       context,
       message,
+      originalMessageText: authoredTextBeforeMedia,
       botUsername,
       language,
       modeName,
@@ -712,6 +715,7 @@ export async function handleMessage(
             createdAt: new Date(),
             scene: outcome.scene,
             evaluation: outcome.evaluation,
+            understanding: outcome.understanding,
             ...(outcome.cortex ? { cortex: outcome.cortex } : {}),
             providerSources: outcome.providerBundle.sources,
             providerBundle: outcome.providerBundle,
@@ -1126,6 +1130,7 @@ export async function handleMessage(
           createdAt: new Date(),
           scene: outcome.scene,
           evaluation: outcome.evaluation,
+          understanding: outcome.understanding,
           ...(outcome.cortex ? { cortex: outcome.cortex } : {}),
           providerSources: outcome.providerBundle.sources,
           providerBundle: outcome.providerBundle,

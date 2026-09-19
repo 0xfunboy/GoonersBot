@@ -201,6 +201,16 @@ export class LocalDevelopmentService {
     return resolved;
   }
 
+  /** Scope-filtered read model used by the companion context adapter, never an authority grant. */
+  async listVisible(actorTelegramId: number, limit = 12): Promise<StoredJob[]> {
+    if (!this.enabled || !this.admins.has(actorTelegramId)) return [];
+    return this.dependencies.jobs.list({
+      actorTelegramId,
+      states: ['queued', 'generating', 'policy_check', 'verifying', 'ready', 'applying', 'stale'],
+      limit: Math.max(1, Math.min(limit, 30)),
+    });
+  }
+
   /**
    * Jobs that have genuinely finished, recently.
    *
