@@ -67,6 +67,22 @@ failed-task evidence are preserved; they must not be rewritten to make the trial
 - Empty SearXNG responses now log aggregated upstream failure categories without query text,
   URLs or raw engine errors. A missing result no longer invents an exhausted quota as its cause.
 
+Corrective code checkpoint `787a880` passed **147 targeted tests across 10 files**, global typecheck,
+scoped lint/format and an isolated release build. Native PDF/DOCX conversion and reopening passed
+with known content. It was activated at **15:26:45 UTC**, after a clean stop with zero active tasks.
+The stopped-service post-trial backup is `mongo-after-trial-TMD51g` in the private backup directory:
+44 collections, manifest SHA256
+`a4a0856162260b86d29a0acfc6a46e88cbc4fcccd70549ec4ba82543d0dd017b`.
+
+A further isolated probe of the actual document handler with the configured model rejected both
+generation attempts as placeholders: **no file was delivered**. This demonstrated the new guard,
+but did not pass document creation. Two small comparison requests with simple content-writing
+prompts returned full three-point checklists. The upstream service reported different Gemini
+versions on those responses despite the configured model alias; no global model configuration was
+changed. The document prompt is being narrowed to preserve the original request, omit empty evidence
+blocks and distinguish ordinary writing from source-backed reporting. A successful probe here must
+still be distinguished from an actual repeated Telegram delivery test.
+
 ## Rollback safeguards
 
 The original unit and original shared dist are retained. Before returning to it:
