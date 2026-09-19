@@ -290,14 +290,28 @@ export interface JobDoc {
  * restarted process replay updates that were acknowledged by long polling but had not reached a
  * terminal state yet. The unique Telegram update id is the idempotency boundary.
  */
-export type UpdateInboxStatus = 'queued' | 'running' | 'done' | 'failed';
+export type UpdateInboxStatus =
+  | 'queued'
+  | 'running'
+  | 'done'
+  | 'failed'
+  | 'cancelled'
+  | 'outcome_unknown';
 
 export interface UpdateInboxDoc {
+  /** Telegram bot identity. update_id is unique only within one bot's update stream. */
+  botId: string;
   updateId: number;
   conversationKey: string;
-  payload: Record<string, unknown>;
+  actorTelegramId: number | null;
+  chatId: number | null;
+  payload?: Record<string, unknown>;
+  payloadBytes: number;
   status: UpdateInboxStatus;
   attempts: number;
+  /** Incremented on every claim; terminal writes must present the same fencing token. */
+  fence: number;
+  ownerId: string | null;
   leaseUntil: Date | null;
   lastError?: string | null;
   receivedAt: Date;

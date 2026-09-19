@@ -11,6 +11,8 @@ describe('terms-decline privacy cleanup', () => {
     const deleteFacts = vi.fn().mockResolvedValue(undefined);
     const deleteModes = vi.fn().mockResolvedValue(undefined);
     const scrubPii = vi.fn().mockResolvedValue(undefined);
+    const findUser = vi.fn().mockResolvedValue({ telegramId: 42 });
+    const redactInbox = vi.fn().mockResolvedValue(2);
     const deleteMemory = vi.fn().mockResolvedValue(3);
     const deleteSocial = vi.fn().mockResolvedValue({ membersDeleted: 2, chatStatesUpdated: 2 });
     const recordDecline = vi.fn().mockResolvedValue(undefined);
@@ -19,10 +21,11 @@ describe('terms-decline privacy cleanup', () => {
         messages: { deleteByUser: deleteMessages },
         facts: { deleteByUser: deleteFacts },
         modes: { deleteByCreator: deleteModes },
-        users: { scrubPii },
+        users: { scrubPii, findByHandle: findUser },
         memoryItems: { deleteByHandleEverywhere: deleteMemory },
         socialProfiles: { deleteByHandleEverywhere: deleteSocial },
         terms: { decline: recordDecline },
+        updateInbox: { redactByActor: redactInbox },
       }),
     );
 
@@ -43,6 +46,11 @@ describe('terms-decline privacy cleanup', () => {
       );
     }
     expect(recordDecline).toHaveBeenCalledWith('@Alice');
+    expect(findUser).toHaveBeenCalledWith('@Alice');
+    expect(redactInbox).toHaveBeenCalledWith(42);
+    expect(redactInbox.mock.invocationCallOrder[0]).toBeLessThan(
+      recordDecline.mock.invocationCallOrder[0]!,
+    );
   });
 
   it('hard-deletes every memory status tied to the handle across chats', async () => {

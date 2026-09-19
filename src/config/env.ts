@@ -119,6 +119,10 @@ const envSchema = z.object({
     (value) => Number.isInteger(value) && value >= 4 && value <= 10_000,
     'TELEGRAM_INGRESS_QUEUE_MAX must be between 4 and 10000',
   ),
+  TELEGRAM_INGRESS_QUEUE_BYTES: intFromString(32 * 1024 * 1024).refine(
+    (value) => Number.isInteger(value) && value >= 1_048_576 && value <= 1_073_741_824,
+    'TELEGRAM_INGRESS_QUEUE_BYTES must be between 1 MiB and 1 GiB',
+  ),
   TELEGRAM_INGRESS_LEASE_MS: intFromString(300_000).refine(
     (value) => Number.isInteger(value) && value >= 10_000 && value <= 3_600_000,
     'TELEGRAM_INGRESS_LEASE_MS must be between 10000 and 3600000',
@@ -690,6 +694,11 @@ export function loadEnv(raw: NodeJS.ProcessEnv = process.env): Env {
       .map((i) => `  - ${i.path.join('.') || '(root)'}: ${i.message}`)
       .join('\n');
     throw new Error(`Invalid environment configuration:\n${issues}`);
+  }
+  if (parsed.data.TELEGRAM_INGRESS_QUEUE_MAX < parsed.data.TELEGRAM_INGRESS_CONCURRENCY) {
+    throw new Error(
+      'Invalid environment configuration:\n  - TELEGRAM_INGRESS_QUEUE_MAX: must be >= TELEGRAM_INGRESS_CONCURRENCY',
+    );
   }
   return parsed.data;
 }

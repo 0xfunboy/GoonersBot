@@ -27,6 +27,9 @@ export class TermsService {
 
   /** Wipe a user's custom data across collections (used on decline). */
   async clearUserData(handle: string): Promise<void> {
+    // Resolve the immutable actor id before scrubPii. Inbox payloads may include message text and
+    // reply context, so active receipts participate in the same erasure boundary.
+    const user = await this.storage.users.findByHandle(handle);
     await Promise.all([
       this.storage.messages.deleteByUser(handle),
       this.storage.facts.deleteByUser(handle),
@@ -34,6 +37,7 @@ export class TermsService {
       this.storage.users.scrubPii(handle),
       this.storage.memoryItems.deleteByHandleEverywhere(handle),
       this.storage.socialProfiles.deleteByHandleEverywhere(handle),
+      ...(user?.telegramId ? [this.storage.updateInbox.redactByActor(user.telegramId)] : []),
     ]);
   }
 }

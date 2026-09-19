@@ -41,6 +41,10 @@ export class ConversationExecutor {
     return this.active;
   }
 
+  get remainingCapacity(): number {
+    return Math.max(0, this.maxPending - this.pending);
+  }
+
   enqueue(key: string, task: () => Promise<void>): Promise<void> {
     if (this.pending >= this.maxPending) throw new QueueCapacityError(this.maxPending);
     this.pending += 1;
@@ -49,11 +53,9 @@ export class ConversationExecutor {
       .catch(() => undefined)
       .then(async () => {
         await this.acquire();
-        this.active += 1;
         try {
           await task();
         } finally {
-          this.active -= 1;
           this.release();
         }
       })
@@ -66,13 +68,23 @@ export class ConversationExecutor {
   }
 
   private async acquire(): Promise<void> {
-    if (this.active < this.concurrency) return;
+    // Reserve the permit synchronously. Incrementing after the await creates a race where every
+    // task in the same microtask turn observes active === 0 and all of them enter concurrently.
+    if (this.active < this.concurrency) {
+      this.active += 1;
+      return;
+    }
     await new Promise<void>((resolve) => this.waiters.push(resolve));
   }
 
   private release(): void {
     const next = this.waiters.shift();
-    if (next) next();
+    if (next) {
+      // Transfer the existing permit to the oldest waiter; active remains unchanged.
+      next();
+      return;
+    }
+    this.active -= 1;
   }
 
   reportFailure(error: unknown, context: Record<string, unknown>): void {
