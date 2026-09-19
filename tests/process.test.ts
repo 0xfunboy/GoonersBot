@@ -2,7 +2,7 @@ import { access, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { runProcess } from '../src/utils/process.js';
+import { ProcessOutputLimitError, runProcess } from '../src/utils/process.js';
 
 const roots: string[] = [];
 
@@ -47,5 +47,48 @@ describe('runProcess', () => {
     });
     controller.abort(new Error('caller cancelled'));
     await expect(pending).rejects.toThrow(/caller cancelled/);
+  });
+
+  it('terminates a binary output flood instead of retaining unlimited buffers or truncating a file', async () => {
+    await expect(
+      runProcess(
+        process.execPath,
+        ['-e', 'setInterval(()=>process.stdout.write(Buffer.alloc(65536)),1)'],
+        {
+          timeoutMs: 2_000,
+          collectStdout: true,
+          maxStdoutBytes: 100_000,
+        },
+      ),
+    ).rejects.toBeInstanceOf(ProcessOutputLimitError);
+  });
+
+  it('keeps a bounded diagnostic tail and reports truncation', async () => {
+    const result = await runProcess(
+      process.execPath,
+      ['-e', "process.stderr.write('x'.repeat(100000)+'final diagnostic')"],
+      {
+        timeoutMs: 2_000,
+        maxStderrBytes: 1_024,
+      },
+    );
+    expect(result.code).toBe(0);
+    expect(Buffer.byteLength(result.stderr)).toBeLessThanOrEqual(1_024);
+    expect(result.stderr).toMatch(/final diagnostic$/);
+    expect(result.stderrTruncated).toBe(true);
+  });
+
+  it('also stops endless diagnostics after the total output budget is consumed', async () => {
+    await expect(
+      runProcess(
+        process.execPath,
+        ['-e', 'setInterval(()=>process.stderr.write(Buffer.alloc(65536)),1)'],
+        {
+          timeoutMs: 2_000,
+          maxOutputBytes: 100_000,
+          maxStderrBytes: 1_024,
+        },
+      ),
+    ).rejects.toThrow(/combined exceeded/);
   });
 });

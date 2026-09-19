@@ -1,0 +1,152 @@
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { runProcessChecked } from '../../utils/process.js';
+
+export type DocumentFormat = 'markdown' | 'txt' | 'csv' | 'json' | 'pdf' | 'docx';
+export interface GeneratedDocument {
+  buffer: Buffer;
+  mime: string;
+  name: string;
+}
+
+const formats: Record<DocumentFormat, { extension: string; mime: string }> = {
+  markdown: { extension: 'md', mime: 'text/markdown; charset=utf-8' },
+  txt: { extension: 'txt', mime: 'text/plain; charset=utf-8' },
+  csv: { extension: 'csv', mime: 'text/csv; charset=utf-8' },
+  json: { extension: 'json', mime: 'application/json' },
+  pdf: { extension: 'pdf', mime: 'application/pdf' },
+  docx: {
+    extension: 'docx',
+    mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  },
+};
+
+export function parseDocumentFormat(value: unknown): DocumentFormat {
+  if (value === undefined || value === null || value === '') return 'markdown';
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'md') return 'markdown';
+  if (Object.hasOwn(formats, normalized)) return normalized as DocumentFormat;
+  throw new Error('Unsupported document format');
+}
+
+/** No active content, templates, remote images or model-supplied filesystem paths are executed. */
+export async function createDocument(input: {
+  format: DocumentFormat;
+  title: string;
+  content: string;
+  signal?: AbortSignal;
+}): Promise<GeneratedDocument> {
+  input.signal?.throwIfAborted();
+  if (!input.content.trim() || Buffer.byteLength(input.content, 'utf8') > 256 * 1024) {
+    throw new Error('Document content is empty or exceeds the document size limit');
+  }
+  const format = formats[input.format];
+  const stem =
+    input.title
+      .replace(/[^\p{L}\p{N} _-]/gu, '')
+      .trim()
+      .replace(/\s+/gu, '_')
+      .slice(0, 80) || 'report';
+  const name = `${stem}.${format.extension}`;
+  let content = stripCodeFence(input.content);
+  if (input.format === 'json') content = JSON.stringify(JSON.parse(content), null, 2);
+  if (input.format === 'csv') {
+    const rows: unknown = JSON.parse(content);
+    if (
+      !Array.isArray(rows) ||
+      !rows.length ||
+      rows.length > 2_001 ||
+      !rows.every(
+        (row) =>
+          Array.isArray(row) &&
+          row.length <= 100 &&
+          row.every(
+            (cell) => cell === null || ['string', 'number', 'boolean'].includes(typeof cell),
+          ),
+      )
+    ) {
+      throw new Error('CSV requires a bounded array of primitive rows');
+    }
+    content =
+      '\ufeff' + rows.map((row: unknown[]) => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
+  }
+  if (input.format !== 'pdf' && input.format !== 'docx') {
+    return { buffer: Buffer.from(content, 'utf8'), mime: format.mime, name };
+  }
+
+  const directory = await mkdtemp(join(tmpdir(), 'goonerbot-document-'));
+  try {
+    const inputFile = join(directory, 'report.html');
+    const paragraphs = content
+      .split(/\n{2,}/u)
+      .map((paragraph) => {
+        const heading = /^(#{1,3})\s+(.+)$/u.exec(paragraph.trim());
+        return heading
+          ? `<h${heading[1]!.length}>${escapeHtml(heading[2]!)}</h${heading[1]!.length}>`
+          : `<p>${escapeHtml(paragraph).replace(/\n/gu, '<br>')}</p>`;
+      })
+      .join('\n');
+    await writeFile(
+      inputFile,
+      `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(input.title)}</title><style>@page{size:A4;margin:2cm}body{font-family:"DejaVu Sans",sans-serif;font-size:11pt;line-height:1.4}p{white-space:pre-wrap}h1,h2,h3{page-break-after:avoid}</style></head><body>${paragraphs}</body></html>`,
+      { mode: 0o600 },
+    );
+    await runProcessChecked(
+      'libreoffice',
+      [
+        `-env:UserInstallation=${pathToFileURL(join(directory, 'profile')).href}`,
+        '--headless',
+        '--nologo',
+        '--nodefault',
+        '--norestore',
+        '--convert-to',
+        input.format === 'pdf' ? 'pdf:writer_pdf_Export' : 'docx:Office Open XML Text',
+        '--outdir',
+        directory,
+        inputFile,
+      ],
+      {
+        timeoutMs: 30_000,
+        signal: input.signal,
+        maxOutputBytes: 512 * 1024,
+        maxStderrBytes: 32 * 1024,
+      },
+      'document converter',
+    );
+    const outputFile = join(directory, `report.${format.extension}`);
+    const metadata = await stat(outputFile);
+    if (!metadata.isFile() || metadata.size < 16 || metadata.size > 8 * 1024 * 1024)
+      throw new Error('Invalid generated document size');
+    const buffer = await readFile(outputFile);
+    if (
+      input.format === 'pdf'
+        ? !buffer.subarray(0, 5).equals(Buffer.from('%PDF-'))
+        : !buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))
+    ) {
+      throw new Error('Invalid generated document signature');
+    }
+    return { buffer, mime: format.mime, name };
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+function csvCell(value: unknown): string {
+  let text = value === null ? '' : String(value);
+  // Prevent spreadsheet applications from treating user/provider text as formulas.
+  if (typeof value === 'string' && /^[\s]*[=+@-]/u.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/gu, '""')}"`;
+}
+
+function stripCodeFence(value: string): string {
+  return value.trim().replace(/^```(?:[\w-]+)?\s*\n([\s\S]*?)\n```$/u, '$1');
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(
+    /[&<>"']/gu,
+    (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!,
+  );
+}

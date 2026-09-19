@@ -112,6 +112,28 @@ export function shouldInspectRepliedMedia(hadCurrentMedia: boolean, authoredText
   return !hadCurrentMedia || explicitlyTargetsRepliedMedia(authoredText);
 }
 
+/**
+ * The only URL fast path allowed before semantic intent evaluation.
+ *
+ * A bare share (optionally addressed only by @bot and punctuation/emoji) keeps the chat's delegated
+ * auto-rehost behavior. Any human words — especially a negation, audit request or question — force
+ * the normal Cortex/evaluator path before a downloader can run.
+ */
+export function isUnambiguousUrlFastPath(
+  text: string,
+  detectedUrls: readonly URL[],
+  botUsername: string,
+): boolean {
+  if (detectedUrls.length === 0) return false;
+  const username = botUsername.replace(/^@/, '');
+  const withoutUrls = text.replace(/https?:\/\/[^\s<>()]+/giu, ' ');
+  const withoutAddress = withoutUrls.replace(
+    new RegExp(`@${username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'giu'),
+    ' ',
+  );
+  return withoutAddress.replace(/[\p{P}\p{S}\s]/gu, '').length === 0;
+}
+
 function currentMediaUnavailableMarker(kind: IncomingMessage['currentMediaKind']): string {
   return `[CURRENT ${String(kind ?? 'media').toUpperCase()} PRESENT BUT NOT AVAILABLE FOR ANALYSIS]`;
 }
@@ -188,13 +210,22 @@ export async function handleMessage(
   );
   const linkMediaAllowed =
     services.linkMedia.enabled && (await services.storage.chats.getLinkMedia(context.chatId));
+  const pendingClarification = addressed
+    ? await services.companionWork?.pendingContext(person, context)
+    : null;
+  const pureUrlFastPath =
+    !pendingClarification &&
+    isUnambiguousUrlFastPath(message.messageText ?? '', mediaUrls, botUsername);
   const linkMediaEnabled =
-    linkMediaAllowed && services.linkMedia.autoRehostEnabled && genericMediaUrls.length > 0;
+    linkMediaAllowed &&
+    services.linkMedia.autoRehostEnabled &&
+    genericMediaUrls.length > 0 &&
+    pureUrlFastPath;
   const hasMediaUrl = linkMediaEnabled;
+  const archiveConfirmation = parseAnimeArchiveConfirmationDecision(message.messageText ?? '');
   const hasArchiveInteraction =
     Boolean(animeArchive) &&
-    (archiveMatches.length > 0 ||
-      parseAnimeArchiveConfirmationDecision(message.messageText ?? '') !== null);
+    (archiveConfirmation !== null || (archiveMatches.length > 0 && pureUrlFastPath));
   // Link rehosting is an independent per-chat feature: disabling conversation storage must not
   // disable the interceptor. Messages with neither an address nor a rehostable URL can stop here.
   if (!tracking && !addressed && !linkMediaEnabled && !hasArchiveInteraction) return;
@@ -234,9 +265,9 @@ export async function handleMessage(
 
   const bypassGroupPlan = services.bypassesGroupPlan(person, context);
 
-  // Anime source URLs and terse SI/NO confirmations are deterministic writes. They run before the
-  // generic 180-second link-media interceptor and before any conversational/LLM accounting.
-  if (message.messageText) {
+  // A bare source URL and a correlated SI/NO confirmation are the only safe pre-Cortex archive
+  // fast paths. Every URL accompanied by human instructions is classified semantically first.
+  if (message.messageText && hasArchiveInteraction) {
     const archiveHandled = await handleAnimeArchiveInteraction(
       ctx,
       person,
@@ -816,6 +847,7 @@ export async function handleMessage(
       );
     }
     const hasExplicitArtifact = Boolean(
+      outcome.generatedArtifacts?.length ||
       outcome.music ||
       outcome.linkMediaUrl ||
       outcome.animeArchiveResult ||
@@ -828,6 +860,7 @@ export async function handleMessage(
       const ttsCfg = services.config.voice.tts;
       const wantVoiceReply =
         !hasExplicitArtifact &&
+        !outcome.companionTaskId &&
         !outcome.socialQuestion &&
         services.tts.enabled &&
         finalText.length <= ttsCfg.maxChars &&
@@ -936,7 +969,12 @@ export async function handleMessage(
       // new undelivered offer has been invalidated. The outer failure guard need not touch it.
       pendingNaturalOfferId = undefined;
     }
-    if (outcome.music) {
+    const hasGeneratedArtifacts = Boolean(
+      outcome.generatedArtifacts?.some(
+        (artifact) => artifact.kind !== 'link_media' && artifact.kind !== 'anime_archive',
+      ),
+    );
+    if (outcome.music && !hasGeneratedArtifacts) {
       const replyToMusic = ctx.message?.message_id;
       const musicReplyOpts = replyToMusic ? { reply_parameters: { message_id: replyToMusic } } : {};
       const captionHead = outcome.music.url
@@ -996,7 +1034,7 @@ export async function handleMessage(
       );
       rememberBotMessage(fallback.message_id);
     }
-    if (outcome.audioBuffer) {
+    if (outcome.audioBuffer && !hasGeneratedArtifacts) {
       const sent = await ctx
         .replyWithVoice(new InputFile(outcome.audioBuffer), replyOpts)
         .catch((err) => {
@@ -1005,7 +1043,7 @@ export async function handleMessage(
         });
       if (sent) rememberBotMessage(sent.message_id);
     }
-    if (outcome.imageBuffer || outcome.imageUrl) {
+    if ((outcome.imageBuffer || outcome.imageUrl) && !hasGeneratedArtifacts) {
       const photo = outcome.imageBuffer ? new InputFile(outcome.imageBuffer) : outcome.imageUrl!;
       const imageOptions = outcome.imageSpoiler ? { has_spoiler: true } : {};
       const sent = await ctx.replyWithPhoto(photo, imageOptions).catch((err) => {
@@ -1014,7 +1052,7 @@ export async function handleMessage(
       });
       if (sent) rememberBotMessage(sent.message_id);
     }
-    if (outcome.videoBuffer) {
+    if (outcome.videoBuffer && !hasGeneratedArtifacts) {
       // supports_streaming + poster => inline autoplaying clip instead of a downloadable file
       const meta = outcome.videoMeta ?? {};
       const sent = await ctx
@@ -1031,6 +1069,38 @@ export async function handleMessage(
           return null;
         });
       if (sent) rememberBotMessage(sent.message_id);
+    }
+    for (const artifact of outcome.generatedArtifacts ?? []) {
+      if (artifact.kind === 'link_media' || artifact.kind === 'anime_archive') continue;
+      const sent =
+        artifact.kind === 'document'
+          ? await ctx.replyWithDocument(new InputFile(artifact.buffer, artifact.name), replyOpts)
+          : artifact.kind === 'image'
+            ? await ctx.replyWithPhoto(new InputFile(artifact.buffer), {
+                ...replyOpts,
+                has_spoiler: artifact.spoiler,
+              })
+            : artifact.kind === 'video'
+              ? await ctx.replyWithVideo(new InputFile(artifact.buffer), {
+                  ...replyOpts,
+                  has_spoiler: artifact.spoiler,
+                  supports_streaming: true,
+                })
+              : await ctx.replyWithVoice(
+                  new InputFile(artifact.kind === 'music' ? artifact.result.ogg : artifact.buffer),
+                  replyOpts,
+                );
+      rememberBotMessage(sent.message_id);
+    }
+    if (outcome.companionTaskId && services.companionWork) {
+      for (const messageId of botMessageIds) {
+        await services.companionWork.attachMessage(
+          outcome.companionTaskId,
+          person,
+          context,
+          messageId,
+        );
+      }
     }
     if (outcome.socialQuestion && socialQuestionMessageId !== undefined) {
       await services.socialQuestions

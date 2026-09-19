@@ -9,6 +9,10 @@ import type { SourcedCortexDecision } from '../../brain/cortex/schema.js';
 import type { SocialSignal, TurnEvaluation } from '../../brain/types.js';
 import { socialSignalSchema } from '../../brain/schemas.js';
 import {
+  operationRequestsFromUnderstanding,
+  type OperationRequest,
+} from '../capabilities/dispatch.js';
+import {
   BUILTIN_CAPABILITY_IDS,
   legacyProviderFor,
   runtimeCapabilityManifest,
@@ -430,12 +434,14 @@ export function requestedActionsFromUnderstanding(understanding: TurnUnderstandi
   query?: string;
   args?: Record<string, unknown>;
   reason: string;
+  operationRequest: OperationRequest;
 }> {
-  return understanding.proposedOperations.map((operation) => ({
+  return operationRequestsFromUnderstanding(understanding).map((operation) => ({
     tool: operation.capabilityId,
     ...(operation.input.query ? { query: operation.input.query } : {}),
     ...(Object.keys(operation.input.args).length ? { args: operation.input.args } : {}),
     reason: operation.purpose,
+    operationRequest: operation,
   }));
 }
 
@@ -572,6 +578,7 @@ function operationIdFor(capabilityId: BuiltinCapabilityId, args: Record<string, 
   const intent = typeof args['intent'] === 'string' ? args['intent'] : undefined;
   if (capabilityId === 'anime_archive')
     return intent === 'series' ? 'series_rehost' : (intent ?? 'unknown');
+  if (capabilityId === 'workflow') return intent ?? 'unknown';
   if (capabilityId === 'anime_knowledge') {
     return intent === 'follow' || intent === 'unfollow' ? intent : 'lookup';
   }
@@ -622,10 +629,19 @@ function missingSlotsFor(
 ): TurnUnderstanding['missingSlots'] {
   const missing: TurnUnderstanding['missingSlots'] = [];
   for (const operation of operations) {
+    if (operation.capabilityId === 'workflow' && operation.input.args['intent'] === 'create') {
+      const delay = Number(operation.input.args['delayMinutes']);
+      const at = operation.input.args['runAt'];
+      if (!(Number.isFinite(delay) && delay > 0) && !(typeof at === 'string' && at.trim()))
+        missing.push(slot('schedule_time', 'Quando vuoi che te lo ricordi?', operation.id));
+      if (typeof at === 'string' && at.trim() && !operation.input.args['timezone'])
+        missing.push(slot('timezone', 'Quale fuso orario devo usare?', operation.id));
+    }
     if (
       operation.capabilityId === 'page_scan' &&
       !operation.input.query &&
-      typeof operation.input.args['url'] !== 'string'
+      typeof operation.input.args['url'] !== 'string' &&
+      !operations.some((candidate) => candidate.capabilityId === 'web_search')
     ) {
       missing.push(slot('public_url', 'Quale pagina pubblica devo analizzare?', operation.id));
     }
@@ -638,6 +654,7 @@ function missingSlotsFor(
     }
     if (
       operation.capabilityId === 'document_read' &&
+      operation.input.args['hostDocumentContext'] !== true &&
       !context.attachmentRefs.some((referent) => referent.kind === 'attachment')
     ) {
       missing.push(slot('document', 'Quale documento devo leggere?', operation.id));

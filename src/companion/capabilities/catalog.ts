@@ -10,6 +10,9 @@ export const BUILTIN_CAPABILITY_IDS = [
   'news',
   'image_lookup',
   'document_read',
+  'document_create',
+  'data_analysis',
+  'workflow',
   'media_prompt',
   'image_gen',
   'video_gen',
@@ -21,6 +24,9 @@ export const BUILTIN_CAPABILITY_IDS = [
 ] as const;
 
 export const CORTEX_CAPABILITY_IDS = [
+  'data_analysis',
+  'workflow',
+  'document_create',
   'web_search',
   'page_scan',
   'news',
@@ -92,6 +98,16 @@ const animeArchiveInputSchema = operationInputSchema.superRefine((value, ctx) =>
       code: z.ZodIssueCode.custom,
       path: ['args', 'title'],
       message: 'anime archive operation requires a concrete title',
+    });
+  }
+});
+
+const workflowInputSchema = operationInputSchema.superRefine((value, ctx) => {
+  if (!['create', 'list', 'update', 'cancel'].includes(String(value.args['intent']))) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['args', 'intent'],
+      message: 'workflow requires create, list, update or cancel intent',
     });
   }
 });
@@ -328,6 +344,112 @@ const seeds: Record<BuiltinCapabilityId, ManifestSeed> = {
     outputKinds: ['text', 'document'],
     legacyProviderId: 'document_read',
   },
+  document_create: {
+    description:
+      'Create an actual downloadable report, document or data export as Markdown, TXT, CSV, JSON, PDF or DOCX; combine verified provider results.',
+    examples: ['preparami un PDF con fonti', 'esporta questi dati in CSV', 'scrivi un report Word'],
+    operations: [
+      operation(
+        'create',
+        'Create a verified document attachment.',
+        'generate',
+        ['crea un documento'],
+        {
+          requiredReferents: ['document brief or content'],
+          idempotency: 'effect_key',
+          retry: 'checkpoint_only',
+        },
+      ),
+    ],
+    adapterRisk: 'generate',
+    cortexVisible: true,
+    terminal: true,
+    requirements: ['chat model; LibreOffice for PDF and DOCX'],
+    resourceClass: 'generation',
+    defaultTimeoutMs: 120_000,
+    defaultMaxCalls: 2,
+    outputKinds: ['document'],
+    legacyProviderId: 'document_create',
+  },
+  data_analysis: {
+    description:
+      'Compute verified statistics and grouped totals from bounded CSV or JSON data; produce a statistics CSV and a chart SVG without model-invented arithmetic.',
+    examples: ['analizza questo CSV', 'somma le vendite per regione e crea un grafico'],
+    operations: [
+      operation('summarize', 'Compute exact decimal column statistics.', 'compute', [
+        'analizza i dati',
+      ]),
+      operation(
+        'group_by',
+        'Compute grouped statistics for a selected numeric column.',
+        'compute',
+        ['somma per categoria'],
+      ),
+    ],
+    adapterRisk: 'compute',
+    cortexVisible: true,
+    terminal: true,
+    requirements: ['one complete CSV or JSON data source'],
+    resourceClass: 'interactive',
+    defaultTimeoutMs: 15_000,
+    defaultMaxCalls: 2,
+    outputKinds: ['text', 'document'],
+    legacyProviderId: 'data_analysis',
+  },
+  workflow: {
+    description:
+      'Create, inspect, amend or cancel durable personal reminders and recurring scheduled messages within this chat.',
+    examples: [
+      'ricordamelo tra venti minuti',
+      'avvisami ogni lunedì',
+      'sposta il promemoria di un’ora',
+      'annulla quel promemoria',
+    ],
+    operations: [
+      operation(
+        'create',
+        'Persist a reminder or recurring message.',
+        'write',
+        ['ricordamelo domani'],
+        {
+          requiredReferents: ['time', 'reminder content'],
+          idempotency: 'effect_key',
+          retry: 'checkpoint_only',
+        },
+      ),
+      operation(
+        'list',
+        'List reminders visible to the requesting user in this conversation.',
+        'read',
+        ['quali promemoria ho?'],
+      ),
+      operation('update', 'Amend a uniquely identified reminder.', 'write', ['spostalo a domani'], {
+        requiredReferents: ['reminder identity'],
+        idempotency: 'effect_key',
+        retry: 'checkpoint_only',
+      }),
+      operation(
+        'cancel',
+        'Cancel a uniquely identified reminder.',
+        'write',
+        ['annulla il promemoria'],
+        {
+          requiredReferents: ['reminder identity'],
+          idempotency: 'effect_key',
+          retry: 'checkpoint_only',
+        },
+      ),
+    ],
+    adapterRisk: 'compute',
+    cortexVisible: true,
+    terminal: true,
+    requirements: ['durable reminder service', 'host-authorized current conversation'],
+    resourceClass: 'interactive',
+    defaultTimeoutMs: 15_000,
+    defaultMaxCalls: 3,
+    outputKinds: ['text'],
+    legacyProviderId: 'workflow',
+  },
   media_prompt: {
     description: 'Prepare a coherent context-aware image or video brief.',
     examples: ['prepara il concept visivo'],
@@ -506,9 +628,11 @@ for (const id of BUILTIN_CAPABILITY_IDS) {
           inputSchema:
             id === 'page_scan'
               ? pageAuditInputSchema
-              : id === 'anime_archive'
-                ? animeArchiveInputSchema
-                : operationInputSchema,
+              : id === 'workflow'
+                ? workflowInputSchema
+                : id === 'anime_archive'
+                  ? animeArchiveInputSchema
+                  : operationInputSchema,
           outputSchema: operationOutputSchema,
         }),
       ),
@@ -547,6 +671,7 @@ export function assertCapabilityHandlerCoverage(
 interface CapabilityActionInput {
   query?: string;
   args: Record<string, unknown>;
+  dependsOn?: readonly string[];
 }
 
 interface CapabilityOutputInput {
@@ -564,6 +689,14 @@ export function validateCapabilityInvocation(
   const operationId = operationIdForInvocation(id, action.args);
   const selected = manifest.operations.find((item) => item.id === operationId);
   if (!selected) return [`unknown operation ${operationId ?? '(missing)'}`];
+  if (
+    id === 'page_scan' &&
+    action.dependsOn?.length &&
+    !action.query?.trim() &&
+    typeof action.args['url'] !== 'string'
+  ) {
+    return [];
+  }
   const parsed = selected.inputSchema.safeParse({
     ...(action.query ? { query: action.query } : {}),
     args: action.args,
@@ -593,7 +726,7 @@ export function validateCapabilityOutput(
     : parsed.error.issues.map((issue) => `${issue.path.join('.') || 'output'}: ${issue.message}`);
 }
 
-function operationIdForInvocation(
+export function operationIdForInvocation(
   id: BuiltinCapabilityId,
   args: Record<string, unknown>,
 ): string | null {
@@ -601,6 +734,7 @@ function operationIdForInvocation(
   if (explicit) return explicit;
   const intent = typeof args['intent'] === 'string' ? args['intent'] : null;
   if (id === 'anime_archive') return intent === 'series' ? 'series_rehost' : intent;
+  if (id === 'workflow') return intent;
   if (id === 'anime_knowledge') {
     if (intent === 'follow' || intent === 'unfollow') return intent;
     return 'lookup';

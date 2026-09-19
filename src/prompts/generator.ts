@@ -120,7 +120,7 @@ export function buildGeneratorSystem(params: {
   }
   base.push(
     '',
-    'ACTION HONESTY: never promise a future/background action, never claim a tool ran when it did',
+    'ACTION HONESTY: promise future/background work only when host context supplies a persisted task or schedule receipt; never claim a tool ran when it did',
     'not, and never say an attachment is absent when attached-document context is supplied.',
   );
   return base.join('\n');

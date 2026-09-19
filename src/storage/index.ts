@@ -35,6 +35,8 @@ import { AnimeArchiveRepo } from './repositories/animeArchive.js';
 import { BotAdminsRepo } from './repositories/botAdmins.js';
 import { MongoSocialProfileStore } from '../social/mongoStore.js';
 import { UpdateInboxRepo } from './repositories/updateInbox.js';
+import { CompanionTaskRepository } from '../companion/tasks/repository.js';
+import { ReminderService, type ReminderServiceOptions } from '../companion/workflows/index.js';
 
 const log = childLogger('storage');
 
@@ -77,6 +79,7 @@ export class Storage {
   readonly socialProfiles: MongoSocialProfileStore;
   /** Durable Telegram ingress receipts used for deduplication and crash recovery. */
   readonly updateInbox: UpdateInboxRepo;
+  readonly companionTasks: CompanionTaskRepository;
 
   private constructor(
     private readonly connection: MongoConnection,
@@ -120,11 +123,16 @@ export class Storage {
     this.botAdmins = new BotAdminsRepo(db);
     this.socialProfiles = new MongoSocialProfileStore(db);
     this.updateInbox = new UpdateInboxRepo(db);
+    this.companionTasks = new CompanionTaskRepository(db);
   }
 
   static async connect(env: Env): Promise<Storage> {
     const connection = await connectMongo(env.MONGO_URI, env.MONGO_DB);
     return new Storage(connection, connection.db, env);
+  }
+
+  createReminderService(options: ReminderServiceOptions): ReminderService {
+    return new ReminderService(this.db, options);
   }
 
   async ensureIndexes(): Promise<void> {
@@ -161,6 +169,8 @@ export class Storage {
     await BotAdminsRepo.ensureIndexes(this.db);
     await MongoSocialProfileStore.ensureIndexes(this.db);
     await UpdateInboxRepo.ensureIndexes(this.db, this.env.TELEGRAM_INGRESS_RETENTION_DAYS);
+    await CompanionTaskRepository.ensureIndexes(this.db);
+    await ReminderService.ensureIndexes(this.db);
     log.info('indexes ensured');
   }
 

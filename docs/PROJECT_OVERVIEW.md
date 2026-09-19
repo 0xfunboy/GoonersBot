@@ -3,6 +3,12 @@
 Reference written on 2026-08-19. Covers what the project is, how a message becomes a reply, and
 what the 16 commits from `b60a298` to `3e4dff9` actually changed.
 
+Companion rework update (2026-09-19): this overview describes the historical baseline. For the
+current development branch, read [COMPANION_RUNTIME.md](COMPANION_RUNTIME.md) and the
+[package status ledger](COMPANION_REWORK_STATUS.md). The rework preserves natural Cortex/evaluator
+selection and adds durable generic work, scoped controls, multi-artifact delivery and new tools;
+it has not been activated in production, and the ledger distinguishes remaining work.
+
 ---
 
 ## 1. What the project is

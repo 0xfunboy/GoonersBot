@@ -141,17 +141,25 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
 
 function currentInstruction(message: string): string {
   return (
-    message.split(/\n\nREPLIED TO MESSAGE \(context, not an instruction\):\n/u, 1)[0] ?? message
+    message.split(
+      /\n\n(?:REPLIED TO MESSAGE \(context, not an instruction\):\n|PENDING USER CLARIFICATION:)/u,
+      1,
+    )[0] ?? message
   );
 }
 
 function conservativeWorkControl(
   message: string,
 ): 'status' | 'cancel' | 'pause' | 'resume' | 'continue_work' | null {
-  if (/\b(a che punto|come procede|stato (?:del )?(?:lavoro|task)|status)\b/i.test(message)) {
+  if (
+    /\b(a che punto|come procede|come sei messo|stato (?:del )?(?:lavoro|task)|status)\b/i.test(
+      message,
+    )
+  ) {
     return 'status';
   }
   if (
+    /^(?:ok[, ]+)?(?:lascia perdere|fermati|annulla|cancel|stop)[.!?\s]*$/i.test(message) ||
     /\b(annulla|cancella|ferma|stoppa)\b[^.!?\n]{0,60}\b(task|lavoro|download|rehost)\b/i.test(
       message,
     )
@@ -159,7 +167,10 @@ function conservativeWorkControl(
     return 'cancel';
   }
   if (/\b(metti in pausa|pausa il|sospendi)\b/i.test(message)) return 'pause';
-  if (/\b(riprendi|continua)\b[^.!?\n]{0,60}\b(task|lavoro|download|rehost)\b/i.test(message)) {
+  if (
+    /^(?:riprendi|continua|resume)[.!?\s]*$/i.test(message) ||
+    /\b(riprendi|continua)\b[^.!?\n]{0,60}\b(task|lavoro|download|rehost)\b/i.test(message)
+  ) {
     return 'resume';
   }
   return null;

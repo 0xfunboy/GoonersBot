@@ -2,11 +2,23 @@ import { describe, expect, it } from 'vitest';
 import { Localizer } from '../src/config/index.js';
 import {
   formatMediaDuration,
+  isUnambiguousUrlFastPath,
   linkMediaHandlerErrorResult,
   shouldStopAfterDeterministicLinkMedia,
 } from '../src/telegram/handlers/message.js';
 
 describe('deterministic link-media conversation routing', () => {
+  it('allows only bare URL shares through the pre-Cortex rehost fast path', () => {
+    const url = new URL('https://example.org/video');
+    expect(isUnambiguousUrlFastPath(url.toString(), [url], 'GoonersBot')).toBe(true);
+    expect(isUnambiguousUrlFastPath(`@GoonersBot ${url} 🔥`, [url], 'GoonersBot')).toBe(true);
+    expect(isUnambiguousUrlFastPath(`non scaricarlo ${url}`, [url], 'GoonersBot')).toBe(false);
+    expect(isUnambiguousUrlFastPath(`analizza il sorgente di ${url}`, [url], 'GoonersBot')).toBe(
+      false,
+    );
+    expect(isUnambiguousUrlFastPath(`cos'è? ${url}`, [url], 'GoonersBot')).toBe(false);
+  });
+
   it('formats the known duration and cap for a short deterministic notice', () => {
     expect(formatMediaDuration(1_050)).toBe('17:30');
     expect(formatMediaDuration(300)).toBe('5:00');

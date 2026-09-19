@@ -66,7 +66,11 @@ export class ToolOrchestrator {
       .filter((result): result is ActionRunResult => Boolean(result));
     return {
       plan,
-      status: reportStatus(results),
+      status: plan.unmetOperations?.length
+        ? results.some((result) => result.status === 'succeeded')
+          ? 'partial'
+          : 'failed'
+        : reportStatus(results),
       startedAt,
       durationMs: Date.now() - started,
       results,
@@ -132,9 +136,10 @@ export class ToolOrchestrator {
     );
 
     try {
+      const boundAction = bindDependencyInputs(action, dependencyOutputs);
       const handlerPromise = handler({
         request: options.request,
-        action,
+        action: boundAction,
         dependencies: dependencyOutputs,
         signal: controller.signal,
         metadata: options.metadata ?? {},
@@ -297,6 +302,34 @@ function waitForAbort(signal: AbortSignal): Promise<void> {
   return new Promise((resolve) =>
     signal.addEventListener('abort', () => resolve(), { once: true }),
   );
+}
+
+function bindDependencyInputs(
+  action: PlannedAction,
+  outputs: ReadonlyMap<string, ToolExecutionOutput>,
+): PlannedAction {
+  if (!action.dependencyBindings?.length) return action;
+  const args = { ...action.args };
+  for (const binding of action.dependencyBindings) {
+    const output = outputs.get(binding.fromOperationId);
+    if (!output || output.verified === false)
+      throw new Error('Required dependency output is not verified');
+    if (binding.select === 'media_prompt' || binding.select === 'context') continue; // Typed context stays in the dependency map.
+    let value: string | undefined;
+    if (binding.select === 'evidence_url') {
+      value = output.evidence
+        ?.map((item) => item.source)
+        .find((source) => /^https?:\/\/\S+$/i.test(source));
+    } else {
+      const data = output.data;
+      if (data && typeof data === 'object' && 'text' in data && typeof data.text === 'string')
+        value = data.text.trim();
+    }
+    if (!value) throw new Error(`Required dependency has no ${binding.select} output`);
+    if (binding.target === 'args.url') args['url'] = value;
+    if (binding.target === 'args.sourceText') args['sourceText'] = value;
+  }
+  return { ...action, args };
 }
 
 function delay(ms: number): Promise<void> {

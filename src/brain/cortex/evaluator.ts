@@ -34,6 +34,9 @@ export interface CortexCapabilities {
   imageGeneration: boolean;
   videoGeneration: boolean;
   translation: boolean;
+  documentCreation?: boolean;
+  dataAnalysis?: boolean;
+  workflows?: boolean;
   tts: boolean;
   capabilityForge?: boolean;
 }
@@ -169,6 +172,9 @@ export function availableToolsFor(capabilities: CortexCapabilities): CortexTool[
   if (capabilities.imageGeneration) tools.push('image_gen');
   if (capabilities.videoGeneration) tools.push('video_gen');
   if (capabilities.translation) tools.push('translate');
+  if (capabilities.documentCreation ?? capabilities.translation) tools.push('document_create');
+  if (capabilities.dataAnalysis) tools.push('data_analysis');
+  if (capabilities.workflows) tools.push('workflow');
   if (capabilities.tts) tools.push('tts');
   if (capabilities.capabilityForge) tools.push('capability_forge');
   return tools;

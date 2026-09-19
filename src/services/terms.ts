@@ -6,7 +6,10 @@ import type { Storage } from '../storage/index.js';
  * safety bookkeeping (terms + bans) is retained - matching the documented terms text.
  */
 export class TermsService {
-  constructor(private readonly storage: Storage) {}
+  constructor(
+    private readonly storage: Storage,
+    private readonly eraseWork?: (actorTelegramId: number) => Promise<void>,
+  ) {}
 
   hasAccepted(handle: string): Promise<boolean> {
     return this.storage.terms.hasAccepted(handle);
@@ -30,6 +33,7 @@ export class TermsService {
     // Resolve the immutable actor id before scrubPii. Inbox payloads may include message text and
     // reply context, so active receipts participate in the same erasure boundary.
     const user = await this.storage.users.findByHandle(handle);
+    if (user?.telegramId && this.eraseWork) await this.eraseWork(user.telegramId);
     await Promise.all([
       this.storage.messages.deleteByUser(handle),
       this.storage.facts.deleteByUser(handle),

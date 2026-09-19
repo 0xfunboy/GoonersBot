@@ -396,6 +396,8 @@ async function main(): Promise<void> {
     clearTimeout(communityBackfillTimer);
     clearInterval(communityBackfillRetry);
     await scheduler.stop();
+    await services.companionWork.stop();
+    await services.workflows?.stop();
     try {
       await goonerBot.stop();
     } catch (err) {

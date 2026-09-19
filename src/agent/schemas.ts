@@ -1,5 +1,9 @@
 import { z } from 'zod';
 import { BUILTIN_CAPABILITY_IDS } from '../companion/capabilities/catalog.js';
+import {
+  dependencyBindingSchema,
+  unmetOperationSchema,
+} from '../companion/capabilities/dispatch.js';
 
 /**
  * Deliberately closed list of capabilities the autonomous coordinator may invoke.
@@ -35,6 +39,8 @@ export const actionAcceptanceSchema = z.object({
 });
 
 export const plannedActionSchema = z.object({
+  requestId: z.string().min(1).max(160).optional(),
+  dependencyBindings: z.array(dependencyBindingSchema).max(8).optional(),
   id: z
     .string()
     .min(1)
@@ -65,6 +71,7 @@ export const agentActionPlanSchema = z
   .object({
     goal: z.string().min(1).max(1_000),
     actions: z.array(plannedActionSchema).max(10).default([]),
+    unmetOperations: z.array(unmetOperationSchema).max(30).optional(),
     finalResponse: finalResponseContractSchema.default({
       language: 'same as the user',
       format: 'text',

@@ -1,6 +1,11 @@
 import type { LLMProvider } from '../providers/llm/types.js';
 import { childLogger } from '../utils/logger.js';
 import { composedAnswerDraftSchema } from './schemas.js';
+import {
+  conversationContractPrompt,
+  createConversationContract,
+  operationalFailureMessage,
+} from '../companion/expression/index.js';
 import type {
   ActionRunResult,
   AgentExecutionReport,
@@ -71,7 +76,7 @@ export class FinalAnswerComposer {
           .map((result) => result.action.id),
       );
       const usedActionIds = [...new Set(draft.usedActionIds)].filter((id) => successfulIds.has(id));
-      const materialFailures = failureLines(report.results);
+      const materialFailures = failureLines(report);
       const draftUncertainties = draft.uncertainties ?? [];
       const message = materialFailures.length
         ? `${draft.message.trim()}\n\nLimiti: ${materialFailures.join('; ')}.`
@@ -106,6 +111,13 @@ export function buildCompositionPrompt(
     error: result.error,
   }));
   return [
+    conversationContractPrompt(
+      createConversationContract({
+        language: report.plan.finalResponse.language,
+        socialContract,
+        tone: report.plan.finalResponse.tone,
+      }),
+    ),
     `ORIGINAL REQUEST: ${request.slice(0, 4_000)}`,
     socialContract
       ? `NON-NEGOTIABLE SOCIAL CONTRACT: ${socialContract.slice(0, 800)}`
@@ -114,6 +126,7 @@ export function buildCompositionPrompt(
     `FINAL CONTRACT: ${JSON.stringify(report.plan.finalResponse)}`,
     'VERIFIED ACTION RESULTS:',
     JSON.stringify(results).slice(0, 24_000),
+    `UNMET OPERATIONS: ${JSON.stringify(report.plan.unmetOperations ?? [])}`,
     'Compose one coherent final response. List usedActionIds and real uncertainties.',
   ].join('\n');
 }
@@ -123,7 +136,7 @@ function deterministicAnswer(report: AgentExecutionReport): CompositeAnswer {
   const summaries = successes
     .map((result) => result.output?.summary.trim())
     .filter((summary): summary is string => Boolean(summary));
-  const failures = failureLines(report.results);
+  const failures = failureLines(report);
   let message: string;
   if (summaries.length > 0) {
     message = summaries.join('\n\n');
@@ -168,13 +181,23 @@ function assembleAnswer(
   };
 }
 
-function failureLines(results: ActionRunResult[]): string[] {
-  return results
-    .filter((result) => result.status !== 'succeeded')
-    .map(
-      (result) =>
-        `${result.action.purpose} (${result.status}${result.error ? `: ${result.error}` : ''})`,
-    );
+function failureLines(report: AgentExecutionReport): string[] {
+  return [
+    ...report.results
+      .filter((result) => result.status !== 'succeeded')
+      .map((result) =>
+        operationalFailureMessage(
+          { status: result.status, error: result.error, tool: result.action.tool },
+          report.plan.finalResponse.language,
+        ),
+      ),
+    ...(report.plan.unmetOperations ?? []).map((operation) =>
+      operationalFailureMessage(
+        { status: 'skipped', error: operation.reason, tool: operation.capabilityId },
+        report.plan.finalResponse.language,
+      ),
+    ),
+  ];
 }
 
 function dedupeOutputs<K extends 'evidence' | 'artifacts'>(

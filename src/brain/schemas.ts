@@ -207,6 +207,9 @@ export const turnEvaluationSchema = z.object({
         'video_generation',
         'translation',
         'tts',
+        'document_create',
+        'data_analysis',
+        'workflow',
         'capability_forge',
       ]),
     )

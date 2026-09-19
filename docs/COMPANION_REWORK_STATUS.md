@@ -17,19 +17,19 @@ It records verified behavior, not intent. States are `planned`, `in_progress`, `
 | --- | --- | --- | --- | --- | --- |
 | R00 | implemented | `8616047` | `companion/ingress/*`, `telegram/bot`, `updateInbox` | 113 files / 1,311 tests, typecheck, lint, build; simulated fault tests; 2026-09-19 | Isolated real-Mongo legacy-index migration and process-level SIGTERM rehearsal before `verified`. |
 | R01 | implemented | `056af95` | `companion/capabilities/catalog`, Cortex, AgentRuntime, SelfKnowledge | 116 files / 1,323 tests, typecheck, lint, build and format; natural installed-recipe execution; 2026-09-19 | Real-model semantic corpus and context-specific authorization/readiness remain release gates; R02 consumes the catalog contract. |
-| R02 | implemented | this commit | `companion/context`, Cortex/TurnEvaluator adapters, ReplyService | 117 files / 1,332 tests, typecheck, lint, build and format; multi-intent, provenance, control and degraded-routing cases; 2026-09-19 | Real-model multilingual corpus plus persistent clarification/control are joint R02+R04 release gates. |
-| R03 | planned | — | — | — | Unified provider/action dispatch. |
-| R04 | planned | — | — | — | Persistent tasks and concurrent task control dialogue. |
-| R05 | planned | — | — | — | Multi-artifact outbox and verified delivery. |
-| R06 | planned | — | — | — | Bounded continuation, correction and progress evaluation. |
-| R07 | planned | — | — | — | Common expression policy and naturalness evals. |
-| R08 | planned | — | — | — | Operational, personal and project memory scopes. |
-| R09 | planned | — | — | — | Shared resource governor and workload containment. |
-| R10 | planned | — | — | — | Web/document/data/code/media capability families. |
+| R02 | implemented | `3fd3d32` + current changes | `companion/context`, Cortex/TurnEvaluator adapters, ReplyService | Existing 1,332-test baseline plus targeted context/control regressions | Real-model multilingual corpus remains a release gate. Generic pending clarification now persists. |
+| R03 | implemented | current changes | `companion/capabilities/dispatch`, planner/orchestrator, ReplyService | Typed request bindings, explicit unmet operations, provider observations, no composer-triggered re-execution | Real-model natural corpus. |
+| R04 | in_progress | current changes | `companion/tasks`, `services/companionWork`, ReplyService, Services | Durable handoff, scoped controls, fencing/CAS, deadline, pending clarification, reply correlation | Real-Mongo/process recovery rehearsal and legacy anime/learn control cutover remain. |
+| R05 | in_progress | current changes | `companion/artifacts`, task effects, Telegram delivery | Ordered multi-artifacts; scoped hash-checked private files; intent/receipt on one task document; unknown effects quarantined | Real Telegram ambiguous-delivery/reconciliation rehearsal; legacy transport unification remains. |
+| R06 | in_progress | current changes | `companion/tasks/steps`, AgentRuntime executeAction | Verified step reuse after interruption; bounded transient read retry; generation receipts; revision fences | Semantic strategy revision, wrong-result feedback and minimal invalidation across amendments remain. |
+| R07 | implemented | current changes | `companion/expression`, composer, ReplyService, async bridge | Shared conversation contract, receipt-backed promises, safe operational wording | Real-model transcript evaluation remains; deterministic progress intentionally uses no extra LLM call. |
+| R08 | in_progress | current changes | task scopes, artifact ownership, exact reply links, TermsService | Actor/chat/topic isolation, reopened report documents, revocation erases task state and files | Full project-memory model, natural memory export/correction/forget and mining tombstones remain. |
+| R09 | in_progress | current changes | `companion/resources`, `utils/process`, artifact store | Reserved interactive admission, bounded queues/process output/storage, retained Firefox watchdog | OS-wide CPU/RAM/disk enforcement, cross-process governor and sustained load rehearsal remain. |
+| R10 | in_progress | current changes | page scanner, document_create, data_analysis, existing media/code adapters | Bounded HTML/CSS/JS audit; native decimal CSV/JSON statistics and SVG; Markdown/CSV/JSON/PDF/DOCX output | Browser rendering/OCR if configured, broader comparison/iterative research and natural repository-work coverage remain. |
 | R11 | planned | — | — | — | Connected accounts and reusable delegations. |
-| R12 | planned | — | — | — | Reminders, monitors and relevant initiative. |
+| R12 | in_progress | current changes | `companion/workflows`, workflow capability, Services | Natural reminders, recurring messages, timezone/DST, coalesced downtime, send receipts | Content-change monitors, dynamic scheduled reports, quiet hours and follow/autopost migration remain. |
 | R13 | planned | — | — | — | Versioned workflow learning and capability discovery. |
-| R14 | planned | — | — | — | Parity migration, final recovery/load evals and release handoff. |
+| R14 | in_progress | current changes | targeted regressions and `docs/COMPANION_RUNTIME.md` | 170 tests / 25 affected files, global typecheck + lint + format, isolated build; no production mutation | Production rollout, full natural corpus, Mongo fault rehearsal and soak remain. |
 
 ## R00 evidence
 
@@ -85,8 +85,9 @@ real Mongo/process rehearsal. The architecture/provider inventory and seed corpu
   commands remain optional shortcuts rather than prerequisites.
 - Brain debug traces retain the normalized understanding. The final expression path sees visible
   work as untrusted facts, so status answers need not invent job state.
-- Persistence/resumption of pending clarification and execution of generic task controls remain the
-  explicit joint R02+R04 gate; this package does not claim those future transitions are complete.
+- The current R04 integration persists/resumes pending clarification and executes scoped generic
+  task controls. Legacy worker control migration and real-process recovery remain open; these are
+  distinct from the implemented generic transitions.
 
 ## Compatibility rules held throughout the rework
 

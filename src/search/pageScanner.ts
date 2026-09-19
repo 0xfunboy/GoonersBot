@@ -1,7 +1,10 @@
 import * as cheerio from 'cheerio';
+import { createHash } from 'node:crypto';
 import { childLogger } from '../utils/logger.js';
 import { fetchSafeRemoteBuffer } from '../utils/safeRemoteFetch.js';
 import { extractUrls } from '../providers/media/linkMedia/url.js';
+import { createAbortScope } from '../utils/abort.js';
+import { redactSecrets } from '../utils/secrets.js';
 
 const log = childLogger('page-scanner');
 
@@ -14,7 +17,8 @@ export interface PageSummary {
 }
 
 /**
- * A bounded, passive audit of one public HTML page. This deliberately reports observable
+ * A bounded, passive audit of a public HTML page and selected same-origin public sources.
+ * This deliberately reports observable
  * indicators only: it never submits forms, executes JavaScript, crawls authentication boundaries,
  * probes ports, or claims that an indicator is an exploitable vulnerability.
  */
@@ -56,6 +60,30 @@ export interface PageAudit {
   };
   recommendations: string[];
   limitations: string[];
+  inspectedAt?: string;
+  sha256?: string;
+  sources?: PageAuditSource[];
+  coverage?: {
+    maxBytes: number;
+    consumedBudgetBytes: number;
+    downloadedBytes: number;
+    elapsedMs: number;
+    omittedCandidates: number;
+    budgetExhausted: boolean;
+    rendered: false;
+  };
+}
+
+export interface PageAuditSource {
+  url: string;
+  kind: 'script' | 'stylesheet' | 'page';
+  status: 'inspected' | 'unavailable' | 'budget_exhausted';
+  finalUrl?: string;
+  contentType?: string;
+  bytes?: number;
+  sha256?: string;
+  title?: string;
+  observations: Array<{ description: string; line?: number; excerpt?: string }>;
 }
 
 export interface PageScannerConfig {
@@ -90,16 +118,20 @@ export class PageScanner {
     return pages.filter((p): p is PageSummary => Boolean(p));
   }
 
-  /** Scan a single public page without active testing or authenticated access. */
+  /** Inspect public sources within one byte/time budget, without active testing or authentication. */
   async audit(url: string, signal?: AbortSignal): Promise<PageAudit | null> {
     const parsed = safeUrl(url);
     if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) return null;
+    const startedAt = Date.now();
+    const scope = createAbortScope(this.cfg.timeoutMs, signal, 'passive site audit');
+    const mainByteLimit = Math.min(Math.max(this.cfg.maxBytes, 256_000), 1_500_000);
+    const totalByteLimit = Math.min(mainByteLimit * 2, 2_000_000);
     try {
       const result = await fetchSafeRemoteBuffer(parsed, {
         timeoutMs: this.cfg.timeoutMs,
         // An audit needs a little more than ordinary grounding, but remains firmly bounded.
-        maxBytes: Math.min(Math.max(this.cfg.maxBytes, 256_000), 1_500_000),
-        signal,
+        maxBytes: mainByteLimit,
+        signal: scope.signal,
         allowedContentTypes: ['text/html', 'application/xhtml+xml'],
         headers: {
           Accept: 'text/html,application/xhtml+xml;q=0.9',
@@ -124,7 +156,8 @@ export class PageScanner {
       const imageCount = $('img').length;
       const imagesMissingAlt = $('img').filter((_, element) => {
         const alt = $(element).attr('alt');
-        return alt === undefined || alt.trim() === '';
+        // Empty alt is valid for decorative images; intent cannot be inferred from HTML alone.
+        return alt === undefined;
       }).length;
       const formCount = $('form').length;
       const scriptCount = $('script').length;
@@ -132,13 +165,17 @@ export class PageScanner {
         const source = $(element).attr('src');
         if (!source) return false;
         try {
-          return new URL(source, finalUrl).hostname !== finalUrl.hostname;
+          return new URL(source, finalUrl).origin !== finalUrl.origin;
         } catch {
           return false;
         }
       }).length;
-      const bodyText = normalizeText($('body').text());
-      const mixedContentCount = $(`[src], [href]`)
+      const visibleBody = $('body').clone();
+      visibleBody.find('script,style,noscript').remove();
+      const bodyText = normalizeText(visibleBody.text());
+      const mixedContentCount = $(
+        'img[src],script[src],iframe[src],audio[src],video[src],source[src],link[rel~="stylesheet"][href]',
+      )
         .toArray()
         .filter((element) => {
           const value = $(element).attr('src') ?? $(element).attr('href') ?? '';
@@ -207,6 +244,13 @@ export class PageScanner {
         ...(imagesMissingAlt > 0 ? ['Aggiungere alt testuali alle immagini informative.'] : []),
         ...findings.slice(0, 8),
       ];
+      const inspection = await inspectLinkedSources($, finalUrl, {
+        deadline: startedAt + this.cfg.timeoutMs,
+        maxBytes: totalByteLimit,
+        usedBytes: result.buffer.byteLength,
+        userAgent: this.cfg.userAgent,
+        signal: scope.signal,
+      });
       return {
         url: parsed.toString(),
         finalUrl: finalUrl.toString(),
@@ -245,13 +289,33 @@ export class PageScanner {
         },
         recommendations: [...new Set(recommendations)].slice(0, 16),
         limitations: [
-          'Analisi passiva della sola pagina HTML pubblica; non è un pentest e non prova vulnerabilità sfruttabili.',
+          'Analisi passiva di HTML e fonti pubbliche elencate; non è un pentest e non prova vulnerabilità sfruttabili.',
+          'JavaScript non eseguito: comportamento dinamico, aspetto renderizzato e percorsi di dati non sono verificati.',
           'Non sono stati analizzati codice server-side, autenticazione, database o endpoint non linkati.',
+          ...(inspection.coverage.omittedCandidates > 0
+            ? ['Il campione è limitato: altre risorse e pagine non sono state lette.']
+            : []),
+          ...(inspection.coverage.budgetExhausted
+            ? [
+                'Il budget condiviso di tempo o byte è stato raggiunto; le fonti non lette sono indicate.',
+              ]
+            : []),
+          ...(inspection.sources.some((source) => source.status === 'unavailable')
+            ? [
+                'Alcune fonti non sono state acquisite; la loro disponibilità o il motivo del mancato accesso non sono dedotti.',
+              ]
+            : []),
         ],
+        inspectedAt: new Date(startedAt).toISOString(),
+        sha256: hashSource(result.buffer),
+        sources: inspection.sources,
+        coverage: { ...inspection.coverage, elapsedMs: Date.now() - startedAt, rendered: false },
       };
     } catch (err) {
       log.debug({ err, url }, 'page audit failed');
       return null;
+    } finally {
+      scope.dispose();
     }
   }
 
@@ -310,6 +374,214 @@ export function scanPublicPage(
   signal?: AbortSignal,
 ): Promise<PageAudit | null> {
   return new PageScanner(config).audit(url, signal);
+}
+
+type SourceCandidate = Pick<PageAuditSource, 'url' | 'kind'>;
+
+async function inspectLinkedSources(
+  $: cheerio.CheerioAPI,
+  origin: URL,
+  options: {
+    deadline: number;
+    maxBytes: number;
+    usedBytes: number;
+    userAgent: string;
+    signal: AbortSignal;
+  },
+): Promise<{
+  sources: PageAuditSource[];
+  coverage: {
+    maxBytes: number;
+    consumedBudgetBytes: number;
+    downloadedBytes: number;
+    omittedCandidates: number;
+    budgetExhausted: boolean;
+  };
+}> {
+  const candidates: SourceCandidate[] = [];
+  const seen = new Set([origin.toString().split('#')[0]]);
+  let documentBase = origin;
+  try {
+    documentBase = new URL($('base[href]').first().attr('href') ?? origin.toString(), origin);
+  } catch {
+    // Invalid base tags fall back to the response URL, as for the page itself.
+  }
+  const add = (raw: string | undefined, kind: SourceCandidate['kind']): void => {
+    if (!raw || raw.startsWith('#')) return;
+    try {
+      const target = new URL(raw, documentBase);
+      target.hash = '';
+      if (
+        target.origin !== origin.origin ||
+        target.username ||
+        target.password ||
+        seen.has(target.toString())
+      )
+        return;
+      // Follow only linked public documents, never login/logout, account actions, APIs or downloads.
+      if (
+        kind === 'page' &&
+        (/(?:^|\/)(?:api|admin|login|logout|signin|signout|signup|register|account|checkout|delete|remove)(?:\/|[.?_-]|$)/i.test(
+          target.pathname,
+        ) ||
+          /(?:^|[?&])(?:action|logout|delete|remove|token|key|auth)=/i.test(target.search) ||
+          (/\.[a-z\d]{2,6}$/i.test(target.pathname) &&
+            !/\.(?:html?|php|aspx?)$/i.test(target.pathname)))
+      )
+        return;
+      seen.add(target.toString());
+      candidates.push({ url: target.toString(), kind });
+    } catch {
+      // Invalid links are not acquisition targets.
+    }
+  };
+  $('script[src]').each((_, element) => add($(element).attr('src'), 'script'));
+  $('link[rel~="stylesheet"][href]').each((_, element) =>
+    add($(element).attr('href'), 'stylesheet'),
+  );
+  $('a[href]:not([download])').each((_, element) => add($(element).attr('href'), 'page'));
+  const scripts = candidates.filter((candidate) => candidate.kind === 'script');
+  const styles = candidates.filter((candidate) => candidate.kind === 'stylesheet');
+  // Cover both kinds when available, rather than spending every asset slot on a script bundle.
+  const assets = [scripts[0], styles[0], ...scripts.slice(1), ...styles.slice(1)]
+    .filter((candidate): candidate is SourceCandidate => candidate !== undefined)
+    .slice(0, 3);
+  const selected = [
+    ...assets,
+    ...candidates.filter((candidate) => candidate.kind === 'page').slice(0, 2),
+  ];
+  let consumedBudgetBytes = options.usedBytes;
+  let downloadedBytes = options.usedBytes;
+  let budgetExhausted = false;
+  const sources: PageAuditSource[] = [];
+  for (const candidate of selected) {
+    const remainingMs = options.deadline - Date.now();
+    const allowance = Math.min(256_000, options.maxBytes - consumedBudgetBytes);
+    if (remainingMs < 1 || allowance < 1 || options.signal.aborted) {
+      budgetExhausted = true;
+      sources.push({ ...candidate, status: 'budget_exhausted', observations: [] });
+      continue;
+    }
+    try {
+      const result = await fetchSafeRemoteBuffer(candidate.url, {
+        timeoutMs: remainingMs,
+        maxBytes: allowance,
+        signal: options.signal,
+        maxRedirects: 2,
+        validateUrl: (target) => {
+          if (target.origin !== origin.origin)
+            throw new Error('audit source redirected outside the selected origin');
+        },
+        allowedContentTypes:
+          candidate.kind === 'page'
+            ? ['text/html', 'application/xhtml+xml']
+            : candidate.kind === 'stylesheet'
+              ? ['text/css']
+              : [
+                  'text/javascript',
+                  'application/javascript',
+                  'application/x-javascript',
+                  'text/ecmascript',
+                  'application/ecmascript',
+                ],
+        headers: {
+          'User-Agent': options.userAgent,
+          Accept: candidate.kind === 'page' ? 'text/html,application/xhtml+xml' : '*/*',
+        },
+      });
+      consumedBudgetBytes += result.buffer.byteLength;
+      downloadedBytes += result.buffer.byteLength;
+      const text = result.buffer.toString('utf8');
+      const page = candidate.kind === 'page' ? cheerio.load(text) : undefined;
+      sources.push({
+        ...candidate,
+        status: 'inspected',
+        finalUrl: result.finalUrl,
+        contentType: result.contentType,
+        bytes: result.buffer.byteLength,
+        sha256: hashSource(result.buffer),
+        ...(page ? { title: normalizeText(page('title').first().text()).slice(0, 180) } : {}),
+        observations: inspectSourceText(candidate.kind, text, page),
+      });
+    } catch {
+      // The fetcher may have consumed a partial body. Reserve its entire allowance so failed
+      // acquisitions cannot reset the shared byte budget and repeatedly download large sources.
+      consumedBudgetBytes += allowance;
+      budgetExhausted ||=
+        options.signal.aborted ||
+        Date.now() >= options.deadline ||
+        consumedBudgetBytes >= options.maxBytes;
+      sources.push({ ...candidate, status: 'unavailable', observations: [] });
+    }
+  }
+  return {
+    sources,
+    coverage: {
+      maxBytes: options.maxBytes,
+      consumedBudgetBytes,
+      downloadedBytes,
+      omittedCandidates: candidates.length - selected.length,
+      budgetExhausted,
+    },
+  };
+}
+
+function inspectSourceText(
+  kind: SourceCandidate['kind'],
+  text: string,
+  page?: cheerio.CheerioAPI,
+): PageAuditSource['observations'] {
+  if (page) {
+    const observations = [
+      {
+        description: `HTML acquisito: H1=${page('h1').length}; immagini=${page('img').length}; form=${page('form').length}; script=${page('script').length}.`,
+      },
+    ];
+    page('script,style,noscript').remove();
+    const excerpt = normalizeText(page('main,article').first().text() || page('body').text()).slice(
+      0,
+      400,
+    );
+    if (excerpt)
+      observations.push({ description: `Estratto del contenuto: ${redactSecrets(excerpt)}` });
+    return observations;
+  }
+  const patterns =
+    kind === 'script'
+      ? [
+          { pattern: /\b(?:innerHTML|outerHTML)\s*=/, label: 'assegnazione HTML' },
+          { pattern: /\bdocument\.write\s*\(/, label: 'document.write' },
+          { pattern: /\beval\s*\(|\bnew\s+Function\s*\(/, label: 'valutazione dinamica di codice' },
+        ]
+      : [
+          { pattern: /@media\b/, label: 'media query' },
+          { pattern: /@supports\b/, label: 'feature query CSS' },
+          { pattern: /!important\b/, label: 'override !important' },
+        ];
+  const observations: PageAuditSource['observations'] = [];
+  for (const { pattern, label } of patterns) {
+    const match = pattern.exec(text);
+    if (!match) continue;
+    const line = text.slice(0, match.index).split('\n').length;
+    const start = Math.max(text.lastIndexOf('\n', match.index) + 1, match.index - 60);
+    const endOfLine = text.indexOf('\n', match.index);
+    const end = Math.min(endOfLine === -1 ? text.length : endOfLine, match.index + 140);
+    observations.push({
+      description: `Pattern testuale «${label}» presente; contesto ed esecuzione non verificati${kind === 'script' ? ', non dimostra una vulnerabilità' : ''}.`,
+      line,
+      excerpt: redactSecrets(text.slice(start, end)),
+    });
+  }
+  if (!observations.length)
+    observations.push({
+      description:
+        'Fonte acquisita; nessuno dei pattern limitati controllati è presente. Non è una valutazione completa della correttezza.',
+    });
+  return observations;
+}
+
+function hashSource(buffer: Buffer): string {
+  return createHash('sha256').update(buffer).digest('hex');
 }
 
 function extractFacts(text: string): string[] {

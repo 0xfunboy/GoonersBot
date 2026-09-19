@@ -3,6 +3,8 @@ import { childLogger } from '../utils/logger.js';
 import { agentActionPlanSchema, type AgentActionPlan } from './schemas.js';
 import { ActionPlanValidationError, validateActionPlan } from './planValidator.js';
 import type { AgentPlanningContext } from './types.js';
+import type { z } from 'zod';
+import { unmetOperationSchema } from '../companion/capabilities/dispatch.js';
 
 const log = childLogger('agent-planner');
 
@@ -47,6 +49,9 @@ export class MultiActionPlanner {
 
   async plan(context: AgentPlanningContext, signal?: AbortSignal): Promise<AgentActionPlan> {
     const fallback = fallbackPlan(context);
+    // Cortex has already understood these operations. Compile once without a second model
+    // rewriting their identities, inputs or bindings (and without spending another completion).
+    if (context.requestedActions?.some((action) => action.operationRequest)) return fallback;
     if (!this.config.enabled || !this.llm?.capabilities.chat) return fallback;
 
     try {
@@ -78,7 +83,7 @@ export class MultiActionPlanner {
         );
         return fallback;
       }
-      return validated;
+      return { ...validated, unmetOperations: fallback.unmetOperations };
     } catch (error) {
       const reason =
         error instanceof ActionPlanValidationError ? error.message : 'planner provider failed';
@@ -208,6 +213,13 @@ function coversRequestedActions(plan: AgentActionPlan, context: AgentPlanningCon
     );
   };
   if (
+    requestedTools.has('web_search') &&
+    requestedTools.has('page_scan') &&
+    !hasFlow('page_scan', 'web_search')
+  ) {
+    return false;
+  }
+  if (
     requestedTools.has('document_read') &&
     requestedTools.has('translate') &&
     !hasFlow('translate', 'document_read')
@@ -238,24 +250,65 @@ function fallbackPlan(context: AgentPlanningContext): AgentActionPlan {
   );
   const counts = new Map<string, number>();
   const actions = [];
+  const unmetOperations: Array<z.infer<typeof unmetOperationSchema>> = [];
+  const operationIds = new Map<string, string>();
   let latestTranslation: string | undefined;
   let latestSearch: string | undefined;
   let latestMediaPrompt: string | undefined;
   let latestDocument: string | undefined;
-  for (const requested of context.requestedActions ?? []) {
+  for (const [requestIndex, requested] of (context.requestedActions ?? []).entries()) {
+    const operation = requested.operationRequest;
+    const requestId = operation?.id ?? `request_${requestIndex + 1}`;
+    const unmet = (code: z.infer<typeof unmetOperationSchema>['code'], reason: string): void => {
+      unmetOperations.push({
+        id: requestId,
+        capabilityId: requested.tool,
+        purpose: compact(requested.reason || `complete ${requested.tool}`, 500),
+        code,
+        reason,
+      });
+    };
     const definition = available.get(requested.tool);
-    if (!definition) continue;
+    if (!definition) {
+      unmet('unavailable', `${requested.tool} is unavailable for this turn`);
+      continue;
+    }
+    if (operation?.inputProblems.length) {
+      unmet('invalid_input', operation.inputProblems.join('; ').slice(0, 2_000));
+      continue;
+    }
     const count = (counts.get(requested.tool) ?? 0) + 1;
-    if (definition.maxCalls !== undefined && count > definition.maxCalls) continue;
-    counts.set(requested.tool, count);
+    if (
+      actions.length >= 10 ||
+      (definition.maxCalls !== undefined && count > definition.maxCalls)
+    ) {
+      unmet('budget_exceeded', `${requested.tool} exceeds the per-turn execution budget`);
+      continue;
+    }
     const id = `${requested.tool}_${count}`;
     const dependsOn: string[] = [];
-    if (requested.tool === 'translate' && latestDocument) dependsOn.push(latestDocument);
-    if (requested.tool === 'tts' && (latestTranslation || latestDocument)) {
+    const dependencyBindings = operation?.dependencyBindings.map((binding) => ({
+      ...binding,
+      fromOperationId: operationIds.get(binding.fromOperationId) ?? binding.fromOperationId,
+    }));
+    if (
+      operation?.dependencyBindings.some((binding) => !operationIds.has(binding.fromOperationId))
+    ) {
+      unmet('dependency_unavailable', 'A required upstream operation could not be scheduled');
+      continue;
+    }
+    dependsOn.push(...(dependencyBindings ?? []).map((binding) => binding.fromOperationId));
+    if (!operation && requested.tool === 'translate' && latestDocument)
+      dependsOn.push(latestDocument);
+    if (!operation && requested.tool === 'tts' && (latestTranslation || latestDocument)) {
       dependsOn.push((latestTranslation ?? latestDocument) as string);
     }
-    if (requested.tool === 'page_scan' && latestSearch) dependsOn.push(latestSearch);
-    if ((requested.tool === 'image_gen' || requested.tool === 'video_gen') && latestMediaPrompt) {
+    if (!operation && requested.tool === 'page_scan' && latestSearch) dependsOn.push(latestSearch);
+    if (
+      !operation &&
+      (requested.tool === 'image_gen' || requested.tool === 'video_gen') &&
+      latestMediaPrompt
+    ) {
       dependsOn.push(latestMediaPrompt);
     }
     const artifactKind =
@@ -265,21 +318,37 @@ function fallbackPlan(context: AgentPlanningContext): AgentActionPlan {
           ? 'video'
           : requested.tool === 'tts' || requested.tool === 'music'
             ? 'audio'
-            : undefined;
-    actions.push({
+            : requested.tool === 'document_create'
+              ? 'document'
+              : undefined;
+    const candidate = {
       id,
+      requestId,
+      ...(dependencyBindings?.length ? { dependencyBindings } : {}),
       tool: requested.tool,
       purpose: compact(requested.reason || `complete ${requested.tool}`, 500),
       ...(requested.query ? { query: compact(requested.query, 2_000) } : {}),
       args: requested.args ?? {},
-      dependsOn,
+      dependsOn: [...new Set(dependsOn)],
       optional: false,
       acceptance: {
         requireOutput: true,
         minEvidence: 0,
         requiredArtifactKinds: artifactKind ? [artifactKind] : [],
       },
-    });
+    };
+    const problems =
+      definition.validateInput?.({
+        ...candidate,
+        timeoutMs: definition.timeoutMs ?? 30_000,
+      } as AgentActionPlan['actions'][number]) ?? [];
+    if (problems.length) {
+      unmet('invalid_input', problems.join('; ').slice(0, 2_000));
+      continue;
+    }
+    actions.push(candidate);
+    counts.set(requested.tool, count);
+    operationIds.set(requestId, id);
     if (requested.tool === 'translate') latestTranslation = id;
     if (requested.tool === 'web_search') latestSearch = id;
     if (requested.tool === 'media_prompt') latestMediaPrompt = id;
@@ -288,6 +357,7 @@ function fallbackPlan(context: AgentPlanningContext): AgentActionPlan {
   return agentActionPlanSchema.parse({
     goal: compact(context.request, 1_000) || 'respond to the user',
     actions,
+    unmetOperations,
     finalResponse: {
       language: context.language ?? 'same as the user',
       format: 'text',

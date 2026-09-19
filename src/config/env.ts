@@ -473,6 +473,9 @@ const envSchema = z.object({
 
   // Capability Forge: persists safe, declarative research recipes learned from capability gaps.
   // It never loads or executes generated source code inside the bot process.
+  COMPANION_TASKS_ENABLED: boolFromString(true),
+  COMPANION_ARTIFACTS_PATH: z.string().default('data/companion-artifacts'),
+  COMPANION_TASK_CONCURRENCY: intFromString(2).refine((n) => n >= 1 && n <= 4),
   CAPABILITY_FORGE_ENABLED: boolFromString(true),
   CAPABILITY_STORE_PATH: z.string().default('data/capabilities'),
   CAPABILITY_AUTO_INSTALL_RESEARCH: boolFromString(true),

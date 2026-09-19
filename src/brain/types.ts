@@ -143,6 +143,9 @@ export type ProviderRequest =
   | 'video_generation'
   | 'translation'
   | 'tts'
+  | 'document_create'
+  | 'data_analysis'
+  | 'workflow'
   | 'capability_forge';
 
 export type ValueTarget =
@@ -219,6 +222,7 @@ export interface TurnEvaluation {
 }
 
 export interface ProviderBundle {
+  observations?: import('../companion/capabilities/dispatch.js').ObservationBundle[];
   threadContext?: string;
   /** Runtime-grounded facts about the bot itself, injected only for self-diagnostic turns. */
   selfContext?: string;

@@ -5,6 +5,7 @@ import type {
   AgentToolName,
   PlannedAction,
 } from './schemas.js';
+import type { OperationRequest } from '../companion/capabilities/dispatch.js';
 
 export type ToolRisk = 'read' | 'compute' | 'generate' | 'external_write';
 
@@ -42,6 +43,7 @@ export interface AgentPlanningContext {
     query?: string;
     args?: Record<string, unknown>;
     reason?: string;
+    operationRequest?: OperationRequest;
   }>;
   finalTone?: string;
   model?: string;

@@ -36,9 +36,11 @@ describe('runtime capability catalog', () => {
         const args =
           manifest.id === 'anime_archive'
             ? { intent: 'search' }
-            : manifest.id === 'capability_forge' && operation.id === 'execute'
-              ? { command: 'papers' }
-              : { operation: operation.id };
+            : manifest.id === 'workflow'
+              ? { intent: operation.id }
+              : manifest.id === 'capability_forge' && operation.id === 'execute'
+                ? { command: 'papers' }
+                : { operation: operation.id };
         expect(operation.inputSchema.safeParse({ query: 'request', args }).success).toBe(true);
         expect(
           operation.outputSchema.safeParse({
