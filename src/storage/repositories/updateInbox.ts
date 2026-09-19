@@ -18,11 +18,21 @@ export class UpdateInboxRepo {
     this.col = db.collection<UpdateInboxDoc>('update_inbox');
   }
 
-  static async ensureIndexes(db: Db): Promise<void> {
+  static async ensureIndexes(db: Db, retentionDays = 30): Promise<void> {
     const col = db.collection<UpdateInboxDoc>('update_inbox');
     await col.createIndex({ updateId: 1 }, { unique: true });
     await col.createIndex({ status: 1, updatedAt: 1 });
     await col.createIndex({ conversationKey: 1, receivedAt: 1 });
+    // Payloads are useful only while debugging/replaying a recent update. Active work has a null
+    // completedAt and is never removed by this index; terminal receipts expire automatically.
+    await col.createIndex(
+      { completedAt: 1 },
+      {
+        name: 'update_inbox_terminal_ttl',
+        expireAfterSeconds: Math.max(86_400, Math.round(retentionDays * 86_400)),
+        partialFilterExpression: { completedAt: { $type: 'date' } },
+      },
+    );
   }
 
   async enqueue(input: UpdateInboxInput): Promise<void> {

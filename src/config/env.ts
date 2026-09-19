@@ -123,6 +123,10 @@ const envSchema = z.object({
     (value) => Number.isInteger(value) && value >= 10_000 && value <= 3_600_000,
     'TELEGRAM_INGRESS_LEASE_MS must be between 10000 and 3600000',
   ),
+  TELEGRAM_INGRESS_RETENTION_DAYS: intFromString(30).refine(
+    (value) => Number.isInteger(value) && value >= 1 && value <= 365,
+    'TELEGRAM_INGRESS_RETENTION_DAYS must be between 1 and 365',
+  ),
 
   // Access control (handles normalized to @handle; null => unrestricted)
   ALLOWED_HANDLES: csvHandles,

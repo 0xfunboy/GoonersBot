@@ -81,7 +81,7 @@ export class Storage {
   private constructor(
     private readonly connection: MongoConnection,
     private readonly db: Db,
-    env: Env,
+    private readonly env: Env,
   ) {
     this.chats = new ChatsRepo(db);
     this.users = new UsersRepo(db);
@@ -160,7 +160,7 @@ export class Storage {
     await AnimeArchiveRepo.ensureIndexes(this.db);
     await BotAdminsRepo.ensureIndexes(this.db);
     await MongoSocialProfileStore.ensureIndexes(this.db);
-    await UpdateInboxRepo.ensureIndexes(this.db);
+    await UpdateInboxRepo.ensureIndexes(this.db, this.env.TELEGRAM_INGRESS_RETENTION_DAYS);
     log.info('indexes ensured');
   }
 
