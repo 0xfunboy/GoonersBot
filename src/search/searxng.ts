@@ -83,7 +83,14 @@ export class SearxngProvider implements WebSearchProvider {
       const out: WebSearchResponse = { query, results };
       const answer = extractAnswer(json);
       if (answer) out.answer = answer;
-      if (results.length === 0 && !answer) return null;
+      if (results.length === 0 && !answer) {
+        // HTTP 200 does not mean the upstream engines answered. Keep operational diagnostics
+        // without logging the user's query, result content, URLs or arbitrary engine messages.
+        const failures = summarizeEngineFailures(json.unresponsive_engines);
+        if (failures.engineCount > 0)
+          log.warn(failures, 'searxng returned no results with upstream engine failures');
+        return null;
+      }
       return out;
     } catch (err) {
       log.warn({ err }, 'searxng search failed');
@@ -148,4 +155,24 @@ interface SearxngResponse {
   results?: Array<{ title?: string; url?: string; content?: string }>;
   answers?: Array<string | { answer?: string }>;
   infoboxes?: Array<{ content?: string }>;
+  unresponsive_engines?: unknown;
+}
+
+function summarizeEngineFailures(value: unknown): {
+  engineCount: number;
+  reasons: Record<'challenge' | 'rateLimited' | 'accessDenied' | 'timeout' | 'other', number>;
+} {
+  const reasons = { challenge: 0, rateLimited: 0, accessDenied: 0, timeout: 0, other: 0 };
+  let engineCount = 0;
+  for (const entry of Array.isArray(value) ? value.slice(0, 100) : []) {
+    if (!Array.isArray(entry) || typeof entry[1] !== 'string') continue;
+    engineCount += 1;
+    const reason = entry[1].slice(0, 500).toLowerCase();
+    if (/captcha|challenge/u.test(reason)) reasons.challenge += 1;
+    else if (/too many requests|rate.limit|\b429\b/u.test(reason)) reasons.rateLimited += 1;
+    else if (/access.denied|forbidden|\b403\b/u.test(reason)) reasons.accessDenied += 1;
+    else if (/timeout|timed.out/u.test(reason)) reasons.timeout += 1;
+    else reasons.other += 1;
+  }
+  return { engineCount, reasons };
 }

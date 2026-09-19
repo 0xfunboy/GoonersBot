@@ -13,6 +13,8 @@ import { buildCortexPrompt, CORTEX_SYSTEM } from './prompt.js';
 import {
   cortexCapabilitiesFromSnapshot,
   legacyProviderFor,
+  operationIdForInvocation,
+  runtimeCapabilityManifest,
   type RuntimeCapabilitySnapshotItem,
 } from '../../companion/capabilities/catalog.js';
 import type { TurnContext } from '../../companion/context/contracts.js';
@@ -135,6 +137,18 @@ export function normalizeDecision(
   const toolCalls = hasAnimeGrounding
     ? allowedToolCalls.filter((call) => call.tool !== 'web_search')
     : allowedToolCalls;
+  // Grounding is evidence acquisition, not synonymous with generic web search. Respect the
+  // model's selected reader and its operation contract (a memory write is not a reader).
+  const hasGroundingRead = toolCalls.some((call) => {
+    const operationId = operationIdForInvocation(call.tool, call.args ?? {});
+    const manifest = runtimeCapabilityManifest(call.tool);
+    return (
+      manifest.groundsClaims &&
+      manifest.operations.some(
+        (operation) => operation.id === operationId && operation.effect === 'read',
+      )
+    );
+  });
   if (
     decision.needsGrounding &&
     !decision.intents.includes('stay_quiet') &&
@@ -142,7 +156,7 @@ export function normalizeDecision(
     // Anime metadata and archive availability each have a structured authoritative tool. Do not
     // synthesize a generic web-search action on top of either one.
     !hasAnimeGrounding &&
-    !toolCalls.some((call) => call.tool === 'web_search')
+    !hasGroundingRead
   ) {
     toolCalls.push({
       tool: 'web_search',

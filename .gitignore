@@ -54,3 +54,6 @@ data/x-frontend.env
 
 # Runtime-learned capability manifests/proposals (may contain user requests or integration names).
 data/capabilities/
+
+# Private durable companion files and user-generated documents.
+data/companion-artifacts/

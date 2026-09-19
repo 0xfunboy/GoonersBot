@@ -1,7 +1,8 @@
 # Companion runtime: implementation and operation
 
 Checkpoint: 2026-09-19, branch `companion-rework/phase-1-ingress`. This describes the integrated
-development runtime, not the currently running production release. See the
+runtime. The later [live branch trial](COMPANION_LIVE_TEST.md) identifies the actual deployed revision,
+backup and rollback boundaries separately. See the
 [package ledger](COMPANION_REWORK_STATUS.md) and [acceptance / handoff](COMPANION_HANDOFF.md).
 Implementation, local verification and production verification are separate states.
 
@@ -67,7 +68,7 @@ not independent proof that every generated answer is semantically correct.
 | Research/comparison | Up to 3 query passes, 4 pages/pass and 12 claims; inspected-text hashes, dates, citations and numeric disagreements | Snippets stay unverified; source agreement is not independent proof; no invented prices/bookings |
 | Public audit | HTML, up to 3 same-origin CSS/JS assets and 2 linked HTML pages under shared budgets | Passive observations, not server-source access, access-control bypass or confirmed exploits |
 | Rendered pages | Offline snapshot plus up to 3 same-origin script/style assets; DOM and PNG | Opt-in temporary Chromium in network-isolated bubblewrap; no account browser or dynamic API traffic |
-| Documents | PDF/DOCX/text extraction; Markdown/TXT/CSV/JSON and temporary-profile LibreOffice PDF/DOCX output | Bounded conversion; contents remain untrusted data |
+| Documents | PDF/DOCX/text extraction; Markdown/TXT/CSV/JSON and temporary-profile LibreOffice PDF/DOCX output | Generated PDF requires Poppler `pdftotext`; DOCX reopens through Mammoth; text coverage is checked before verification |
 | OCR | Local opt-in image/PDF OCR with executable and language-data readiness checks | Input/page/time limits; recognition and coverage warnings; disabled by default |
 | Data | Exact decimal CSV/flat-JSON aggregations, grouping, CSV and SVG export | No arbitrary eval; missing cells, rounding and truncation explicit |
 | Code | Public GitHub source review pinned to a commit, with apply-checked patch; local proposal/status/diff/cancel through isolated worktree | Public review never runs repository code/tests; actual local checks require configured repository and authorized admin DM; patch/apply/deploy distinct |
@@ -80,6 +81,22 @@ Up to five image actions fit a request, subject to quotas and budgets; heavy act
 Public GitHub review reads bounded sources at a fixed commit and checks patch applicability without
 running remote code. Actual repository execution/checks use only the configured local workspace.
 Research/travel comparisons are informational work, not reservation or purchase automation.
+
+Generated prose documents reject empty structural placeholders (`[]`, `{}`, `null`), with at most
+one extra generation attempt before an explicit failure without an attachment. Valid JSON exports
+may still contain those values; CSV retains its row-schema validation. PDF generation requires
+`libreoffice` and `pdftotext` on PATH (Poppler); DOCX requires LibreOffice and the bundled Mammoth
+reader, not `pdftotext`. Markdown/TXT/JSON/CSV need neither binary. Conversion uses a private temporary
+profile with a 30-second bound; PDF text reopening has a 10-second bound, 1 MiB output cap and 256 MiB
+process-tree RSS budget. The document action has a 180-second default deadline, including bounded
+generation recovery, and remains subject to the overall task deadline and cancellation.
+
+Before a converted PDF/DOCX is marked verified, its reopened text must retain at least 98% of the
+input's normalized word occurrences. DOCX line breaks are preserved during inert HTML extraction;
+Unicode ligatures and converter-inserted line hyphenation are normalized. Missing readers, unreadable
+or materially incomplete output fail closed. This is an output-integrity check, not independent
+verification of generated factual claims. The final answer receives an excerpt of the actual
+verified document content instead of only a filename.
 
 ## Persistent routines
 

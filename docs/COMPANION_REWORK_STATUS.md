@@ -16,7 +16,9 @@ Read with [runtime](COMPANION_RUNTIME.md) and [acceptance / handoff](COMPANION_H
 - Ingress starting commits: `9f74ed9`, `383e804`; R00/R01/R02: `8616047`, `056af95`, `3fd3d32`.
 - Prior integrated checkpoint: `8ec700c`; this ledger additionally covers current completion changes.
   Final integrated local gates are recorded below; the delivery commit identifies this working tree.
-- Production activation: **not performed**. Shared `dist/` is not a validation-build target.
+- Production activation: **live branch trial authorized and started 2026-09-19**, without merge.
+  See [live trial](COMPANION_LIVE_TEST.md) for actual failures and corrective-release evidence.
+  Shared `dist/` is preserved; live code uses isolated release directories.
 
 ## Package ledger
 

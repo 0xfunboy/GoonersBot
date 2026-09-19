@@ -6,7 +6,9 @@ Date: 2026-09-19. Branch: `companion-rework/phase-1-ingress`. Previous integrate
 `/home/funboy/GOONERSBOT_COMPANION_REWORK_PLAN.md`.
 
 This is a development-code handoff with local evidence, **not a claim that all mandatory live,
-model/human acceptance or production rollout gates have passed**. No production service was restarted.
+model/human acceptance or production rollout gates have passed**. At that handoff no service had
+been restarted. The later owner-authorized [live branch trial](COMPANION_LIVE_TEST.md) records actual
+activation, failures, corrective work and remaining gates; main remains unmerged.
 
 ## Final local evidence
 

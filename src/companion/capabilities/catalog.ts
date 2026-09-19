@@ -162,6 +162,8 @@ export interface RuntimeCapabilityManifest {
   defaultMaxCalls: number;
   outputKinds: readonly CapabilityArtifactKind[];
   legacyProviderId: string;
+  /** Selected read operations acquire factual evidence, rather than only control/social context. */
+  groundsClaims?: boolean;
 }
 
 type ManifestSeed = Omit<RuntimeCapabilityManifest, 'id' | 'version' | 'operations'> & {
@@ -297,6 +299,7 @@ const seeds: Record<BuiltinCapabilityId, ManifestSeed> = {
     legacyProviderId: 'group_rag',
   },
   knowledge_rag: {
+    groundsClaims: true,
     description: 'Retrieve stable curated technical and cultural knowledge.',
     examples: ['cosa sappiamo già di questo?', 'cerca nella base di conoscenza'],
     operations: [
@@ -369,6 +372,7 @@ const seeds: Record<BuiltinCapabilityId, ManifestSeed> = {
     legacyProviderId: 'anime_archive',
   },
   web_search: {
+    groundsClaims: true,
     description: 'Search current web results and inspect strong pages for verification.',
     examples: ['cerca tre fonti recenti', 'verifica online questa affermazione'],
     operations: [
@@ -385,6 +389,7 @@ const seeds: Record<BuiltinCapabilityId, ManifestSeed> = {
     legacyProviderId: 'web_search',
   },
   page_scan: {
+    groundsClaims: true,
     description: 'Passively audit observable HTML, assets, quality and security headers.',
     examples: ['analizza example.org', 'guarda il sorgente pubblico e commenta il sito'],
     operations: [
@@ -403,6 +408,7 @@ const seeds: Record<BuiltinCapabilityId, ManifestSeed> = {
     legacyProviderId: 'page_scan',
   },
   news: {
+    groundsClaims: true,
     description: 'Retrieve current curated news observations with source provenance.',
     examples: ['dammi le notizie di oggi', 'confronta queste news nel report'],
     operations: [operation('latest', 'Retrieve relevant current news.', 'read', ['news di oggi'])],
@@ -417,6 +423,7 @@ const seeds: Record<BuiltinCapabilityId, ManifestSeed> = {
     legacyProviderId: 'news',
   },
   image_lookup: {
+    groundsClaims: true,
     description: 'Identify and web-ground an attached or replied image.',
     examples: ['chi è nella foto?', 'trova la fonte di questa immagine'],
     operations: [
@@ -468,9 +475,11 @@ const seeds: Record<BuiltinCapabilityId, ManifestSeed> = {
     adapterRisk: 'generate',
     cortexVisible: true,
     terminal: true,
-    requirements: ['chat model; LibreOffice for PDF and DOCX'],
+    requirements: [
+      'chat model; LibreOffice for PDF and DOCX; pdftotext (Poppler) for PDF text verification only',
+    ],
     resourceClass: 'generation',
-    defaultTimeoutMs: 120_000,
+    defaultTimeoutMs: 180_000,
     defaultMaxCalls: 2,
     outputKinds: ['document'],
     legacyProviderId: 'document_create',
@@ -687,6 +696,7 @@ const seeds: Record<BuiltinCapabilityId, ManifestSeed> = {
     legacyProviderId: 'tts',
   },
   capability_forge: {
+    groundsClaims: true,
     description: 'Research, propose and optionally install a safe declarative research workflow.',
     examples: ['impara a cercare questi dati'],
     operations: [

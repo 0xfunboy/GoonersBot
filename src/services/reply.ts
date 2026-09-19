@@ -52,6 +52,7 @@ import { providerObservation } from '../companion/capabilities/dispatch.js';
 import {
   createConversationContract,
   conversationContractPrompt,
+  guardConversationalPromises,
 } from '../companion/expression/index.js';
 import {
   renderSocialContext,
@@ -2198,7 +2199,7 @@ export class ReplyService {
       ],
     });
     const providerContextBlock = [
-      conversationContractPrompt(conversationContract),
+      conversationContractPrompt(conversationContract, { newWorkStarted: false }),
       ...(controlReply ? [`Verified control result from this turn: ${controlReply}`] : []),
       providerBundle.webContext,
       providerBundle.newsContext,
@@ -2646,6 +2647,17 @@ export class ReplyService {
           'personal attribution guard repaired or stripped generated lore',
         );
       }
+    }
+
+    // Operational task/control responses already returned above with host evidence. The normal
+    // social composer must not turn feedback into an imaginary retry or redelivery promise.
+    const promiseGuard = guardConversationalPromises(best, ctx.language);
+    if (promiseGuard.removedSentences > 0) {
+      best = promiseGuard.text;
+      log.warn(
+        { chatId: ctx.context.chatId, removedSentences: promiseGuard.removedSentences },
+        'unbacked conversational work promise removed; no action was started',
+      );
     }
 
     // Human questions are host-tracked state, not a style tic. Clarification is forced only after

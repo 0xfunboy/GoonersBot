@@ -694,8 +694,8 @@ export class CapabilityForge {
     if (!grounded || grounded.sources.length === 0) {
       return empty(
         language === 'italian'
-          ? `/${manifest.command} non ha trovato fonti sufficienti o ha esaurito la quota di ricerca.`
-          : `/${manifest.command} found no sufficient sources or exhausted its search quota.`,
+          ? `/${manifest.command} non ha recuperato fonti sufficienti per una risposta verificabile. Non è stata accertata la causa.`
+          : `/${manifest.command} did not retrieve sufficient sources for a verifiable answer. The cause has not been established.`,
         'validation_failed',
         diagnostic('web_grounding_no_results', [], true),
       );

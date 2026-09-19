@@ -19,6 +19,11 @@ import type {
 } from '../src/brain/types.js';
 import { TurnEvaluator } from '../src/brain/turnEvaluator.js';
 import { fakeLLM } from './helpers.js';
+import {
+  conversationContractPrompt,
+  createConversationContract,
+  guardConversationalPromises,
+} from '../src/companion/expression/index.js';
 
 const emptyPlan = (over: Partial<ReplyPlan> = {}): ReplyPlan => ({
   replyIntent: 'roast_user',
@@ -238,6 +243,61 @@ describe('reply acceptance', () => {
 });
 
 describe('ResponseGenerator', () => {
+  it('carries no-new-work evidence through ordinary generation and repairs promises without another model call', async () => {
+    const llm = fakeLLM({});
+    const generated = 'Hai ragione, è uscito completamente bianco. Te lo rifaccio per bene.';
+    const completion = vi.spyOn(llm, 'chatCompletion').mockResolvedValue({
+      text: generated,
+      usage: { estimated: true },
+      model: 'fake',
+    });
+    const styleEngine = new StyleEngine();
+    const currentScene = scene({ botIsBeingCriticized: true });
+    const generator = new ResponseGenerator(llm, styleEngine, {
+      model: 'fake',
+      temperature: 0.5,
+      topP: 0.9,
+      frequencyPenalty: 0,
+      presencePenalty: 0,
+      candidateCount: 1,
+      maxReplyChars: 420,
+    });
+    const result = await generator.generate({
+      botUsername: '@bot',
+      chatName: 'test',
+      language: 'italian',
+      modeName: 'Default',
+      modeDescription: 'natural',
+      nsfwEnabled: false,
+      scene: currentScene,
+      plan: emptyPlan({ action: 'answer', roastBudget: 'none' }),
+      style: styleEngine.sample({
+        modeName: 'Default',
+        modeDescription: 'natural',
+        scene: currentScene,
+        recentBotReplies: [],
+        nsfwEnabled: false,
+        valueTarget: 'truth',
+        roastBudget: 'none',
+        socialRole: 'friend',
+      }),
+      history: [],
+      currentUser: { telegramId: 1, userHandle: '@bob' },
+      currentMessage: { messageText: 'il pdf è vuoto ma ok', timestamp: new Date() },
+      retrievedMemories: [],
+      botLabel: 'bot',
+      grounding: conversationContractPrompt(createConversationContract(), {
+        newWorkStarted: false,
+      }),
+    });
+    expect(result.userPrompt).toContain('new work/retry/redelivery/schedule receipts = NONE');
+    expect(result.userPrompt).toContain('Never blame the user, their links or their tone');
+    expect(guardConversationalPromises(result.candidates[0] ?? '').text).toBe(
+      'Hai ragione, è uscito completamente bianco.',
+    );
+    expect(completion).toHaveBeenCalledOnce();
+  });
+
   it('suppresses provider outages only for disposable social turns', () => {
     expect(
       shouldSuppressUnavailableSocialReply(

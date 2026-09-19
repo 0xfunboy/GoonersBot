@@ -94,6 +94,20 @@ describe('CapabilityForge', () => {
         language: 'italian',
       }),
     ).resolves.toMatchObject({ handled: true });
+    const workingSearch = grounding.groundWeb;
+    grounding.groundWeb = async () => null;
+    for (const language of ['italian', 'english']) {
+      const emptyResult = await reloaded.executeRecipe({
+        recipeId: 'package_freshness',
+        revision: 1,
+        input: 'Current release?',
+        language,
+      });
+      expect(emptyResult?.status).toBe('validation_failed');
+      expect(emptyResult?.text).not.toMatch(/quota|timeout|connessione|connection/iu);
+      expect(emptyResult?.sources).toEqual([]);
+    }
+    grounding.groundWeb = workingSearch;
     await expect(reloaded.setLifecycle('package_freshness', 'disabled', false)).rejects.toThrow(
       'authority',
     );

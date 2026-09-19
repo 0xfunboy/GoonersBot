@@ -96,6 +96,37 @@ export interface PageScannerConfig {
   userAgent: string;
 }
 
+/** User-facing fallback; full raw evidence stays separate for the answer composer. */
+export function summarizePageAudit(audit: PageAudit): string {
+  const inspected = audit.sources?.filter((source) => source.status === 'inspected') ?? [];
+  const quality = [
+    !audit.quality.description ? 'manca una meta description' : null,
+    !audit.quality.language ? 'manca la lingua del documento' : null,
+    !audit.quality.viewport ? 'manca il meta viewport per il mobile' : null,
+    audit.quality.h1Count !== 1 ? `trovati ${audit.quality.h1Count} titoli H1` : null,
+    audit.quality.imagesMissingAlt
+      ? `${audit.quality.imagesMissingAlt} immagini senza attributo alt`
+      : null,
+  ].filter(Boolean);
+  const observations = inspected.flatMap((source) =>
+    source.observations.slice(0, 1).map((item) => `${source.url}: ${item.description}`),
+  );
+  return [
+    `Ho analizzato il sorgente pubblico di ${audit.finalUrl} (HTTP ${audit.status}) e ${inspected.length} risorse collegate.`,
+    quality.length
+      ? `Qualità: ${quality.join('; ')}.`
+      : 'Nei controlli statici di base non sono emerse carenze nei metadati e nella struttura esaminata.',
+    audit.security.findings.length
+      ? `Configurazione di sicurezza: ${audit.security.findings.slice(0, 5).join(' ')}`
+      : 'Nei controlli sugli header e sui riferimenti HTTP non sono emerse anomalie.',
+    ...observations.slice(0, 2),
+    'Questi sono indicatori osservati, non vulnerabilità dimostrate. Non ho verificato il codice server, il comportamento nel browser o la qualità complessiva del lavoro del developer.',
+    ...(audit.coverage?.budgetExhausted || audit.coverage?.omittedCandidates
+      ? ['La copertura è un campione limitato: altre risorse non sono state esaminate.']
+      : []),
+  ].join('\n\n');
+}
+
 /** Extract an explicit URL, or a bare public-looking domain such as `example.org` from a request. */
 export function extractPageAuditUrl(text: string): URL | null {
   const explicit = extractUrls(text, 1)[0];

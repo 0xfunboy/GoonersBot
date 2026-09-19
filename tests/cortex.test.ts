@@ -153,6 +153,60 @@ describe('Cortex', () => {
     ]);
   });
 
+  it.each(['page_scan', 'news', 'knowledge_rag'] as const)(
+    'does not inject a generic search over the selected %s reader',
+    (tool) => {
+      const out = normalizeDecision(
+        decision({
+          toolCalls: [{ tool, reason: 'selected evidence reader' }],
+          needsGrounding: true,
+        }),
+        [tool, 'web_search'],
+        'verifica questa fonte',
+      );
+      expect(out.toolCalls.map((call) => call.tool)).toEqual([tool]);
+    },
+  );
+
+  it('keeps an explicitly selected comparison search alongside a page audit', () => {
+    const calls = [
+      { tool: 'page_scan' as const, reason: 'inspect the page' },
+      { tool: 'web_search' as const, reason: 'requested independent comparison' },
+    ];
+    const out = normalizeDecision(
+      decision({ toolCalls: calls, needsGrounding: true }),
+      ['page_scan', 'web_search'],
+      'inspect and compare',
+    );
+    expect(out.toolCalls).toEqual(calls);
+  });
+
+  it('does not treat a memory write as a grounding read', () => {
+    const out = normalizeDecision(
+      decision({
+        toolCalls: [
+          { tool: 'companion_memory', args: { intent: 'remember' }, reason: 'explicit memory' },
+        ],
+        needsGrounding: true,
+      }),
+      ['companion_memory', 'web_search'],
+      'remember my project and check current prices',
+    );
+    expect(out.toolCalls.map((call) => call.tool)).toEqual(['companion_memory', 'web_search']);
+  });
+
+  it('still grounds fresh claims when the only selected reader is social context', () => {
+    const out = normalizeDecision(
+      decision({
+        toolCalls: [{ tool: 'group_rag', reason: 'community context' }],
+        needsGrounding: true,
+      }),
+      ['group_rag', 'web_search'],
+      'what does the GPU we discussed cost today?',
+    );
+    expect(out.toolCalls.map((call) => call.tool)).toEqual(['group_rag', 'web_search']);
+  });
+
   it('assigns natural anime availability/rehost intent to the Cortex tool contract', () => {
     const prompt = `${CORTEX_SYSTEM}\n${CORTEX_FEWSHOT}`;
     expect(prompt).toContain('anime_archive');

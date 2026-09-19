@@ -38,6 +38,13 @@ describe('passive page audit', () => {
       expect.arrayContaining(['Manca Strict-Transport-Security.', '1 form invia dati via HTTP.']),
     );
     expect(audit?.limitations.join(' ')).toMatch(/non è un pentest/i);
+    const { summarizePageAudit } = await import('../src/search/pageScanner.js');
+    const summary = summarizePageAudit(audit!);
+    expect(summary).toContain('https://example.test/');
+    expect(summary).toContain('Manca Strict-Transport-Security.');
+    expect(summary).toContain('1 immagini senza attributo alt');
+    expect(summary).toContain('non vulnerabilità dimostrate');
+    expect(summary).not.toMatch(/PASSIVE PAGE AUDIT|SHA256|"observations"|score=/);
     expect(fetchSafeRemoteBuffer).toHaveBeenCalledWith(
       expect.any(URL),
       expect.objectContaining({ maxBytes: 256_000 }),
