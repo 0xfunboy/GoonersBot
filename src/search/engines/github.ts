@@ -73,7 +73,7 @@ export class GitHubEngine implements SearchEngine {
         results.push({
           title: `GitHub: ${item.full_name}`,
           url: item.html_url,
-          content: parts.join(' ') || `GitHub repository ${item.full_name}`,
+          content: `[GITHUB REPOSITORY] ${item.full_name} | ${parts.join(' | ')}`,
           engine: this.id,
         });
       }

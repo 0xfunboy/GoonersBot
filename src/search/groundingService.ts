@@ -196,7 +196,13 @@ export class GroundingService {
     ];
     if (res.answer) lines.push(`answer: ${res.answer}`);
     for (const r of res.results) {
-      lines.push(`- ${r.title}: ${r.content} [${domainOf(r.url)}] ${r.url}`);
+      if (/huggingface\.co/i.test(r.url) || r.content.includes('[HUGGINGFACE')) {
+        lines.push(`- [HUGGING FACE MODEL/DATASET] ${r.title}: ${r.content} [${r.url}]`);
+      } else if (/github\.com/i.test(r.url) || r.content.includes('[GITHUB')) {
+        lines.push(`- [GITHUB REPOSITORY] ${r.title}: ${r.content} [${r.url}]`);
+      } else {
+        lines.push(`- ${r.title}: ${r.content} [${domainOf(r.url)}] ${r.url}`);
+      }
     }
     if (pages.length) {
       lines.push(

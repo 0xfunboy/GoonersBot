@@ -83,6 +83,26 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
       query: cleanFallbackQuery(instruction, HINTS.music),
       reason: 'degraded music hint',
     });
+  } else if (
+    /\b(qwen|flux|sdxl|stable diffusion|midjourney|dall-e|ideogram|imagen|wan|hunyuan)\b/i.test(
+      msg,
+    ) &&
+    /\b(prov|test|ved|mostr|gener|famm|sample|try|check out)\b/i.test(msg) &&
+    tools.has('image_gen')
+  ) {
+    intents.push('web_lookup', 'answer', 'make_image');
+    if (tools.has('web_search')) {
+      calls.push({
+        tool: 'web_search',
+        query: `${instruction} Hugging Face`,
+        reason: 'ground generative model release specs and architecture',
+      });
+    }
+    calls.push({
+      tool: 'image_gen',
+      query: instruction,
+      reason: 'demonstrative sample test for the requested model',
+    });
   } else if (has(msg, HINTS.image) && tools.has('image_gen')) {
     intents.push(has(msg, ['draw', 'disegna', 'dibuja']) ? 'draw_image' : 'make_image');
     calls.push({ tool: 'image_gen', query: instruction, reason: 'degraded image hint' });

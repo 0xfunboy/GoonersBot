@@ -577,6 +577,7 @@ export class CompanionWorkService implements VisibleWorkReader {
             messageId: progressMessageId,
             threadId: input.context.threadId,
             language: input.language,
+            taskId: ctx.task.id,
           })
         : null;
 

@@ -1,4 +1,4 @@
-import { InputFile, type Context as GrammyContext } from 'grammy';
+import { InlineKeyboard, InputFile, type Context as GrammyContext } from 'grammy';
 import type { ChatContext, CommandResponse, IncomingMessage, Person } from '../../domain/types.js';
 import type { Services } from '../../services/index.js';
 import type { Env } from '../../config/env.js';
@@ -935,10 +935,13 @@ export async function handleMessage(
       }
       if (!voiceSent) {
         const chunks = splitTelegramMarkdown(finalText);
+        const entityKeyboard = buildEntityLinkKeyboard(outcome.providerBundle.sources, finalText);
         for (const [index, chunk] of chunks.entries()) {
+          const isLast = index === chunks.length - 1;
           const rendered = renderTelegramText(chunk, 'markdown');
           const options = {
             ...(index === 0 ? replyOpts : {}),
+            ...(isLast && entityKeyboard ? { reply_markup: entityKeyboard } : {}),
             parse_mode: rendered.parseMode,
           };
           const sent = await ctx.reply(rendered.text, options).catch(async (err) => {
@@ -949,11 +952,19 @@ export async function handleMessage(
                 'reply target disappeared; sending generated text without reply_parameters',
               );
               return ctx
-                .reply(rendered.text, { parse_mode: rendered.parseMode })
-                .catch(() => ctx.reply(telegramPlainText(chunk, 'markdown')));
+                .reply(rendered.text, {
+                  parse_mode: rendered.parseMode,
+                  ...(isLast && entityKeyboard ? { reply_markup: entityKeyboard } : {}),
+                })
+                .catch(() =>
+                  ctx.reply(telegramPlainText(chunk, 'markdown'), {
+                    ...(isLast && entityKeyboard ? { reply_markup: entityKeyboard } : {}),
+                  }),
+                );
             }
             return ctx.reply(telegramPlainText(chunk, 'markdown'), {
               ...(index === 0 ? replyOpts : {}),
+              ...(isLast && entityKeyboard ? { reply_markup: entityKeyboard } : {}),
             });
           });
           rememberBotMessage(sent.message_id);
@@ -1547,4 +1558,44 @@ function archiveRejectText(reason: AnimeArchiveServiceRejectReason): string {
     default:
       return 'Richiesta di archivio non valida per questo utente, chat o argomento.';
   }
+}
+
+/**
+ * Build inline keyboard with direct links to Hugging Face or GitHub entities
+ * when they are mentioned in the reply or ground sources.
+ */
+function buildEntityLinkKeyboard(
+  sources: readonly string[] = [],
+  text = '',
+): InlineKeyboard | undefined {
+  const urls = new Set<string>();
+  for (const source of sources) {
+    if (/^https?:\/\/(?:www\.)?(?:huggingface\.co|github\.com)\/[\w.-]+\/[\w.-]+/i.test(source)) {
+      urls.add(source);
+    }
+  }
+  const textMatches =
+    text.match(/https?:\/\/(?:www\.)?(?:huggingface\.co|github\.com)\/[\w.-]+\/[\w.-]+/gi) || [];
+  for (const match of textMatches) {
+    urls.add(match);
+  }
+  if (urls.size === 0) return undefined;
+
+  const kb = new InlineKeyboard();
+  let count = 0;
+  for (const url of urls) {
+    if (count >= 2) break;
+    if (/huggingface\.co/i.test(url)) {
+      const match = url.match(/huggingface\.co\/(?:models\/|datasets\/)?([^/?#]+(?:\/[^/?#]+)?)/i);
+      const name = match ? match[1] : 'Hugging Face';
+      kb.url(`🤗 HF: ${name?.slice(0, 24)}`, url);
+      count++;
+    } else if (/github\.com/i.test(url)) {
+      const match = url.match(/github\.com\/([^/?#]+\/[^/?#]+)/i);
+      const name = match ? match[1] : 'GitHub';
+      kb.url(`⭐ GH: ${name?.slice(0, 24)}`, url);
+      count++;
+    }
+  }
+  return count > 0 ? kb : undefined;
 }

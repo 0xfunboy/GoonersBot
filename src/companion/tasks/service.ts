@@ -67,6 +67,10 @@ export class CompanionTaskService {
     return task;
   }
 
+  getById(taskId: string): Promise<CompanionTask | null> {
+    return this.repository.getById(taskId);
+  }
+
   getVisible(taskId: string, scope: TaskScope): Promise<CompanionTask | null> {
     return this.repository.getVisible(taskId, scope);
   }

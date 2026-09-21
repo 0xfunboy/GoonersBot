@@ -147,6 +147,82 @@ const animeArchiveConfirmation: CallbackSpec = {
   },
 };
 
+/** task_cancel|<taskId> - cancel an active companion task */
+const taskCancel: CallbackSpec = {
+  action: 'task_cancel',
+  permissions: ['allowed_user', 'not_banned'],
+  needsTermsAccepted: false,
+  approvalExempt: true,
+  async handle({ services, person, context, args }) {
+    const taskId = args[0];
+    if (!taskId) return null;
+    const task = await services.companionWork.tasks.getById(taskId);
+    if (!task) {
+      return {
+        rawText: 'Task non trovato o già terminato.',
+        textFormat: 'plain',
+        ephemeralMs: 5000,
+      };
+    }
+    if (['completed', 'failed', 'cancelled'].includes(task.status)) {
+      return {
+        rawText: 'Questo task è già stato completato o annullato.',
+        textFormat: 'plain',
+        deleteOrigin: true,
+      };
+    }
+    // Authority check: author of the task or bot/chat admin
+    const isAuthor = task.contract.scope.actorTelegramId === person.telegramId;
+    const isAdmin = context.isGroupAdmin || services.permissions.isBotAdminPerson(person);
+    if (!isAuthor && !isAdmin) {
+      return {
+        rawText: 'Non hai i permessi per annullare il task avviato da un altro utente.',
+        textFormat: 'plain',
+        ephemeralMs: 6000,
+      };
+    }
+    await services.companionWork.tasks.control({
+      taskId: task.id,
+      scope: task.contract.scope,
+      expectedVersion: task.version,
+      action: 'cancel',
+    });
+    return {
+      rawText: `⏹️ Task annullato: ${task.contract.goal.slice(0, 50)}`,
+      textFormat: 'plain',
+      deleteOrigin: true,
+    };
+  },
+};
+
+/** task_info|<taskId> - inspect status and progress of an active task */
+const taskInfo: CallbackSpec = {
+  action: 'task_info',
+  permissions: ['allowed_user', 'not_banned'],
+  needsTermsAccepted: false,
+  approvalExempt: true,
+  async handle({ services, args }) {
+    const taskId = args[0];
+    if (!taskId) return null;
+    const task = await services.companionWork.tasks.getById(taskId);
+    if (!task) {
+      return {
+        rawText: 'Task non trovato.',
+        textFormat: 'plain',
+        ephemeralMs: 5000,
+      };
+    }
+    const elapsedSeconds = Math.max(1, Math.round((Date.now() - task.createdAt.getTime()) / 1000));
+    const goal =
+      task.contract.goal.length > 80 ? `${task.contract.goal.slice(0, 77)}...` : task.contract.goal;
+    return {
+      rawText: `ℹ️ **Dettagli Task**\n• **Obiettivo**: ${goal}\n• **Stato**: ${task.status}\n• **Tempo trascorso**: ${elapsedSeconds}s\n• **Tentativi**: ${task.attempts}`,
+      textFormat: 'markdown',
+      ephemeralMs: 12_000,
+    };
+  },
+};
+
 export const callbackHandlers: CallbackSpec[] = [
   setChatMode,
   deleteChatMode,
@@ -155,6 +231,8 @@ export const callbackHandlers: CallbackSpec[] = [
   showChatLanguages,
   animeArchiveConfirmation,
   termsResponse,
+  taskCancel,
+  taskInfo,
 ];
 
 function archiveConfirmationResponse(result: AnimeArchiveConfirmationResult) {

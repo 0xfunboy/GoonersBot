@@ -88,14 +88,14 @@ export class HuggingFaceEngine implements SearchEngine {
         if (typeof entry.downloads === 'number')
           parts.push(`Downloads: ${entry.downloads.toLocaleString()}`);
         if (Array.isArray(entry.tags) && entry.tags.length > 0) {
-          parts.push(`Tags: ${entry.tags.slice(0, 5).join(', ')}`);
+          parts.push(`Tags: ${entry.tags.slice(0, 6).join(', ')}`);
         }
         if (entry.description) parts.push(entry.description.slice(0, 160));
 
         results.push({
           title: `Hugging Face: ${entry.id}`,
           url,
-          content: parts.join(' | ') || `Official repository for ${entry.id} on Hugging Face Hub.`,
+          content: `[HUGGINGFACE MODEL] ${entry.id} | ${parts.join(' | ')}`,
           engine: this.id,
         });
       }
@@ -111,10 +111,17 @@ export class HuggingFaceEngine implements SearchEngine {
             const dData = (await dRes.json()) as HfDatasetItem[];
             for (const item of dData) {
               if (!item.id) continue;
+              const dParts: string[] = [];
+              if (typeof item.likes === 'number')
+                dParts.push(`Likes: ${item.likes.toLocaleString()}`);
+              if (typeof item.downloads === 'number')
+                dParts.push(`Downloads: ${item.downloads.toLocaleString()}`);
+              if (item.description) dParts.push(item.description.slice(0, 160));
+
               results.push({
                 title: `Hugging Face Dataset: ${item.id}`,
                 url: `https://huggingface.co/datasets/${item.id}`,
-                content: item.description || `Dataset repository for ${item.id} on Hugging Face.`,
+                content: `[HUGGINGFACE DATASET] ${item.id} | ${dParts.join(' | ')}`,
                 engine: this.id,
               });
             }

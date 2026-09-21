@@ -133,6 +133,10 @@ export class CompanionTaskRepository {
     }
   }
 
+  async getById(id: string): Promise<CompanionTask | null> {
+    return this.col.findOne({ id });
+  }
+
   async getVisible(id: string, scope: TaskScope): Promise<CompanionTask | null> {
     return this.col.findOne({ id, ...scopeFilter(scope) });
   }

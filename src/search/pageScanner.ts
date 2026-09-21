@@ -1,7 +1,7 @@
 import * as cheerio from 'cheerio';
 import { createHash } from 'node:crypto';
 import { childLogger } from '../utils/logger.js';
-import { fetchSafeRemoteBuffer } from '../utils/safeRemoteFetch.js';
+import { fetchSafeRemoteBuffer, isBlockedNetworkAddress } from '../utils/safeRemoteFetch.js';
 import { extractUrls } from '../providers/media/linkMedia/url.js';
 import { createAbortScope } from '../utils/abort.js';
 import { redactSecrets } from '../utils/secrets.js';
@@ -356,7 +356,14 @@ export class PageScanner {
 
   private async scanOne(url: string, signal?: AbortSignal): Promise<PageSummary | null> {
     const parsed = safeUrl(url);
-    if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) return null;
+    if (
+      !parsed ||
+      (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+      isBlockedNetworkAddress(parsed.hostname) ||
+      parsed.hostname === 'localhost'
+    ) {
+      return null;
+    }
     try {
       const result = await fetchSafeRemoteBuffer(parsed, {
         timeoutMs: this.cfg.timeoutMs,
@@ -382,6 +389,21 @@ export class PageScanner {
           $('main').text() || $('article').text() || $('body').text(),
         ].join(' '),
       ).slice(0, 1800);
+      let text = mainText;
+      let finalTitle = title;
+      if (text.length < 150) {
+        const jinaFallback = await fetchViaJinaReader(
+          url,
+          this.cfg.userAgent,
+          this.cfg.timeoutMs,
+          signal,
+        );
+        if (jinaFallback && jinaFallback.text.length >= 150) {
+          text = jinaFallback.text;
+          finalTitle = jinaFallback.title || finalTitle;
+        }
+      }
+
       const outboundLinks = $('a[href]')
         .map((_, el) => absolutize($(el).attr('href') ?? '', finalUrl))
         .get()
@@ -392,16 +414,98 @@ export class PageScanner {
         url: finalUrl.toString(),
         requestedUrl: url,
         inspectedAt: new Date().toISOString(),
-        extractedTextSha256: createHash('sha256').update(mainText).digest('hex'),
-        title,
-        text: mainText,
-        facts: extractFacts(mainText),
+        extractedTextSha256: createHash('sha256').update(text).digest('hex'),
+        title: finalTitle,
+        text,
+        facts: extractFacts(text),
         outboundLinks,
       };
     } catch (err) {
-      log.debug({ err, url }, 'page scan failed');
+      log.debug({ err, url }, 'page scan failed; attempting Jina Reader fallback');
+      const errorMsg = String(err);
+      if (
+        /not publicly routable|blocked|forbidden|invalid destination/i.test(errorMsg) ||
+        isBlockedNetworkAddress(parsed.hostname) ||
+        parsed.hostname === 'localhost'
+      ) {
+        return null;
+      }
+      const jinaFallback = await fetchViaJinaReader(
+        url,
+        this.cfg.userAgent,
+        this.cfg.timeoutMs,
+        signal,
+      );
+      if (jinaFallback && jinaFallback.text.length >= 150) {
+        return jinaFallback;
+      }
       return null;
     }
+  }
+}
+
+/**
+ * Universal Markdown Reader fallback via Jina Reader (r.jina.ai).
+ * Parses JavaScript-heavy single page applications (React, Vue, documentation)
+ * into clean Markdown without running headless browsers.
+ */
+async function fetchViaJinaReader(
+  url: string,
+  userAgent: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<PageSummary | null> {
+  const parsed = safeUrl(url);
+  if (
+    !parsed ||
+    (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+    isBlockedNetworkAddress(parsed.hostname) ||
+    parsed.hostname === 'localhost'
+  ) {
+    return null;
+  }
+  const scope = createAbortScope(Math.min(timeoutMs, 5000), signal, 'Jina Reader fetch');
+  try {
+    const jinaUrl = `https://r.jina.ai/${url}`;
+    const res = await fetch(jinaUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': userAgent,
+        Accept: 'text/markdown, text/plain',
+      },
+      signal: scope.signal,
+    });
+    if (!res.ok) return null;
+    const raw = await res.text();
+    if (!raw || raw.trim().length < 100) return null;
+
+    const titleMatch = raw.match(/^Title:\s*(.+)$/m) || raw.match(/^#\s*(.+)$/m);
+    const title = titleMatch ? normalizeText(titleMatch[1] ?? '').slice(0, 180) : '';
+
+    const clean = raw
+      .replace(/^Title:.*$/m, '')
+      .replace(/^URL Source:.*$/m, '')
+      .replace(/^Markdown Content:.*$/m, '')
+      .trim();
+
+    const text = normalizeText(clean).slice(0, 1800);
+    if (text.length < 50) return null;
+
+    return {
+      url,
+      requestedUrl: url,
+      inspectedAt: new Date().toISOString(),
+      extractedTextSha256: createHash('sha256').update(text).digest('hex'),
+      title,
+      text,
+      facts: extractFacts(text),
+      outboundLinks: [],
+    };
+  } catch (err) {
+    log.debug({ err, url }, 'jina reader fallback failed');
+    return null;
+  } finally {
+    scope.dispose();
   }
 }
 

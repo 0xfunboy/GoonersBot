@@ -1,4 +1,4 @@
-import type { Api } from 'grammy';
+import { InlineKeyboard, type Api } from 'grammy';
 import { childLogger } from '../../utils/logger.js';
 
 const log = childLogger('companion-task-progress');
@@ -23,6 +23,7 @@ export interface CompanionProgressOptions {
   threadId?: number;
   language?: string;
   header?: string;
+  taskId?: string;
 }
 
 /**
@@ -135,10 +136,17 @@ export class CompanionTaskProgressReporter {
             );
             timer.unref();
           });
-          await Promise.race([
-            this.api.editMessageText(this.options.chatId, this.options.messageId, text),
-            timeoutPromise,
-          ]);
+          const keyboard = this.options.taskId
+            ? new InlineKeyboard()
+                .text('⏹️ Annulla', `task_cancel|${this.options.taskId}`)
+                .text('ℹ️ Dettagli', `task_info|${this.options.taskId}`)
+            : undefined;
+          const editPromise = keyboard
+            ? this.api.editMessageText(this.options.chatId, this.options.messageId, text, {
+                reply_markup: keyboard,
+              })
+            : this.api.editMessageText(this.options.chatId, this.options.messageId, text);
+          await Promise.race([editPromise, timeoutPromise]);
           this.lastText = text;
           this.lastSentAt = Date.now();
         } catch (error) {
