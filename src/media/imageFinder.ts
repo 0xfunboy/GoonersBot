@@ -1,5 +1,4 @@
 import { childLogger } from '../utils/logger.js';
-import type { SearxngProvider } from '../search/searxng.js';
 import type { MediaProcessor } from '../providers/media/index.js';
 import { throwIfAborted } from '../utils/abort.js';
 import { fetchSafeRemoteBuffer } from '../utils/safeRemoteFetch.js';
@@ -34,16 +33,24 @@ interface DownloadedImage {
   mime: string;
 }
 
+export interface ImageSearchEngine {
+  readonly enabled: boolean;
+  searchImages(
+    query: string,
+    opts?: { language?: string; max?: number; signal?: AbortSignal },
+  ): Promise<string[]>;
+}
+
 /**
- * Finds a safe, on-theme (waifu/anime) image online via SearXNG image search, then VERIFIES it by
+ * Finds a safe, on-theme (waifu/anime) image online via native/meta image search, then VERIFIES it by
  * downloading and having the vision model look at it before it is ever sent. Returns null unless a
- * candidate both downloads and passes the anime/safety check. Free (SearXNG + local-ish vision).
+ * candidate both downloads and passes the anime/safety check. Free (Native search + local-ish vision).
  */
 export class ImageFinder {
   private readonly poseCache = new Map<string, { image: FoundImage; expiresAt: number }>();
 
   constructor(
-    private readonly searxng: SearxngProvider,
+    private readonly searxng: ImageSearchEngine,
     private readonly media: MediaProcessor,
     private readonly queryPool: string[],
   ) {}

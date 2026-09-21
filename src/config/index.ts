@@ -370,8 +370,8 @@ export interface SearchConfig {
 
 export function resolveSearchConfig(env: Env): SearchConfig {
   return {
-    webEnabled: env.WEB_SEARCH_ENABLED && Boolean(env.SEARXNG_URL),
-    imageEnabled: env.IMAGE_LOOKUP_ENABLED && env.WEB_SEARCH_ENABLED && Boolean(env.SEARXNG_URL),
+    webEnabled: env.WEB_SEARCH_ENABLED,
+    imageEnabled: env.IMAGE_LOOKUP_ENABLED && env.WEB_SEARCH_ENABLED,
     searxngUrl: env.SEARXNG_URL ? env.SEARXNG_URL.replace(/\/+$/, '') : undefined,
     maxResults: env.WEB_SEARCH_MAX_RESULTS,
     timeoutMs: env.WEB_SEARCH_TIMEOUT_MS,
@@ -467,8 +467,7 @@ export function resolveAnimeConfig(env: Env): AnimeConfig {
     maxResponseBytes: Math.max(16 * 1024, env.ANIME_KNOWLEDGE_MAX_RESPONSE_BYTES),
     refreshMinutes: Math.max(5, env.ANIME_KNOWLEDGE_REFRESH_MINUTES),
     maxCandidates: Math.min(10, Math.max(1, env.ANIME_KNOWLEDGE_MAX_CANDIDATES)),
-    searchFallbackEnabled:
-      env.ANIME_KNOWLEDGE_SEARCH_FALLBACK && env.WEB_SEARCH_ENABLED && Boolean(env.SEARXNG_URL),
+    searchFallbackEnabled: env.ANIME_KNOWLEDGE_SEARCH_FALLBACK && env.WEB_SEARCH_ENABLED,
     follows: {
       enabled: env.ANIME_KNOWLEDGE_ENABLED && env.ANIME_FOLLOWS_ENABLED,
       pollMinutes: Math.max(5, env.ANIME_FOLLOW_POLL_MINUTES),

@@ -10,7 +10,7 @@ import {
   type ArtifactRef,
   type ArtifactScope,
 } from '../companion/artifacts/store.js';
-import { CompanionTaskService } from '../companion/tasks/service.js';
+import { CompanionTaskService, CompanionTaskProgressReporter } from '../companion/tasks/index.js';
 import {
   createRequestContract,
   TaskRetryableError,
@@ -90,6 +90,17 @@ export class CompanionWorkService implements VisibleWorkReader {
       concurrency: deps.concurrency,
       execute: (ctx) =>
         this.execute(ctx).catch(async (error: unknown) => {
+          const progressMessageId =
+            ((ctx.task.payload as Record<string, unknown>)?.['progressMessageId'] as
+              | number
+              | undefined) ?? ctx.task.messageIds[0];
+          if (this.api && progressMessageId) {
+            try {
+              await this.api.deleteMessage(ctx.task.contract.scope.chatId, progressMessageId);
+            } catch {
+              /* ignore deletion error */
+            }
+          }
           // A scheduled retry is still active work, not a failed request to announce in chat.
           if (error instanceof TaskRetryableError && taskRetryResumeAt(ctx.task, error))
             throw error;
@@ -192,6 +203,19 @@ export class CompanionWorkService implements VisibleWorkReader {
     messageId: number,
   ): Promise<void> {
     await this.tasks.attachMessage(
+      taskId,
+      taskScope(person.telegramId, context.chatId, context.threadId),
+      messageId,
+    );
+  }
+
+  async attachProgressMessage(
+    taskId: string,
+    person: Person,
+    context: ChatContext,
+    messageId: number,
+  ): Promise<void> {
+    await this.tasks.attachProgressMessage(
       taskId,
       taskScope(person.telegramId, context.chatId, context.threadId),
       messageId,
@@ -542,6 +566,27 @@ export class CompanionWorkService implements VisibleWorkReader {
         buffer: await this.deps.artifacts.read(payload.input.visualRef, artifactScope(input)),
         mime: payload.input.visualRef.mime,
       };
+    const progressMessageId =
+      ((payload as unknown as Record<string, unknown>)?.['progressMessageId'] as
+        | number
+        | undefined) ?? ctx.task.messageIds[0];
+    const progress =
+      this.api && progressMessageId
+        ? new CompanionTaskProgressReporter(this.api, {
+            chatId: input.context.chatId,
+            messageId: progressMessageId,
+            threadId: input.context.threadId,
+            language: input.language,
+          })
+        : null;
+
+    if (progress) {
+      await progress.update(
+        15,
+        isItalian(input.language) ? 'Avvio esecuzione...' : 'Starting execution...',
+      );
+    }
+
     const version = ctx.task.contract.acceptedVersion;
     input.continuation = {
       load: () => ctx.getCheckpoint(`progress:v${version}`),
@@ -559,6 +604,13 @@ export class CompanionWorkService implements VisibleWorkReader {
         ctx,
         action,
         async () => {
+          if (progress) {
+            const desc = action.purpose || action.tool;
+            await progress.update(
+              45,
+              isItalian(input.language) ? `Esecuzione: ${desc}...` : `Executing: ${desc}...`,
+            );
+          }
           const output = await invoke();
           const data = output.data as
             | { kind?: string; generationAttempts?: number; qaVisionCalls?: number }
@@ -566,6 +618,14 @@ export class CompanionWorkService implements VisibleWorkReader {
           if (data?.kind === 'image') {
             mediaUsage.imageCalls += data.generationAttempts ?? 1;
             mediaUsage.visionCalls += data.qaVisionCalls ?? 0;
+          }
+          if (progress) {
+            await progress.update(
+              75,
+              isItalian(input.language)
+                ? 'Elaborazione completata, preparo consegna...'
+                : 'Completed, preparing delivery...',
+            );
           }
           return output;
         },
@@ -613,6 +673,12 @@ export class CompanionWorkService implements VisibleWorkReader {
       await ctx.checkpoint(`result:v${version}`, result);
     }
     await ctx.phase('delivering');
+    if (progress) {
+      await progress.update(
+        90,
+        isItalian(input.language) ? 'Invio risultati...' : 'Delivering results...',
+      );
+    }
     const messageIds: number[] = [];
     for (const url of result.linkUrls ?? []) {
       if (!this.deps.deliverLink) throw new Error('Durable link transport unavailable');
@@ -697,6 +763,10 @@ export class CompanionWorkService implements VisibleWorkReader {
       )) as { messageId: number };
       messageIds.push(receipt.messageId);
       await this.tasks.attachMessage(ctx.task.id, ctx.task.contract.scope, receipt.messageId);
+    }
+    if (progress) {
+      await progress.update(100, isItalian(input.language) ? 'Completato!' : 'Completed!');
+      await progress.complete();
     }
     await this.deps
       .remember(input, result.text, messageIds, {

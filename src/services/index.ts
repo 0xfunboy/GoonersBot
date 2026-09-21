@@ -20,7 +20,7 @@ import { MemoryRetriever } from '../memory/memoryRetriever.js';
 import { VectorMemoryRetriever } from '../memory/vectorRetriever.js';
 import { createEmbedder, type Embedder } from '../rag/embedder.js';
 import { SceneAnalyzer } from '../brain/sceneAnalyzer.js';
-import { SearxngProvider } from '../search/searxng.js';
+import { NativeMetaSearch } from '../search/index.js';
 import { AnilistProvider } from '../anime/providers/anilist.js';
 import { JikanEnricher } from '../anime/providers/jikan.js';
 import { AnimeCatalogService } from '../anime/catalogService.js';
@@ -308,9 +308,9 @@ export class Services {
           minScore: config.embeddings.minScore,
         })
       : new MemoryRetriever(storage, memoryRetrieverConfig);
-    const searxng = new SearxngProvider({
+    const nativeSearch = new NativeMetaSearch({
       enabled: config.search.webEnabled,
-      baseUrl: config.search.searxngUrl,
+      searxngUrl: config.search.searxngUrl,
       timeoutMs: config.search.timeoutMs,
       maxResults: config.search.maxResults,
     });
@@ -320,7 +320,7 @@ export class Services {
       userAgent: config.linkMedia.userAgent,
     });
     this.grounding = new GroundingService(
-      searxng,
+      nativeSearch,
       this.media,
       {
         webEnabled: config.search.webEnabled,
@@ -353,7 +353,7 @@ export class Services {
       },
       llm,
     );
-    this.imageFinder = new ImageFinder(searxng, this.media, config.auto.imageQueryPool);
+    this.imageFinder = new ImageFinder(nativeSearch, this.media, config.auto.imageQueryPool);
     this.news = new NewsService(
       config.auto.rssFeeds,
       config.search.timeoutMs,
@@ -427,7 +427,7 @@ export class Services {
         timeoutMs: config.anime.timeoutMs,
         maxResponseBytes: config.anime.maxResponseBytes,
       }),
-      search: searxng,
+      search: nativeSearch,
     });
     this.animeFollows = new AnimeFollowService(config.anime, storage, this.animeCatalog);
     this.anime = new AnimeKnowledgeService(config.anime, this.animeCatalog, this.animeFollows);

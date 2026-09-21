@@ -517,7 +517,12 @@ export async function handleMessage(
         updateId: ctx.update.update_id,
       });
       const sent = await ctx.reply(queued.text);
-      await services.companionWork.attachMessage(queued.taskId, person, context, sent.message_id);
+      await services.companionWork.attachProgressMessage(
+        queued.taskId,
+        person,
+        context,
+        sent.message_id,
+      );
       if (tracking)
         await services.conversation.addUserMessage(
           context.chatId,
@@ -1147,13 +1152,22 @@ export async function handleMessage(
       rememberBotMessage(sent.message_id);
     }
     if (outcome.companionTaskId && services.companionWork) {
-      for (const messageId of botMessageIds) {
-        await services.companionWork.attachMessage(
-          outcome.companionTaskId,
-          person,
-          context,
-          messageId,
-        );
+      for (const [index, messageId] of botMessageIds.entries()) {
+        if (index === 0 && outcome.styleVariant === 'companion:queued') {
+          await services.companionWork.attachProgressMessage(
+            outcome.companionTaskId,
+            person,
+            context,
+            messageId,
+          );
+        } else {
+          await services.companionWork.attachMessage(
+            outcome.companionTaskId,
+            person,
+            context,
+            messageId,
+          );
+        }
       }
     }
     if (outcome.socialQuestion && socialQuestionMessageId !== undefined) {

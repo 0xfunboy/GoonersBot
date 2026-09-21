@@ -97,6 +97,8 @@ function fixture() {
       .fn()
       .mockResolvedValueOnce({ message_id: 41 })
       .mockResolvedValueOnce({ message_id: 42 }),
+    editMessageText: vi.fn().mockResolvedValue(true),
+    deleteMessage: vi.fn().mockResolvedValue(true),
   };
   // Attach the test sender without starting the real poller.
   (service as unknown as { api: unknown }).api = api;
@@ -145,6 +147,7 @@ describe('companion work host bridge', () => {
       messageId: 42,
       artifactId: 'artifact-2',
     });
+    expect(f.api.deleteMessage).toHaveBeenCalledWith(-20, 4);
   });
 
   it('handles status and cancellation without invoking the runtime', async () => {

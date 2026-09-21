@@ -154,6 +154,23 @@ export class CompanionTaskRepository {
     return result.matchedCount === 1;
   }
 
+  async attachProgressMessage(
+    taskId: string,
+    scope: TaskScope,
+    messageId: number,
+  ): Promise<boolean> {
+    if (!Number.isSafeInteger(messageId) || messageId <= 0) return false;
+    const now = new Date();
+    const result = await this.col.updateOne(
+      { id: taskId, ...scopeFilter(scope), 'messageIds.63': { $exists: false } },
+      {
+        $addToSet: { messageIds: messageId },
+        $set: { 'payload.progressMessageId': messageId, updatedAt: now },
+      },
+    );
+    return result.matchedCount === 1;
+  }
+
   /** Presentation is not a new execution revision: do not revoke a running tool's fence. */
   async patchPresentation(
     taskId: string,

@@ -76,3 +76,24 @@ Read with [runtime](COMPANION_RUNTIME.md) and [acceptance / handoff](COMPANION_H
    backoff. The policy remains bounded to compatible reads and at most two semantic revisions;
    arbitrary provider/privilege changes are not advertised. Final integrated local gates passed;
    separate live/model acceptance must not be inferred from them.
+
+## Post-Rebase Resiliency & Companion Progress Additions
+
+1. **Beep Boop In-Place Progress Persistence**:
+   - `CompanionTaskProgressReporter` in `src/companion/tasks/progress.ts`.
+   - In-place updates to initial Telegram acknowledgment with visual unicode progress bar `[████████] 100%`.
+   - Automatic `deleteMessage()` upon delivery completion so no clutter or progress spam remains in chat.
+   - Attached message ID tracked in `payload.progressMessageId` across execution revisions.
+2. **Zero-Failure Web Search & Native MetaSearch Engine**:
+   - Integrato interamente all'interno di GoonerBot il motore di meta-ricerca nativo (`src/search/nativeMetaSearch.ts`): eliminata la dipendenza obbligatoria da SearXNG separato/esterno.
+   - Sottosistema a motori modulari nativi in TypeScript (`src/search/engines/`):
+     - `HuggingFaceEngine`: API ufficiale Hugging Face Hub (`/api/models`, `/api/datasets`), con estrazione diretta di pesi, download, likes, tags e link.
+     - `DuckDuckGoEngine`: parser cheerio HTML e Lite con estrazione dei redirect diretti `uddg` e ricerca immagini.
+     - `WikipediaEngine`: OpenSearch API per nozioni ed entità + ricerca immagini su Wikimedia Commons.
+     - `MojeekEngine`: crawler web privacy indipendente con indicizzazione diretta.
+     - `GitHubEngine`: ricerca repository, librerie, linguaggi e stelle.
+     - `RedditEngine`: discussioni, opinioni e guide dalla community.
+     - `SearxngBridgeEngine`: bridge opzionale legacy qualora un'istanza esterna sia configurata.
+   - Esecuzione parallela ad alta resilienza (`Promise.allSettled`), deduplicazione per URL canonico (rimozione di UTM e parametri di tracking), consensus ranking (bonus moltiplicatore se più motori concordano sullo stesso link) e rilevamento dell'intento (es. query su modelli e pesi favoriscono Hugging Face).
+   - Abilitazione nativa e autonoma di web e image search senza dipendere da `SEARXNG_URL`.
+

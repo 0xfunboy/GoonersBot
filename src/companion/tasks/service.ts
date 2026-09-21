@@ -79,6 +79,10 @@ export class CompanionTaskService {
     return this.repository.attachMessage(taskId, scope, messageId);
   }
 
+  attachProgressMessage(taskId: string, scope: TaskScope, messageId: number): Promise<boolean> {
+    return this.repository.attachProgressMessage(taskId, scope, messageId);
+  }
+
   async control(input: TaskControlEvent): Promise<CompanionTask | null> {
     const task = await this.repository.control(input);
     if (task) {
