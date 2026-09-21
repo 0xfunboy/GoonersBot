@@ -1,7 +1,7 @@
 # Companion rework handoff and acceptance matrix
 
-Date: 2026-09-19. Branch: `companion-rework/phase-1-ingress`. Previous integrated checkpoint:
-`8ec700c`; completion changes are identified by the final handoff commit. Read with
+Date: 2026-09-21. Branch: `companion-rework/phase-1-ingress`. Previous integrated checkpoints:
+`8ec700c`, `0c5d880`, `787a880`, `6cb1d44`; latest active code: `cd491cb`. Read with
 [runtime](COMPANION_RUNTIME.md), [R00–R14 status](COMPANION_REWORK_STATUS.md), and
 `/home/funboy/GOONERSBOT_COMPANION_REWORK_PLAN.md`.
 
@@ -13,23 +13,19 @@ activation, failures, corrective work and remaining gates; main remains unmerged
 ## Final local evidence
 
 - Global typecheck, ESLint, formatting and `git diff --check` passed.
-- Final serial repository suite: **140 files / 1,420 tests passed**, 42.37 seconds; started
-  2026-09-19 14:53:21 UTC. Includes completed R06 decision/progress/backoff regressions.
+- Final serial repository suite: **142 files / 1,475 tests passed**, 41.82 seconds.
+  Includes completed R06 decision/progress/backoff regressions, document prompt intent preservation,
+  and tightened report delivery with preserved host action deadlines (`cd491cb`).
 - Real isolated Mongo verification: **26 check groups passed**, zero external effects and no
-  production database access. This supersedes the earlier 14-group result; added checks cover memory
-  CAS, actor/topic isolation, erasure replay prevention and idempotent topic-aware index migration.
-  Two final additions verify no claim before scheduled retry time and due-time recovery by a new
-  worker with preserved attempts/checkpoints and a new fence.
+  production database access. Covers memory CAS, actor/topic isolation, erasure replay prevention
+  and idempotent topic-aware index migration. Due-time recovery and retry gating across worker replacement verified.
 - The isolated Mongo wrapper starts an existing binary on a temporary private port/dbpath, then
   shuts it down and removes only its own test database/directory.
-- Local Unicode PDF/DOCX conversion was verified at the earlier checkpoint. OCR and renderer
-  readiness/fail-closed behavior is tested; actual Tesseract/Chromium execution is not verified because
-  those binaries are absent. Their availability is reflected in per-turn runtime readiness.
-- Final isolated TypeScript build passed in `/tmp/goonerbot-companion-final-build-WsovhL`; live `dist/` was not
-  touched. See [COMPANION_LOCAL_VERIFICATION.md](COMPANION_LOCAL_VERIFICATION.md) for the execution record.
-- The final suite supersedes the earlier 139-file/1,411-test run and intermediate targeted runs.
-  It covers durable retry time/attempts, acknowledged read-timeout cancellation, draining peers before
-  release, authority/deadline/budget rejection and safe read-cache reuse across amendments.
+- Local Unicode PDF/DOCX conversion was verified. OCR and renderer readiness/fail-closed behavior is tested;
+  actual Tesseract/Chromium execution is not verified because those binaries are absent.
+  Their availability is reflected in per-turn runtime readiness.
+- Final isolated TypeScript build passed; live `dist/` was not touched.
+- SearXNG local search endpoint verified operational with live results and grounding (`smoke-search.ts`).
 
 ## Definition of Done: all 17 obligations
 

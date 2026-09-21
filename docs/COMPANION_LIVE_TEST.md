@@ -6,11 +6,10 @@ supergroup `-1002837751448` (the supplied `2837751448` was resolved with `getCha
 The service is live for its existing approved chats; this is not a separate staging bot.
 Operator-generated test messages are restricted to the chosen group.
 
-**Currently active code: `6cb1d44`**, started **15:31:28 UTC**, polling ready **15:31:29 UTC**.
-Release: `/home/funboy/.local/share/goonerbot/releases/6cb1d44-live-7WHURt`.
-The later documentation-only commit is not a different deployed binary. Owner notification in the
-chosen group was confirmed as message **192762** at **15:31:51 UTC**. It asks for another natural
-PDF request and passive audit, and explicitly identifies the remaining external search limitation.
+**Currently active code: `cd491cb`**, started **15:38:24 UTC**, release: `/home/funboy/.local/share/goonerbot/releases/cd491cb-live-DBC6Gr`.
+The systemd user override `90-companion-live.conf` selects this immutable release with `COMPANION_TASKS_ENABLED=true`
+and concurrency 1. Live status: active (running).
+SearXNG local search endpoint at `http://127.0.0.1:8888` has been verified operational with live results and grounding (`smoke-search.ts`).
 
 ## Activation and recovery material
 
@@ -153,8 +152,8 @@ misdiagnosing the successful generation as a timeout.
 ### Open gates
 
 Repeat semantic accuracy and naturalness acceptance after the final tightening; acquisition and
-transport evidence above does not certify every statement in a generated document. Search remains externally
-degraded until upstream engines recover or a separately approved search configuration is changed.
+transport evidence above does not certify every statement in a generated document.
+SearXNG local service was tested with `scripts/smoke-search.ts` and verified functional with live web search results and grounding.
 No provider replacement, CAPTCHA bypass or extra credentials were introduced in this trial.
 Whole-process crash/uncertain-send tests, media/rehost, model corpus, human style review and prolonged
 resource soak are still open. Do not infer those passes from local tests or one clean restart.

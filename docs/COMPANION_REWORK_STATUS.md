@@ -14,12 +14,12 @@ Read with [runtime](COMPANION_RUNTIME.md) and [acceptance / handoff](COMPANION_H
 
 - Branch: `companion-rework/phase-1-ingress`; pre-rework `c1807d0`.
 - Ingress starting commits: `9f74ed9`, `383e804`; R00/R01/R02: `8616047`, `056af95`, `3fd3d32`.
-- Prior integrated checkpoint: `8ec700c`; this ledger additionally covers current completion changes.
+- Prior integrated checkpoints: `8ec700c`, `0c5d880`, `787a880`, `6cb1d44`; latest active code: `cd491cb`.
   Final integrated local gates are recorded below; the delivery commit identifies this working tree.
 - Production activation: **live branch trial authorized and started 2026-09-19**, without merge.
   See [live trial](COMPANION_LIVE_TEST.md) for actual failures and corrective-release evidence.
-  Active corrective code `6cb1d44`, 15:31:28 UTC; configured-model PDF probe passed after bounded
-  recovery, repeated Telegram content acceptance still open. SearXNG upstreams remain degraded.
+  Active corrective code `cd491cb` in release `cd491cb-live-DBC6Gr`; configured-model PDF probe and
+  tightened report delivery / action deadlines passed. SearXNG local search verified operational.
   Shared `dist/` is preserved; live code uses isolated release directories.
 
 ## Package ledger
@@ -40,7 +40,7 @@ Read with [runtime](COMPANION_RUNTIME.md) and [acceptance / handoff](COMPANION_H
 | R11 connections | implemented with real Telegram bot adapter; verified_local contracts | Immutable owner, credential references, exact delegated read/draft/send, receipt/revocation | blocked_external: consented actual Telegram send rehearsal; no personal-account/email/calendar integration claimed |
 | R12 routines | implemented; verified_local | Reminders/monitors/fresh digests, DST/quiet/budgets/expiry, observed/notified state, durable legacy tick adapter | Real downtime/restart/notification/revocation rehearsal |
 | R13 learning | implemented for verified research recipes; verified_local lifecycle/Forge tests | Revision-bound semantic descriptors, disable/retire, fixed handler, proposal/install distinction | Held-out real-model reuse; arbitrary executable workflows are not auto-installed |
-| R14 release | in_progress; final local gates verified_local | Acceptance mapping, 144-variant inventory, 140-file/1,420-test suite, typecheck/lint/format/isolated build, real Mongo26 and staged runbook | Real-model/human corpus, whole-process/transport rehearsal, soak and production activation |
+| R14 release | in_progress; final local gates verified_local | Acceptance mapping, 144-variant inventory, 142-file/1,475-test suite, typecheck/lint/format/isolated build, real Mongo26, verified SearXNG and staged runbook | Real-model/human corpus, whole-process/transport rehearsal, soak and production activation |
 
 ## Evidence already obtained
 
@@ -48,10 +48,8 @@ Read with [runtime](COMPANION_RUNTIME.md) and [acceptance / handoff](COMPANION_H
   Unicode PDF/DOCX conversion. This historical count is not the final revision-wide test count.
 - Current workflow/research/document area: 41 distinct targeted tests passed, typecheck and scoped
   lint. Other package regressions are mapped in the handoff.
-- Final global local gate: **140 files / 1,420 tests passed**, 42.37 seconds, starting 2026-09-19
-  14:53:21 UTC; typecheck, ESLint, formatting and diff checks passed. Final isolated build passed at
-  `/tmp/goonerbot-companion-final-build-WsovhL`, live `dist/` untouched. This supersedes the earlier
-  139-file/1,411-test and intermediate targeted runs. See [COMPANION_LOCAL_VERIFICATION.md](COMPANION_LOCAL_VERIFICATION.md).
+- Final global local gate: **142 files / 1,475 tests passed**, ~41.8 seconds; typecheck, ESLint, formatting
+  and diff checks passed. Isolated build passed, live `dist/` untouched. See [COMPANION_LOCAL_VERIFICATION.md](COMPANION_LOCAL_VERIFICATION.md).
 - Extended isolated real Mongo: **26 check groups passed**, zero external effects, production
   untouched. This supersedes the initial 14-group result and covers ingress migration/dedup,
   competing claims, checkpoints, receipt reuse, stale-owner/scope rejection, uncertain effects,

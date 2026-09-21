@@ -1,19 +1,17 @@
-# Local verification evidence — 2026-09-19
+# Local verification evidence — 2026-09-21
 
-These results cover the rework working tree before the delivery commit. They do not assert
+These results cover the rework working tree including `cd491cb`. They do not assert
 production activation, real Telegram delivery or full conversational-model acceptance.
 
 ## Repository delivery gates
 
 - Global `pnpm typecheck` and `pnpm lint`: passed.
-- Full serial suite: **140 files / 1,420 tests passed** in 42.37 seconds; started
-  2026-09-19 14:53:21 UTC. This final run includes the completed R06 continuation/backoff tests.
-- Isolated TypeScript emission: passed in `/tmp/goonerbot-companion-final-build-WsovhL`;
+- Full serial suite: **142 files / 1,475 tests passed** in 41.82 seconds; started
+  2026-09-21. This final run includes the completed R06 continuation/backoff tests, prompt intent preservation, and tightened action deadlines.
+- Isolated TypeScript emission: passed cleanly via isolated build directory;
   the production-shared `dist/` directory was not changed.
 - `pnpm format:check` and `git diff --check`: passed.
-- The final suite includes reuse of an unchanged public read across task amendments and invalidation
-  when the query changes. It supersedes the earlier 139-file/1,411-test run and intermediate targeted
-  checks; those historical counts must not be added to this final total.
+- SearXNG local search smoke test (`pnpm tsx scripts/smoke-search.ts`): passed with verified search results and grounding.
 
 These are repository-local checks, not a deployment or transcript-quality score.
 
