@@ -509,4 +509,57 @@ describe('Cortex', () => {
     );
     expect(cortexToTurnEvaluation(out, true).action).toBe('download_media');
   });
+
+  it('routes conversational generation requests to image_gen in fallback', () => {
+    const derby = fallbackCortex({
+      currentMessage:
+        'Genera Johnny e la moglie durante il derby Milan Inter, e la moglie milanista piange per la vittoria dell\'Inter per 4-0',
+      botIsAddressed: true,
+      availableTools: ['image_gen', 'web_search'],
+    });
+    expect(derby.intents).toContain('make_image');
+    expect(derby.toolCalls).toContainEqual(
+      expect.objectContaining({
+        tool: 'image_gen',
+      }),
+    );
+    expect(cortexToTurnEvaluation(derby, true).action).toBe('generate_image');
+
+    const randomGen = fallbackCortex({
+      currentMessage: 'genera quello che cazzo ti pare allora, tanto farà cagare lo stesso',
+      botIsAddressed: true,
+      availableTools: ['image_gen', 'web_search'],
+    });
+    expect(randomGen.intents).toContain('make_image');
+    expect(randomGen.toolCalls).toContainEqual(
+      expect.objectContaining({
+        tool: 'image_gen',
+      }),
+    );
+    expect(cortexToTurnEvaluation(randomGen, true).action).toBe('generate_image');
+  });
+
+  it('recovers image_gen in normalizeDecision when model omits it on explicit request', () => {
+    const lazyDecision: CortexDecision = {
+      intents: ['banter'],
+      toolCalls: [],
+      valueTarget: 'social_glue',
+      roastBudget: 'light',
+      socialRole: 'friend',
+      needsGrounding: false,
+      confidence: 0.8,
+      reason: 'banter in room',
+    };
+    const recovered = normalizeDecision(
+      lazyDecision,
+      ['image_gen', 'web_search'],
+      'Genera Johnny e la moglie durante il derby Milan Inter',
+    );
+    expect(recovered.toolCalls).toContainEqual(
+      expect.objectContaining({
+        tool: 'image_gen',
+      }),
+    );
+    expect(recovered.intents).toContain('make_image');
+  });
 });

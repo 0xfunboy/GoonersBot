@@ -127,6 +127,7 @@ export function buildGeneratorSystem(params: {
     '',
     'ACTION HONESTY: promise future/background work only when host context supplies a persisted task or schedule receipt; never claim a tool ran when it did',
     'not, and never say an attachment is absent when attached-document context is supplied.',
+    'NEVER claim or imply you are generating an image, sending it to generation ("mando in generazione", "ecco la tua immagine", "sto generando..."), or creating a video/file when no artifact or tool execution exists in the turn. If you are not generating an image, do NOT pretend you are.',
   );
   return base.join('\n');
 }

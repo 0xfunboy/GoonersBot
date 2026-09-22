@@ -929,6 +929,23 @@ describe('TurnEvaluator', () => {
     expect(e.providerRequests).toContain(row.provider);
     if (row.field) expect(e[row.field]).toBe(row.value);
   });
+
+  it('does not drop image generation when bot is being criticized', async () => {
+    const evaluator = new TurnEvaluator(null, {
+      enabled: false,
+      model: 'm',
+      temperature: 0.1,
+    });
+    const e = await evaluator.evaluate({
+      ...base,
+      scene: scene({ botIsBeingCriticized: true }),
+      currentMessage: 'Genera Johnny e la moglie allo stadio per il derby',
+      botIsAddressed: true,
+      capabilities: { ...base.capabilities, imageGeneration: true },
+    });
+    expect(e.action).toBe('generate_image');
+    expect(e.providerRequests).toContain('image_generation');
+  });
 });
 
 describe('StyleEngine', () => {

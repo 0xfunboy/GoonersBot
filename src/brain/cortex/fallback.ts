@@ -2,6 +2,15 @@ import type { CortexDecision, CortexTool, SourcedCortexDecision } from './schema
 import { extractUrls } from '../../providers/media/linkMedia/url.js';
 import { extractPageAuditUrl } from '../../search/pageScanner.js';
 
+const VIDEO_GEN_RE =
+  /\b(genera|generami|generate|crea|creami|create|fammi|famme|make|animami)\b[^.!?]{0,40}\b(video|videoclip|clip|animazione|animation|filmato|cortometraggio)\b/i;
+const IMAGE_GEN_RE =
+  /\b(genera|generami|generate|crea|creami|create|disegna|disegni|disegnami|draw|render|illustra|ritrai)\b/i;
+const MAKE_IMAGE_PHRASE_RE =
+  /\b(fai|fammi|fammene|fanne|faresti|facessi|mostrami|vediamo)\b[^.!?]{0,25}\b(un['\s]?(?:immagine|disegno|foto|ritratto|vignetta|meme)|immagini|foto)\b/i;
+const NON_IMAGE_TARGET_RE =
+  /\b(video|videoclip|clip|animazione|animation|musica|canzone|audio|brano|testo|storia|poesia|codice|script|file|pdf|doc|documento)\b/i;
+
 const HINTS = {
   search: ['search', 'lookup', 'google', 'online', 'price', 'cost', 'cerca', 'prezzo', 'buscar'],
   news: ['news', 'latest', 'today', 'breaking', 'notizia', 'oggi', 'noticias', 'hoy'],
@@ -17,7 +26,22 @@ const HINTS = {
     'canta',
     'cancion',
   ],
-  image: ['image', 'picture', 'draw', 'meme', 'immagine', 'disegna', 'foto', 'dibuja', 'imagen'],
+  image: [
+    'image',
+    'picture',
+    'draw',
+    'meme',
+    'immagine',
+    'immagini',
+    'disegna',
+    'disegno',
+    'disegni',
+    'foto',
+    'dibuja',
+    'imagen',
+    'ritratto',
+    'vignetta',
+  ],
   translate: ['translate', 'traduci', 'traduce', 'inglese', 'english', 'espanol'],
   voice: ['voice', 'read aloud', 'tts', 'vocale', 'voce', 'leer'],
   wrong: ['wrong', 'false', 'bullshit', 'sbagliato', 'cazzata', 'falso', 'mentira'],
@@ -54,6 +78,13 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
       msg,
     );
 
+  const isVideoGen = VIDEO_GEN_RE.test(msg);
+  const isImageGen =
+    !isVideoGen &&
+    (has(msg, HINTS.image) ||
+      MAKE_IMAGE_PHRASE_RE.test(msg) ||
+      (IMAGE_GEN_RE.test(msg) && !NON_IMAGE_TARGET_RE.test(msg)));
+
   // A degraded evaluator must never invent a media download from prose. Rehosting a concrete URL
   // is deterministic; discovering one from a natural-language request belongs to the LLM cortex.
   if (controlIntent) {
@@ -83,6 +114,13 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
       query: cleanFallbackQuery(instruction, HINTS.music),
       reason: 'degraded music hint',
     });
+  } else if (isVideoGen && tools.has('video_gen')) {
+    intents.push('make_video');
+    calls.push({
+      tool: 'video_gen',
+      query: instruction,
+      reason: 'degraded video hint',
+    });
   } else if (
     /\b(qwen|flux|sdxl|stable diffusion|midjourney|dall-e|ideogram|imagen|wan|hunyuan)\b/i.test(
       msg,
@@ -103,7 +141,7 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
       query: instruction,
       reason: 'demonstrative sample test for the requested model',
     });
-  } else if (has(msg, HINTS.image) && tools.has('image_gen')) {
+  } else if (isImageGen && tools.has('image_gen')) {
     intents.push(has(msg, ['draw', 'disegna', 'dibuja']) ? 'draw_image' : 'make_image');
     calls.push({ tool: 'image_gen', query: instruction, reason: 'degraded image hint' });
   } else if (has(msg, HINTS.translate) && tools.has('translate')) {

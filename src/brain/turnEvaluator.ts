@@ -78,7 +78,7 @@ const MUSIC_RE =
   /\b(scaricami|scaricare|download|suona|suonami|canta|cantami|play|riproduci|youtube|canzone|song|brano|musica)\b/i;
 
 const IMAGE_GEN_RE =
-  /\b(genera|generami|crea|creami|disegna|disegni|disegnami|draw|image|immagine|foto|meme)\b/i;
+  /\b(genera|generami|generate|crea|creami|create|disegna|disegni|disegnami|draw|render|illustra|ritrai|image|immagine|immagini|foto|picture|meme|ritratto|vignetta)\b/i;
 
 // Must be tested BEFORE IMAGE_GEN_RE: "generami un video" also matches the image verbs. Requires a
 // creation verb plus a clip noun, so "mandami il video di X" stays a download, not a generation.
@@ -253,7 +253,14 @@ export class TurnEvaluator {
       });
     }
 
-    if (input.scene.botIsBeingCriticized) {
+    const hasActionableToolRequest =
+      (input.capabilities.imageGeneration && IMAGE_GEN_RE.test(msg)) ||
+      (input.capabilities.videoGeneration && VIDEO_GEN_RE.test(msg)) ||
+      (input.capabilities.music && MUSIC_RE.test(msg)) ||
+      (input.capabilities.translation && TRANSLATE_RE.test(msg)) ||
+      (input.capabilities.tts && VOICE_RE.test(msg));
+
+    if (input.scene.botIsBeingCriticized && !hasActionableToolRequest) {
       return this.turn({
         shouldAct: true,
         action: 'banter_only',
