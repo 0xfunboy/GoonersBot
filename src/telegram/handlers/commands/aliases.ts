@@ -23,14 +23,14 @@ const languageAliases: Readonly<Record<string, readonly string[]>> = {
   facts: ['fatti', 'memory', 'memoria'],
   clearfacts: ['cancellafatti'],
   lore: ['storia'],
-  forget: ['dimentica'],
+  forget: ['dimentica', 'cancella', 'scorda'],
   conversationtracker: ['tracciaconversazione'],
   autoengage: ['autointerventi'],
   autopost: ['autopubblica'],
   linkmedia: ['medialink'],
   news: ['notizie'],
-  genera: ['generate'],
-  disegna: ['sketch'],
+  genera: ['generate', 'foto', 'pic', 'picture'],
+  disegna: ['sketch', 'manga', 'illustra'],
   genvid: ['generavideo'],
   ban: ['banna'],
   unban: ['sbanna'],
@@ -38,9 +38,9 @@ const languageAliases: Readonly<Record<string, readonly string[]>> = {
   language: ['lingua'],
   tos: ['termini'],
   voice: ['voce'],
-  play: ['suona'],
+  play: ['suona', 'music', 'musica', 'song', 'brano'],
   sing: ['canta'],
-  translate: ['traduci'],
+  translate: ['traduci', 'trad', 'trans'],
   brain: ['cervello'],
   debuglast: ['debugultimo'],
   // Only the alias the group actually types: /help renders every alias and already sits at the
@@ -62,7 +62,7 @@ const languageAliases: Readonly<Record<string, readonly string[]>> = {
   hardware: ['sistema'],
   models: ['modelli'],
   quota: ['quote'],
-  botinfo: ['infobot'],
+  botinfo: ['infobot', 'status', 'info'],
 };
 
 /** English form to expose in Telegram's base command menu. */

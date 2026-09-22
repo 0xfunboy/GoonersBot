@@ -126,7 +126,7 @@ Mostra la memoria persistente del soggetto. Senza argomento mostra la tua; legge
 In reply dimentica la memoria derivata da quel messaggio; un utente può rimuovere la propria, un admin anche quella altrui. Gli admin possono anche passare un memoryId.
 
 - **Accesso:** utente/chat approvata
-- **Alias registrati:** `/dimentica`
+- **Alias registrati:** `/dimentica`, `/cancella`, `/scorda`
 
 #### `/halloffame`
 
@@ -163,14 +163,14 @@ Mostra una sintesi privacy-safe della memoria sociale: copertura membri attivi, 
 Come /genera, ma forza il profilo/brief manga mantenendo il routing e i controlli media normali.
 
 - **Accesso:** utente/chat approvata
-- **Alias registrati:** `/draw`, `/sketch`
+- **Alias registrati:** `/draw`, `/sketch`, `/manga`, `/illustra`
 
 #### `/genera <prompt>`
 
 Genera un’immagine originale dal prompt usando il planner immagini e il backend disponibile; consuma la quota immagini della chat.
 
 - **Accesso:** utente/chat approvata
-- **Alias registrati:** `/image`, `/img`, `/generate`
+- **Alias registrati:** `/image`, `/img`, `/generate`, `/foto`, `/pic`, `/picture`
 
 #### `/generavideo <prompt>`
 
@@ -191,7 +191,7 @@ Forza subito un post su una notizia corrente presa dalle fonti RSS configurate, 
 Cerca il brano su YouTube (o usa un URL), estrae l’audio entro il limite configurato e lo invia come nota vocale. Senza argomenti usa il testo citato.
 
 - **Accesso:** utente/chat approvata
-- **Alias registrati:** `/suona`, `/riproduci`, `/reproduce`
+- **Alias registrati:** `/suona`, `/riproduci`, `/reproduce`, `/music`, `/musica`, `/song`, `/brano`
 
 #### `/sing <brano o URL> | reply + /sing`
 
@@ -205,7 +205,7 @@ Stesso motore di /play, con alias orientati alle richieste musicali/cantate.
 Traduce il testo del messaggio citato nella lingua richiesta, rilevando automaticamente la lingua sorgente e preservando tono, slang e volgarità.
 
 - **Accesso:** utente/chat approvata
-- **Alias registrati:** `/traduci`
+- **Alias registrati:** `/traduci`, `/trad`, `/trans`
 
 #### `/vision + foto/video oppure in reply`
 
@@ -258,7 +258,7 @@ Rimuove dalla chat la sottoscrizione alla serie indicata.
 Mostra identità pubblica, autore e tecnologia dichiarata del progetto; esclude credenziali ed endpoint operativi sensibili.
 
 - **Accesso:** utente/chat approvata
-- **Alias registrati:** `/aboutbot`, `/infobot`
+- **Alias registrati:** `/aboutbot`, `/infobot`, `/status`, `/info`
 
 #### `/capabilities`
 
@@ -527,7 +527,7 @@ Show durable memory for a subject. With no argument it shows yours; reading anot
 As a reply, forget memory mined from that message; users can remove their own, admins can remove others. Admins may also pass a memoryId directly.
 
 - **Access:** approved user/chat
-- **Registered aliases:** `/dimentica`
+- **Registered aliases:** `/dimentica`, `/cancella`, `/scorda`
 
 #### `/halloffame`
 
@@ -564,14 +564,14 @@ Show a privacy-safe social-memory summary: active-member coverage, facets, runni
 Like /image, but forces the manga profile/brief while keeping normal media routing and checks.
 
 - **Access:** approved user/chat
-- **Registered aliases:** `/draw`, `/sketch`
+- **Registered aliases:** `/draw`, `/sketch`, `/manga`, `/illustra`
 
 #### `/image <prompt>`
 
 Generate an original image from the prompt using the image planner and available backend; spends the chat image quota.
 
 - **Access:** approved user/chat
-- **Registered aliases:** `/image`, `/img`, `/generate`
+- **Registered aliases:** `/image`, `/img`, `/generate`, `/foto`, `/pic`, `/picture`
 
 #### `/video <prompt>`
 
@@ -592,7 +592,7 @@ Force a current-news post now from configured RSS sources, with the bot’s take
 Search YouTube for the track (or use a URL), extract audio within the configured limit, and send a voice note. With no args it uses replied text.
 
 - **Access:** approved user/chat
-- **Registered aliases:** `/suona`, `/riproduci`, `/reproduce`
+- **Registered aliases:** `/suona`, `/riproduci`, `/reproduce`, `/music`, `/musica`, `/song`, `/brano`
 
 #### `/sing <track or URL> | reply + /sing`
 
@@ -606,7 +606,7 @@ Same engine as /play, with aliases phrased for song/singing requests.
 Translate the replied message into the requested language, auto-detecting the source language while preserving tone, slang, and vulgarity.
 
 - **Access:** approved user/chat
-- **Registered aliases:** `/traduci`
+- **Registered aliases:** `/traduci`, `/trad`, `/trans`
 
 #### `/vision + photo/video or as reply`
 
@@ -659,7 +659,7 @@ Remove this chat’s subscription to the named series.
 Show the project’s public identity, author, and declared technology; operational credentials/endpoints are excluded.
 
 - **Access:** approved user/chat
-- **Registered aliases:** `/aboutbot`, `/infobot`
+- **Registered aliases:** `/aboutbot`, `/infobot`, `/status`, `/info`
 
 #### `/capabilities`
 
@@ -928,7 +928,7 @@ Muestra la memoria persistente del sujeto. Sin argumento muestra la tuya; leer l
 Como respuesta, olvida la memoria extraída de ese mensaje; cada usuario puede borrar la suya y los admins la de otros. Los admins también pueden pasar un memoryId.
 
 - **Acceso:** usuario/chat aprobado
-- **Alias registrados:** `/dimentica`
+- **Alias registrados:** `/dimentica`, `/cancella`, `/scorda`
 
 #### `/halloffame`
 
@@ -965,14 +965,14 @@ Muestra un resumen privacy-safe de la memoria social: cobertura de miembros acti
 Como /image, pero fuerza el perfil/brief manga manteniendo el enrutado y los controles multimedia normales.
 
 - **Acceso:** usuario/chat aprobado
-- **Alias registrados:** `/draw`, `/sketch`
+- **Alias registrados:** `/draw`, `/sketch`, `/manga`, `/illustra`
 
 #### `/image <prompt>`
 
 Genera una imagen original a partir del prompt usando el planificador de imágenes y el backend disponible; consume la cuota de imágenes del chat.
 
 - **Acceso:** usuario/chat aprobado
-- **Alias registrados:** `/image`, `/img`, `/generate`
+- **Alias registrados:** `/image`, `/img`, `/generate`, `/foto`, `/pic`, `/picture`
 
 #### `/video <prompt>`
 
@@ -993,7 +993,7 @@ Fuerza ahora una publicación sobre una noticia actual tomada de las fuentes RSS
 Busca la canción en YouTube (o usa una URL), extrae el audio dentro del límite configurado y lo envía como nota de voz. Sin argumentos usa el texto citado.
 
 - **Acceso:** usuario/chat aprobado
-- **Alias registrados:** `/suona`, `/riproduci`, `/reproduce`
+- **Alias registrados:** `/suona`, `/riproduci`, `/reproduce`, `/music`, `/musica`, `/song`, `/brano`
 
 #### `/sing <canción o URL> | respuesta + /sing`
 
@@ -1007,7 +1007,7 @@ Mismo motor que /play, con alias orientados a peticiones de canciones/canto.
 Traduce el mensaje citado al idioma pedido, detectando automáticamente el idioma de origen y conservando tono, jerga y vulgaridad.
 
 - **Acceso:** usuario/chat aprobado
-- **Alias registrados:** `/traduci`
+- **Alias registrados:** `/traduci`, `/trad`, `/trans`
 
 #### `/vision + foto/vídeo o en respuesta`
 
@@ -1060,7 +1060,7 @@ Elimina del chat la suscripción a la serie indicada.
 Muestra la identidad pública, autor y tecnología declarada del proyecto; excluye credenciales y endpoints operativos sensibles.
 
 - **Acceso:** usuario/chat aprobado
-- **Alias registrados:** `/aboutbot`, `/infobot`
+- **Alias registrados:** `/aboutbot`, `/infobot`, `/status`, `/info`
 
 #### `/capabilities`
 
