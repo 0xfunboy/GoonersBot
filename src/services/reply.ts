@@ -1470,6 +1470,7 @@ export class ReplyService {
           allowAnimeArchiveWrite: true,
           allowWorkflowWrite: !ctx.passive,
           allowCapabilityInstall: ctx.allowCapabilityInstall,
+          nsfwEnabled: generationNsfwEnabled,
         };
         if (
           ctx.botId !== undefined &&
@@ -1883,8 +1884,9 @@ export class ReplyService {
         providerPrompts: prepared.providerPrompts,
         qualityBrief: prepared.qualityBrief,
         expectsPeople: prepared.expectsPeople,
-        preferredProvider: prepared.preferredProvider,
+        preferredProvider: 'pony',
         aspectRatio: prepared.aspectRatio,
+        nsfwEnabled: ctx.nsfwEnabled,
         ...(poseReference ? { poseReference: poseReference.buffer } : {}),
       });
       if (!image?.buffer) {

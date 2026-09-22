@@ -631,7 +631,7 @@ describe('ImagePromptService', () => {
       llm: { model: 'planner' },
     } as AppConfig).prepare('anime astronauta adulta su Marte con molti dettagli');
 
-    expect(result.preferredProvider).toBe('agnes');
+    expect(result.preferredProvider).toBe('pony');
   });
 
   it('keeps a focused single-character anime concept on Pony despite repeated soft details', async () => {

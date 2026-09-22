@@ -80,7 +80,7 @@ describe('generated-image visual QA', () => {
     expect(generate).toHaveBeenCalledTimes(2);
     expect(generate.mock.calls[1]?.[1]).toEqual(
       expect.objectContaining({
-        preferredProvider: 'agnes',
+        preferredProvider: 'pony',
         retryFeedback: expect.stringContaining('exactly the two requested subjects'),
       }),
     );
@@ -119,7 +119,7 @@ describe('generated-image visual QA', () => {
     expect(generate).toHaveBeenCalledTimes(2);
     expect(generate.mock.calls[1]?.[1]).toEqual(
       expect.objectContaining({
-        preferredProvider: 'agnes',
+        preferredProvider: 'pony',
         retryFeedback: expect.stringMatching(/matte armor|too shiny/i),
       }),
     );
@@ -160,7 +160,7 @@ describe('generated-image visual QA', () => {
     expect(generate).toHaveBeenCalledTimes(2);
     expect(generate.mock.calls[1]?.[1]).toEqual(
       expect.objectContaining({
-        preferredProvider: 'agnes',
+        preferredProvider: 'pony',
         retryFeedback: expect.stringMatching(/hand anatomy|extra fingers/i),
       }),
     );
@@ -561,5 +561,36 @@ describe('generated-image visual QA', () => {
 
     expect(generateImage).toHaveBeenCalledOnce();
     expect(result).toBeNull();
+  });
+
+  it('bypasses visual QA rejection and delivers immediately when nsfwEnabled is true', async () => {
+    const rawBuffer = Buffer.from('pony-nsfw-artwork');
+    const generate = vi.fn(async () => ({
+      buffer: rawBuffer,
+      model: 'ponyDiffusionV6XL_v6StartWithThisOne.safetensors',
+      provider: 'pony' as const,
+    }));
+    const vision = vi.fn();
+    const llm = {
+      capabilities: { chat: true, vision: true, transcription: false, imageGeneration: false, tts: false, embeddings: false },
+      visionCompletion: vision,
+    } as unknown as LLMProvider;
+    const media = new MediaProcessor(llm, undefined, undefined, { enabled: true, generate } as ImageGenerator, {
+      enabled: true,
+      minScore: 0.72,
+      maxRetries: 2,
+    });
+
+    const result = await media.generateImage('explicit sexy girl prompt', {
+      qualityBrief: 'one adult woman',
+      rating: 'explicit',
+      nsfwEnabled: true,
+    });
+
+    expect(generate).toHaveBeenCalledOnce();
+    expect(vision).not.toHaveBeenCalled();
+    expect(result?.buffer).toEqual(rawBuffer);
+    expect(result?.model).toBe('ponyDiffusionV6XL_v6StartWithThisOne.safetensors');
+    expect(result?.qaVisionCalls).toBe(0);
   });
 });

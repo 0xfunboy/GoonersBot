@@ -44,6 +44,10 @@ export interface ImageGenerationOptions {
   /** Cooperative cancellation from the host action. */
   signal?: AbortSignal;
   aspectRatio?: '16:9' | '9:16' | '1:1';
+  /** Explicit model name or alias on the Forge endpoint (e.g. 'pony', 'real', filename). */
+  model?: string;
+  /** Whether the chat or turn has NSFW enabled. When true, visual QA bypasses rating checks. */
+  nsfwEnabled?: boolean;
 }
 
 interface SdModel {
@@ -103,7 +107,13 @@ export class StableDiffusionGenerator implements ImageGenerator {
     const rating = options.rating ?? ratingFromProfile(profile);
     const providerPrompt = options.providerPrompts?.pony ?? userPrompt;
     assertMediaGenerationSafe(providerPrompt);
-    const model = await this.resolveModel(profile, medium, rating, options.signal);
+    const model = await this.resolveModel(
+      profile,
+      medium,
+      rating,
+      options.signal,
+      options.model,
+    );
     const workflow = workflowFor(profile, this.config, providerPrompt);
     const poseImage = options.poseReference?.toString('base64');
     const usesOpenPose = Boolean(poseImage && this.config.controlNet.enabled);
@@ -190,26 +200,59 @@ export class StableDiffusionGenerator implements ImageGenerator {
     medium: ImageMedium,
     rating: ImageContentRating,
     signal?: AbortSignal,
+    requestedModel?: string,
   ): Promise<string> {
+    let models = await this.listModels(signal);
+    if (requestedModel) {
+      const alias = this.config.models?.[requestedModel.toLowerCase()] ?? requestedModel;
+      let match = models.find((m) => modelMatches(m, alias));
+      if (!match) {
+        models = await this.listModels(signal, true);
+        match = models.find((m) => modelMatches(m, alias));
+      }
+      if (match) return match.title;
+      log.warn(
+        { requestedModel, alias },
+        'requested model not found in Forge; checking configured defaults',
+      );
+    }
+
     const configured =
       rating === 'explicit' || profile === 'nsfw'
         ? this.config.nsfwModel
         : medium === 'anime' || medium === 'manga' || medium === 'comic'
           ? this.config.animeModel
           : this.config.realisticModel;
-    const models = await this.listModels(signal);
     const match = models.find((model) => modelMatches(model, configured));
-    if (!match)
-      throw new Error(`Stable Diffusion ${profile} model is not installed: ${configured}`);
+    if (!match) {
+      if (models.length > 0 && models[0]?.title) {
+        log.warn(
+          { configured, fallback: models[0].title },
+          'configured model checkpoint not found; falling back to available Forge checkpoint',
+        );
+        return models[0].title;
+      }
+      return configured;
+    }
     return match.title;
   }
 
-  private async listModels(signal?: AbortSignal): Promise<SdModel[]> {
-    if (this.models) return this.models;
-    const res = await this.request('/sdapi/v1/sd-models', {}, this.config.timeoutMs, signal);
-    const json = (await res.json()) as SdModel[];
-    this.models = Array.isArray(json) ? json : [];
-    return this.models;
+  async listModels(signal?: AbortSignal, forceRefresh = false): Promise<SdModel[]> {
+    if (this.models && !forceRefresh) return this.models;
+    try {
+      const res = await this.request('/sdapi/v1/sd-models', {}, this.config.timeoutMs, signal);
+      const json = (await res.json()) as SdModel[];
+      this.models = Array.isArray(json) ? json : [];
+      return this.models;
+    } catch (err) {
+      log.warn({ err }, 'failed to list models from Forge');
+      return this.models ?? [];
+    }
+  }
+
+  async getAvailableModels(signal?: AbortSignal): Promise<string[]> {
+    const models = await this.listModels(signal);
+    return models.map((m) => m.title);
   }
 
   private async applyModel(model: string, signal?: AbortSignal): Promise<void> {

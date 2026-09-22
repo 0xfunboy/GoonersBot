@@ -14,7 +14,13 @@ import {
   type AnimeArchiveSearchSessionItem,
   type AnimeArchiveTarget,
 } from '../../storage/repositories/animeArchive.js';
-import { EXACT_MATCH_SCORE, isDecisiveMatch, rankByTitle, type RankedTitle } from '../titles.js';
+import {
+  EXACT_MATCH_SCORE,
+  canonicalTitleKey,
+  isDecisiveMatch,
+  rankByTitle,
+  type RankedTitle,
+} from '../titles.js';
 import { childLogger } from '../../utils/logger.js';
 import type { AnimeSourceRegistry } from './registry.js';
 import {
@@ -737,12 +743,38 @@ export class AnimeArchiveService {
       const eligible = resolved.filter(
         (entry): entry is NonNullable<(typeof resolved)[number]> => entry !== null,
       );
-      const selected =
+      const firstEligible = eligible[0];
+      const sameCanonicalSeries =
+        firstEligible !== undefined &&
+        eligible.length > 1 &&
+        eligible.every(
+          (entry) =>
+            canonicalTitleKey(entry.series.title) ===
+            canonicalTitleKey(firstEligible.series.title),
+        );
+      let selected =
         eligible.length === 1
           ? eligible[0]
           : isDecisiveMatch(eligible.map((entry) => entry.entry))
             ? eligible[0]
             : undefined;
+      if (!selected && sameCanonicalSeries && firstEligible) {
+        const wantsIta = /\b(?:ita|doppiat[oa]|italiano)\b/i.test(query);
+        const wantsSub = /\b(?:sub|sottotitol[ai]|subbat[oa])\b/i.test(query);
+        if (wantsIta) {
+          selected =
+            eligible.find(
+              (entry) =>
+                /\bita\b/i.test(entry.series.title) && !/\bsub\b/i.test(entry.series.title),
+            ) ?? firstEligible;
+        } else if (wantsSub) {
+          selected =
+            eligible.find((entry) => /\bsub\b/i.test(entry.series.title)) ?? firstEligible;
+        } else {
+          selected =
+            eligible.find((entry) => /\bsub\b/i.test(entry.series.title)) ?? firstEligible;
+        }
+      }
       return selected
         ? { candidates, match: availabilityMatch(selected) }
         : { candidates, failure: eligible.length > 1 ? 'ambiguous' : 'not_found' };
@@ -764,12 +796,38 @@ export class AnimeArchiveService {
     const usable = resolved
       .filter((entry): entry is NonNullable<(typeof resolved)[number]> => entry !== null)
       .sort((left, right) => right.episode.order - left.episode.order);
-    const selected =
+    const firstUsable = usable[0];
+    const sameCanonicalUsable =
+      firstUsable !== undefined &&
+      usable.length > 1 &&
+      usable.every(
+        (entry) =>
+          canonicalTitleKey(entry.series.title) ===
+          canonicalTitleKey(firstUsable.series.title),
+      );
+    let selected =
       titleDecisive ||
       usable.length === 1 ||
       (usable[0] && usable[1] && usable[0].episode.order > usable[1].episode.order)
         ? usable[0]
         : undefined;
+    if (!selected && sameCanonicalUsable && firstUsable) {
+      const wantsIta = /\b(?:ita|doppiat[oa]|italiano)\b/i.test(query);
+      const wantsSub = /\b(?:sub|sottotitol[ai]|subbat[oa])\b/i.test(query);
+      if (wantsIta) {
+        selected =
+          usable.find(
+            (entry) =>
+              /\bita\b/i.test(entry.series.title) && !/\bsub\b/i.test(entry.series.title),
+          ) ?? firstUsable;
+      } else if (wantsSub) {
+        selected =
+          usable.find((entry) => /\bsub\b/i.test(entry.series.title)) ?? firstUsable;
+      } else {
+        selected =
+          usable.find((entry) => /\bsub\b/i.test(entry.series.title)) ?? firstUsable;
+      }
+    }
     return selected
       ? { candidates, match: availabilityMatch(selected) }
       : { candidates, failure: usable.length > 1 ? 'ambiguous' : 'not_found' };

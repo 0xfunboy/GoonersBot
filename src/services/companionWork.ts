@@ -84,22 +84,16 @@ interface CompanionWorkDependencies {
 export class CompanionWorkService implements VisibleWorkReader {
   readonly tasks: CompanionTaskService;
   private api?: Api;
+  private readonly activeProgressReporters = new Map<string, CompanionTaskProgressReporter>();
 
   constructor(private readonly deps: CompanionWorkDependencies) {
     this.tasks = new CompanionTaskService(deps.repository, {
       concurrency: deps.concurrency,
       execute: (ctx) =>
         this.execute(ctx).catch(async (error: unknown) => {
-          const progressMessageId =
-            ((ctx.task.payload as Record<string, unknown>)?.['progressMessageId'] as
-              | number
-              | undefined) ?? ctx.task.messageIds[0];
-          if (this.api && progressMessageId) {
-            try {
-              await this.api.deleteMessage(ctx.task.contract.scope.chatId, progressMessageId);
-            } catch {
-              /* ignore deletion error */
-            }
+          const reporter = this.activeProgressReporters.get(ctx.task.id);
+          if (reporter) {
+            await reporter.fail().catch(() => undefined);
           }
           // A scheduled retry is still active work, not a failed request to announce in chat.
           if (error instanceof TaskRetryableError && taskRetryResumeAt(ctx.task, error))
@@ -215,6 +209,10 @@ export class CompanionWorkService implements VisibleWorkReader {
     context: ChatContext,
     messageId: number,
   ): Promise<void> {
+    const reporter = this.activeProgressReporters.get(taskId);
+    if (reporter) {
+      reporter.setMessageId(messageId);
+    }
     await this.tasks.attachProgressMessage(
       taskId,
       taskScope(person.telegramId, context.chatId, context.threadId),
@@ -281,17 +279,23 @@ export class CompanionWorkService implements VisibleWorkReader {
   }
 
   canDefer(input: AgentRuntimeInput): boolean {
-    // These adapters already own their persistent queue/confirmation/transport lifecycle.
+    if (!this.deps.enabled || !this.api || !input.requestedActions?.length) return false;
+    // Explicit user request for background work
+    const userWantsBackground =
+      /\b(?:in\s+background|background(?:\s+task)?|in\s+sottofondo|mentre\s+parliamo)\b/i.test(
+        input.request,
+      );
+    // Explicitly long-running tools that cannot be fulfilled synchronously in a single request cycle
+    const inherentlyAsync = new Set(['video_gen']);
+    const isAsyncJob = input.requestedActions.some((action) => inherentlyAsync.has(action.tool));
+    if (!userWantsBackground && !isAsyncJob) {
+      return false;
+    }
     const externallyOwned = new Set(['anime_archive']);
-    return Boolean(
-      this.deps.enabled &&
-      this.api &&
-      input.requestedActions?.length &&
-      !input.requestedActions.some(
-        (action) =>
-          externallyOwned.has(action.tool) ||
-          (action.tool === 'code_work' && action.args?.['intent'] !== 'review'),
-      ),
+    return !input.requestedActions.some(
+      (action) =>
+        externallyOwned.has(action.tool) ||
+        (action.tool === 'code_work' && action.args?.['intent'] !== 'review'),
     );
   }
 
@@ -570,16 +574,18 @@ export class CompanionWorkService implements VisibleWorkReader {
       ((payload as unknown as Record<string, unknown>)?.['progressMessageId'] as
         | number
         | undefined) ?? ctx.task.messageIds[0];
-    const progress =
-      this.api && progressMessageId
-        ? new CompanionTaskProgressReporter(this.api, {
-            chatId: input.context.chatId,
-            messageId: progressMessageId,
-            threadId: input.context.threadId,
-            language: input.language,
-            taskId: ctx.task.id,
-          })
-        : null;
+    const progress = this.api
+      ? new CompanionTaskProgressReporter(this.api, {
+          chatId: input.context.chatId,
+          ...(progressMessageId ? { messageId: progressMessageId } : {}),
+          threadId: input.context.threadId,
+          language: input.language,
+          taskId: ctx.task.id,
+        })
+      : null;
+    if (progress) {
+      this.activeProgressReporters.set(ctx.task.id, progress);
+    }
 
     if (progress) {
       await progress.update(
@@ -777,7 +783,7 @@ export class CompanionWorkService implements VisibleWorkReader {
       .catch((error) =>
         log.warn({ error, taskId: ctx.task.id }, 'task conversation recall update failed'),
       );
-    return {
+    const finalOutput = {
       status: result.status === 'complete' ? ('completed' as const) : result.status,
       summary: result.text.slice(0, 2000),
       result: { ...result, messageIds },
@@ -789,6 +795,8 @@ export class CompanionWorkService implements VisibleWorkReader {
         delivered: messageIds.length > 0,
       })),
     };
+    this.activeProgressReporters.delete(ctx.task.id);
+    return finalOutput;
   }
 
   private async assertDeliveryAllowed(

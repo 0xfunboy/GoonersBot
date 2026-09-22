@@ -754,7 +754,16 @@ export async function handleMessage(
       return null;
     });
 
-  await ctx.replyWithChatAction('typing').catch(() => undefined);
+  const actionKind = /disegn|genera|immagine|foto|pic|draw|illustr|meme/i.test(
+    message.messageText ?? '',
+  )
+    ? 'upload_photo'
+    : 'typing';
+  await ctx.replyWithChatAction(actionKind).catch(() => undefined);
+  const actionTimer = setInterval(() => {
+    ctx.replyWithChatAction(actionKind).catch(() => undefined);
+  }, 4000);
+  actionTimer.unref();
 
   let pendingNaturalOfferId: string | undefined;
   try {
@@ -769,7 +778,7 @@ export async function handleMessage(
       language,
       modeName,
       modeDescription,
-      nsfwEnabled: route.nsfw,
+      nsfwEnabled: chatNsfwMode !== 'off' || route.nsfw,
       allowVision: !freePlan,
       ...(socialQuestionResolution ? { socialQuestionResolution } : {}),
       model,
@@ -1367,6 +1376,8 @@ export async function handleMessage(
           : 'generation_failed',
     });
     await sendResponse(ctx, localized).catch(() => undefined);
+  } finally {
+    clearInterval(actionTimer);
   }
 }
 

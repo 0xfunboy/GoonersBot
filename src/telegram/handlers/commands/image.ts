@@ -46,7 +46,21 @@ async function generate(
   profile: ImageProfile | undefined,
   creatorHandle?: string,
 ): Promise<CommandResponse> {
-  const prompt = args.join(' ').trim();
+  let requestedModel: string | undefined;
+  const filteredArgs: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const current = args[i];
+    if (
+      (current === '--model' || current === '-m' || current === '--checkpoint') &&
+      args[i + 1]
+    ) {
+      requestedModel = args[i + 1];
+      i += 1;
+    } else {
+      filteredArgs.push(current ?? '');
+    }
+  }
+  const prompt = filteredArgs.join(' ').trim();
   if (!prompt) return { text: 'image_needs_prompt' };
   if (containsMinorMediaReference(prompt)) {
     return { text: 'image_minor_refused' };
@@ -61,6 +75,11 @@ async function generate(
       },
     };
   }
+  const chatNsfwMode = await services.storage.chats.getNsfwMode(
+    chatId,
+    services.config.env.LLM_NSFW_DEFAULT_MODE,
+  );
+  const nsfwEnabled = chatNsfwMode !== 'off';
   const model = await services.modelForChat(chatId);
   const mentionedHandles = [...prompt.matchAll(/@([A-Za-z0-9_]{2,})/g)].map(
     (match) => match[1] ?? '',
@@ -81,7 +100,7 @@ async function generate(
   try {
     prepared = await services.imagePrompts.prepare(prompt, {
       ...(profile ? { profile } : {}),
-      ...(model ? { model } : {}),
+      ...(requestedModel ? { model: requestedModel } : model ? { model } : {}),
       context: {
         ...(creatorHandle ? { creatorHandle } : {}),
         intent: prompt,
@@ -102,14 +121,16 @@ async function generate(
   const poseReference = poseLookup.image;
   const image = await services.media.generateImage(prepared.prompt, {
     profile: profile ?? prepared.profile,
+    model: requestedModel,
     medium: prepared.medium,
     rating: prepared.rating,
     negativePrompt: prepared.negativePrompt,
     providerPrompts: prepared.providerPrompts,
     qualityBrief: prepared.qualityBrief,
     expectsPeople: prepared.expectsPeople,
-    preferredProvider: prepared.preferredProvider,
+    preferredProvider: 'pony',
     aspectRatio: prepared.aspectRatio,
+    nsfwEnabled,
     ...(poseReference ? { poseReference: poseReference.buffer } : {}),
   });
   if (!image?.buffer) {

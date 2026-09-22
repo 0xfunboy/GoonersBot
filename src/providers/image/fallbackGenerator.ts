@@ -29,6 +29,14 @@ export class FallbackImageGenerator implements ImageGenerator {
     return this.primary.enabled || this.fallback.enabled;
   }
 
+  get isPrimaryEnabled(): boolean {
+    return this.primary.enabled;
+  }
+
+  get isFallbackEnabled(): boolean {
+    return this.fallback.enabled;
+  }
+
   async generate(prompt: string, options: ImageGenerationOptions = {}): Promise<ImageResult> {
     assertMediaGenerationSafe(prompt);
     const needsLocal = Boolean(options.poseReference);

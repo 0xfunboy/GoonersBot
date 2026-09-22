@@ -597,9 +597,32 @@ export interface StableDiffusionConfig {
     weight: number;
     processorResolution: number;
   };
+  models: Record<string, string>;
 }
 
 export function resolveStableDiffusionConfig(env: Env): StableDiffusionConfig {
+  const models: Record<string, string> = {
+    pony: env.SD_ANIME_MODEL,
+    anime: env.SD_ANIME_MODEL,
+    realistic: env.SD_MODEL ?? env.SD_REALISTIC_MODEL,
+    nsfw: env.SD_NSFW_MODEL,
+  };
+  if (env.SD_EXTRA_MODELS) {
+    try {
+      const trimmed = env.SD_EXTRA_MODELS.trim();
+      if (trimmed.startsWith('{')) {
+        Object.assign(models, JSON.parse(trimmed));
+      } else {
+        for (const pair of trimmed.split(',')) {
+          const [key, val] = pair.split(':').map((s) => s.trim());
+          if (key && val) models[key.toLowerCase()] = val;
+        }
+      }
+    } catch {
+      // Ignore parse errors on extra models
+    }
+  }
+
   return {
     enabled: env.SD_ENABLED && Boolean(env.SD_API_URL),
     apiUrl: env.SD_API_URL.replace(/\/+$/, ''),
@@ -620,6 +643,7 @@ export function resolveStableDiffusionConfig(env: Env): StableDiffusionConfig {
       weight: env.SD_CONTROLNET_WEIGHT,
       processorResolution: env.SD_CONTROLNET_PROCESSOR_RESOLUTION,
     },
+    models,
   };
 }
 

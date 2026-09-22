@@ -278,6 +278,7 @@ const envSchema = z.object({
   SD_CONTROLNET_OPENPOSE_MODEL: z.string().default('OpenPoseXL2'),
   SD_CONTROLNET_WEIGHT: floatFromString(0.85),
   SD_CONTROLNET_PROCESSOR_RESOLUTION: intFromString(512),
+  SD_EXTRA_MODELS: optStr,
 
   // ---- Agnes AI (remote image + video generation, through the router's OpenAI-compatible API) ----
   // Image: POST /v1/images/generations, used as the PRIMARY generator with local Stable Diffusion

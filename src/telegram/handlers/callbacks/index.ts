@@ -237,7 +237,7 @@ const sampleStyle: CallbackSpec = {
   action: 'sample_style',
   permissions: ['allowed_user', 'not_banned'],
   needsTermsAccepted: true,
-  async handle({ services, args }) {
+  async handle({ services, args, context }) {
     const promptId = args[0];
     if (!promptId) return null;
     const cached = getCachedImagePrompt(promptId);
@@ -251,6 +251,11 @@ const sampleStyle: CallbackSpec = {
     const nextMedium = nextArtisticMedium(cached.medium);
     const profile = cached.profile as ImageProfile | undefined;
     const medium = nextMedium as ImageMedium;
+    const chatNsfwMode = await services.storage.chats.getNsfwMode(
+      context.chatId,
+      services.config.env.LLM_NSFW_DEFAULT_MODE,
+    );
+    const nsfwEnabled = chatNsfwMode !== 'off';
     const prepared = await services.imagePrompts.prepare(cached.prompt, {
       ...(profile ? { profile } : {}),
       context: {
@@ -265,6 +270,8 @@ const sampleStyle: CallbackSpec = {
       rating: prepared.rating,
       negativePrompt: prepared.negativePrompt,
       aspectRatio: cached.aspectRatio ?? prepared.aspectRatio,
+      preferredProvider: 'pony',
+      nsfwEnabled,
     });
     if (!image?.buffer) {
       return { text: 'image_unavailable' };
@@ -292,9 +299,9 @@ const sampleRatio: CallbackSpec = {
   action: 'sample_ratio',
   permissions: ['allowed_user', 'not_banned'],
   needsTermsAccepted: true,
-  async handle({ services, args }) {
+  async handle({ services, args, context }) {
     const [ratio, promptId] = args;
-    if (!promptId || !ratio) return null;
+    if (!ratio || !promptId) return null;
     const validRatio = ['16:9', '9:16', '1:1'].includes(ratio)
       ? (ratio as '16:9' | '9:16' | '1:1')
       : '1:1';
@@ -306,12 +313,19 @@ const sampleRatio: CallbackSpec = {
         ephemeralMs: 5000,
       };
     }
+    const chatNsfwMode = await services.storage.chats.getNsfwMode(
+      context.chatId,
+      services.config.env.LLM_NSFW_DEFAULT_MODE,
+    );
+    const nsfwEnabled = chatNsfwMode !== 'off';
     const image = await services.media.generateImage(cached.prompt, {
       profile: cached.profile as ImageProfile | undefined,
       medium: cached.medium as ImageMedium | undefined,
       aspectRatio: validRatio,
       rating: cached.rating,
       negativePrompt: cached.negativePrompt,
+      preferredProvider: 'pony',
+      nsfwEnabled,
     });
     if (!image?.buffer) {
       return { text: 'image_unavailable' };
@@ -336,7 +350,7 @@ const sampleRemix: CallbackSpec = {
   action: 'sample_remix',
   permissions: ['allowed_user', 'not_banned'],
   needsTermsAccepted: true,
-  async handle({ services, args }) {
+  async handle({ services, args, context }) {
     const promptId = args[0];
     if (!promptId) return null;
     const cached = getCachedImagePrompt(promptId);
@@ -347,6 +361,11 @@ const sampleRemix: CallbackSpec = {
         ephemeralMs: 5000,
       };
     }
+    const chatNsfwMode = await services.storage.chats.getNsfwMode(
+      context.chatId,
+      services.config.env.LLM_NSFW_DEFAULT_MODE,
+    );
+    const nsfwEnabled = chatNsfwMode !== 'off';
     const remixPrompt = `${cached.prompt}, creative remix variation, alternate details`;
     const image = await services.media.generateImage(remixPrompt, {
       profile: cached.profile as ImageProfile | undefined,
@@ -354,6 +373,8 @@ const sampleRemix: CallbackSpec = {
       aspectRatio: cached.aspectRatio,
       rating: cached.rating,
       negativePrompt: cached.negativePrompt,
+      preferredProvider: 'pony',
+      nsfwEnabled,
     });
     if (!image?.buffer) {
       return { text: 'image_unavailable' };

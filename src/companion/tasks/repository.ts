@@ -115,7 +115,7 @@ export class CompanionTaskRepository {
       summary: '',
       checkpoints: [],
       effects: [],
-      messageIds: contract.scope.messageId ? [contract.scope.messageId] : [],
+      messageIds: [],
       events: [{ at: now, type: 'queued', version: 1 }],
     };
     try {

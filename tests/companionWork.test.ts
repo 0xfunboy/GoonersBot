@@ -147,7 +147,8 @@ describe('companion work host bridge', () => {
       messageId: 42,
       artifactId: 'artifact-2',
     });
-    expect(f.api.deleteMessage).toHaveBeenCalledWith(-20, 4);
+    expect(f.api.editMessageText).toHaveBeenCalled();
+    expect(f.api.deleteMessage).not.toHaveBeenCalled();
   });
 
   it('handles status and cancellation without invoking the runtime', async () => {

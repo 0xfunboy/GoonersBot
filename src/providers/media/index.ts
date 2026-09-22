@@ -289,6 +289,14 @@ export class MediaProcessor {
     prompt: string,
     options: ImageGenerationOptions,
   ): Promise<ImageResult> {
+    if (options.nsfwEnabled) {
+      return {
+        ...first,
+        generationAttempts: first.generationAttempts ?? 1,
+        qaVisionCalls: 0,
+      };
+    }
+
     if (
       !this.generatedImageQa?.enabled ||
       !options.qualityBrief ||
@@ -334,15 +342,7 @@ export class MediaProcessor {
     const retries = Math.max(0, Math.min(2, this.generatedImageQa.maxRetries));
     for (let retry = 0; retry < retries; retry += 1) {
       const correction = safeQaCorrection(bestQa);
-      const preferredProvider =
-        options.poseReference || options.rating === 'explicit'
-          ? 'pony'
-          : options.preferredProvider === 'agnes'
-            ? 'agnes'
-            : best.provider === 'pony' ||
-                (best.provider === undefined && /pony|diffusion/i.test(best.model))
-              ? 'agnes'
-              : 'pony';
+      const preferredProvider = 'pony';
       try {
         const candidate = await this.generateRawImage(prompt, {
           ...options,
@@ -392,10 +392,14 @@ export class MediaProcessor {
     if (requireAdultOnly && bestQa.ageSafety !== 'adult_only') {
       throw new Error('adult-only generated image failed visual age verification');
     }
-    if (!contentRatingAllowed(bestQa.visibleContentRating, requestedRating)) {
+    if (requestedRating === 'safe' && bestQa.visibleContentRating === 'explicit') {
       throw new Error('generated image exceeded the requested visual content rating');
     }
-    return withImageQaMeta(best, generationAttempts, qaVisionCalls, bestQa.score);
+    const result = withImageQaMeta(best, generationAttempts, qaVisionCalls, bestQa.score);
+    if (bestQa.visibleContentRating && bestQa.visibleContentRating !== 'safe') {
+      (result as ImageResult & { spoiler?: boolean }).spoiler = true;
+    }
+    return result;
   }
 
   private generatedImagePasses(qa: GeneratedImageQa): boolean {
@@ -468,7 +472,9 @@ export class MediaProcessor {
       if (qa && !contentRatingAllowed(qa.visibleContentRating, requestedRating)) {
         qa = {
           ...qa,
-          hardFailure: true,
+          hardFailure:
+            qa.hardFailure ||
+            (requestedRating === 'safe' && qa.visibleContentRating === 'explicit'),
           issues: [
             ...new Set([
               ...qa.issues,

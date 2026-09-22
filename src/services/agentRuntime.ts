@@ -166,6 +166,7 @@ export interface AgentRuntimeInput {
   /** Approved addressed turns may execute the archive tool's persistent offer/queue writes. */
   allowAnimeArchiveWrite?: boolean;
   allowCapabilityInstall?: boolean;
+  nsfwEnabled?: boolean;
   signal?: AbortSignal;
 }
 
@@ -1195,14 +1196,16 @@ export class AgentRuntime {
         const poseReference = poseLookup.image;
         const image = await this.deps.media.generateImage(prepared.prompt, {
           profile,
+          model: input.model ?? prepared.model,
           medium: prepared.medium,
           rating: prepared.rating,
           negativePrompt: prepared.negativePrompt,
           providerPrompts: prepared.providerPrompts,
           qualityBrief: prepared.qualityBrief,
           expectsPeople: prepared.expectsPeople,
-          preferredProvider: prepared.preferredProvider,
+          preferredProvider: 'pony',
           aspectRatio: prepared.aspectRatio,
+          nsfwEnabled: input.nsfwEnabled,
           ...(poseReference ? { poseReference: poseReference.buffer } : {}),
           signal: toolCtx.signal,
         });

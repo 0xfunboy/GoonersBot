@@ -59,12 +59,11 @@ describe('CompanionTaskProgressReporter', () => {
     expect(editMessageText).toHaveBeenCalledTimes(1);
   });
 
-  it('deletes the progress message on complete()', async () => {
+  it('updates the progress message in-place on complete() without deletion', async () => {
     const editMessageText = vi.fn().mockResolvedValue(true);
-    const deleteMessage = vi.fn().mockResolvedValue(true);
 
     const reporter = new CompanionTaskProgressReporter(
-      { editMessageText, deleteMessage } as never,
+      { editMessageText } as never,
       {
         chatId: 12345,
         messageId: 888,
@@ -76,20 +75,19 @@ describe('CompanionTaskProgressReporter', () => {
     expect(editMessageText).toHaveBeenCalledTimes(1);
 
     await reporter.complete();
-    expect(deleteMessage).toHaveBeenCalledTimes(1);
-    expect(deleteMessage).toHaveBeenCalledWith(12345, 888);
+    expect(editMessageText).toHaveBeenCalledTimes(2);
+    expect(editMessageText.mock.calls[1]?.[2]).toMatch(/completat/i);
 
     // Further updates after complete() are ignored
     await reporter.update(100, 'Ignored');
-    expect(editMessageText).toHaveBeenCalledTimes(1);
+    expect(editMessageText).toHaveBeenCalledTimes(2);
   });
 
-  it('deletes the progress message on fail()', async () => {
+  it('updates the progress message in-place on fail() without deletion', async () => {
     const editMessageText = vi.fn().mockResolvedValue(true);
-    const deleteMessage = vi.fn().mockResolvedValue(true);
 
     const reporter = new CompanionTaskProgressReporter(
-      { editMessageText, deleteMessage } as never,
+      { editMessageText } as never,
       {
         chatId: 54321,
         messageId: 777,
@@ -97,6 +95,10 @@ describe('CompanionTaskProgressReporter', () => {
     );
 
     await reporter.fail('Task cancelled');
-    expect(deleteMessage).toHaveBeenCalledWith(54321, 777);
+    expect(editMessageText).toHaveBeenCalledWith(
+      54321,
+      777,
+      expect.stringContaining('Task cancelled'),
+    );
   });
 });

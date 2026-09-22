@@ -813,30 +813,8 @@ export function inferImageAspectRatio(request: string): PreparedImagePrompt['asp
   return '1:1';
 }
 
-function preferredProvider(scene: ImageSceneBrief): 'agnes' | 'pony' {
-  if (scene.contentRating === 'explicit') return 'pony';
-  if (scene.exactText) return 'agnes';
-  const subjectCount = scene.requestedSubjectCount ?? totalSubjects(scene.subjects);
-  if (subjectCount > 1) return 'agnes';
-  const requirementCount = uniquePhrases(...scene.mustInclude, ...scene.importantDetails).length;
-  const hasPropAction = scene.subjects.some((subject) =>
-    /\b(holding|carrying|wielding|gripping|presenting|operating|using)\b/i.test(subject.action),
-  );
-  // Pony is excellent for a focused character concept but loses independent attributes as the
-  // conditioning grows. Send detail-dense anime scenes straight to instruction-following Agnes
-  // instead of predictably spending a failed local render and a QA retry first.
-  if (
-    directionalGuidance(scene) ||
-    requirementCount >= 10 ||
-    (hasPropAction && requirementCount >= 5) ||
-    (Boolean(scene.interaction) && requirementCount >= 6)
-  ) {
-    return 'agnes';
-  }
-  if (scene.medium === 'anime' || scene.medium === 'manga' || scene.medium === 'pixel_art') {
-    return 'pony';
-  }
-  return 'agnes';
+function preferredProvider(_scene: ImageSceneBrief): 'agnes' | 'pony' {
+  return 'pony';
 }
 
 function shouldUseMediaContext(request: string, context?: MediaPromptContext): boolean {
