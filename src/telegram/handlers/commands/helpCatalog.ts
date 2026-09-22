@@ -127,6 +127,15 @@ export const COMMAND_HELP: Readonly<Record<string, CommandHelpDefinition>> = {
       'Muestra hasta 5 elementos principales de lore activa del grupo.',
     ),
   },
+  halloffame: {
+    category: 'memory',
+    usage: l('/halloffame', '/halloffame', '/halloffame'),
+    description: l(
+      'Compila la Hall of Fame del gruppo: le migliori perle, citazioni memorabili e deliri della community.',
+      'Compile the group Hall of Fame: top highlights, memorable quotes, and comic community awards.',
+      'Compila el Hall of Fame del grupo: mejores citas memorables y delirios cómicos de la comunidad.',
+    ),
+  },
   forget: {
     category: 'memory',
     usage: l(

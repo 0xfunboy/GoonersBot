@@ -8,6 +8,11 @@ import { containsMinorMediaReference } from '../../../safety/mediaSafety.js';
 import { MediaSafetyError } from '../../../safety/mediaSafety.js';
 import type { PreparedImagePrompt } from '../../../services/imagePrompt.js';
 
+import {
+  cacheGeneratedImagePrompt,
+  buildImagePlaygroundRows,
+} from '../../../services/imagePromptCache.js';
+
 /** /genera <prompt> - generate an original image with the configured Stable Diffusion backend. */
 export const imageCommand: CommandSpec = {
   command: 'genera',
@@ -110,11 +115,21 @@ async function generate(
   if (!image?.buffer) {
     return { text: 'image_unavailable' };
   }
+  const promptId = cacheGeneratedImagePrompt({
+    prompt: prepared.prompt,
+    profile: profile ?? prepared.profile,
+    aspectRatio: prepared.aspectRatio as '16:9' | '9:16' | '1:1' | undefined,
+    medium: prepared.medium,
+    rating: prepared.rating,
+    negativePrompt: prepared.negativePrompt,
+  });
+
   return {
     text: 'image_done',
     vars: { prompt: prompt.slice(0, 180) },
     imageBuffer: image.buffer,
     imageSpoiler: prepared.rating !== 'safe',
+    customInlineKeyboard: buildImagePlaygroundRows(promptId),
     usage: {
       imageCalls: image.generationAttempts ?? 1,
       visionCalls: poseLookup.visionCalls + (image.qaVisionCalls ?? 0),

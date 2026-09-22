@@ -222,6 +222,8 @@ export interface SocialMemberContext {
     confidence: number;
     salience: number;
   }>;
+  daysInactive?: number;
+  pendingThread?: string;
 }
 
 export interface SocialContext {

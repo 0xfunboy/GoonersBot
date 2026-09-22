@@ -278,7 +278,7 @@ illegal, no doxxing. NSFW is opt-in per chat and meant for private, consenting a
 
 ## Commands
 
-GoonersBot currently registers **54 static slash commands**, plus any dynamic commands installed by
+GoonersBot currently registers **55 static slash commands**, plus any dynamic commands installed by
 Capability Forge. The complete reference is generated from the same command registry and detailed
 help catalog used by the runtime, so syntax, aliases and access requirements are not maintained in a
 second handwritten table.

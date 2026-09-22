@@ -2,7 +2,7 @@
 
 > GENERATED FILE — update `src/telegram/handlers/commands/helpCatalog.ts` or the command registry, then run `pnpm docs:commands`.
 
-Static commands: **54**. Capability Forge may install additional dynamic commands at runtime; use `/capabilities` for built-in readiness and installed recipes.
+Static commands: **55**. Capability Forge may install additional dynamic commands at runtime; use `/capabilities` for built-in readiness and installed recipes.
 
 Access model: `admin` means group administrator **or** bot admin; `bot admin` means either a bootstrap/root handle from `ADMIN_HANDLES` or a runtime grant persisted by immutable Telegram user ID; `learn admin` means bot admin or an immutable local-development admin ID. Except for `/start`, `/tos`/`/terms`, and `/help`, commands also pass through the approval gate.
 
@@ -127,6 +127,13 @@ In reply dimentica la memoria derivata da quel messaggio; un utente può rimuove
 
 - **Accesso:** utente/chat approvata
 - **Alias registrati:** `/dimentica`
+
+#### `/halloffame`
+
+Compila la Hall of Fame del gruppo: le migliori perle, citazioni memorabili e deliri della community.
+
+- **Accesso:** utente/chat approvata
+- **Alias registrati:** `/bestof`, `/perle`, `/topquotes`
 
 #### `/introduce <chi sei>`
 
@@ -522,6 +529,13 @@ As a reply, forget memory mined from that message; users can remove their own, a
 - **Access:** approved user/chat
 - **Registered aliases:** `/dimentica`
 
+#### `/halloffame`
+
+Compile the group Hall of Fame: top highlights, memorable quotes, and comic community awards.
+
+- **Access:** approved user/chat
+- **Registered aliases:** `/bestof`, `/perle`, `/topquotes`
+
 #### `/introduce <who you are>`
 
 Store your self-introduction as durable role lore attached to your handle.
@@ -915,6 +929,13 @@ Como respuesta, olvida la memoria extraída de ese mensaje; cada usuario puede b
 
 - **Acceso:** usuario/chat aprobado
 - **Alias registrados:** `/dimentica`
+
+#### `/halloffame`
+
+Compila el Hall of Fame del grupo: mejores citas memorables y delirios cómicos de la comunidad.
+
+- **Acceso:** usuario/chat aprobado
+- **Alias registrados:** `/bestof`, `/perle`, `/topquotes`
 
 #### `/introduce <quién eres>`
 

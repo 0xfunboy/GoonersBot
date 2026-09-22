@@ -9,6 +9,9 @@ import type {
 } from './types.js';
 import { DuckDuckGoEngine } from './engines/duckduckgo.js';
 import { HuggingFaceEngine } from './engines/huggingface.js';
+import { CivitaiEngine } from './engines/civitai.js';
+import { ArXivEngine } from './engines/arxiv.js';
+import { CryptoEngine } from './engines/crypto.js';
 import { WikipediaEngine } from './engines/wikipedia.js';
 import { MojeekEngine } from './engines/mojeek.js';
 import { GitHubEngine } from './engines/github.js';
@@ -89,6 +92,9 @@ export class NativeMetaSearch implements WebSearchProvider {
       this.engines = [
         new DuckDuckGoEngine({ enabled: true, timeoutMs: 6000 }),
         new HuggingFaceEngine({ enabled: true, timeoutMs: 5000 }),
+        new CivitaiEngine({ enabled: true, timeoutMs: 5000 }),
+        new ArXivEngine({ enabled: true, timeoutMs: 5000 }),
+        new CryptoEngine({ enabled: true, timeoutMs: 4000 }),
         new WikipediaEngine({ enabled: true, timeoutMs: 5000 }),
         new MojeekEngine({ enabled: true, timeoutMs: 5000 }),
         new GitHubEngine({ enabled: true, timeoutMs: 5000 }),
@@ -129,6 +135,16 @@ export class NativeMetaSearch implements WebSearchProvider {
       /huggingface|hf\.co|model|weights|qwen|llama|flux|stable-diffusion|lora|safetensors|checkpoint/i.test(
         lowerQuery,
       );
+    const isCivitaiQuery =
+      /civitai|lora|checkpoint|safetensors|prompt|trigger|flux|diffusion|upscale/i.test(lowerQuery);
+    const isArxivQuery =
+      /arxiv|paper|preprint|research|abstract|whitepaper|survey|benchmark|state-of-the-art/i.test(
+        lowerQuery,
+      );
+    const isCryptoQuery =
+      /btc|eth|sol|bitcoin|crypto|cripto|ethereum|solana|binance|doge|token|moneta|prezzo/i.test(
+        lowerQuery,
+      );
     const isCodeQuery = /github|repo|repository|npm|pip|pypi|crate|golang|python|library/i.test(
       lowerQuery,
     );
@@ -138,6 +154,9 @@ export class NativeMetaSearch implements WebSearchProvider {
     const candidateEngines = this.engines.filter((engine) => {
       if (!engine.enabled) return false;
       if (isModelQuery && engine.id === 'huggingface') return true;
+      if (isCivitaiQuery && engine.id === 'civitai') return true;
+      if (isArxivQuery && engine.id === 'arxiv') return true;
+      if (isCryptoQuery && engine.id === 'crypto') return true;
       if (isCodeQuery && engine.id === 'github') return true;
       if (isDiscussionQuery && engine.id === 'reddit') return true;
       // General categories
@@ -211,6 +230,15 @@ export class NativeMetaSearch implements WebSearchProvider {
             // Specific intent boost
             if (isModelQuery && engine.id === 'huggingface') {
               initialScore += 35;
+            }
+            if (isCivitaiQuery && engine.id === 'civitai') {
+              initialScore += 35;
+            }
+            if (isArxivQuery && engine.id === 'arxiv') {
+              initialScore += 35;
+            }
+            if (isCryptoQuery && engine.id === 'crypto') {
+              initialScore += 45;
             }
 
             urlMap.set(canonical, {

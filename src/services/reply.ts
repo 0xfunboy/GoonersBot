@@ -526,6 +526,9 @@ export interface ReplyOutcome {
   imageUrl?: string;
   imageBuffer?: Buffer;
   imageSpoiler?: boolean;
+  imagePrompt?: string;
+  imageProfile?: string;
+  imageAspectRatio?: string;
   videoBuffer?: Buffer;
   videoSpoiler?: boolean;
   videoMeta?: VideoSendMeta;
@@ -1249,6 +1252,9 @@ export class ReplyService {
       providerBundle?: ProviderBundle;
       imageBuffer?: Buffer;
       imageSpoiler?: boolean;
+      imagePrompt?: string;
+      imageProfile?: string;
+      imageAspectRatio?: string;
       videoBuffer?: Buffer;
       videoSpoiler?: boolean;
       videoMeta?: VideoSendMeta;
@@ -1289,6 +1295,9 @@ export class ReplyService {
       };
       if (params.imageBuffer) out.imageBuffer = params.imageBuffer;
       if (params.imageSpoiler) out.imageSpoiler = true;
+      if (params.imagePrompt) out.imagePrompt = params.imagePrompt;
+      if (params.imageProfile) out.imageProfile = params.imageProfile;
+      if (params.imageAspectRatio) out.imageAspectRatio = params.imageAspectRatio;
       if (params.videoBuffer) out.videoBuffer = params.videoBuffer;
       if (params.videoSpoiler) out.videoSpoiler = true;
       if (params.videoMeta) out.videoMeta = params.videoMeta;
@@ -1886,6 +1895,9 @@ export class ReplyService {
         text: t('image_done', { prompt: prompt.slice(0, 180) }),
         imageBuffer: image.buffer,
         imageSpoiler: prepared.rating !== 'safe',
+        imagePrompt: prepared.prompt,
+        imageProfile: profile ?? prepared.profile,
+        imageAspectRatio: prepared.aspectRatio,
         imageCalls: image.generationAttempts ?? 1,
         visionCalls: visionCalls + poseLookup.visionCalls + (image.qaVisionCalls ?? 0),
         styleVariant: evaluation.action,

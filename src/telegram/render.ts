@@ -1,4 +1,4 @@
-import { InputFile, type Context } from 'grammy';
+import { InputFile, InlineKeyboard, type Context } from 'grammy';
 import type { Message } from 'grammy/types';
 import type { CommandResponse, LocalizedResponse } from '../domain/types.js';
 import type { Services } from '../services/index.js';
@@ -73,7 +73,26 @@ export async function localizeResponse(
   if (response.videoSpoiler !== undefined) out.videoSpoiler = response.videoSpoiler;
   if (response.videoMeta !== undefined) out.videoMeta = response.videoMeta;
   if (response.keyboard !== undefined) out.keyboard = response.keyboard;
+  if (response.customInlineKeyboard !== undefined)
+    out.customInlineKeyboard = response.customInlineKeyboard;
   return out;
+}
+
+function buildCustomInlineKeyboard(
+  rows: import('../domain/types.js').CustomInlineKeyboard,
+): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  for (const [rowIndex, row] of rows.entries()) {
+    if (rowIndex > 0) kb.row();
+    for (const btn of row) {
+      if (btn.url) {
+        kb.url(btn.text, btn.url);
+      } else if (btn.callback_data) {
+        kb.text(btn.text, btn.callback_data);
+      }
+    }
+  }
+  return kb;
 }
 
 /** Send a localized response to Telegram. Priority: audio > image > text. Returns the sent message. */
@@ -84,7 +103,9 @@ export async function sendResponse(
   const replyTo = ctx.message?.message_id;
   const reply_markup = response.keyboard
     ? buildInlineKeyboard(response.keyboard, response.keyboard.page ?? 0)
-    : undefined;
+    : response.customInlineKeyboard
+      ? buildCustomInlineKeyboard(response.customInlineKeyboard)
+      : undefined;
   const textFormat = response.textFormat ?? 'html';
   const rendered = response.text ? renderTelegramText(response.text, textFormat) : undefined;
   const plainText = response.text ? telegramPlainText(response.text, textFormat) : undefined;

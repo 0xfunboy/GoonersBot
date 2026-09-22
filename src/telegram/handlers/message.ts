@@ -36,6 +36,8 @@ import {
   telegramPlainText,
 } from '../format.js';
 import { buildInlineKeyboard } from '../keyboards.js';
+import { cacheGeneratedImagePrompt } from '../../services/imagePromptCache.js';
+import { cacheCodeSnippet } from '../../services/codeSnippetCache.js';
 
 const log = childLogger('message');
 
@@ -935,7 +937,23 @@ export async function handleMessage(
       }
       if (!voiceSent) {
         const chunks = splitTelegramMarkdown(finalText);
-        const entityKeyboard = buildEntityLinkKeyboard(outcome.providerBundle.sources, finalText);
+        let entityKeyboard = buildEntityLinkKeyboard(outcome.providerBundle.sources, finalText);
+        const repliedText =
+          ctx.message?.reply_to_message && 'text' in ctx.message.reply_to_message
+            ? ctx.message.reply_to_message.text
+            : undefined;
+        const userSnippet =
+          extractCodeSnippet(message.messageText) ?? extractCodeSnippet(repliedText);
+        if (
+          userSnippet &&
+          /fix|bug|error|err|patch|ottimizz|correz|funziona|syntax|problema|crash|refactor/i.test(
+            (message.messageText ?? '') + ' ' + finalText,
+          )
+        ) {
+          const snippetId = cacheCodeSnippet(userSnippet, message.messageText);
+          entityKeyboard ??= new InlineKeyboard();
+          entityKeyboard.row().text('💡 Suggerisci Fix', `code_patch|${snippetId}`);
+        }
         for (const [index, chunk] of chunks.entries()) {
           const isLast = index === chunks.length - 1;
           const rendered = renderTelegramText(chunk, 'markdown');
@@ -1115,7 +1133,23 @@ export async function handleMessage(
     }
     if ((outcome.imageBuffer || outcome.imageUrl) && !hasGeneratedArtifacts) {
       const photo = outcome.imageBuffer ? new InputFile(outcome.imageBuffer) : outcome.imageUrl!;
-      const imageOptions = outcome.imageSpoiler ? { has_spoiler: true } : {};
+      const promptId = cacheGeneratedImagePrompt({
+        prompt: outcome.imagePrompt ?? 'creative image',
+        profile: outcome.imageProfile,
+        aspectRatio: outcome.imageAspectRatio as '16:9' | '9:16' | '1:1' | undefined,
+      });
+      const playgroundKb = new InlineKeyboard()
+        .text('🎨 Altro Stile', `sample_style|${promptId}`)
+        .text('🔁 Remix', `sample_remix|${promptId}`)
+        .row()
+        .text('📐 16:9', `sample_ratio|16:9|${promptId}`)
+        .text('📐 9:16', `sample_ratio|9:16|${promptId}`)
+        .text('📐 1:1', `sample_ratio|1:1|${promptId}`);
+
+      const imageOptions = {
+        ...(outcome.imageSpoiler ? { has_spoiler: true } : {}),
+        reply_markup: playgroundKb,
+      };
       const sent = await ctx.replyWithPhoto(photo, imageOptions).catch((err) => {
         log.warn({ err }, 'image send failed');
         return null;
@@ -1569,13 +1603,17 @@ function buildEntityLinkKeyboard(
   text = '',
 ): InlineKeyboard | undefined {
   const urls = new Set<string>();
+  const entityUrlRegex =
+    /^https?:\/\/(?:www\.)?(?:huggingface\.co|github\.com|civitai\.com|arxiv\.org)\/[\w./-]+/i;
   for (const source of sources) {
-    if (/^https?:\/\/(?:www\.)?(?:huggingface\.co|github\.com)\/[\w.-]+\/[\w.-]+/i.test(source)) {
+    if (entityUrlRegex.test(source)) {
       urls.add(source);
     }
   }
   const textMatches =
-    text.match(/https?:\/\/(?:www\.)?(?:huggingface\.co|github\.com)\/[\w.-]+\/[\w.-]+/gi) || [];
+    text.match(
+      /https?:\/\/(?:www\.)?(?:huggingface\.co|github\.com|civitai\.com|arxiv\.org)\/[\w./-]+/gi,
+    ) || [];
   for (const match of textMatches) {
     urls.add(match);
   }
@@ -1584,7 +1622,7 @@ function buildEntityLinkKeyboard(
   const kb = new InlineKeyboard();
   let count = 0;
   for (const url of urls) {
-    if (count >= 2) break;
+    if (count >= 3) break;
     if (/huggingface\.co/i.test(url)) {
       const match = url.match(/huggingface\.co\/(?:models\/|datasets\/)?([^/?#]+(?:\/[^/?#]+)?)/i);
       const name = match ? match[1] : 'Hugging Face';
@@ -1595,7 +1633,36 @@ function buildEntityLinkKeyboard(
       const name = match ? match[1] : 'GitHub';
       kb.url(`⭐ GH: ${name?.slice(0, 24)}`, url);
       count++;
+    } else if (/civitai\.com/i.test(url)) {
+      const match = url.match(/civitai\.com\/models\/(\d+)/i);
+      const id = match ? match[1] : 'Model';
+      kb.url(`🎨 Civitai #${id}`, url);
+      count++;
+    } else if (/arxiv\.org/i.test(url)) {
+      const match = url.match(/arxiv\.org\/(?:abs|pdf)\/([0-9.]+)/i);
+      const id = match ? match[1] : 'Paper';
+      kb.url(`📄 ArXiv: ${id}`, url);
+      count++;
     }
   }
   return count > 0 ? kb : undefined;
+}
+
+function extractCodeSnippet(text?: string): string | null {
+  if (!text) return null;
+  const match = text.match(/```(?:[a-z0-9_+-]*\n)?([\s\S]+?)```/i);
+  const snippet = match?.[1]?.trim();
+  if (snippet && snippet.length > 10) {
+    return snippet;
+  }
+  const lines = text.split('\n');
+  if (lines.length >= 3) {
+    const codeLike = lines.filter((l) =>
+      /^\s*(?:const|let|var|function|def|import|class|return|if\s*\(|for\s*\(|\{|\}|<[a-z]+>)/i.test(
+        l,
+      ),
+    );
+    if (codeLike.length >= 2) return text.trim();
+  }
+  return null;
 }

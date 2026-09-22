@@ -110,6 +110,16 @@ export function buildSocialContext(
 
   const members = rankedProfiles.slice(0, maxMembers).map((profile) => {
     const isFocused = focused.has(profile.handle);
+    const daysInactive = Math.max(0, options.now.getTime() - profile.lastSeenAt.getTime()) / DAY_MS;
+    const pendingFacet = profile.facets.find(
+      (f) =>
+        f.state === 'active' &&
+        (f.kind === 'goal' ||
+          f.kind === 'interest' ||
+          /exam|esame|viagg|progett|lavor|stud|auto|moto|casa|spesa|vacanz/i.test(
+            f.key + ' ' + f.value,
+          )),
+    );
     return {
       handle: profile.handle,
       displayName: profile.displayName,
@@ -122,6 +132,8 @@ export function buildSocialContext(
           ? (options.maxFacetsPerFocusedMember ?? 8)
           : (options.maxFacetsPerOtherMember ?? 4),
       ),
+      daysInactive,
+      pendingThread: pendingFacet ? `${pendingFacet.key}: ${pendingFacet.value}` : undefined,
     };
   });
   const visibleHandles = new Set(members.map((member) => member.handle));
@@ -237,6 +249,8 @@ export function renderSocialContext(context: SocialContext): string {
     '- A running joke/reputation is not biography. Never turn a comic label into a literal personal fact.',
     '- Match each person’s rapport. Affectionate banter must not erase practical help or empathy.',
     '- Running jokes are themes, not scripts: at most one organically, with a fresh phrasing.',
+    '- SOCIAL RETURNS: If a member is marked [RETURNED after Nd absence], acknowledge their return naturally and warmly as a close peer ("bentornato", "da quanto tempo!"), without interrogation.',
+    '- PENDING TOPICS: If a member has a [PENDING TOPIC], you may bring it up as an organic peer follow-up when relevant.',
   ];
 
   for (const member of context.members) {
@@ -249,8 +263,13 @@ export function renderSocialContext(context: SocialContext): string {
       .join('; ');
     const familiarity =
       member.familiarity >= 0.72 ? 'core regular' : member.familiarity >= 0.35 ? 'known' : 'newer';
+    const returnNotice =
+      typeof member.daysInactive === 'number' && member.daysInactive >= 3
+        ? ` [RETURNED after ${Math.floor(member.daysInactive)}d absence]`
+        : '';
+    const pendingNotice = member.pendingThread ? ` [PENDING TOPIC: ${member.pendingThread}]` : '';
     lines.push(
-      `- MEMBER ${member.handle}${identity ? ` [${identity}]` : ''} (${familiarity})${facets ? `: ${facets}` : ''}`,
+      `- MEMBER ${member.handle}${identity ? ` [${identity}]` : ''} (${familiarity})${returnNotice}${pendingNotice}${facets ? `: ${facets}` : ''}`,
     );
   }
   for (const relationship of context.relationships) {

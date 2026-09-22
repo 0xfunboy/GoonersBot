@@ -11,6 +11,15 @@ import {
   SHOW_MODES_CALLBACK,
   TERMS_CALLBACK,
 } from '../shared.js';
+import {
+  getCachedImagePrompt,
+  cacheGeneratedImagePrompt,
+  buildImagePlaygroundRows,
+  nextArtisticMedium,
+} from '../../../services/imagePromptCache.js';
+import { getCachedCodeSnippet } from '../../../services/codeSnippetCache.js';
+import type { ImageProfile } from '../../../providers/image/stableDiffusion.js';
+import type { ImageMedium } from '../../../services/imagePrompt.js';
 
 /** set_chat_mode|<modeId> - activate a mode. */
 const setChatMode: CallbackSpec = {
@@ -223,6 +232,202 @@ const taskInfo: CallbackSpec = {
   },
 };
 
+/** sample_style|<promptId> - cycle artistic medium/style for generated image */
+const sampleStyle: CallbackSpec = {
+  action: 'sample_style',
+  permissions: ['allowed_user', 'not_banned'],
+  needsTermsAccepted: true,
+  async handle({ services, args }) {
+    const promptId = args[0];
+    if (!promptId) return null;
+    const cached = getCachedImagePrompt(promptId);
+    if (!cached) {
+      return {
+        rawText: 'Prompt non trovato o scaduto.',
+        textFormat: 'plain',
+        ephemeralMs: 5000,
+      };
+    }
+    const nextMedium = nextArtisticMedium(cached.medium);
+    const profile = cached.profile as ImageProfile | undefined;
+    const medium = nextMedium as ImageMedium;
+    const prepared = await services.imagePrompts.prepare(cached.prompt, {
+      ...(profile ? { profile } : {}),
+      context: {
+        intent: `${cached.prompt} in ${nextMedium} style`,
+        recentMessages: [],
+        relevantLore: [],
+      },
+    });
+    const image = await services.media.generateImage(prepared.prompt, {
+      profile: profile ?? prepared.profile,
+      medium,
+      rating: prepared.rating,
+      negativePrompt: prepared.negativePrompt,
+      aspectRatio: cached.aspectRatio ?? prepared.aspectRatio,
+    });
+    if (!image?.buffer) {
+      return { text: 'image_unavailable' };
+    }
+    const newId = cacheGeneratedImagePrompt({
+      prompt: cached.prompt,
+      profile: cached.profile,
+      medium: nextMedium,
+      aspectRatio: cached.aspectRatio,
+      rating: prepared.rating,
+    });
+    return {
+      rawText: `🎨 Stile: *${nextMedium}*`,
+      textFormat: 'markdown',
+      imageBuffer: image.buffer,
+      imageSpoiler: prepared.rating !== 'safe',
+      customInlineKeyboard: buildImagePlaygroundRows(newId),
+      usage: { imageCalls: image.generationAttempts ?? 1 },
+    };
+  },
+};
+
+/** sample_ratio|<ratio>|<promptId> - switch aspect ratio */
+const sampleRatio: CallbackSpec = {
+  action: 'sample_ratio',
+  permissions: ['allowed_user', 'not_banned'],
+  needsTermsAccepted: true,
+  async handle({ services, args }) {
+    const [ratio, promptId] = args;
+    if (!promptId || !ratio) return null;
+    const validRatio = ['16:9', '9:16', '1:1'].includes(ratio)
+      ? (ratio as '16:9' | '9:16' | '1:1')
+      : '1:1';
+    const cached = getCachedImagePrompt(promptId);
+    if (!cached) {
+      return {
+        rawText: 'Prompt non trovato o scaduto.',
+        textFormat: 'plain',
+        ephemeralMs: 5000,
+      };
+    }
+    const image = await services.media.generateImage(cached.prompt, {
+      profile: cached.profile as ImageProfile | undefined,
+      medium: cached.medium as ImageMedium | undefined,
+      aspectRatio: validRatio,
+      rating: cached.rating,
+      negativePrompt: cached.negativePrompt,
+    });
+    if (!image?.buffer) {
+      return { text: 'image_unavailable' };
+    }
+    const newId = cacheGeneratedImagePrompt({
+      ...cached,
+      aspectRatio: validRatio,
+    });
+    return {
+      rawText: `📐 Proporzione: *${validRatio}*`,
+      textFormat: 'markdown',
+      imageBuffer: image.buffer,
+      imageSpoiler: cached.rating !== 'safe',
+      customInlineKeyboard: buildImagePlaygroundRows(newId),
+      usage: { imageCalls: image.generationAttempts ?? 1 },
+    };
+  },
+};
+
+/** sample_remix|<promptId> - remix variation */
+const sampleRemix: CallbackSpec = {
+  action: 'sample_remix',
+  permissions: ['allowed_user', 'not_banned'],
+  needsTermsAccepted: true,
+  async handle({ services, args }) {
+    const promptId = args[0];
+    if (!promptId) return null;
+    const cached = getCachedImagePrompt(promptId);
+    if (!cached) {
+      return {
+        rawText: 'Prompt non trovato o scaduto.',
+        textFormat: 'plain',
+        ephemeralMs: 5000,
+      };
+    }
+    const remixPrompt = `${cached.prompt}, creative remix variation, alternate details`;
+    const image = await services.media.generateImage(remixPrompt, {
+      profile: cached.profile as ImageProfile | undefined,
+      medium: cached.medium as ImageMedium | undefined,
+      aspectRatio: cached.aspectRatio,
+      rating: cached.rating,
+      negativePrompt: cached.negativePrompt,
+    });
+    if (!image?.buffer) {
+      return { text: 'image_unavailable' };
+    }
+    const newId = cacheGeneratedImagePrompt({
+      ...cached,
+      prompt: remixPrompt,
+    });
+    return {
+      rawText: '🔁 Remix generato',
+      textFormat: 'markdown',
+      imageBuffer: image.buffer,
+      imageSpoiler: cached.rating !== 'safe',
+      customInlineKeyboard: buildImagePlaygroundRows(newId),
+      usage: { imageCalls: image.generationAttempts ?? 1 },
+    };
+  },
+};
+
+/** code_patch|<snippetId> - generate quick peer review fix diff */
+const codePatch: CallbackSpec = {
+  action: 'code_patch',
+  permissions: ['allowed_user', 'not_banned'],
+  needsTermsAccepted: false,
+  approvalExempt: true,
+  async handle({ services, context, args }) {
+    const snippetId = args[0];
+    if (!snippetId) return null;
+    const cached = getCachedCodeSnippet(snippetId);
+    if (!cached) {
+      return {
+        rawText: 'Snippet di codice non trovato o sessione scaduta.',
+        textFormat: 'plain',
+        ephemeralMs: 5000,
+      };
+    }
+    try {
+      const model = await services.modelForChat(context.chatId);
+      const res = await services.llm.chatCompletion({
+        system:
+          'You are a direct, highly technical peer software engineer reviewing code in a chat. ' +
+          'Provide a clean, focused fix for the bug or improvement. ' +
+          'Prefer outputting a git unified diff (`diff`) or a corrected code block with a one-sentence rationale. ' +
+          'No robotic filler, no verbose lectures.',
+        messages: [
+          {
+            role: 'user',
+            content: `Code:\n\`\`\`\n${cached.code}\n\`\`\`${cached.context ? `\nContext: ${cached.context}` : ''}`,
+          },
+        ],
+        ...(model ? { model } : {}),
+        temperature: 0.2,
+      });
+      const fix = res.text.trim();
+      if (!fix) {
+        return {
+          rawText: 'Impossibile generare una patch automatica per questo snippet.',
+          textFormat: 'plain',
+        };
+      }
+      return {
+        rawText: `💡 **Patch / Fix Consigliato**:\n\n${fix}`,
+        textFormat: 'markdown',
+      };
+    } catch {
+      return {
+        rawText: 'Errore durante la generazione della patch.',
+        textFormat: 'plain',
+        ephemeralMs: 5000,
+      };
+    }
+  },
+};
+
 export const callbackHandlers: CallbackSpec[] = [
   setChatMode,
   deleteChatMode,
@@ -233,6 +438,10 @@ export const callbackHandlers: CallbackSpec[] = [
   termsResponse,
   taskCancel,
   taskInfo,
+  sampleStyle,
+  sampleRatio,
+  sampleRemix,
+  codePatch,
 ];
 
 function archiveConfirmationResponse(result: AnimeArchiveConfirmationResult) {

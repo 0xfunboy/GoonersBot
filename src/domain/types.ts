@@ -141,6 +141,27 @@ export type ResponseVariable = string | number | TrustedHtmlValue;
  * unless `rawText` is set (already-final text, e.g. AI output). Mirrors the original
  * CommandResponse/LocalizedCommandResponse split.
  */
+export interface InlineKeyboardButtonSpec {
+  text: string;
+  callback_data?: string;
+  url?: string;
+}
+
+export type CustomInlineKeyboard = InlineKeyboardButtonSpec[][];
+
+/** Dimensions/duration/poster that make Telegram render a video as an inline, autoplaying player. */
+export interface VideoSendMeta {
+  width?: number | undefined;
+  height?: number | undefined;
+  duration?: number | undefined;
+  thumbnail?: Buffer | undefined;
+}
+
+/**
+ * Abstract response returned by handlers. `text` is a translation KEY (localized later),
+ * unless `rawText` is set (already-final text, e.g. AI output). Mirrors the original
+ * CommandResponse/LocalizedCommandResponse split.
+ */
 export interface CommandResponse {
   /** translation key to localize */
   text?: string | undefined;
@@ -165,6 +186,8 @@ export interface CommandResponse {
   videoSpoiler?: boolean | undefined;
   videoMeta?: VideoSendMeta | undefined;
   keyboard?: KeyboardResponse | undefined;
+  /** arbitrary multi-row inline keyboard buttons */
+  customInlineKeyboard?: CustomInlineKeyboard | undefined;
   /** for callbacks: delete the message the button was attached to before replying (terms prompt) */
   deleteOrigin?: boolean | undefined;
   /** Keep the callback prompt as an audit trail but remove buttons once the choice is consumed. */
@@ -179,14 +202,6 @@ export interface CommandResponse {
   };
 }
 
-/** Dimensions/duration/poster that make Telegram render a video as an inline, autoplaying player. */
-export interface VideoSendMeta {
-  width?: number | undefined;
-  height?: number | undefined;
-  duration?: number | undefined;
-  thumbnail?: Buffer | undefined;
-}
-
 /** A localized, render-ready response. */
 export interface LocalizedResponse {
   text?: string | undefined;
@@ -199,4 +214,5 @@ export interface LocalizedResponse {
   videoSpoiler?: boolean | undefined;
   videoMeta?: VideoSendMeta | undefined;
   keyboard?: KeyboardResponse | undefined;
+  customInlineKeyboard?: CustomInlineKeyboard | undefined;
 }
