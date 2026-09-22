@@ -122,16 +122,6 @@ describe('runtime capability catalog', () => {
       },
       botIsAddressed: true,
       recentNegativeFeedback: false,
-      fallback: {
-        intents: ['answer'],
-        toolCalls: [],
-        valueTarget: 'technical_help',
-        roastBudget: 'none',
-        socialRole: 'technical_peer',
-        needsGrounding: false,
-        confidence: 0.5,
-        reason: 'fallback',
-      },
     });
     expect(prompt).toContain('command=papers');
     expect(prompt).toContain('Search technical papers');

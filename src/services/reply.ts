@@ -1714,7 +1714,7 @@ export class ReplyService {
         };
       }
       return {
-        text: '',
+        text: cortexDecision?.conversationalReply?.trim() || '',
         music,
         transcribedUserMessage: transcribed,
         usage: { inputTokens: 0, outputTokens: 0, estimated: true },
@@ -1778,7 +1778,9 @@ export class ReplyService {
           this.config.linkMedia.ffmpegBin,
         );
         return immediateOutcome({
-          text: t('video_done', { prompt: prompt.slice(0, 180) }),
+          text:
+            cortexDecision?.conversationalReply?.trim() ||
+            t('video_done', { prompt: prompt.slice(0, 180) }),
           styleVariant: 'video_done',
           videoBuffer: prepared.buffer,
           videoSpoiler: preparedPrompt.profile === 'nsfw',
@@ -1892,7 +1894,9 @@ export class ReplyService {
         });
       }
       return immediateOutcome({
-        text: t('image_done', { prompt: prompt.slice(0, 180) }),
+        text:
+          cortexDecision?.conversationalReply?.trim() ||
+          t('image_done', { prompt: prompt.slice(0, 180) }),
         imageBuffer: image.buffer,
         imageSpoiler: prepared.rating !== 'safe',
         imagePrompt: prepared.prompt,
@@ -2374,6 +2378,9 @@ export class ReplyService {
     }
 
     let candidates = gen.candidates;
+    if (cortexDecision?.conversationalReply?.trim()) {
+      candidates = [cortexDecision.conversationalReply.trim(), ...candidates];
+    }
     let usage = gen.usage;
     const allCandidates = [...candidates];
     const repetitionChecks: RepetitionCheck[] = [];

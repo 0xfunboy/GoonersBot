@@ -461,8 +461,7 @@ describe('Cortex', () => {
       capabilities: caps,
     });
     expect(out.source).toBe('fallback');
-    expect(out.toolCalls.some((c) => c.tool === 'music')).toBe(true);
-    expect(out.toolCalls.find((c) => c.tool === 'music')?.query).toBe('bohemian rhapsody');
+    expect(out.intents).toContain('answer');
   });
 
   it('does not turn a technical proposal into a media download when cortex falls back', async () => {
@@ -510,56 +509,66 @@ describe('Cortex', () => {
     expect(cortexToTurnEvaluation(out, true).action).toBe('download_media');
   });
 
-  it('routes conversational generation requests to image_gen in fallback', () => {
-    const derby = fallbackCortex({
+  it('evaluates conversational generation requests via LLM cortex with conversationalReply', async () => {
+    const cortex = new Cortex(
+      fakeLLM({
+        json: {
+          intents: ['make_image'],
+          toolCalls: [
+            {
+              tool: 'image_gen',
+              query: 'Johnny and his wife at soccer derby',
+              reason: 'football derby image',
+            },
+          ],
+          conversationalReply: 'Arriva il capolavoro per Johnny, goditi le lacrime milaniste.',
+          valueTarget: 'support',
+          roastBudget: 'light',
+          socialRole: 'friend',
+          needsGrounding: false,
+          confidence: 0.98,
+          reason: 'image requested',
+        },
+      }),
+      { enabled: true, model: 'gemini-2.5-flash', temperature: 0.2, maxTokens: 1000 },
+    );
+    const out = await cortex.evaluate({
+      scene,
+      history: [],
       currentMessage:
         'Genera Johnny e la moglie durante il derby Milan Inter, e la moglie milanista piange per la vittoria dell\'Inter per 4-0',
       botIsAddressed: true,
-      availableTools: ['image_gen', 'web_search'],
+      recentNegativeFeedback: false,
+      capabilities: caps,
     });
-    expect(derby.intents).toContain('make_image');
-    expect(derby.toolCalls).toContainEqual(
-      expect.objectContaining({
-        tool: 'image_gen',
-      }),
+    expect(out.source).toBe('llm');
+    expect(out.intents).toContain('make_image');
+    expect(out.toolCalls).toContainEqual(
+      expect.objectContaining({ tool: 'image_gen' }),
     );
-    expect(cortexToTurnEvaluation(derby, true).action).toBe('generate_image');
-
-    const randomGen = fallbackCortex({
-      currentMessage: 'genera quello che cazzo ti pare allora, tanto farà cagare lo stesso',
-      botIsAddressed: true,
-      availableTools: ['image_gen', 'web_search'],
-    });
-    expect(randomGen.intents).toContain('make_image');
-    expect(randomGen.toolCalls).toContainEqual(
-      expect.objectContaining({
-        tool: 'image_gen',
-      }),
-    );
-    expect(cortexToTurnEvaluation(randomGen, true).action).toBe('generate_image');
+    expect(out.conversationalReply).toContain('Johnny');
+    expect(cortexToTurnEvaluation(out, true).action).toBe('generate_image');
   });
 
-  it('recovers image_gen in normalizeDecision when model omits it on explicit request', () => {
-    const lazyDecision: CortexDecision = {
-      intents: ['banter'],
+  it('never forces image_gen when user asks to generate code or text', () => {
+    const codeDecision: CortexDecision = {
+      intents: ['answer'],
       toolCalls: [],
-      valueTarget: 'social_glue',
-      roastBudget: 'light',
-      socialRole: 'friend',
+      conversationalReply: 'Ecco il codice python richiesto...',
+      valueTarget: 'technical_help',
+      roastBudget: 'none',
+      socialRole: 'technical_peer',
       needsGrounding: false,
-      confidence: 0.8,
-      reason: 'banter in room',
+      confidence: 0.95,
+      reason: 'code request',
     };
-    const recovered = normalizeDecision(
-      lazyDecision,
+    const normalized = normalizeDecision(
+      codeDecision,
       ['image_gen', 'web_search'],
-      'Genera Johnny e la moglie durante il derby Milan Inter',
+      'genera del codice python per ordinare una lista',
     );
-    expect(recovered.toolCalls).toContainEqual(
-      expect.objectContaining({
-        tool: 'image_gen',
-      }),
-    );
-    expect(recovered.intents).toContain('make_image');
+    expect(normalized.toolCalls).toEqual([]);
+    expect(normalized.intents).not.toContain('make_image');
+    expect(normalized.intents).not.toContain('draw_image');
   });
 });

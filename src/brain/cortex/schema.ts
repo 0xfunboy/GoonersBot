@@ -49,6 +49,7 @@ export const cortexToolCallSchema = z.object({
 export const cortexDecisionSchema = z.object({
   intents: z.array(cortexIntentEnum).min(1),
   toolCalls: z.array(cortexToolCallSchema).default([]),
+  conversationalReply: z.string().max(1200).optional(),
   valueTarget: z.enum(['truth', 'context', 'technical_help', 'support', 'joke', 'social_glue']),
   roastBudget: z.enum(['none', 'light', 'medium', 'heavy']),
   socialRole: z.enum([

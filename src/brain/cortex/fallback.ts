@@ -2,52 +2,6 @@ import type { CortexDecision, CortexTool, SourcedCortexDecision } from './schema
 import { extractUrls } from '../../providers/media/linkMedia/url.js';
 import { extractPageAuditUrl } from '../../search/pageScanner.js';
 
-const VIDEO_GEN_RE =
-  /\b(genera|generami|generate|crea|creami|create|fammi|famme|make|animami)\b[^.!?]{0,40}\b(video|videoclip|clip|animazione|animation|filmato|cortometraggio)\b/i;
-const IMAGE_GEN_RE =
-  /\b(genera|generami|generate|crea|creami|create|disegna|disegni|disegnami|draw|render|illustra|ritrai)\b/i;
-const MAKE_IMAGE_PHRASE_RE =
-  /\b(fai|fammi|fammene|fanne|faresti|facessi|mostrami|vediamo)\b[^.!?]{0,25}\b(un['\s]?(?:immagine|disegno|foto|ritratto|vignetta|meme)|immagini|foto)\b/i;
-const NON_IMAGE_TARGET_RE =
-  /\b(video|videoclip|clip|animazione|animation|musica|canzone|audio|brano|testo|storia|poesia|codice|script|file|pdf|doc|documento)\b/i;
-
-const HINTS = {
-  search: ['search', 'lookup', 'google', 'online', 'price', 'cost', 'cerca', 'prezzo', 'buscar'],
-  news: ['news', 'latest', 'today', 'breaking', 'notizia', 'oggi', 'noticias', 'hoy'],
-  music: [
-    'play',
-    'song',
-    'music',
-    'youtube',
-    'suona',
-    'scarica',
-    'scaricami',
-    'canzone',
-    'canta',
-    'cancion',
-  ],
-  image: [
-    'image',
-    'picture',
-    'draw',
-    'meme',
-    'immagine',
-    'immagini',
-    'disegna',
-    'disegno',
-    'disegni',
-    'foto',
-    'dibuja',
-    'imagen',
-    'ritratto',
-    'vignetta',
-  ],
-  translate: ['translate', 'traduci', 'traduce', 'inglese', 'english', 'espanol'],
-  voice: ['voice', 'read aloud', 'tts', 'vocale', 'voce', 'leer'],
-  wrong: ['wrong', 'false', 'bullshit', 'sbagliato', 'cazzata', 'falso', 'mentira'],
-  insult: ['idiot', 'stupid', 'cesso', 'scemo', 'stronzo', 'gilipollas', 'mierda'],
-};
-
 export interface CortexFallbackInput {
   currentMessage: string;
   botIsAddressed: boolean;
@@ -78,15 +32,9 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
       msg,
     );
 
-  const isVideoGen = VIDEO_GEN_RE.test(msg);
-  const isImageGen =
-    !isVideoGen &&
-    (has(msg, HINTS.image) ||
-      MAKE_IMAGE_PHRASE_RE.test(msg) ||
-      (IMAGE_GEN_RE.test(msg) && !NON_IMAGE_TARGET_RE.test(msg)));
-
-  // A degraded evaluator must never invent a media download from prose. Rehosting a concrete URL
-  // is deterministic; discovering one from a natural-language request belongs to the LLM cortex.
+  // Fallback is strictly an offline emergency parachute. It handles only deterministic
+  // structural artifacts (direct URLs, work controls). All natural-language tool routing
+  // and intent disambiguation belongs to the cognitive LLM cortex.
   if (controlIntent) {
     intents.push(controlIntent);
   } else if (pageAuditRequested) {
@@ -107,70 +55,6 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
       args: { url: directMediaUrl.toString() },
       reason: 'degraded direct media URL',
     });
-  } else if (has(msg, HINTS.music) && tools.has('music')) {
-    intents.push('play_music');
-    calls.push({
-      tool: 'music',
-      query: cleanFallbackQuery(instruction, HINTS.music),
-      reason: 'degraded music hint',
-    });
-  } else if (isVideoGen && tools.has('video_gen')) {
-    intents.push('make_video');
-    calls.push({
-      tool: 'video_gen',
-      query: instruction,
-      reason: 'degraded video hint',
-    });
-  } else if (
-    /\b(qwen|flux|sdxl|stable diffusion|midjourney|dall-e|ideogram|imagen|wan|hunyuan)\b/i.test(
-      msg,
-    ) &&
-    /\b(prov|test|ved|mostr|gener|famm|sample|try|check out)\b/i.test(msg) &&
-    tools.has('image_gen')
-  ) {
-    intents.push('web_lookup', 'answer', 'make_image');
-    if (tools.has('web_search')) {
-      calls.push({
-        tool: 'web_search',
-        query: `${instruction} Hugging Face`,
-        reason: 'ground generative model release specs and architecture',
-      });
-    }
-    calls.push({
-      tool: 'image_gen',
-      query: instruction,
-      reason: 'demonstrative sample test for the requested model',
-    });
-  } else if (isImageGen && tools.has('image_gen')) {
-    intents.push(has(msg, ['draw', 'disegna', 'dibuja']) ? 'draw_image' : 'make_image');
-    calls.push({ tool: 'image_gen', query: instruction, reason: 'degraded image hint' });
-  } else if (has(msg, HINTS.translate) && tools.has('translate')) {
-    intents.push('translate');
-    calls.push({
-      tool: 'translate',
-      query: instruction,
-      reason: 'degraded translate hint',
-    });
-  } else if (has(msg, HINTS.voice) && tools.has('tts')) {
-    intents.push('voice_note');
-    calls.push({ tool: 'tts', query: instruction, reason: 'degraded voice hint' });
-  } else if (has(msg, HINTS.news) && tools.has('news')) {
-    intents.push('news_context', 'answer');
-    calls.push({ tool: 'news', query: instruction, reason: 'degraded news hint' });
-    if (tools.has('web_search')) {
-      calls.push({
-        tool: 'web_search',
-        query: instruction,
-        reason: 'degraded news grounding',
-      });
-    }
-  } else if (has(msg, HINTS.search) && tools.has('web_search')) {
-    intents.push('web_lookup', 'answer');
-    calls.push({ tool: 'web_search', query: instruction, reason: 'degraded search hint' });
-  } else if (has(msg, HINTS.wrong)) {
-    intents.push('correct_claim', 'banter');
-  } else if (has(msg, HINTS.insult)) {
-    intents.push('banter');
   } else if (input.passiveApproved) {
     intents.push('react_short');
   } else if (input.botIsAddressed || instruction.includes('?')) {
@@ -188,12 +72,12 @@ export function fallbackCortex(input: CortexFallbackInput): SourcedCortexDecisio
     source: 'fallback',
     intents,
     toolCalls: calls,
-    valueTarget: needsGrounding || intents.includes('correct_claim') ? 'truth' : 'social_glue',
-    roastBudget: intents.includes('banter') ? 'medium' : 'none',
-    socialRole: needsGrounding || intents.includes('correct_claim') ? 'truth_checker' : 'friend',
+    valueTarget: needsGrounding ? 'truth' : 'social_glue',
+    roastBudget: 'none',
+    socialRole: needsGrounding ? 'truth_checker' : 'friend',
     needsGrounding,
-    confidence: 0.45,
-    reason: 'degraded multilingual parachute; cortex LLM unavailable',
+    confidence: 0.3,
+    reason: 'offline deterministic parachute; cortex LLM unavailable',
   };
 }
 
@@ -232,27 +116,4 @@ function conservativeWorkControl(
     return 'resume';
   }
   return null;
-}
-
-function has(message: string, hints: string[]): boolean {
-  return hints.some((hint) => message.includes(hint));
-}
-
-function cleanFallbackQuery(message: string, hints: string[]): string {
-  const cleaned = hints
-    .reduce(
-      (text, hint) => text.replace(new RegExp(`\\b${escapeRegExp(hint)}\\b`, 'gi'), ' '),
-      message,
-    )
-    .replace(
-      /\b(scarica\w*|suona\w*|canta\w*|play|grab|me la|me lo|mi|please|por favor|per favore|da youtube)\b/gi,
-      ' ',
-    )
-    .replace(/\s+/g, ' ')
-    .trim();
-  return cleaned || message;
-}
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

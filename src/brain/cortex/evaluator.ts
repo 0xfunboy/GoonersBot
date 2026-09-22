@@ -99,7 +99,6 @@ export class Cortex {
           scene: input.scene,
           botIsAddressed: input.botIsAddressed,
           recentNegativeFeedback: input.recentNegativeFeedback,
-          fallback: degraded,
         }),
         schema: cortexDecisionSchema,
         temperature: this.cfg.temperature,
@@ -165,46 +164,8 @@ export function normalizeDecision(
     });
   }
 
-  const isExplicitImageReq =
-    /\b(genera|generami|generate|crea|creami|create|disegna|disegni|disegnami|draw|render|illustra|ritrai)\b/i.test(
-      currentMessage,
-    ) ||
-    /\b(fai|fammi|fammene|fanne|faresti|facessi|mostrami|vediamo)\b[^.!?]{0,25}\b(un['\s]?(?:immagine|disegno|foto|ritratto|vignetta|meme)|immagini|foto)\b/i.test(
-      currentMessage,
-    ) ||
-    /\b(immagine|immagini|foto|picture|meme|disegno|disegni|ritratto)\b/i.test(currentMessage);
-  const isVideoReq =
-    /\b(video|videoclip|clip|animazione|animation|filmato|cortometraggio)\b/i.test(currentMessage);
-  const isMusicReq =
-    /\b(canzone|musica|audio|song|brano|suonami|cantami)\b/i.test(currentMessage);
-  const isOtherNonImageReq =
-    /\b(testo|storia|poesia|codice|script|file|pdf|doc|documento)\b/i.test(currentMessage);
-
-  const intents = [...decision.intents];
-  if (
-    allowed.has('image_gen') &&
-    isExplicitImageReq &&
-    !isVideoReq &&
-    !isMusicReq &&
-    !isOtherNonImageReq &&
-    !toolCalls.some((c) => c.tool === 'image_gen' || c.tool === 'video_gen')
-  ) {
-    toolCalls.push({
-      tool: 'image_gen',
-      query: currentMessage,
-      reason: 'explicit image generation request detected in message',
-    });
-    const imgIntent = /\b(disegna|disegni|disegnami|draw)\b/i.test(currentMessage)
-      ? 'draw_image'
-      : 'make_image';
-    if (!intents.includes(imgIntent)) {
-      intents.push(imgIntent);
-    }
-  }
-
   return {
     ...decision,
-    intents,
     toolCalls,
     confidence: Math.max(0, Math.min(1, decision.confidence)),
   };

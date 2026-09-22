@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { CompanionTaskProgressReporter } from '../src/companion/tasks/progress.js';
 import { callbackHandlers } from '../src/telegram/handlers/callbacks/index.js';
-import { fallbackCortex } from '../src/brain/cortex/fallback.js';
+import { CORTEX_FEWSHOT } from '../src/brain/cortex/prompt.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -181,17 +181,9 @@ describe('Task interactive callbacks (task_cancel and task_info)', () => {
 });
 
 describe('Cortex generative model test sample pattern', () => {
-  it('triggers both web_search and image_gen when a generative model test is requested', () => {
-    const decision = fallbackCortex({
-      currentMessage:
-        'raga è uscito Qwen-Image-2.1? com’è? proviamolo al volo fammi vedere un test',
-      botIsAddressed: true,
-      availableTools: ['web_search', 'image_gen', 'group_rag'],
-    });
-
-    expect(decision.intents).toContain('make_image');
-    expect(decision.intents).toContain('web_lookup');
-    expect(decision.toolCalls.some((c) => c.tool === 'web_search')).toBe(true);
-    expect(decision.toolCalls.some((c) => c.tool === 'image_gen')).toBe(true);
+  it('includes compound web_search and image_gen in Cortex few-shot prompt for model tests', () => {
+    expect(CORTEX_FEWSHOT).toContain('Qwen-Image-2.1');
+    expect(CORTEX_FEWSHOT).toContain('"tool":"web_search"');
+    expect(CORTEX_FEWSHOT).toContain('"tool":"image_gen"');
   });
 });
