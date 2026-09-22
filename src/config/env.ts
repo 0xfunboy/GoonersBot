@@ -280,6 +280,21 @@ const envSchema = z.object({
   SD_CONTROLNET_PROCESSOR_RESOLUTION: intFromString(512),
   SD_EXTRA_MODELS: optStr,
 
+  // ---- Image Generation Backend Selection ----
+  IMAGE_BACKEND: z.enum(['comfyui', 'stablediffusion']).default('comfyui'),
+
+  // ---- ComfyUI (Qwen-Image-2.1 on Windows host) ----
+  COMFYUI_ENABLED: boolFromString(true),
+  COMFYUI_API_URL: z.string().default('http://192.168.178.87:8188'),
+  COMFYUI_DIFFUSION_MODEL: z.string().default('qwen_image_2.1_int8_convrot.safetensors'),
+  COMFYUI_TEXT_ENCODER: z.string().default('qwen3vl_8b_int8_convrot.safetensors'),
+  COMFYUI_VAE: z.string().default('qwen_image_2.1_vae_bf16.safetensors'),
+  COMFYUI_STEPS: intFromString(25),
+  COMFYUI_CFG: floatFromString(1.0),
+  COMFYUI_SAMPLER: z.string().default('euler'),
+  COMFYUI_SCHEDULER: z.string().default('simple'),
+  COMFYUI_TIMEOUT_MS: intFromString(300_000),
+
   // ---- Agnes AI (remote image + video generation, through the router's OpenAI-compatible API) ----
   // Image: POST /v1/images/generations, used as the PRIMARY generator with local Stable Diffusion
   // as automatic fallback. Video: POST /v1/videos, blocking (~1-2 min) and limited to 1 request per

@@ -89,6 +89,8 @@ export interface ProviderImagePrompts {
   agnes: string;
   /** Pony-aware content tags; checkpoint score/source/rating tags are added by the provider. */
   pony: string;
+  /** Natural-language visual contract for Qwen-Image-2.1. */
+  qwen?: string;
 }
 
 export interface PreparedImagePrompt {
@@ -387,9 +389,11 @@ function compilePrepared(
   context?: MediaPromptContext,
   poseReferencesEnabled = true,
 ): PreparedImagePrompt {
+  const agnesPrompt = compileAgnesPrompt(scene);
   const providerPrompts = {
-    agnes: compileAgnesPrompt(scene),
+    agnes: agnesPrompt,
     pony: compilePonyPrompt(scene),
+    qwen: agnesPrompt,
   };
   const negativePrompt = compileSceneNegative(scene);
   return {

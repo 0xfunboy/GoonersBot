@@ -647,6 +647,34 @@ export function resolveStableDiffusionConfig(env: Env): StableDiffusionConfig {
   };
 }
 
+export interface ComfyUiConfig {
+  enabled: boolean;
+  apiUrl: string;
+  diffusionModel: string;
+  textEncoder: string;
+  vae: string;
+  steps: number;
+  cfgScale: number;
+  sampler: string;
+  scheduler: string;
+  timeoutMs: number;
+}
+
+export function resolveComfyUiConfig(env: Env): ComfyUiConfig {
+  return {
+    enabled: env.COMFYUI_ENABLED && Boolean(env.COMFYUI_API_URL),
+    apiUrl: env.COMFYUI_API_URL.replace(/\/+$/, ''),
+    diffusionModel: env.COMFYUI_DIFFUSION_MODEL,
+    textEncoder: env.COMFYUI_TEXT_ENCODER,
+    vae: env.COMFYUI_VAE,
+    steps: env.COMFYUI_STEPS,
+    cfgScale: env.COMFYUI_CFG,
+    sampler: env.COMFYUI_SAMPLER,
+    scheduler: env.COMFYUI_SCHEDULER,
+    timeoutMs: env.COMFYUI_TIMEOUT_MS,
+  };
+}
+
 /** Agnes AI remote generation (image primary + video), served by the router's OpenAI-compatible API. */
 export interface AgnesImageConfig {
   enabled: boolean;
@@ -831,6 +859,7 @@ export function resolveLinkMediaConfig(env: Env): LinkMediaConfig {
 
 export interface AppConfig {
   env: Env;
+  imageBackend: 'comfyui' | 'stablediffusion';
   llm: LLMConfig;
   miningLlm: MiningLLMConfig;
   embeddings: EmbeddingsConfig;
@@ -839,6 +868,7 @@ export interface AppConfig {
   search: SearchConfig;
   auto: AutoConfig;
   stableDiffusion: StableDiffusionConfig;
+  comfyUi: ComfyUiConfig;
   agnes: AgnesConfig;
   music: MusicConfig;
   linkMedia: LinkMediaConfig;
@@ -853,6 +883,7 @@ export function loadConfig(): AppConfig {
   const llm = resolveLLMConfig(env);
   return {
     env,
+    imageBackend: env.IMAGE_BACKEND,
     llm,
     miningLlm: resolveMiningLLMConfig(env, llm),
     embeddings: resolveEmbeddingsConfig(env),
@@ -861,6 +892,7 @@ export function loadConfig(): AppConfig {
     search: resolveSearchConfig(env),
     auto: resolveAutoConfig(env),
     stableDiffusion: resolveStableDiffusionConfig(env),
+    comfyUi: resolveComfyUiConfig(env),
     agnes: resolveAgnesConfig(env),
     music: resolveMusicConfig(env),
     linkMedia: resolveLinkMediaConfig(env),

@@ -9,6 +9,7 @@ import { LinkMediaService } from './linkMedia.js';
 import { TtsProvider } from '../providers/voice/tts.js';
 import { SttProvider } from '../providers/voice/stt.js';
 import { StableDiffusionGenerator } from '../providers/image/stableDiffusion.js';
+import { ComfyUiGenerator } from '../providers/image/comfyUi.js';
 import { AgnesVideoGenerator } from '../providers/video/agnes.js';
 import type { Storage } from '../storage/index.js';
 import { Cooldown } from '../utils/rateLimit.js';
@@ -186,7 +187,10 @@ export class Services {
     });
     this.tts = new TtsProvider(config.voice.tts);
     this.stt = new SttProvider(config.voice.stt);
-    const imageGenerator = new StableDiffusionGenerator(config.stableDiffusion);
+    const imageGenerator =
+      config.imageBackend === 'stablediffusion'
+        ? new StableDiffusionGenerator(config.stableDiffusion)
+        : new ComfyUiGenerator(config.comfyUi);
     this.video = new AgnesVideoGenerator(config.agnes.video);
     this.media = new MediaProcessor(
       llm,
