@@ -1141,20 +1141,32 @@ export async function handleMessage(
         });
       if (sent) rememberBotMessage(sent.message_id);
     }
+function buildImagePlaygroundKeyboard(params: {
+  prompt?: string;
+  profile?: string;
+  aspectRatio?: '16:9' | '9:16' | '1:1';
+}): InlineKeyboard {
+  const promptId = cacheGeneratedImagePrompt({
+    prompt: params.prompt ?? 'creative image',
+    profile: params.profile,
+    aspectRatio: params.aspectRatio,
+  });
+  return new InlineKeyboard()
+    .text('🎨 Altro Stile', `sample_style|${promptId}`)
+    .text('🔁 Remix', `sample_remix|${promptId}`)
+    .row()
+    .text('📐 16:9', `sample_ratio|16:9|${promptId}`)
+    .text('📐 9:16', `sample_ratio|9:16|${promptId}`)
+    .text('📐 1:1', `sample_ratio|1:1|${promptId}`);
+}
+
     if ((outcome.imageBuffer || outcome.imageUrl) && !hasGeneratedArtifacts) {
       const photo = outcome.imageBuffer ? new InputFile(outcome.imageBuffer) : outcome.imageUrl!;
-      const promptId = cacheGeneratedImagePrompt({
-        prompt: outcome.imagePrompt ?? 'creative image',
+      const playgroundKb = buildImagePlaygroundKeyboard({
+        prompt: outcome.imagePrompt,
         profile: outcome.imageProfile,
         aspectRatio: outcome.imageAspectRatio as '16:9' | '9:16' | '1:1' | undefined,
       });
-      const playgroundKb = new InlineKeyboard()
-        .text('🎨 Altro Stile', `sample_style|${promptId}`)
-        .text('🔁 Remix', `sample_remix|${promptId}`)
-        .row()
-        .text('📐 16:9', `sample_ratio|16:9|${promptId}`)
-        .text('📐 9:16', `sample_ratio|9:16|${promptId}`)
-        .text('📐 1:1', `sample_ratio|1:1|${promptId}`);
 
       const imageOptions = {
         ...(outcome.imageSpoiler ? { has_spoiler: true } : {}),
@@ -1193,6 +1205,15 @@ export async function handleMessage(
             ? await ctx.replyWithPhoto(new InputFile(artifact.buffer), {
                 ...replyOpts,
                 has_spoiler: artifact.spoiler,
+                reply_markup: buildImagePlaygroundKeyboard({
+                  prompt: artifact.prompt ?? outcome.imagePrompt,
+                  profile: artifact.profile ?? outcome.imageProfile,
+                  aspectRatio: (artifact.aspectRatio ?? outcome.imageAspectRatio) as
+                    | '16:9'
+                    | '9:16'
+                    | '1:1'
+                    | undefined,
+                }),
               })
             : artifact.kind === 'video'
               ? await ctx.replyWithVideo(new InputFile(artifact.buffer), {

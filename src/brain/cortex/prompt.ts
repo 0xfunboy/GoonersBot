@@ -95,7 +95,7 @@ export const CORTEX_SYSTEM = [
   '  use a prose summary as the data source. You may put document_create after it for a written report.',
   '- image_lookup: who/what/where-to-buy about an attached or replied image.',
   '- image_gen: user wants an image/meme/drawing/scene generated ("genera...", "creami...", "disegna...", "fammi un\'immagine...", "fammene una a caso").',
-  '  Preserve the exact subject, even NSFW; use args.profile "nsfw" for explicit/adult anatomy, "manga" only when manga/anime is requested.',
+  '  When generating an image about a project, startup, person or business discussed in the chat (e.g. "one pager della startup", "logo per il progetto"), ALWAYS put the substantive topic and concrete domain in args.query/args.prompt (e.g. "professional B2B enterprise automation startup one-pager pitch layout", not a vague reference or a parody/roast). Distinguish serious human discussion from sarcastic bot roasts.',
   '  CRITICAL: ALWAYS emit toolCalls with tool="image_gen" and intent "make_image" (or "draw_image"). NEVER swallow an image generation request into banter_only or answer, even if the room is insulting you or complaining. NEVER reply in chat saying you are generating an image ("mando in generazione", "ecco l\'immagine") without emitting this toolCall!',
   '- video_gen: user wants a NEW short video/clip/animation CREATED from a description ("generami un',
   '  video dove un cane si morde la coda", "fammi un video di X", "animazione di X", "make a video of',

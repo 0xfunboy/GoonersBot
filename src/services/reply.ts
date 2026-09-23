@@ -1857,7 +1857,7 @@ export class ReplyService {
             creatorHandle: ctx.person.userHandle,
             intent: prompt,
             relevantLore: socialContext ? [socialContext.slice(0, 1_200)] : [],
-            recentMessages: history.slice(-6).map((message) => ({
+            recentMessages: history.slice(-16).map((message) => ({
               handle: message.isBot ? BOT_LABEL : message.handle,
               text: message.message.messageText ?? '',
             })),

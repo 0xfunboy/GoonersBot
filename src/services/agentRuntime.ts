@@ -99,6 +99,9 @@ type RuntimeData =
       spoiler: boolean;
       generationAttempts: number;
       qaVisionCalls: number;
+      prompt?: string;
+      profile?: ImageProfile;
+      aspectRatio?: '16:9' | '9:16' | '1:1';
     }
   | { kind: 'video'; buffer: Buffer; spoiler: boolean; meta: VideoSendMeta }
   | { kind: 'voice'; buffer: Buffer }
@@ -624,7 +627,7 @@ export class AgentRuntime {
       relevantLore: [input.socialContext, input.groupContext]
         .filter((value): value is string => Boolean(value))
         .map((value) => value.slice(0, 1_000)),
-      recentMessages: input.recentMessages.slice(-6),
+      recentMessages: input.recentMessages.slice(-16),
     });
 
     const handlers = defineAgentTools({
@@ -1218,6 +1221,9 @@ export class AgentRuntime {
             spoiler: prepared.rating !== 'safe',
             generationAttempts: image.generationAttempts ?? 1,
             qaVisionCalls: poseLookup.visionCalls + (image.qaVisionCalls ?? 0),
+            prompt: prepared.prompt,
+            profile,
+            aspectRatio: prepared.aspectRatio,
           } satisfies RuntimeData,
           artifacts: [{ kind: 'image', id: `generated:image:${toolCtx.action.id}` }],
           confidence: 1,
