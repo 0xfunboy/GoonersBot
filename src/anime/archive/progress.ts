@@ -12,6 +12,13 @@ const TIMED_OUT = Symbol('anime-progress-timeout');
 
 export type AnimeArchiveProgressStage = 'download' | 'upload';
 
+export function renderProgressBar(percentage: number, totalBlocks = 10): string {
+  const clamped = Math.max(0, Math.min(100, Math.round(percentage)));
+  const filledCount = Math.round((clamped / 100) * totalBlocks);
+  const emptyCount = totalBlocks - filledCount;
+  return `[${'█'.repeat(filledCount)}${'░'.repeat(emptyCount)}] ${clamped}%`;
+}
+
 /** One edited status message per running job; progress failures never affect media delivery. */
 export class AnimeArchiveProgressReporter {
   private messageId: number | undefined;
@@ -21,13 +28,16 @@ export class AnimeArchiveProgressReporter {
   private disabled = false;
 
   constructor(
-    private readonly api: Pick<Api, 'sendMessage' | 'editMessageText'>,
+    private readonly api: Pick<Api, 'sendMessage' | 'editMessageText'> & {
+      deleteMessage?: (chatId: number, messageId: number) => Promise<unknown>;
+    },
     private readonly job: AnimeArchiveJobDoc,
   ) {}
 
   async start(): Promise<void> {
+    const bar = renderProgressBar(0);
     await this.write(
-      `📦 ${this.job.series.title}: avvio archivio (${this.job.episodes.length} ${this.job.episodes.length === 1 ? 'episodio' : 'episodi'}, uno alla volta).`,
+      `📦 ${this.job.series.title}: avvio archivio (${this.job.episodes.length} ${this.job.episodes.length === 1 ? 'episodio' : 'episodi'}, uno alla volta).\n${bar}`,
     );
   }
 
@@ -52,9 +62,12 @@ export class AnimeArchiveProgressReporter {
 
   async delivered(episode: AnimeArchiveJobEpisode): Promise<void> {
     const position = this.position(episode);
-    const suffix = position < this.job.episodes.length ? ' Passo al prossimo.' : '';
+    const total = this.job.episodes.length;
+    const percent = Math.round((position / total) * 100);
+    const bar = renderProgressBar(percent);
+    const suffix = position < total ? ' Passo al prossimo.' : '';
     await this.write(
-      `✅ ${this.job.series.title} · episodio ${formatEpisode(episode.number)} inviato (${position}/${this.job.episodes.length}).${suffix}`,
+      `✅ ${this.job.series.title} · episodio ${formatEpisode(episode.number)} inviato (${position}/${total}).${suffix}\n${bar}`,
     );
   }
 
@@ -65,7 +78,23 @@ export class AnimeArchiveProgressReporter {
   }
 
   async finishing(): Promise<void> {
-    await this.write(`✅ ${this.job.series.title}: lavorazione conclusa, preparo il riepilogo.`);
+    const bar = renderProgressBar(100);
+    await this.write(
+      `✅ ${this.job.series.title}: lavorazione conclusa, preparo il riepilogo.\n${bar}`,
+    );
+  }
+
+  /** Delete the temporary progress bar message from Telegram when the task is complete. */
+  async delete(): Promise<void> {
+    if (this.messageId !== undefined && !this.disabled) {
+      const msgId = this.messageId;
+      this.messageId = undefined;
+      try {
+        await this.api.deleteMessage?.(this.job.destination.chatId, msgId);
+      } catch (err) {
+        log.debug({ err, jobId: this.job.id }, 'failed to delete anime archive progress message');
+      }
+    }
   }
 
   private async stage(
@@ -73,13 +102,18 @@ export class AnimeArchiveProgressReporter {
     stage: AnimeArchiveProgressStage,
     elapsedMinutes: number,
   ): Promise<void> {
+    const total = this.job.episodes.length;
+    const epIndex = Math.max(0, this.position(episode) - 1);
+    const stageWeight = stage === 'download' ? 0.35 : 0.75;
+    const percent = Math.round(((epIndex + stageWeight) / total) * 100);
+    const bar = renderProgressBar(percent);
     const labels: Record<AnimeArchiveProgressStage, string> = {
       download: 'download dalla sorgente',
       upload: 'upload su Telegram',
     };
     const elapsed = elapsedMinutes > 0 ? ` · ${elapsedMinutes} min` : '';
     await this.write(
-      `⏳ ${this.job.series.title} · episodio ${formatEpisode(episode.number)} (${this.position(episode)}/${this.job.episodes.length}): ${labels[stage]}${elapsed}.`,
+      `⏳ ${this.job.series.title} · episodio ${formatEpisode(episode.number)} (${this.position(episode)}/${total}): ${labels[stage]}${elapsed}.\n${bar}`,
     );
   }
 

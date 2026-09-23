@@ -286,7 +286,11 @@ export class AnimeArchiveWorker {
       }
       const finalized = await this.storage.animeArchive.jobs.finalizeJob(job.id, this.workerId);
       if (finalized) {
-        await progress.finishing();
+        if (finalized.state === 'done') {
+          await progress.delete();
+        } else {
+          await progress.finishing();
+        }
         await this.notifyFinalSummary(finalized, api);
       }
     } finally {

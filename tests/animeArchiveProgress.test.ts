@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AnimeArchiveProgressReporter } from '../src/anime/archive/progress.js';
+import { AnimeArchiveProgressReporter, renderProgressBar } from '../src/anime/archive/progress.js';
 import type {
   AnimeArchiveJobDoc,
   AnimeArchiveJobEpisode,
@@ -21,6 +21,13 @@ const job = {
 afterEach(() => vi.useRealTimers());
 
 describe('AnimeArchiveProgressReporter', () => {
+  it('renders ASCII progress bar accurately', () => {
+    expect(renderProgressBar(0)).toBe('[░░░░░░░░░░] 0%');
+    expect(renderProgressBar(40)).toBe('[████░░░░░░] 40%');
+    expect(renderProgressBar(75)).toBe('[████████░░] 75%');
+    expect(renderProgressBar(100)).toBe('[██████████] 100%');
+  });
+
   it('never blocks work and coalesces an in-flight send to the newest stage', async () => {
     let resolveSend: ((value: { message_id: number }) => void) | undefined;
     const sendMessage = vi.fn(
@@ -58,6 +65,28 @@ describe('AnimeArchiveProgressReporter', () => {
     });
   });
 
+  it('deletes progress message cleanly on completion', async () => {
+    let resolveSend: ((value: { message_id: number }) => void) | undefined;
+    const sendMessage = vi.fn(
+      () =>
+        new Promise<{ message_id: number }>((resolve) => {
+          resolveSend = resolve;
+        }),
+    );
+    const deleteMessage = vi.fn().mockResolvedValue(true);
+    const reporter = new AnimeArchiveProgressReporter(
+      { sendMessage, editMessageText: vi.fn(), deleteMessage } as never,
+      job,
+    );
+
+    await reporter.start();
+    resolveSend?.({ message_id: 999 });
+    await vi.waitFor(async () => {
+      await reporter.delete();
+      expect(deleteMessage).toHaveBeenCalledWith(-100, 999);
+    });
+  });
+
   it('disables only telemetry after a hard Telegram timeout', async () => {
     vi.useFakeTimers();
     const sendMessage = vi.fn(() => new Promise<never>(() => undefined));
@@ -75,3 +104,4 @@ describe('AnimeArchiveProgressReporter', () => {
     expect(editMessageText).not.toHaveBeenCalled();
   });
 });
+
