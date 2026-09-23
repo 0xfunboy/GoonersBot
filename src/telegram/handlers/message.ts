@@ -24,6 +24,7 @@ import { compileOperationRequests } from '../../companion/capabilities/dispatch.
 import { currentLlmUsage } from '../../providers/llm/requestContext.js';
 import {
   parseAnimeArchiveConfirmationDecision,
+  type AnimeArchiveAvailabilityCandidate,
   type AnimeArchiveConfirmationResult,
   type AnimeArchivePreparationResult,
   type AnimeArchiveServiceRejectReason,
@@ -1572,10 +1573,19 @@ export function archiveResultResponse(
   if (result.status === 'cancelled') {
     return { rawText: 'Va bene, richiesta annullata.', textFormat: 'plain' };
   }
-  return { rawText: archiveRejectText(result.reason), textFormat: 'plain' };
+  return {
+    rawText: archiveRejectText(
+      result.reason,
+      'candidates' in result ? result.candidates : undefined,
+    ),
+    textFormat: 'plain',
+  };
 }
 
-function archiveRejectText(reason: AnimeArchiveServiceRejectReason): string {
+function archiveRejectText(
+  reason: AnimeArchiveServiceRejectReason,
+  candidates?: readonly AnimeArchiveAvailabilityCandidate[],
+): string {
   switch (reason) {
     case 'admin_required':
       return 'L’archivio multiplo degli episodi disponibili può essere avviato solo da un vero amministratore.';
@@ -1590,8 +1600,18 @@ function archiveRejectText(reason: AnimeArchiveServiceRejectReason): string {
       return 'La sorgente non espone episodi utilizzabili in questo momento.';
     case 'not_found':
       return 'Quell’episodio non è ancora disponibile su AnimeUnity o HentaiSaturn.';
-    case 'ambiguous':
+    case 'ambiguous': {
+      if (candidates && candidates.length > 0) {
+        const uniqueTitles = [...new Set(candidates.map((c) => c.result.title))].slice(0, 6);
+        return [
+          'Ho trovato più edizioni compatibili:',
+          ...uniqueTitles.map((title) => `• ${title}`),
+          '',
+          'Indica quale preferisci (es. "doppiata" o "sub") oppure specifica il titolo con più precisione.',
+        ].join('\n');
+      }
       return 'Ho trovato più edizioni compatibili: indica il titolo o l’episodio con più precisione.';
+    }
     case 'ambiguous_confirmation':
       return 'Ci sono più conferme aperte: rispondi direttamente al messaggio giusto.';
     case 'expired':

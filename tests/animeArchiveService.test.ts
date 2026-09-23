@@ -994,6 +994,109 @@ describe('AnimeArchiveService natural availability and textual confirmation', ()
     expect(jobs.inputs.at(-1)?.series.canonicalUrl).toBe(catsUrl);
   });
 
+  it('resolves search session with dubbing preference or ordinal selection', async () => {
+    const { service, animeUnity, searches } = harness({});
+    const subUrl = 'https://www.animeunity.so/anime/530-overlord';
+    const itaUrl = 'https://www.animeunity.so/anime/4235-overlord-ita';
+    animeUnity.getSeries.mockImplementation(async (url: string | URL) => {
+      // debug
+      const isIta = String(url).includes('4235');
+      return {
+        source: 'animeunity',
+        sourceId: isIta ? '4235' : '530',
+        slug: isIta ? 'overlord-ita' : 'overlord',
+        title: isIta ? 'Overlord (ITA)' : 'Overlord',
+        aliases: [],
+        canonicalUrl: String(url),
+        status: 'completed',
+        genres: ['Action', 'Fantasy'],
+        episodes: [
+          {
+            source: 'animeunity',
+            sourceId: isIta ? 'ep-ita-1' : 'ep-sub-1',
+            seriesId: isIta ? '4235' : '530',
+            seriesSlug: isIta ? 'overlord-ita' : 'overlord',
+            seriesTitle: isIta ? 'Overlord (ITA)' : 'Overlord',
+            number: '1',
+            order: 1,
+            title: 'Episodio 1',
+            canonicalUrl: `${url}/ep-1`,
+            canonicalSeriesUrl: String(url),
+          },
+        ],
+        externalIds: {},
+      };
+    });
+
+    await searches.create(
+      {
+        chatId: -100,
+        threadId: 42,
+        requesterTelegramId: 123,
+        source: 'animeunity',
+        query: 'overlord',
+        searchQueries: ['overlord'],
+        items: [
+          {
+            source: 'animeunity',
+            sourceId: '530',
+            title: 'Overlord',
+            aliases: ['overlord'],
+            canonicalUrl: subUrl,
+            status: 'completed',
+            genres: ['Action'],
+            matchScore: 0.9,
+            reason: 'test',
+          },
+          {
+            source: 'animeunity',
+            sourceId: '4235',
+            title: 'Overlord (ITA)',
+            aliases: ['overlord ita'],
+            canonicalUrl: itaUrl,
+            status: 'completed',
+            genres: ['Action'],
+            matchScore: 0.85,
+            reason: 'test',
+          },
+        ],
+      },
+      new Date(),
+    );
+
+    const queuedIta = await service.prepareNaturalEpisodeRequest({
+      query: 'doppiata grazie',
+      expectedEpisodeNumber: 1,
+      preferredSource: 'animeunity',
+      chatId: -100,
+      threadId: 42,
+      replyToMessageId: 101,
+      requesterTelegramId: 123,
+    });
+    expect(queuedIta).toMatchObject({
+      status: 'queued',
+      job: {
+        series: { title: 'Overlord (ITA)' },
+      },
+    });
+
+    const queuedSub = await service.prepareNaturalEpisodeRequest({
+      query: 'la prima',
+      expectedEpisodeNumber: 1,
+      preferredSource: 'animeunity',
+      chatId: -100,
+      threadId: 42,
+      replyToMessageId: 102,
+      requesterTelegramId: 123,
+    });
+    expect(queuedSub).toMatchObject({
+      status: 'queued',
+      job: {
+        series: { title: 'Overlord' },
+      },
+    });
+  });
+
   it('filters explicitly minor-coded adult archive results before they enter a search session', async () => {
     const unsafeUrl = 'https://www.hentaisaturn.tv/hentai/lolicon-fixture';
     const { service, hentaiSaturn, searches } = harness({ config: config({ nsfwAllow: true }) });

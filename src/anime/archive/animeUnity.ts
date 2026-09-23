@@ -154,7 +154,8 @@ export function parseAnimeUnitySearchResults(
     if (!isRecord(entry)) continue;
     const id = asPositiveInteger(entry['id']);
     const slug = asString(entry['slug']);
-    const title = asString(entry['title']);
+    const title =
+      asString(entry['title']) ?? asString(entry['title_eng']) ?? asString(entry['title_it']);
     if (!id || !slug || !title) continue;
     const classification = classifyAnimeUnityUrl(`${ANIMEUNITY_ORIGIN}/anime/${id}-${slug}`);
     if (!classification || classification.kind !== 'series' || seen.has(classification.seriesId)) {

@@ -177,6 +177,13 @@ describe('AnimeUnity adapter', () => {
     ]);
   });
 
+  it('falls back to title_eng when title is null in AnimeUnity search results', () => {
+    const page = `<archivio records='[{"id":530,"slug":"overlord","title":null,"title_eng":"Overlord","date":"2015","episodes_count":13,"status":"Terminato","genres":[]}]'></archivio>`;
+    const results = parseAnimeUnitySearchResults(page, 5);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.title).toBe('Overlord');
+  });
+
   it('uses the public GET archive surface and bounds the source limit', async () => {
     const http = new FixtureHttpClient(() => AU_SEARCH_PAGE);
     const results = await new AnimeUnityAdapter(http).search('  fixture   series  ', 50);

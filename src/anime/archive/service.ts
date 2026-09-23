@@ -937,6 +937,47 @@ export class AnimeArchiveService {
     return null;
   }
 
+  private async recordAmbiguousSearchSession(
+    input: Pick<
+      PrepareNaturalAnimeOfferInput,
+      'chatId' | 'threadId' | 'requesterTelegramId' | 'query' | 'preferredSource'
+    >,
+    candidates: readonly AnimeArchiveAvailabilityCandidate[],
+  ): Promise<void> {
+    try {
+      const items: AnimeArchiveSearchSessionItem[] = candidates.slice(0, 8).map((candidate) => ({
+        source: candidate.result.source,
+        sourceId: candidate.result.sourceId,
+        canonicalUrl: candidate.result.canonicalUrl,
+        title: candidate.result.title,
+        aliases: [
+          candidate.result.title,
+          candidate.result.slug.replace(/[-_]+/gu, ' '),
+          archiveSlugFromUrl(candidate.result.canonicalUrl),
+        ],
+        status: candidate.result.status,
+        genres: candidate.result.genres,
+        episodeCount: candidate.result.episodeCount,
+        matchScore: candidate.score,
+        reason: 'ambiguous availability candidate',
+      }));
+      await this.storage.animeArchive.searches.create(
+        {
+          chatId: input.chatId,
+          threadId: input.threadId ?? null,
+          requesterTelegramId: input.requesterTelegramId,
+          source: input.preferredSource ?? 'animeunity',
+          query: input.query,
+          searchQueries: [input.query],
+          items,
+        },
+        this.now(),
+      );
+    } catch (err) {
+      log.warn({ err }, 'failed to record ambiguous anime search session');
+    }
+  }
+
   /** Find the latest downloadable episode and persist a normal-user SI/NO offer for it. */
   async prepareNaturalEpisodeOffer(
     input: PrepareNaturalAnimeOfferInput,
@@ -971,6 +1012,9 @@ export class AnimeArchiveService {
     });
     if (!availability.match) {
       const reason = availability.failure ?? 'not_found';
+      if (reason === 'ambiguous' && availability.candidates.length > 0) {
+        await this.recordAmbiguousSearchSession(input, availability.candidates);
+      }
       return rejected(
         reason,
         reason === 'ambiguous' ? { candidates: availability.candidates } : {},
@@ -1006,6 +1050,9 @@ export class AnimeArchiveService {
     });
     if (!availability.match) {
       const reason = availability.failure ?? 'not_found';
+      if (reason === 'ambiguous' && availability.candidates.length > 0) {
+        await this.recordAmbiguousSearchSession(input, availability.candidates);
+      }
       return rejected(
         reason,
         reason === 'ambiguous' ? { candidates: availability.candidates } : {},
@@ -1048,6 +1095,9 @@ export class AnimeArchiveService {
     });
     if (!availability.match) {
       const reason = availability.failure ?? 'not_found';
+      if (reason === 'ambiguous' && availability.candidates.length > 0) {
+        await this.recordAmbiguousSearchSession(input, availability.candidates);
+      }
       return rejected(
         reason,
         reason === 'ambiguous' ? { candidates: availability.candidates } : {},
@@ -1559,17 +1609,47 @@ function resolveSearchSessionItem(
   query: string,
   preferredSource?: AnimeArchiveSource,
 ): AnimeArchiveSearchSessionItem | null {
-  const candidates = session.items
-    .filter((item) => !preferredSource || item.source === preferredSource)
-    .map((item) => ({
-      item,
-      titles: [
-        item.title,
-        ...item.aliases,
-        archiveSlugFromUrl(item.canonicalUrl),
-        item.sourceId.replace(/[-_]+/gu, ' '),
-      ],
-    }));
+  const eligible = session.items.filter(
+    (item) => !preferredSource || item.source === preferredSource,
+  );
+  if (eligible.length === 0) return null;
+
+  const wantsIta = /\b(?:ita|doppiat[oa]|italiano)\b/i.test(query);
+  const wantsSub = /\b(?:sub|sottotitol[ai]|subbat[oa])\b/i.test(query);
+
+  if (wantsIta && !wantsSub) {
+    const itaItem = eligible.find(
+      (item) =>
+        /\b(?:ita|doppiat[oa]|italiano)\b/i.test(item.title) && !/\bsub\b/i.test(item.title),
+    );
+    if (itaItem) return itaItem;
+  }
+  if (wantsSub && !wantsIta) {
+    const subItem = eligible.find((item) => /\bsub\b/i.test(item.title));
+    if (subItem) return subItem;
+  }
+
+  // Ordinal checks (e.g. "la prima", "il secondo", "il numero 2")
+  const ordinalMatch = query.match(/\b(?:la\s+)?(?:prima|primo|1°?)\b/i)
+    ? 0
+    : query.match(/\b(?:la\s+)?(?:seconda|secondo|2°?)\b/i)
+      ? 1
+      : query.match(/\b(?:la\s+)?(?:terza|terzo|3°?)\b/i)
+        ? 2
+        : null;
+  if (ordinalMatch !== null && eligible[ordinalMatch]) {
+    return eligible[ordinalMatch];
+  }
+
+  const candidates = eligible.map((item) => ({
+    item,
+    titles: [
+      item.title,
+      ...item.aliases,
+      archiveSlugFromUrl(item.canonicalUrl),
+      item.sourceId.replace(/[-_]+/gu, ' '),
+    ],
+  }));
   const ranked = rankByTitle(query, candidates, { minScore: 0.45, limit: 4 });
   if (!isDecisiveMatch(ranked)) return null;
   return ranked[0]?.item.item ?? null;
