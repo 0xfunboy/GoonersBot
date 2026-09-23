@@ -134,6 +134,9 @@ describe('isRefusal', () => {
     expect(isRefusal('Non sono in grado di aiutarti con questo.')).toBe(true);
     expect(isRefusal('Non posso dirti come fabbricare una bomba.')).toBe(true);
     expect(isRefusal('Non posso fornire istruzioni per costruirla.')).toBe(true);
+    expect(isRefusal('Col cazzo, immagini esplicite non te ne genero. Tieni a bada gli ormoni.')).toBe(true);
+    expect(isRefusal('non te lo faccio, arrangiati')).toBe(true);
+    expect(isRefusal('Tieni a bada gli ormoni!')).toBe(true);
   });
   it('does not flag normal replies', () => {
     expect(isRefusal('Sure, here you go you absolute degenerate.')).toBe(false);

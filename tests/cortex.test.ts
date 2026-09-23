@@ -571,4 +571,26 @@ describe('Cortex', () => {
     expect(normalized.intents).not.toContain('make_image');
     expect(normalized.intents).not.toContain('draw_image');
   });
+
+  it('injects image_gen when make_image intent is present without explicit tool call', () => {
+    const imgDecision: CortexDecision = {
+      intents: ['make_image'],
+      toolCalls: [],
+      conversationalReply: 'Te la rifaccio subito...',
+      valueTarget: 'support',
+      roastBudget: 'none',
+      socialRole: 'friend',
+      needsGrounding: false,
+      confidence: 0.95,
+      reason: 'image edit',
+    };
+    const normalized = normalizeDecision(
+      imgDecision,
+      ['image_gen', 'web_search'],
+      'FALLA PORNO PORCODIO',
+    );
+    expect(normalized.toolCalls).toContainEqual(
+      expect.objectContaining({ tool: 'image_gen', query: 'FALLA PORNO PORCODIO' }),
+    );
+  });
 });

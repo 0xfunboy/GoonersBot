@@ -164,6 +164,18 @@ export function normalizeDecision(
     });
   }
 
+  if (
+    (decision.intents.includes('make_image') || decision.intents.includes('draw_image')) &&
+    allowed.has('image_gen') &&
+    !toolCalls.some((call) => call.tool === 'image_gen')
+  ) {
+    toolCalls.push({
+      tool: 'image_gen',
+      query: currentMessage,
+      reason: 'model marked image generation intent without image_gen tool call',
+    });
+  }
+
   return {
     ...decision,
     toolCalls,

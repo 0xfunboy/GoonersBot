@@ -234,6 +234,9 @@ const REFUSAL_PATTERNS: RegExp[] = [
   /\bnon\s+posso\s+assisterti\b/i,
   /\bnon\s+è\s+appropriato\b/i,
   /\bnon\s+posso\s+fornire\s+(?:istruzioni|indicazioni|passaggi)\b/i,
+  /\b(?:col\s+cazzo|non\s+te\s+(?:lo|la|le|li|ne)\s+(?:faccio|genero|creo|scarico|mando))\b/i,
+  /\btieni\s+a\s+bada\s+gli\s+ormoni\b/i,
+  /\bnon\s+(?:te\s+ne\s+)?genero\s+immagini\s+(?:esplicite|porno|nsfw)\b/i,
 ];
 
 export function isRefusal(text: string): boolean {

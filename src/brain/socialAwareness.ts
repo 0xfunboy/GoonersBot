@@ -36,7 +36,7 @@ const CONFLICT_RE =
 const BANTER_RE =
   /\b(roast|blast|prendi per il culo|stronzo|coglione|suca|vaffanculo|rosica|scemo|cesso|lol|lmao|ahah+|meme)\b/i;
 const CREATIVE_RE =
-  /\b(invent|scrivi|crea|genera|disegna|immagina|storia|personaggio|meme|make|create|draw|write)\b/i;
+  /\b(invent|scrivi|crea|genera|disegna|immagina|storia|personaggio|meme|make|create|draw|write|falla|fallo|rifalla|rifallo|fammi|fammela|fammelo)\b/i;
 const TECH_RE =
   /\b(api|bug|codice|code|typescript|javascript|node|mongo|docker|linux|server|deploy|errore|stack|git|repo|config|env|build|test)\b/i;
 const NO_HUMOR_HOSTILITY_RE =
@@ -157,18 +157,6 @@ export function classifySocialSignal(input: SocialAwarenessInput): SocialSignal 
     });
   }
 
-  if (BANTER_RE.test(message)) {
-    return signal('banter', 'none', {
-      posture: 'sparring',
-      humorAllowed: true,
-      roastCeiling: 'heavy',
-      memoryPolicy: 'eligible',
-      responseOrder: 'play_first',
-      confidence: 0.86,
-      cues: ['mutual banter markers'],
-    });
-  }
-
   if (CREATIVE_RE.test(message)) {
     return signal('creative_play', 'none', {
       posture: 'playful',
@@ -178,6 +166,18 @@ export function classifySocialSignal(input: SocialAwarenessInput): SocialSignal 
       responseOrder: 'play_first',
       confidence: 0.72,
       cues: ['creative request'],
+    });
+  }
+
+  if (BANTER_RE.test(message)) {
+    return signal('banter', 'none', {
+      posture: 'sparring',
+      humorAllowed: true,
+      roastCeiling: 'heavy',
+      memoryPolicy: 'eligible',
+      responseOrder: 'play_first',
+      confidence: 0.86,
+      cues: ['mutual banter markers'],
     });
   }
 

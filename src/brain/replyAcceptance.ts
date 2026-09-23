@@ -5,7 +5,7 @@ import type { RankedReply, RepetitionCheck } from './types.js';
  * These must never beat an actual answer during last-resort recovery.
  */
 const INTERNAL_DEFLECTION_RE =
-  /\b(stava (?:riciclando|uscendo)|risposta generata|non te la rifilo|riformul(?:a|ami|amelo|amene)|stavolta passo|mi tengo la dignit[aà]|dignit[aà] residua|battuta (?:gi[aà] )?morta)\b/i;
+  /\b(stava (?:riciclando|uscendo)|risposta generata|non te la rifilo|riformul(?:a|ami|amelo|amene)|stavolta passo|mi tengo la dignit[aà]|dignit[aà] residua|battuta (?:gi[aà] )?morta|col cazzo|tieni a bada gli ormoni|non te (?:lo|la|le|li|ne) (?:faccio|genero))\b/i;
 
 export interface AssessedReplyCandidate {
   text: string;
