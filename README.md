@@ -278,7 +278,7 @@ illegal, no doxxing. NSFW is opt-in per chat and meant for private, consenting a
 
 ## Commands
 
-GoonersBot currently registers **55 static slash commands**, plus any dynamic commands installed by
+GoonersBot currently registers **56 static slash commands**, plus any dynamic commands installed by
 Capability Forge. The complete reference is generated from the same command registry and detailed
 help catalog used by the runtime, so syntax, aliases and access requirements are not maintained in a
 second handwritten table.
@@ -293,6 +293,7 @@ second handwritten table.
 - `admin` means group admin **or** bot admin. `bot admin` means either a bootstrap/root handle in
   `ADMIN_HANDLES` or a runtime `/admin` grant persisted by immutable Telegram user ID; `learn admin`
   also includes immutable local-development admin IDs.
+- Admins can delete any bot message by replying to it with `/del` (or `/del@botname`), which also deletes the invoking command message.
 - `/anime <title>` is the release/catalog command. AnimeUnity/HentaiSaturn availability and rehost
   are handled by the natural-language `anime_archive` action; archive delivery preserves the source
   and enforces **one episode = one Telegram file**.
@@ -1019,7 +1020,9 @@ interaction, framing, camera, setting, lighting, palette and mood; required and 
 and any exact visible text. It must translate visual fields to English and cannot silently replace,
 merge or add subjects. If structured generation fails, a deterministic scene contract preserves the
 request instead of dropping image generation. Chat lore is considered only for an explicitly
-referenced member/series or continuity request such as "same as before".
+referenced member/series or continuity request such as "same as before". Cortex explicitly distinguishes
+casual remarks, jokes, or surprise about previously generated bot images (e.g. comments like "why does it have
+three hands?" or "due cazzi?") as conversational banter rather than a new `image_gen` request.
 
 That single contract is compiled twice:
 
@@ -1052,12 +1055,14 @@ bounded, focused retry: Pony-first focused art may move to Agnes, Agnes-first in
 stays on Agnes, and pose-guided/explicit retries stay on Pony. The best inspected candidate is
 returned if no attempt reaches the threshold. QA also reports
 whether every visible person is unambiguously adult and independently classifies the pixels as
-`safe`, `suggestive`, `explicit` or `uncertain`. Output above the requested rating is regenerated and
-never returned after the retry budget: a safe request cannot leak an unspoilered explicit bitmap,
-and suggestive work cannot leak explicit content. Suggestive and explicit scenes containing people
-are not delivered when the adult-only check is missing or ambiguous; object-only adult scenes use
-`no_people` instead. Any bitmap positively identified as minor/age-ambiguous is blocked at every
-rating. Safe work remains fail-open only when vision itself is malformed or unavailable, so a flaky
+`safe`, `suggestive`, `explicit` or `uncertain`. Visual age safety verification strictly runs across
+all generated candidates, including NSFW images: any candidate flagged as ambiguous or minor
+(`ambiguous_or_minor`) is unconditionally blocked and rejected. Output above the requested rating
+is regenerated and never returned after the retry budget: a safe request cannot leak an unspoilered
+explicit bitmap, and suggestive work cannot leak explicit content. Suggestive and explicit scenes
+containing people are not delivered when the adult-only check is missing or ambiguous; object-only adult
+scenes use `no_people` instead. Any bitmap positively identified as minor/age-ambiguous is blocked at
+every rating. Safe work remains fail-open only when vision itself is malformed or unavailable, so a flaky
 inspector does not turn an otherwise safe image request into an error.
 
 ### Video generation
@@ -1084,36 +1089,18 @@ AGNES_VIDEO_MODEL=agnes-video-v2.0
 AGNES_VIDEO_MIN_INTERVAL_MS=60000   # upstream allows 1 video/minute
 ```
 
-### Stable Diffusion generation (local PonyXL backend)
+### Image generation backends (ComfyUI & Stable Diffusion)
 
-`/genera <prompt>` generates an original bitmap through a self-hosted Forge/Automatic1111 API;
-`/image` and `/img` are aliases. All local workflows use Pony Diffusion XL: it stays loaded as the
-single checkpoint on the shared Forge host, avoiding the RAM-heavy swaps that destabilize it. Model
-selection still understands anime/manga/comic, general/photographic and explicit profiles, so an
-operator may configure separate checkpoints later without changing the scene compiler.
+Local bitmap generation is selectable via `IMAGE_BACKEND` (`comfyui` or `stablediffusion`):
 
-`/disegna <prompt>` is intentionally separate: it forces the manga medium/profile, including manga
-prompting, clean ink lineart and screentone negatives when Pony is selected. It still retains
-capability routing, so exact-text, multi-subject or instruction-dense manga can use Agnes.
-`/genera` infers both medium and routing.
-Every Pony prompt receives the complete positive score chain
-`score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up`, the appropriate
-`source_anime`/`source_cartoon` tag when applicable, and one of
-`rating_safe`, `rating_questionable` or `rating_explicit`. The native Forge `negative_prompt` merges
-the operator baseline, medium/rating defects and scene-specific exclusions while deduplicating them;
-low score tags `score_3, score_2, score_1` remain negative rather than contaminating the positive
-prompt. The compiler also translates prose that Pony commonly misreads into checkpoint-native
-framing/background tags (`upper body`, `waist up`, `simple background`) and contextual negatives:
-for example, a requested bust portrait suppresses full-body framing, while an unarmed warrior does
-not silently acquire a sword.
-
-The defaults are deliberately sized for a shared 12 GB RTX 3080 Ti: normal Pony renders use 28 steps;
-the selected aspect ratio maps to `1024x1024`, `1152x640` or `640x1152`. OpenPose-guided renders use
-a reduced 22-step canvas to preserve VRAM headroom. Before a request the bot polls Forge's global
-queue and re-verifies the process-wide checkpoint because the frontend may have changed it. Forge
-response bodies remain under the render timeout and a 32 MB cap. Image jobs and their QA retries
-remain globally serialized. OpenPose search is restricted to genuinely complex interactions, checks
-at most two candidates and caches a verified neutral pose for 30 minutes.
+- **ComfyUI (`IMAGE_BACKEND=comfyui`, default)**: Drives a ComfyUI instance (running on a local or networked GPU host, e.g. `http://192.168.178.87:8188`) serving the **Qwen-Image-2.1** Diffusion Transformer (DiT) model with a Qwen3-VL 8B text encoder.
+  - *DiT negative prompt hygiene*: In Diffusion Transformer architectures, negative prompt tokens specifying youth or minors (e.g. `child`, `underage`, `loli`, `girl`, `teen`) cause token attention leakage and can paradoxically steer the latent diffusion towards youthful features. The ComfyUI generator automatically sanitizes and removes these tokens from negative prompts, while enforcing positive mature adult descriptors (`mature adult, 25-35+ years old, adult proportions, fully developed adult features`) directly in the positive prompt.
+  - Generates fast, high-fidelity images adhering strictly to the structured scene plan.
+- **Stable Diffusion / Forge (`IMAGE_BACKEND=stablediffusion`)**: Connects to a self-hosted Forge/Automatic1111 API.
+  - `/genera <prompt>` generates an original bitmap through Forge; `/image` and `/img` are aliases. All local workflows use Pony Diffusion XL: it stays loaded as the single checkpoint on the shared Forge host, avoiding the RAM-heavy swaps that destabilize it. Model selection still understands anime/manga/comic, general/photographic and explicit profiles, so an operator may configure separate checkpoints later without changing the scene compiler.
+  - `/disegna <prompt>` is intentionally separate: it forces the manga medium/profile, including manga prompting, clean ink lineart and screentone negatives when Pony is selected. It still retains capability routing, so exact-text, multi-subject or instruction-dense manga can use Agnes. `/genera` infers both medium and routing.
+  - Every Pony prompt receives the complete positive score chain `score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up`, the appropriate `source_anime`/`source_cartoon` tag when applicable, and one of `rating_safe`, `rating_questionable` or `rating_explicit`. The native Forge `negative_prompt` merges the operator baseline, medium/rating defects and scene-specific exclusions while deduplicating them; low score tags `score_3, score_2, score_1` remain negative rather than contaminating the positive prompt. The compiler also translates prose that Pony commonly misreads into checkpoint-native framing/background tags (`upper body`, `waist up`, `simple background`) and contextual negatives: for example, a requested bust portrait suppresses full-body framing, while an unarmed warrior does not silently acquire a sword.
+  - The defaults are deliberately sized for a shared 12 GB RTX 3080 Ti: normal Pony renders use 28 steps; the selected aspect ratio maps to `1024x1024`, `1152x640` or `640x1152`. OpenPose-guided renders use a reduced 22-step canvas to preserve VRAM headroom. Before a request the bot polls Forge's global queue and re-verifies the process-wide checkpoint because the frontend may have changed it. Forge response bodies remain under the render timeout and a 32 MB cap. Image jobs and their QA retries remain globally serialized. OpenPose search is restricted to genuinely complex interactions, checks at most two candidates and caches a verified neutral pose for 30 minutes.
 
 The normal news/web-image autopost pipeline never sends generated images. A separate generated-image
 scheduler exists behind `GENERATED_IMAGE_AUTOPOST_ENABLED=false` and must remain off until explicitly
@@ -1135,6 +1122,9 @@ message + replied media -> Perception -> Scene + Social Awareness + Memory Retri
                            + (background) Social/Memory/Feedback Learning
 ```
 
+- Immediate conversation history: Prompts, context assembly and evaluator pipelines consume a
+  streamlined window of the last 8 messages (down from 16), ensuring high conversational relevance,
+  eliminating context drift, and reducing latency and token overhead.
 - Scene Analyzer reads topic, energy, intent and whether the bot is being roasted (LLM with a
   deterministic fallback).
 - Memory Retriever pulls only the few memories relevant to this turn (scored by handle, keyword,
@@ -1258,6 +1248,11 @@ value at `3` for GemRouter.
 | `AGNES_BASE_URL` / `AGNES_API_KEY`                                                              | main LLM route/key           | Optional dedicated router endpoint and bearer token for Agnes media.          |
 | `AGNES_IMAGE_ENABLED` / `AGNES_IMAGE_MODEL`                                                     | on / `agnes-image-2.1-flash` | Enable the instruction-following image route; Pony remains available.         |
 | `AGNES_IMAGE_TIMEOUT_MS` / `AGNES_IMAGE_MAX_MB`                                                 | `120000` / `25`              | Remote render timeout and bounded returned-image size.                        |
+| `IMAGE_BACKEND`                                                                                 | `comfyui`                    | Local image backend: `comfyui` or `stablediffusion`.                         |
+| `COMFYUI_ENABLED` / `COMFYUI_API_URL`                                                           | on / `http://192.168.178.87:8188` | Enable ComfyUI service and specify API URL.                                  |
+| `COMFYUI_DIFFUSION_MODEL` / `COMFYUI_TEXT_ENCODER` / `COMFYUI_VAE`                              | Qwen-Image-2.1 / Qwen3-VL 8B | ComfyUI DiT model, text encoder, and VAE checkpoint filenames.               |
+| `COMFYUI_STEPS` / `COMFYUI_CFG` / `COMFYUI_SAMPLER` / `COMFYUI_SCHEDULER`                       | `25` / `1.0` / euler / simple| ComfyUI generation parameters and sampling schedule.                          |
+| `COMFYUI_TIMEOUT_MS`                                                                            | `300000`                     | Maximum execution time allowed for ComfyUI generation (5 minutes).           |
 | `SD_ENABLED` / `SD_API_URL`                                                                     | on / Forge URL               | Enable the self-hosted Forge/Automatic1111 generator.                         |
 | `SD_ANIME_MODEL` / `SD_REALISTIC_MODEL` / `SD_NSFW_MODEL`                                       | PonyXL                       | Keep all three set to the same PonyXL checkpoint to avoid Forge model swaps.  |
 | `SD_NEGATIVE_PROMPT` / `SD_STEPS`                                                               | tuned defaults               | Pony baseline negative and sampling floor.                                    |

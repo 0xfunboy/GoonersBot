@@ -42,6 +42,19 @@ export const COMMAND_HELP: Readonly<Record<string, CommandHelpDefinition>> = {
       'Pone GoonersBot en estado stopped para este chat; los turnos normales quedan desactivados hasta /start.',
     ),
   },
+  del: {
+    category: 'administration',
+    usage: l(
+      'reply + /del',
+      'reply + /del',
+      'respuesta + /del',
+    ),
+    description: l(
+      'Admin only. Cancella il messaggio del bot a cui rispondi ed elimina il comando stesso per tenere pulita la chat.',
+      'Admin only. Deletes the replied-to bot message and deletes the command itself to keep the chat clean.',
+      'Solo admin. Elimina el mensaje del bot al que respondes y también el propio comando para mantener limpio el chat.',
+    ),
+  },
   reset: {
     category: 'chat',
     usage: l('/reset', '/reset', '/reset'),

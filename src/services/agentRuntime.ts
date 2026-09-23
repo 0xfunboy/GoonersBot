@@ -39,6 +39,7 @@ import {
 } from '../capabilities/types.js';
 import type { MediaPromptContext } from './mediaPromptContext.js';
 import { childLogger } from '../utils/logger.js';
+import { isRefusal } from './modelRouter.js';
 import {
   assertMediaGenerationSafe,
   containsMinorMediaReference,
@@ -372,6 +373,18 @@ export class AgentRuntime {
         output.animeArchiveResult = data.result;
       }
     }
+    const hasMediaArtifacts = Boolean(
+      output.runtimeArtifacts?.length ||
+      output.imageBuffer ||
+      output.videoBuffer ||
+      output.audioBuffer ||
+      output.music ||
+      output.linkMediaUrl ||
+      output.animeArchiveResult,
+    );
+    if (hasMediaArtifacts && isRefusal(output.text)) {
+      output.text = '';
+    }
     log.info(
       {
         chatId: input.context.chatId,
@@ -627,7 +640,7 @@ export class AgentRuntime {
       relevantLore: [input.socialContext, input.groupContext]
         .filter((value): value is string => Boolean(value))
         .map((value) => value.slice(0, 1_000)),
-      recentMessages: input.recentMessages.slice(-16),
+      recentMessages: input.recentMessages.slice(-8),
     });
 
     const handlers = defineAgentTools({

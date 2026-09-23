@@ -33,12 +33,23 @@ export function isBotAddressed(
   if (!msg) return { mentioned: false, replyToBot: false };
   const isPrivate = ctx.chat?.type === 'private';
   const text = msg.text ?? msg.caption ?? '';
-  const mentionTag = `@${botUsername.replace(/^@/, '')}`;
-  const hasMention = text.toLowerCase().includes(mentionTag.toLowerCase());
+  const cleanBotUsername = botUsername.replace(/^@/, '').toLowerCase();
+  const mentionTag = `@${cleanBotUsername}`;
+  const hasMention =
+    text.toLowerCase().includes(mentionTag) ||
+    text.toLowerCase().includes('@goneurobot') ||
+    text.toLowerCase().includes('@gooneurobot') ||
+    text.toLowerCase().includes('@goonersbot');
+  const repliedFrom = msg.reply_to_message?.from;
+  const isMeId = ctx.me?.id !== undefined && repliedFrom?.id === ctx.me.id;
+  const repliedUsername = repliedFrom?.username?.toLowerCase();
   const replyToBot =
-    msg.reply_to_message?.from?.is_bot === true &&
-    msg.reply_to_message.from.username?.toLowerCase() ===
-      botUsername.replace(/^@/, '').toLowerCase();
+    repliedFrom?.is_bot === true &&
+    (isMeId ||
+      repliedUsername === cleanBotUsername ||
+      repliedUsername === 'gooneurobot' ||
+      repliedUsername === 'goneurobot' ||
+      repliedUsername === 'goonersbot');
   return { mentioned: isPrivate || hasMention || replyToBot, replyToBot };
 }
 

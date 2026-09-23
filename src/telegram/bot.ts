@@ -172,6 +172,43 @@ export async function createBot(config: AppConfig, services: Services): Promise<
     ]),
   );
 
+  // Normalize command username targeting: if a slash command is sent with @goneurobot,
+  // @goonersbot, or in reply to this bot, ensure it targets this bot's canonical username
+  // so grammY's command() filter matches it rather than ignoring it as addressed to a foreign bot.
+  bot.use(async (ctx, next) => {
+    const text = ctx.message?.text;
+    if (text?.startsWith('/')) {
+      const match = text.match(/^\/([a-z0-9_]+)@([a-z0-9_]+)(.*)$/is);
+      if (match && match[1] && match[2]) {
+        const cmd = match[1];
+        const targetUsername = match[2];
+        const rest = match[3] ?? '';
+        const normalizedTarget = targetUsername.toLowerCase();
+        const myUsername = botUsername.toLowerCase();
+        const repliedFrom = ctx.message?.reply_to_message?.from;
+        const isRepliedToThisBot =
+          Boolean(me.id && repliedFrom?.id === me.id) ||
+          repliedFrom?.username?.toLowerCase() === myUsername ||
+          repliedFrom?.username?.toLowerCase() === 'gooneurobot' ||
+          repliedFrom?.username?.toLowerCase() === 'goneurobot' ||
+          repliedFrom?.username?.toLowerCase() === 'goonersbot';
+        if (
+          normalizedTarget === myUsername ||
+          normalizedTarget === 'goneurobot' ||
+          normalizedTarget === 'gooneurobot' ||
+          normalizedTarget === 'goonersbot' ||
+          isRepliedToThisBot
+        ) {
+          ctx.message!.text = `/${cmd}@${botUsername}${rest}`;
+          if (ctx.message!.entities?.[0]?.type === 'bot_command') {
+            ctx.message!.entities[0].length = 1 + cmd.length + 1 + botUsername.length;
+          }
+        }
+      }
+    }
+    return next();
+  });
+
   // Register every English/Italian alias; the menu exposes the English baseline below.
   for (const spec of commandHandlers) {
     const names = [spec.command, ...aliasesForCommand(spec)];
@@ -334,15 +371,37 @@ export async function createBot(config: AppConfig, services: Services): Promise<
     },
   );
 
-  // Publish the command menu (sorted by priority then name).
-  const menu = [...commandHandlers]
+  // Publish the command menu across all scopes (Default, All Groups, All Administrators)
+  // in both English and Italian so all Telegram clients see the updated list immediately.
+  const englishMenu = [...commandHandlers]
     .sort((a, b) => a.priority - b.priority || a.command.localeCompare(b.command))
     .map((c) => ({
       command: menuNameForCommand(c),
       description:
         services.localizer.t(`${c.command}_description`, {}, 'english') ?? 'GoonersBot command',
     }));
-  await bot.api.setMyCommands(menu).catch((err) => log.warn({ err }, 'setMyCommands failed'));
+  const italianMenu = [...commandHandlers]
+    .sort((a, b) => a.priority - b.priority || a.command.localeCompare(b.command))
+    .map((c) => ({
+      command: menuNameForCommand(c),
+      description:
+        services.localizer.t(`${c.command}_description`, {}, 'italian') ??
+        services.localizer.t(`${c.command}_description`, {}, 'english') ??
+        'Comando GoonersBot',
+    }));
+
+  await Promise.allSettled([
+    bot.api.setMyCommands(englishMenu),
+    bot.api.setMyCommands(italianMenu, { language_code: 'it' }),
+    bot.api.setMyCommands(englishMenu, { scope: { type: 'all_group_chats' } }),
+    bot.api.setMyCommands(italianMenu, { scope: { type: 'all_group_chats' }, language_code: 'it' }),
+    bot.api.setMyCommands(englishMenu, { scope: { type: 'all_chat_administrators' } }),
+    bot.api.setMyCommands(italianMenu, { scope: { type: 'all_chat_administrators' }, language_code: 'it' }),
+  ]).then((results) => {
+    for (const r of results) {
+      if (r.status === 'rejected') log.warn({ err: r.reason }, 'setMyCommands scope failed');
+    }
+  });
 
   return {
     bot,

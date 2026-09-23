@@ -215,6 +215,27 @@ async function finish(
         )
         .catch(() => undefined);
     }
+    // /del: delete the replied-to bot message and optionally the command message itself.
+    if (response.deleteRepliedMessage) {
+      await ctx.api
+        .deleteMessage(prepared.input.context.chatId, response.deleteRepliedMessage)
+        .catch(() => undefined);
+    }
+    if (response.deleteOriginCommand && ctx.message?.message_id) {
+      await ctx.api
+        .deleteMessage(prepared.input.context.chatId, ctx.message.message_id)
+        .catch(() => undefined);
+    }
+    // If the response has no text content after deletions, skip the send step.
+    if (
+      response.deleteRepliedMessage &&
+      !response.text &&
+      !response.rawText &&
+      !response.imageBuffer &&
+      !response.imageUrl
+    ) {
+      return;
+    }
     const localized = await localizeResponse(services, prepared.input.context.chatId, response);
     const sent = await sendResponse(ctx, localized);
     if (response.ephemeralMs) scheduleDelete(ctx, sent, response.ephemeralMs);

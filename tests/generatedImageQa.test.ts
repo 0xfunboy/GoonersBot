@@ -563,14 +563,24 @@ describe('generated-image visual QA', () => {
     expect(result).toBeNull();
   });
 
-  it('bypasses visual QA rejection and delivers immediately when nsfwEnabled is true', async () => {
+  it('runs age verification for nsfwEnabled images and delivers immediately when adult-safe', async () => {
     const rawBuffer = Buffer.from('pony-nsfw-artwork');
     const generate = vi.fn(async () => ({
       buffer: rawBuffer,
       model: 'ponyDiffusionV6XL_v6StartWithThisOne.safetensors',
       provider: 'pony' as const,
     }));
-    const vision = vi.fn();
+    const vision = vi.fn(async () => ({
+      text: JSON.stringify({
+        score: 40, // Low artistic score, but adult safe
+        hardFailure: false,
+        visibleSummary: 'one adult woman',
+        ageSafety: 'adult_only',
+        visibleContentRating: 'explicit',
+        issues: [],
+        correction: '',
+      }),
+    }));
     const llm = {
       capabilities: { chat: true, vision: true, transcription: false, imageGeneration: false, tts: false, embeddings: false },
       visionCompletion: vision,
@@ -588,9 +598,46 @@ describe('generated-image visual QA', () => {
     });
 
     expect(generate).toHaveBeenCalledOnce();
-    expect(vision).not.toHaveBeenCalled();
+    expect(vision).toHaveBeenCalledOnce();
     expect(result?.buffer).toEqual(rawBuffer);
     expect(result?.model).toBe('ponyDiffusionV6XL_v6StartWithThisOne.safetensors');
-    expect(result?.qaVisionCalls).toBe(0);
+    expect(result?.qaVisionCalls).toBe(1);
+  });
+
+  it('rejects nsfwEnabled images that fail visual age verification', async () => {
+    const rawBuffer = Buffer.from('unsafe-minor-image');
+    const generate = vi.fn(async () => ({
+      buffer: rawBuffer,
+      model: 'ponyDiffusionV6XL_v6StartWithThisOne.safetensors',
+      provider: 'pony' as const,
+    }));
+    const vision = vi.fn(async () => ({
+      text: JSON.stringify({
+        score: 80,
+        hardFailure: true,
+        visibleSummary: 'young looking character',
+        ageSafety: 'ambiguous_or_minor',
+        visibleContentRating: 'explicit',
+        issues: ['apparent minor'],
+        correction: 'make subject visibly adult',
+      }),
+    }));
+    const llm = {
+      capabilities: { chat: true, vision: true, transcription: false, imageGeneration: false, tts: false, embeddings: false },
+      visionCompletion: vision,
+    } as unknown as LLMProvider;
+    const media = new MediaProcessor(llm, undefined, undefined, { enabled: true, generate } as ImageGenerator, {
+      enabled: true,
+      minScore: 0.72,
+      maxRetries: 0,
+    });
+
+    const result = await media.generateImage('explicit prompt', {
+      qualityBrief: 'one adult woman',
+      rating: 'explicit',
+      nsfwEnabled: true,
+    });
+
+    expect(result).toBeNull();
   });
 });

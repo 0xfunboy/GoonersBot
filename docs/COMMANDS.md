@@ -2,7 +2,7 @@
 
 > GENERATED FILE — update `src/telegram/handlers/commands/helpCatalog.ts` or the command registry, then run `pnpm docs:commands`.
 
-Static commands: **55**. Capability Forge may install additional dynamic commands at runtime; use `/capabilities` for built-in readiness and installed recipes.
+Static commands: **56**. Capability Forge may install additional dynamic commands at runtime; use `/capabilities` for built-in readiness and installed recipes.
 
 Access model: `admin` means group administrator **or** bot admin; `bot admin` means either a bootstrap/root handle from `ADMIN_HANDLES` or a runtime grant persisted by immutable Telegram user ID; `learn admin` means bot admin or an immutable local-development admin ID. Except for `/start`, `/tos`/`/terms`, and `/help`, commands also pass through the approval gate.
 
@@ -352,6 +352,13 @@ Admin debug: restituisce un dump JSON compatto dell’ultimo turno del brain, tr
 
 - **Accesso:** admin
 - **Alias registrati:** `/debugultimo`
+
+#### `reply + /del`
+
+Admin only. Cancella il messaggio del bot a cui rispondi ed elimina il comando stesso per tenere pulita la chat.
+
+- **Accesso:** admin
+- **Alias registrati:** —
 
 #### `/learn <richiesta> | status [job] | code <obiettivo> | diff <job> [pagina] | apply <job> <sha12> | cancel <job>`
 
@@ -754,6 +761,13 @@ Admin debug: return a compact JSON dump of the last brain turn, bounded for Tele
 - **Access:** admin
 - **Registered aliases:** `/debugultimo`
 
+#### `reply + /del`
+
+Admin only. Deletes the replied-to bot message and deletes the command itself to keep the chat clean.
+
+- **Access:** admin
+- **Registered aliases:** —
+
 #### `/learn <request> | status [job] | code <goal> | diff <job> [page] | apply <job> <sha12> | cancel <job>`
 
 Learn-admin only. Research/install read-only capabilities or start reviewable local development. Code jobs use status/diff, apply only with an explicit hash, and never deploy/restart live.
@@ -1154,6 +1168,13 @@ Debug de admin: devuelve un volcado JSON compacto del último turno del brain, l
 
 - **Acceso:** admin
 - **Alias registrados:** `/debugultimo`
+
+#### `respuesta + /del`
+
+Solo admin. Elimina el mensaje del bot al que respondes y también el propio comando para mantener limpio el chat.
+
+- **Acceso:** admin
+- **Alias registrados:** —
 
 #### `/learn <solicitud> | status [job] | code <objetivo> | diff <job> [página] | apply <job> <sha12> | cancel <job>`
 

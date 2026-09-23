@@ -64,13 +64,15 @@ export class ComfyUiGenerator implements ImageGenerator {
     throwIfAborted(options.signal);
 
     const clientId = `goonerbot-${randomUUID().slice(0, 8)}`;
-    const effectivePrompt =
+    const rawPrompt =
       options.providerPrompts?.qwen ?? options.providerPrompts?.agnes ?? userPrompt;
+    const effectivePrompt = enforceQwenAdultSubject(rawPrompt);
     assertMediaGenerationSafe(effectivePrompt);
 
+    const sanitizedNegative = sanitizeQwenNegative(options.negativePrompt ?? '');
     const dimensions = resolveDimensions(options.aspectRatio);
     const seed = randomSeed();
-    const workflow = this.buildWorkflow(effectivePrompt, options.negativePrompt ?? '', dimensions, seed);
+    const workflow = this.buildWorkflow(effectivePrompt, sanitizedNegative, dimensions, seed);
 
     log.info(
       {
@@ -304,4 +306,36 @@ function resolveDimensions(
 
 function randomSeed(): number {
   return randomBytes(4).readUInt32BE(0);
+}
+
+/**
+ * Qwen-Image-2.1 uses a text encoder (Qwen2.5-VL / Qwen LM) where mentioning minor-related
+ * words in negative prompts causes cross-attention token leakage.
+ * Strip minor-related terms from the negative prompt to prevent activating youth token associations.
+ */
+function sanitizeQwenNegative(negativePrompt: string): string {
+  return negativePrompt
+    .split(',')
+    .map((s) => s.trim())
+    .filter(
+      (s) =>
+        s.length > 0 &&
+        !/\b(child|children|kid|kids|underage|loli|lolita|shota|teen|minor|baby|infant|schoolgirl|schoolboy)\b/i.test(
+          s,
+        ),
+    )
+    .join(', ');
+}
+
+/**
+ * If human subjects are requested, explicitly anchor adult maturity in the prompt for Qwen.
+ */
+function enforceQwenAdultSubject(prompt: string): string {
+  if (
+    /\b(person|people|woman|women|man|men|girl|guy|waifu|character|female|male)\b/i.test(prompt) &&
+    !/\b(adult|mature|elderly|middle-aged)\b/i.test(prompt)
+  ) {
+    return `mature adult, ${prompt}`;
+  }
+  return prompt;
 }

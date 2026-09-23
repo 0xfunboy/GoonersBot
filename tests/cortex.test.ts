@@ -593,4 +593,26 @@ describe('Cortex', () => {
       expect.objectContaining({ tool: 'image_gen', query: 'FALLA PORNO PORCODIO' }),
     );
   });
+
+  it('strips contradictory refusal from conversationalReply when deliverable toolCalls exist', () => {
+    const refusalDecision: CortexDecision = {
+      intents: ['make_image'],
+      toolCalls: [{ tool: 'image_gen', query: 'explicit scene' }],
+      conversationalReply:
+        "Non posso generare contenuti sessualmente espliciti o pornografici. Se desideri modificare o ricreare l'immagine con uno stile differente...",
+      valueTarget: 'support',
+      roastBudget: 'none',
+      socialRole: 'friend',
+      needsGrounding: false,
+      confidence: 0.95,
+      reason: 'test',
+    };
+    const normalized = normalizeDecision(
+      refusalDecision,
+      ['image_gen'],
+      'rifalla porno immediatasubito !',
+    );
+    expect(normalized.toolCalls.map((c) => c.tool)).toContain('image_gen');
+    expect(normalized.conversationalReply).toBeUndefined();
+  });
 });

@@ -18,6 +18,7 @@ import {
   type RuntimeCapabilitySnapshotItem,
 } from '../../companion/capabilities/catalog.js';
 import type { TurnContext } from '../../companion/context/contracts.js';
+import { isRefusal } from '../../services/modelRouter.js';
 
 const log = childLogger('cortex');
 
@@ -176,8 +177,24 @@ export function normalizeDecision(
     });
   }
 
+  let conversationalReply = decision.conversationalReply;
+  if (
+    conversationalReply &&
+    toolCalls.some(
+      (call) =>
+        call.tool === 'image_gen' ||
+        call.tool === 'video_gen' ||
+        call.tool === 'music' ||
+        call.tool === 'link_media',
+    ) &&
+    isRefusal(conversationalReply)
+  ) {
+    conversationalReply = undefined;
+  }
+
   return {
     ...decision,
+    conversationalReply,
     toolCalls,
     confidence: Math.max(0, Math.min(1, decision.confidence)),
   };

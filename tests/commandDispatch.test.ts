@@ -4,6 +4,8 @@ import { recordCurrentLlmUsage } from '../src/providers/llm/requestContext.js';
 import { runCallback, runCommand, type DispatchDeps } from '../src/telegram/dispatch.js';
 import type { CallbackSpec, CommandSpec } from '../src/telegram/handlers/types.js';
 
+import { delCommand } from '../src/telegram/handlers/commands/del.js';
+
 function telegramContext(
   kind: 'command' | 'callback' = 'command',
   callbackOwnerId?: number,
@@ -16,7 +18,11 @@ function telegramContext(
     replyWithPhoto: vi.fn(),
     replyWithVideo: vi.fn(),
     replyWithVoice: vi.fn(),
-    api: { token: 'test-token', editMessageReplyMarkup: vi.fn().mockResolvedValue(true) },
+    api: {
+      token: 'test-token',
+      editMessageReplyMarkup: vi.fn().mockResolvedValue(true),
+      deleteMessage: vi.fn().mockResolvedValue(true),
+    },
   };
   return {
     ...common,
@@ -179,6 +185,91 @@ describe('command dispatch accounting', () => {
         points: 100,
       }),
     );
+  });
+
+  it('deletes replied message and origin command message when requested (used by /del)', async () => {
+    const ctx = telegramContext();
+    const handle = vi.fn().mockResolvedValue({
+      deleteRepliedMessage: 42,
+      deleteOriginCommand: true,
+    });
+    const deps = dispatchDeps();
+
+    await runCommand(ctx, meteredCommand(handle), deps);
+
+    expect(ctx.api.deleteMessage).toHaveBeenCalledWith(-100, 42);
+    expect(ctx.api.deleteMessage).toHaveBeenCalledWith(-100, 11);
+    expect(ctx.reply).not.toHaveBeenCalled();
+  });
+
+  it('delCommand rejects when not used in reply to a message', async () => {
+    const result = await delCommand.handle({
+      services: {} as any,
+      person: { telegramId: 1, userHandle: '@admin' },
+      context: {
+        chatId: -100,
+        isGroup: true,
+        isBotMentioned: false,
+        isGroupAdmin: true,
+        isReplyToBot: false,
+      },
+      message: { messageText: '/del', timestamp: new Date() },
+      args: [],
+      botUsername: 'GoonersBot',
+      addressed: true,
+    });
+    expect(result).toEqual({
+      text: 'del_needs_reply',
+      ephemeralMs: 5000,
+      deleteOriginCommand: true,
+    });
+  });
+
+  it('delCommand rejects when replying to a non-bot message', async () => {
+    const result = await delCommand.handle({
+      services: {} as any,
+      person: { telegramId: 1, userHandle: '@admin' },
+      context: {
+        chatId: -100,
+        isGroup: true,
+        isBotMentioned: false,
+        isGroupAdmin: true,
+        isReplyToBot: false,
+        repliedToMessageId: 42,
+      },
+      message: { messageText: '/del', timestamp: new Date() },
+      args: [],
+      botUsername: 'GoonersBot',
+      addressed: true,
+    });
+    expect(result).toEqual({
+      text: 'del_not_bot_message',
+      ephemeralMs: 5000,
+      deleteOriginCommand: true,
+    });
+  });
+
+  it('delCommand succeeds and returns delete instructions when replying to a bot message', async () => {
+    const result = await delCommand.handle({
+      services: {} as any,
+      person: { telegramId: 1, userHandle: '@admin' },
+      context: {
+        chatId: -100,
+        isGroup: true,
+        isBotMentioned: false,
+        isGroupAdmin: true,
+        isReplyToBot: true,
+        repliedToMessageId: 55,
+      },
+      message: { messageText: '/del', timestamp: new Date() },
+      args: [],
+      botUsername: 'GoonersBot',
+      addressed: true,
+    });
+    expect(result).toEqual({
+      deleteRepliedMessage: 55,
+      deleteOriginCommand: true,
+    });
   });
 });
 

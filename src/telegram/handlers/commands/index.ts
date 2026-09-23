@@ -33,6 +33,7 @@ import { communityCommand, socialstatusCommand } from './community.js';
 import { botinfoCommand, hardwareCommand, modelsCommand, quotaCommand } from './systemInfo.js';
 import { animeCommand, followCommand, followingCommand, unfollowCommand } from './anime.js';
 import { adminCommand, adminsCommand, idCommand, unadminCommand } from './identity.js';
+import { delCommand } from './del.js';
 import { hallOfFameCommand } from './hallOfFame.js';
 import { registerCommandCatalog } from './aliases.js';
 
@@ -40,6 +41,7 @@ import { registerCommandCatalog } from './aliases.js';
 export const commandHandlers: CommandSpec[] = [
   startCommand,
   stopCommand,
+  delCommand,
   resetCommand,
   modeCommand,
   addmodeCommand,

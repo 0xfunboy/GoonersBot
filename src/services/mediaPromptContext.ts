@@ -30,7 +30,7 @@ export interface MediaPromptContext {
 export function mediaContextBlock(context?: MediaPromptContext): string {
   if (!context) return '(none)';
   const recent = (context.recentMessages ?? [])
-    .slice(-16)
+    .slice(-8)
     .map((message) => `${compact(message.handle, 60)}: ${compact(message.text, 240)}`);
   const characters = (context.continuity?.characters ?? [])
     .slice(0, 8)

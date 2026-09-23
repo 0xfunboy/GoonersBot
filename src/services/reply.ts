@@ -383,7 +383,7 @@ function recentHumanMessageLengths(history: StoredMessage[]): number[] {
   const markers = ['[transcript of the replied audio/video]:', '[media context]:'];
   return history
     .filter((message) => !message.isBot)
-    .slice(-16)
+    .slice(-8)
     .map((message) => {
       const raw = (message.message.messageText ?? '').trim();
       let cut = raw.length;
@@ -1778,10 +1778,13 @@ export class ReplyService {
           clip.buffer,
           this.config.linkMedia.ffmpegBin,
         );
+        const videoConversational = cortexDecision?.conversationalReply?.trim();
+        const safeVideoText =
+          videoConversational && !isRefusal(videoConversational)
+            ? videoConversational
+            : t('video_done', { prompt: prompt.slice(0, 180) });
         return immediateOutcome({
-          text:
-            cortexDecision?.conversationalReply?.trim() ||
-            t('video_done', { prompt: prompt.slice(0, 180) }),
+          text: safeVideoText,
           styleVariant: 'video_done',
           videoBuffer: prepared.buffer,
           videoSpoiler: preparedPrompt.profile === 'nsfw',
@@ -1857,7 +1860,7 @@ export class ReplyService {
             creatorHandle: ctx.person.userHandle,
             intent: prompt,
             relevantLore: socialContext ? [socialContext.slice(0, 1_200)] : [],
-            recentMessages: history.slice(-16).map((message) => ({
+            recentMessages: history.slice(-8).map((message) => ({
               handle: message.isBot ? BOT_LABEL : message.handle,
               text: message.message.messageText ?? '',
             })),
@@ -1895,10 +1898,13 @@ export class ReplyService {
           styleVariant: 'image_failed',
         });
       }
+      const imageConversational = cortexDecision?.conversationalReply?.trim();
+      const safeImageText =
+        imageConversational && !isRefusal(imageConversational)
+          ? imageConversational
+          : '';
       return immediateOutcome({
-        text:
-          cortexDecision?.conversationalReply?.trim() ||
-          t('image_done', { prompt: prompt.slice(0, 180) }),
+        text: safeImageText,
         imageBuffer: image.buffer,
         imageSpoiler: prepared.rating !== 'safe',
         imagePrompt: prepared.prompt,

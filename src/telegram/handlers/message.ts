@@ -39,6 +39,7 @@ import {
 import { buildInlineKeyboard } from '../keyboards.js';
 import { cacheGeneratedImagePrompt } from '../../services/imagePromptCache.js';
 import { cacheCodeSnippet } from '../../services/codeSnippetCache.js';
+import { isRefusal } from '../../services/modelRouter.js';
 
 const log = childLogger('message');
 
@@ -927,18 +928,26 @@ export async function handleMessage(
       outcome.imageUrl ||
       outcome.videoBuffer,
     );
-    if (finalText.trim().length > 0) {
+    const suppressContradictoryRefusal = hasExplicitArtifact && isRefusal(finalText);
+    const textToSend = suppressContradictoryRefusal ? '' : finalText;
+    if (suppressContradictoryRefusal) {
+      log.warn(
+        { chatId: context.chatId, messageId: context.messageId, finalText },
+        'suppressed contradictory refusal text because explicit media artifact was generated',
+      );
+    }
+    if (textToSend.trim().length > 0) {
       const ttsCfg = services.config.voice.tts;
       const wantVoiceReply =
         !hasExplicitArtifact &&
         !outcome.companionTaskId &&
         !outcome.socialQuestion &&
         services.tts.enabled &&
-        finalText.length <= ttsCfg.maxChars &&
+        textToSend.length <= ttsCfg.maxChars &&
         ((wasVoice && ttsCfg.replyToVoice) || Math.random() < ttsCfg.autoVoiceProbability);
       let voiceSent = false;
       if (wantVoiceReply) {
-        const ogg = await services.tts.synth(finalText, language);
+        const ogg = await services.tts.synth(textToSend, language);
         if (ogg) {
           const sent = await ctx.replyWithVoice(new InputFile(ogg), replyOpts);
           rememberBotMessage(sent.message_id);
@@ -946,8 +955,8 @@ export async function handleMessage(
         }
       }
       if (!voiceSent) {
-        const chunks = splitTelegramMarkdown(finalText);
-        let entityKeyboard = buildEntityLinkKeyboard(outcome.providerBundle.sources, finalText);
+        const chunks = splitTelegramMarkdown(textToSend);
+        let entityKeyboard = buildEntityLinkKeyboard(outcome.providerBundle.sources, textToSend);
         const repliedText =
           ctx.message?.reply_to_message && 'text' in ctx.message.reply_to_message
             ? ctx.message.reply_to_message.text

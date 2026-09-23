@@ -192,6 +192,10 @@ export interface CommandResponse {
   deleteOrigin?: boolean | undefined;
   /** Keep the callback prompt as an audit trail but remove buttons once the choice is consumed. */
   clearOriginKeyboard?: boolean | undefined;
+  /** Delete the replied-to bot message by its message id (used by /del). */
+  deleteRepliedMessage?: number | undefined;
+  /** Delete the command message itself (used by /del to keep the chat clean). */
+  deleteOriginCommand?: boolean | undefined;
   /** if set, the sent message self-destructs after this many ms (ephemeral prompts like /tos) */
   ephemeralMs?: number | undefined;
   /** Non-text provider usage produced by a command, consumed by dispatch accounting only. */

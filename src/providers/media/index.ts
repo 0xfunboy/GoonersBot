@@ -289,14 +289,6 @@ export class MediaProcessor {
     prompt: string,
     options: ImageGenerationOptions,
   ): Promise<ImageResult> {
-    if (options.nsfwEnabled) {
-      return {
-        ...first,
-        generationAttempts: first.generationAttempts ?? 1,
-        qaVisionCalls: 0,
-      };
-    }
-
     if (
       !this.generatedImageQa?.enabled ||
       !options.qualityBrief ||
@@ -304,7 +296,7 @@ export class MediaProcessor {
       !this.canDescribeImage ||
       !this.llm.visionCompletion
     ) {
-      if (options.rating === 'suggestive' || options.rating === 'explicit') {
+      if (!options.nsfwEnabled && (options.rating === 'suggestive' || options.rating === 'explicit')) {
         throw new Error('adult-only image generation requires visual age verification');
       }
       return {
@@ -316,8 +308,8 @@ export class MediaProcessor {
 
     let generationAttempts = first.generationAttempts ?? 1;
     let qaVisionCalls = 1;
-    const requestedRating = options.rating ?? 'safe';
-    const isAdultRated = requestedRating === 'suggestive' || requestedRating === 'explicit';
+    const requestedRating = options.rating ?? (options.nsfwEnabled ? 'explicit' : 'safe');
+    const isAdultRated = options.nsfwEnabled || requestedRating === 'suggestive' || requestedRating === 'explicit';
     const requireAdultOnly = isAdultRated && (options.expectsPeople ?? true);
     const firstQa = await this.inspectGeneratedImage(
       first.buffer,
@@ -327,7 +319,7 @@ export class MediaProcessor {
       options.signal,
     );
     if (!firstQa) {
-      if (requireAdultOnly) {
+      if (requireAdultOnly && !options.nsfwEnabled) {
         throw new Error('adult-only generated image could not be visually safety-verified');
       }
       return { ...first, generationAttempts, qaVisionCalls };
@@ -335,7 +327,7 @@ export class MediaProcessor {
     let best = first;
     let bestQa = firstQa;
     this.logGeneratedImageQa(first, firstQa, 1);
-    if (this.generatedImagePasses(firstQa)) {
+    if (this.generatedImagePasses(firstQa, options.nsfwEnabled)) {
       return withImageQaMeta(first, generationAttempts, qaVisionCalls, firstQa.score);
     }
 
@@ -366,7 +358,7 @@ export class MediaProcessor {
           best = candidate;
           bestQa = candidateQa;
         }
-        if (this.generatedImagePasses(candidateQa)) {
+        if (this.generatedImagePasses(candidateQa, options.nsfwEnabled)) {
           return withImageQaMeta(candidate, generationAttempts, qaVisionCalls, candidateQa.score);
         }
       } catch (error) {
@@ -402,7 +394,11 @@ export class MediaProcessor {
     return result;
   }
 
-  private generatedImagePasses(qa: GeneratedImageQa): boolean {
+  private generatedImagePasses(qa: GeneratedImageQa, nsfwEnabled?: boolean): boolean {
+    if (qa.ageSafety === 'ambiguous_or_minor') return false;
+    if (nsfwEnabled) {
+      return !qa.hardFailure;
+    }
     const threshold = Math.max(0, Math.min(1, this.generatedImageQa?.minScore ?? 0.72)) * 100;
     return !qa.hardFailure && qa.score >= threshold;
   }

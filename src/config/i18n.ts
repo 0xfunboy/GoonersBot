@@ -1280,6 +1280,24 @@ export const translations: TranslationMap = {
     spanish:
       '<strong>Estado de memoria social</strong>\nPerfiles: {members}\nFacetas activas: {active_facets} · revisadas/retiradas: {lifecycle_facets}\nRelaciones: {relationships} · bromas: {jokes} · normas: {norms}\nVersión: {version}',
   },
+  del_description: {
+    italian: 'Cancella un messaggio del bot (rispondi al messaggio con /del)',
+    english: 'Delete a bot message (reply to the message with /del)',
+    russian: 'Удалить сообщение бота (ответьте на сообщение с /del)',
+    spanish: 'Eliminar un mensaje del bot (responde al mensaje con /del)',
+  },
+  del_needs_reply: {
+    italian: 'Rispondi a un messaggio del bot con /del per cancellarlo.',
+    english: 'Reply to a bot message with /del to delete it.',
+    russian: 'Ответьте на сообщение бота с /del, чтобы удалить его.',
+    spanish: 'Responde a un mensaje del bot con /del para eliminarlo.',
+  },
+  del_not_bot_message: {
+    italian: 'Puoi usare /del solo rispondendo a un messaggio inviato da me.',
+    english: 'You can only use /del in reply to a message sent by me.',
+    russian: 'Вы можете использовать /del только в ответ на сообщение бота.',
+    spanish: 'Solo puedes usar /del respondiendo a un mensaje enviado por mí.',
+  },
 };
 
 /**
