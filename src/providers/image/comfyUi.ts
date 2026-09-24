@@ -101,11 +101,13 @@ export class ComfyUiGenerator implements ImageGenerator {
     }
 
     log.info({ promptId }, 'ComfyUI prompt queued; waiting for execution to complete');
+    await options.onProgress?.(15, 'in coda su GPU...');
 
-    const imageInfo = await this.waitForCompletion(promptId, options.signal);
+    const imageInfo = await this.waitForCompletion(promptId, options.signal, options.onProgress, clientId);
     log.info({ promptId, imageInfo }, 'ComfyUI generation completed; downloading artifact');
 
     const buffer = await this.downloadImage(imageInfo, options.signal);
+    await options.onProgress?.(100, 'immagine pronta');
     return {
       buffer,
       model: this.config.diffusionModel,
@@ -193,36 +195,90 @@ export class ComfyUiGenerator implements ImageGenerator {
   private async waitForCompletion(
     promptId: string,
     signal?: AbortSignal,
+    onProgress?: (percent: number, stage?: string) => void | Promise<void>,
+    clientId?: string,
   ): Promise<ComfyImageOutput> {
     const deadline = Date.now() + this.config.timeoutMs;
+    const startTime = Date.now();
+    let ws: { close: () => void } | null = null;
 
-    while (Date.now() < deadline) {
-      throwIfAborted(signal);
-
-      const res = await this.fetchSafe(`/history/${promptId}`, { signal });
-      if (res.ok) {
-        const history = (await res.json()) as Record<string, ComfyHistoryItem>;
-        const item = history[promptId];
-        if (item) {
-          if (item.status?.status_str === 'error') {
-            const errorMsg = item.status.messages
-              ?.map((m) => JSON.stringify(m[1]))
-              .join(' ') || 'unknown error';
-            throw new Error(`ComfyUI execution failed: ${errorMsg}`);
+    if (clientId && typeof globalThis.WebSocket !== 'undefined') {
+      try {
+        const wsUrl = this.config.apiUrl.replace(/^http/i, 'ws') + `/ws?clientId=${clientId}`;
+        const socket = new globalThis.WebSocket(wsUrl);
+        ws = socket;
+        socket.onmessage = (event: { data: unknown }) => {
+          try {
+            const raw = typeof event.data === 'string' ? event.data : String(event.data ?? '');
+            if (!raw) return;
+            const msg = JSON.parse(raw) as {
+              type?: string;
+              data?: { value?: number; max?: number; node?: unknown; prompt_id?: string };
+            };
+            if (msg.type === 'progress' && msg.data?.prompt_id === promptId) {
+              const { value, max } = msg.data;
+              if (typeof value === 'number' && typeof max === 'number' && max > 0) {
+                const stepPercent = Math.min(90, Math.round(15 + (value / max) * 75));
+                void onProgress?.(stepPercent, `rendering step ${value}/${max}`);
+              }
+            } else if (msg.type === 'executing' && msg.data?.prompt_id === promptId) {
+              if (msg.data.node === null) {
+                void onProgress?.(92, 'elaborazione completata');
+              }
+            }
+          } catch {
+            // ignore ws parse error
           }
-
-          if (item.status?.completed) {
-            const image = this.findImageInOutputs(item.outputs);
-            if (image) return image;
-            throw new Error('ComfyUI finished execution but output contained no images');
-          }
-        }
+        };
+      } catch (err) {
+        log.debug({ err }, 'failed to open ComfyUI websocket; falling back to polling');
       }
-
-      await abortableDelay(POLL_INTERVAL_MS, signal);
     }
 
-    throw new Error(`ComfyUI generation timed out after ${Math.round(this.config.timeoutMs / 1000)}s`);
+    try {
+      while (Date.now() < deadline) {
+        throwIfAborted(signal);
+
+        const elapsed = (Date.now() - startTime) / 1000;
+        const estimated = Math.min(85, Math.round(15 + Math.min(elapsed / 16, 1) * 70));
+        void onProgress?.(estimated, 'elaborazione su GPU...');
+
+        const res = await this.fetchSafe(`/history/${promptId}`, { signal });
+        if (res.ok) {
+          const history = (await res.json()) as Record<string, ComfyHistoryItem>;
+          const item = history[promptId];
+          if (item) {
+            if (item.status?.status_str === 'error') {
+              const errorMsg = item.status.messages
+                ?.map((m) => JSON.stringify(m[1]))
+                .join(' ') || 'unknown error';
+              throw new Error(`ComfyUI execution failed: ${errorMsg}`);
+            }
+
+            if (item.status?.completed) {
+              const image = this.findImageInOutputs(item.outputs);
+              if (image) {
+                void onProgress?.(92, 'scaricamento immagine...');
+                return image;
+              }
+              throw new Error('ComfyUI finished execution but output contained no images');
+            }
+          }
+        }
+
+        await abortableDelay(POLL_INTERVAL_MS, signal);
+      }
+
+      throw new Error(`ComfyUI generation timed out after ${Math.round(this.config.timeoutMs / 1000)}s`);
+    } finally {
+      if (ws) {
+        try {
+          ws.close();
+        } catch {
+          // ignore ws close error
+        }
+      }
+    }
   }
 
   private findImageInOutputs(

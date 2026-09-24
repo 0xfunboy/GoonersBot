@@ -512,6 +512,8 @@ export interface ReplyContext {
   animeArchiveAdmin?: boolean | undefined;
   /** Only a bot operator may persist a new global capability. */
   allowCapabilityInstall?: boolean | undefined;
+  /** Live image generation progress callback for chat status messages. */
+  onImageProgress?: (update: { prompt: string; percent: number; stage?: string }) => void | Promise<void>;
 }
 
 export interface ReplyOutcome {
@@ -989,7 +991,7 @@ export class ReplyService {
     // decision, so passive turns use their deterministic counterparts and retain the full
     // memory/style/generation pipeline below.
     const passiveFastPath = Boolean(ctx.passive);
-    const scene = passiveFastPath
+    const scene = (passiveFastPath || this.config.brain.cortex.enabled)
       ? this.sceneAnalyzer.heuristic(sceneInput)
       : await this.sceneAnalyzer.analyze(sceneInput);
     const sceneForcesNsfw = Boolean(
@@ -1471,6 +1473,7 @@ export class ReplyService {
           allowWorkflowWrite: !ctx.passive,
           allowCapabilityInstall: ctx.allowCapabilityInstall,
           nsfwEnabled: generationNsfwEnabled,
+          ...(ctx.onImageProgress ? { onImageProgress: ctx.onImageProgress } : {}),
         };
         if (
           ctx.botId !== undefined &&
@@ -1515,6 +1518,16 @@ export class ReplyService {
             visionCalls: visionCalls + coordinated.visionCalls,
             ...(coordinated.imageBuffer ? { imageBuffer: coordinated.imageBuffer } : {}),
             ...(coordinated.imageSpoiler ? { imageSpoiler: true } : {}),
+            ...(coordinated.imagePrompt ? { imagePrompt: coordinated.imagePrompt } : {}),
+            ...(coordinated.imageProfile ? { imageProfile: coordinated.imageProfile } : {}),
+            ...(coordinated.imageAspectRatio
+              ? {
+                  imageAspectRatio: coordinated.imageAspectRatio as
+                    | '16:9'
+                    | '9:16'
+                    | '1:1',
+                }
+              : {}),
             ...(coordinated.videoBuffer ? { videoBuffer: coordinated.videoBuffer } : {}),
             ...(coordinated.videoSpoiler ? { videoSpoiler: true } : {}),
             ...(coordinated.videoMeta ? { videoMeta: coordinated.videoMeta } : {}),
@@ -1843,6 +1856,7 @@ export class ReplyService {
           styleVariant: 'image_quota_exhausted',
         });
       }
+      await ctx.onImageProgress?.({ prompt, percent: 5, stage: 'Pianificazione...' });
       const imageCall = callFor('image_gen');
       const requestedProfile = imageProfileFromTool(imageCall?.args?.profile);
       const requestedAspectRatio = imageAspectRatioFromTool(
@@ -1865,6 +1879,11 @@ export class ReplyService {
               text: message.message.messageText ?? '',
             })),
           },
+        });
+        await ctx.onImageProgress?.({
+          prompt: prepared.prompt,
+          percent: 15,
+          stage: 'Avvio generazione...',
         });
       } catch (error) {
         if (error instanceof MediaSafetyError) {
@@ -1891,6 +1910,9 @@ export class ReplyService {
         aspectRatio: prepared.aspectRatio,
         nsfwEnabled: ctx.nsfwEnabled,
         ...(poseReference ? { poseReference: poseReference.buffer } : {}),
+        onProgress: async (percent, stage) => {
+          await ctx.onImageProgress?.({ prompt: prepared.prompt, percent, stage });
+        },
       });
       if (!image?.buffer) {
         return immediateOutcome({
@@ -1898,13 +1920,13 @@ export class ReplyService {
           styleVariant: 'image_failed',
         });
       }
-      const imageConversational = cortexDecision?.conversationalReply?.trim();
-      const safeImageText =
-        imageConversational && !isRefusal(imageConversational)
-          ? imageConversational
-          : '';
+      await ctx.onImageProgress?.({
+        prompt: prepared.prompt,
+        percent: 100,
+        stage: 'Immagine completata',
+      });
       return immediateOutcome({
-        text: safeImageText,
+        text: '',
         imageBuffer: image.buffer,
         imageSpoiler: prepared.rating !== 'safe',
         imagePrompt: prepared.prompt,
@@ -2300,96 +2322,128 @@ export class ReplyService {
 
     // 4. generate candidates. A provider outage is different from a bad generated candidate: the
     // generator logs every rejected upstream call and performs at most one distinct rescue-model call.
-    // For a disposable social interjection, total provider failure means silence rather than an NPC
-    // "something broke" bubble; substantive questions still surface a precise transient error.
-    let gen: Awaited<ReturnType<ResponseGenerator['generate']>>;
-    try {
-      gen = await this.generator.generate({
-        botUsername: ctx.botUsername,
-        chatName: ctx.context.chatName,
-        language: ctx.language,
-        modeName: ctx.modeName,
-        modeDescription: ctx.modeDescription,
-        nsfwEnabled: generationNsfwEnabled,
-        scene,
-        plan,
-        style,
-        history,
-        currentUser: ctx.person,
-        currentMessage: transcribed,
-        retrievedMemories: retrieved,
-        botLabel: BOT_LABEL,
-        model: generationModel,
-        addressee,
-        ...(providerContextBlock ? { grounding: providerContextBlock } : {}),
-        ...(media ? { media } : {}),
-        ...(ctx.context.repliedToUserHandle || ctx.context.repliedToText
-          ? {
-              replyContext: {
-                ...(ctx.context.repliedToUserHandle
-                  ? { handle: ctx.context.repliedToUserHandle }
-                  : {}),
-                ...(ctx.context.repliedToText ? { text: ctx.context.repliedToText } : {}),
-              },
-            }
-          : {}),
-        ...(runtimeThreadContext ? { threadContext: runtimeThreadContext } : {}),
-        ...(socialContext ? { socialContext } : {}),
-        ...(ctx.socialQuestionResolution
-          ? { socialQuestionContext: socialQuestionPromptBlock(ctx.socialQuestionResolution) }
-          : {}),
-        ...(hostilityLine ? { hostility: hostilityLine } : {}),
-        ...(knowledgeBlock ? { knowledge: knowledgeBlock } : {}),
-        ...(documentContext ? { documents: documentContext } : {}),
-      });
-    } catch (error) {
-      if (
-        error instanceof ReplyGenerationUnavailableError &&
-        shouldSuppressUnavailableSocialReply(plan)
-      ) {
-        log.warn(
-          {
-            chatId: ctx.context.chatId,
-            userHandle: ctx.person.userHandle,
-            action: plan.action,
-            requestedModel: error.requestedModel,
-            rescueModel: error.rescueModel,
-            failures: error.failures,
-          },
-          'social reply generation unavailable; suppressing disposable interjection',
-        );
-        return {
-          text: '',
-          suppressed: true,
-          transcribedUserMessage: transcribed,
-          usage: { inputTokens: 0, outputTokens: 0, estimated: true },
-          model: null,
-          visionCalls,
-          transcriptionCalls,
-          imageCalls: 0,
+    const directCortexReply = cortexDecision?.conversationalReply?.trim();
+    const hasExternalContextToSynthesize = Boolean(
+      providerBundle.webContext ||
+      providerBundle.newsContext ||
+      documentContext ||
+      ctx.socialQuestionResolution ||
+      providerBundle.claimCheck ||
+      ctx.context.repliedToText,
+    );
+    const directCheck =
+      directCortexReply && !hasExternalContextToSynthesize
+        ? this.guard.check(directCortexReply, ctx.recentBotReplies, plan, retrieved)
+        : null;
+    const canUseDirectCortexReply = Boolean(
+      directCheck &&
+      (directCheck.allowed ?? true) &&
+      !violatesSocialFloor(directCortexReply!, plan.socialSignal) &&
+      !isRefusal(directCortexReply!),
+    );
+
+    let gen: Awaited<ReturnType<ResponseGenerator['generate']>> | undefined;
+    let candidates: string[] = [];
+    let usage = { inputTokens: 0, outputTokens: 0, estimated: true };
+    let generationModelUsed: string | null = null;
+
+    if (canUseDirectCortexReply) {
+      candidates = [directCortexReply!];
+      generationModelUsed = ctx.internalModel ?? ctx.model ?? null;
+      log.debug(
+        { chatId: ctx.context.chatId },
+        'using validated direct cortex conversational reply without extra generation pass',
+      );
+    } else {
+      try {
+        gen = await this.generator.generate({
+          botUsername: ctx.botUsername,
+          chatName: ctx.context.chatName,
+          language: ctx.language,
+          modeName: ctx.modeName,
+          modeDescription: ctx.modeDescription,
+          nsfwEnabled: generationNsfwEnabled,
           scene,
           plan,
-          styleVariant: 'generation_unavailable_suppressed',
-          retrieved,
-          usedMemoryIds: [],
-          candidates: [],
-          ranked: [],
-          repetitionChecks: [],
-          evaluation,
-          understanding,
-          ...(cortexDecision ? { cortex: cortexDecision } : {}),
-          providerBundle,
-          threadState,
-        };
+          style,
+          history,
+          currentUser: ctx.person,
+          currentMessage: transcribed,
+          retrievedMemories: retrieved,
+          botLabel: BOT_LABEL,
+          model: generationModel,
+          addressee,
+          ...(providerContextBlock ? { grounding: providerContextBlock } : {}),
+          ...(media ? { media } : {}),
+          ...(ctx.context.repliedToUserHandle || ctx.context.repliedToText
+            ? {
+                replyContext: {
+                  ...(ctx.context.repliedToUserHandle
+                    ? { handle: ctx.context.repliedToUserHandle }
+                    : {}),
+                  ...(ctx.context.repliedToText ? { text: ctx.context.repliedToText } : {}),
+                },
+              }
+            : {}),
+          ...(runtimeThreadContext ? { threadContext: runtimeThreadContext } : {}),
+          ...(socialContext ? { socialContext } : {}),
+          ...(ctx.socialQuestionResolution
+            ? { socialQuestionContext: socialQuestionPromptBlock(ctx.socialQuestionResolution) }
+            : {}),
+          ...(hostilityLine ? { hostility: hostilityLine } : {}),
+          ...(knowledgeBlock ? { knowledge: knowledgeBlock } : {}),
+          ...(documentContext ? { documents: documentContext } : {}),
+        });
+        candidates = gen.candidates;
+        if (directCortexReply) {
+          candidates = [directCortexReply, ...candidates];
+        }
+        usage = gen.usage;
+        generationModelUsed = gen.model;
+      } catch (error) {
+        if (
+          error instanceof ReplyGenerationUnavailableError &&
+          shouldSuppressUnavailableSocialReply(plan)
+        ) {
+          log.warn(
+            {
+              chatId: ctx.context.chatId,
+              userHandle: ctx.person.userHandle,
+              action: plan.action,
+              requestedModel: error.requestedModel,
+              rescueModel: error.rescueModel,
+              failures: error.failures,
+            },
+            'social reply generation unavailable; suppressing disposable interjection',
+          );
+          return {
+            text: '',
+            suppressed: true,
+            transcribedUserMessage: transcribed,
+            usage: { inputTokens: 0, outputTokens: 0, estimated: true },
+            model: null,
+            visionCalls,
+            transcriptionCalls,
+            imageCalls: 0,
+            scene,
+            plan,
+            styleVariant: 'generation_unavailable_suppressed',
+            retrieved,
+            usedMemoryIds: [],
+            candidates: [],
+            ranked: [],
+            repetitionChecks: [],
+            evaluation,
+            understanding,
+            ...(cortexDecision ? { cortex: cortexDecision } : {}),
+            providerBundle,
+            threadState,
+          };
+        }
+        throw error;
       }
-      throw error;
     }
 
-    let candidates = gen.candidates;
-    if (cortexDecision?.conversationalReply?.trim()) {
-      candidates = [cortexDecision.conversationalReply.trim(), ...candidates];
-    }
-    let usage = gen.usage;
     const allCandidates = [...candidates];
     const repetitionChecks: RepetitionCheck[] = [];
 
@@ -2471,8 +2525,8 @@ export class ReplyService {
         'all ranked candidates failed repetition guard - regenerating',
       );
       const regen = await this.generator.regenerate({
-        system: gen.system,
-        userPrompt: gen.userPrompt,
+        system: gen?.system ?? '',
+        userPrompt: gen?.userPrompt ?? '',
         model: generationModel,
         bannedPhrases: [...plan.bannedPhrases, blockedCandidate.split(/\s+/).slice(0, 4).join(' ')],
         overusedMemory: overusedTexts,
@@ -2498,7 +2552,7 @@ export class ReplyService {
 
     // 5b. NSFW refusal backstop: if the default model refused and the chat allows NSFW, retry on
     // the uncensored model (the user never sees the refusal).
-    let model = gen.model;
+    let model = generationModelUsed ?? gen?.model ?? null;
     if (ctx.allowRefusalFallback && ctx.nsfwModel && best.trim() && isRefusal(best)) {
       log.info('default model refused - backstop to NSFW model');
       const ns = await this.generator.generate({
@@ -2585,7 +2639,7 @@ export class ReplyService {
         {
           chatId: ctx.context.chatId,
           userHandle: ctx.person.userHandle,
-          model: gen.model,
+          model: gen?.model ?? generationModelUsed,
           usage,
           candidateCount: allCandidates.length,
           evaluationAction: evaluation.action,

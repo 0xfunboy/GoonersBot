@@ -12,6 +12,7 @@ import {
   cacheGeneratedImagePrompt,
   buildImagePlaygroundRows,
 } from '../../../services/imagePromptCache.js';
+import { ImageProgressReporter } from '../../imageProgress.js';
 
 /** /genera <prompt> - generate an original image with the configured Stable Diffusion backend. */
 export const imageCommand: CommandSpec = {
@@ -21,8 +22,8 @@ export const imageCommand: CommandSpec = {
   needsTermsAccepted: true,
   priority: Priority.DEFAULT,
   quotaConversation: true,
-  async handle({ services, context, person, args }: HandlerInput): Promise<CommandResponse | null> {
-    return generate(services, context.chatId, args, undefined, person.userHandle);
+  async handle({ services, context, person, args, api }: HandlerInput): Promise<CommandResponse | null> {
+    return generate(services, context.chatId, args, undefined, person.userHandle, api, context.messageId);
   },
 };
 
@@ -34,8 +35,8 @@ export const drawCommand: CommandSpec = {
   needsTermsAccepted: true,
   priority: Priority.DEFAULT,
   quotaConversation: true,
-  async handle({ services, context, person, args }: HandlerInput): Promise<CommandResponse | null> {
-    return generate(services, context.chatId, args, 'manga', person.userHandle);
+  async handle({ services, context, person, args, api }: HandlerInput): Promise<CommandResponse | null> {
+    return generate(services, context.chatId, args, 'manga', person.userHandle, api, context.messageId);
   },
 };
 
@@ -45,6 +46,8 @@ async function generate(
   args: string[],
   profile: ImageProfile | undefined,
   creatorHandle?: string,
+  api?: import('grammy').Api,
+  messageId?: number,
 ): Promise<CommandResponse> {
   let requestedModel: string | undefined;
   const filteredArgs: string[] = [];
@@ -96,6 +99,19 @@ async function generate(
     services.conversation.getRecent(chatId),
   ]);
   const socialContext = renderSocialContext(social);
+
+  let progressReporter: ImageProgressReporter | null = null;
+  if (api) {
+    progressReporter = new ImageProgressReporter({
+      api,
+      chatId,
+      replyToMessageId: messageId,
+      initialPrompt: prompt,
+      prefix: "Sto generando un'immagine",
+    });
+    await progressReporter.start(prompt);
+  }
+
   let prepared: PreparedImagePrompt;
   try {
     prepared = await services.imagePrompts.prepare(prompt, {
@@ -111,7 +127,9 @@ async function generate(
         })),
       },
     });
+    await progressReporter?.update(15, prepared.prompt, 'Avvio generazione...');
   } catch (error) {
+    await progressReporter?.delete();
     if (error instanceof MediaSafetyError) return { text: 'image_minor_refused' };
     throw error;
   }
@@ -119,41 +137,50 @@ async function generate(
     ? await services.imageFinder.findPoseReferenceWithUsage(prepared.poseReferenceQuery)
     : { image: null, visionCalls: 0 };
   const poseReference = poseLookup.image;
-  const image = await services.media.generateImage(prepared.prompt, {
-    profile: profile ?? prepared.profile,
-    model: requestedModel,
-    medium: prepared.medium,
-    rating: prepared.rating,
-    negativePrompt: prepared.negativePrompt,
-    providerPrompts: prepared.providerPrompts,
-    qualityBrief: prepared.qualityBrief,
-    expectsPeople: prepared.expectsPeople,
-    preferredProvider: 'pony',
-    aspectRatio: prepared.aspectRatio,
-    nsfwEnabled,
-    ...(poseReference ? { poseReference: poseReference.buffer } : {}),
-  });
-  if (!image?.buffer) {
-    return { text: 'image_unavailable' };
-  }
-  const promptId = cacheGeneratedImagePrompt({
-    prompt: prepared.prompt,
-    profile: profile ?? prepared.profile,
-    aspectRatio: prepared.aspectRatio as '16:9' | '9:16' | '1:1' | undefined,
-    medium: prepared.medium,
-    rating: prepared.rating,
-    negativePrompt: prepared.negativePrompt,
-  });
 
-  return {
-    text: 'image_done',
-    vars: { prompt: prompt.slice(0, 180) },
-    imageBuffer: image.buffer,
-    imageSpoiler: prepared.rating !== 'safe',
-    customInlineKeyboard: buildImagePlaygroundRows(promptId),
-    usage: {
-      imageCalls: image.generationAttempts ?? 1,
-      visionCalls: poseLookup.visionCalls + (image.qaVisionCalls ?? 0),
-    },
-  };
+  try {
+    const image = await services.media.generateImage(prepared.prompt, {
+      profile: profile ?? prepared.profile,
+      model: requestedModel,
+      medium: prepared.medium,
+      rating: prepared.rating,
+      negativePrompt: prepared.negativePrompt,
+      providerPrompts: prepared.providerPrompts,
+      qualityBrief: prepared.qualityBrief,
+      expectsPeople: prepared.expectsPeople,
+      preferredProvider: 'pony',
+      aspectRatio: prepared.aspectRatio,
+      nsfwEnabled,
+      ...(poseReference ? { poseReference: poseReference.buffer } : {}),
+      onProgress: async (percent, stage) => {
+        await progressReporter?.update(percent, prepared.prompt, stage);
+      },
+    });
+    await progressReporter?.delete();
+    if (!image?.buffer) {
+      return { text: 'image_unavailable' };
+    }
+    const promptId = cacheGeneratedImagePrompt({
+      prompt: prepared.prompt,
+      profile: profile ?? prepared.profile,
+      aspectRatio: prepared.aspectRatio as '16:9' | '9:16' | '1:1' | undefined,
+      medium: prepared.medium,
+      rating: prepared.rating,
+      negativePrompt: prepared.negativePrompt,
+    });
+
+    return {
+      rawText: '',
+      imageBuffer: image.buffer,
+      imageSpoiler: prepared.rating !== 'safe',
+      customInlineKeyboard: buildImagePlaygroundRows(promptId),
+      usage: {
+        imageCalls: image.generationAttempts ?? 1,
+        visionCalls: poseLookup.visionCalls + (image.qaVisionCalls ?? 0),
+      },
+    };
+  } catch (err) {
+    await progressReporter?.delete();
+    throw err;
+  }
 }

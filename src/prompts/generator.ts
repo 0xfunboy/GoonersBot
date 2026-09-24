@@ -135,7 +135,7 @@ export function buildGeneratorSystem(params: {
   return base.join('\n');
 }
 
-function renderHistory(history: StoredMessage[], botLabel: string, max = 16): string {
+function renderHistory(history: StoredMessage[], botLabel: string, max = 8): string {
   return history
     .slice(-max)
     .map((m) => {

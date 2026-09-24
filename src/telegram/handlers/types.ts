@@ -12,6 +12,7 @@ export interface HandlerInput {
   botUsername: string;
   /** true when the bot was directly addressed (mention/reply) or the interaction is explicit (command/callback) */
   addressed: boolean;
+  api?: import('grammy').Api;
 }
 
 export interface CommandSpec {

@@ -40,6 +40,7 @@ import { buildInlineKeyboard } from '../keyboards.js';
 import { cacheGeneratedImagePrompt } from '../../services/imagePromptCache.js';
 import { cacheCodeSnippet } from '../../services/codeSnippetCache.js';
 import { isRefusal } from '../../services/modelRouter.js';
+import { ImageProgressReporter } from '../imageProgress.js';
 
 const log = childLogger('message');
 
@@ -768,6 +769,21 @@ export async function handleMessage(
   actionTimer.unref();
 
   let pendingNaturalOfferId: string | undefined;
+  let imageProgressReporter: ImageProgressReporter | null = null;
+  const onImageProgress = async (update: { prompt: string; percent: number; stage?: string }) => {
+    if (!imageProgressReporter) {
+      imageProgressReporter = new ImageProgressReporter({
+        api: ctx.api,
+        chatId: context.chatId,
+        replyToMessageId: ctx.message?.message_id,
+        initialPrompt: update.prompt,
+        prefix: "Sto generando un'immagine",
+      });
+      await imageProgressReporter.start(update.prompt);
+    } else {
+      await imageProgressReporter.update(update.percent, update.prompt, update.stage);
+    }
+  };
   try {
     const outcome = await services.reply.generateReply({
       ...(ctx.me?.id !== undefined ? { botId: ctx.me.id } : {}),
@@ -793,7 +809,11 @@ export async function handleMessage(
       allowLinkMedia: linkMediaAllowed,
       animeArchiveAdmin: services.isAnimeArchiveAdmin(person, context),
       allowCapabilityInstall: services.permissions.isBotAdminPerson(person),
+      onImageProgress,
     });
+    if (outcome.suppressed) {
+      await (imageProgressReporter as ImageProgressReporter | null)?.delete().catch(() => undefined);
+    }
     const meteredUsage = currentLlmUsage();
     if (meteredUsage?.calls) {
       outcome.usage = {
@@ -928,8 +948,14 @@ export async function handleMessage(
       outcome.imageUrl ||
       outcome.videoBuffer,
     );
+    const hasExplicitImageArtifact = Boolean(
+      outcome.imageBuffer ||
+      outcome.imageUrl ||
+      outcome.generatedArtifacts?.some((artifact) => artifact.kind === 'image'),
+    );
     const suppressContradictoryRefusal = hasExplicitArtifact && isRefusal(finalText);
-    const textToSend = suppressContradictoryRefusal ? '' : finalText;
+    const suppressImageFillerText = hasExplicitImageArtifact;
+    const textToSend = (suppressContradictoryRefusal || suppressImageFillerText) ? '' : finalText;
     if (suppressContradictoryRefusal) {
       log.warn(
         { chatId: context.chatId, messageId: context.messageId, finalText },
@@ -1178,6 +1204,7 @@ function buildImagePlaygroundKeyboard(params: {
       });
 
       const imageOptions = {
+        ...replyOpts,
         ...(outcome.imageSpoiler ? { has_spoiler: true } : {}),
         reply_markup: playgroundKb,
       };
@@ -1186,6 +1213,9 @@ function buildImagePlaygroundKeyboard(params: {
         return null;
       });
       if (sent) rememberBotMessage(sent.message_id);
+      if (imageProgressReporter) {
+        await (imageProgressReporter as ImageProgressReporter).delete().catch(() => undefined);
+      }
     }
     if (outcome.videoBuffer && !hasGeneratedArtifacts) {
       // supports_streaming + poster => inline autoplaying clip instead of a downloadable file
@@ -1235,6 +1265,9 @@ function buildImagePlaygroundKeyboard(params: {
                   replyOpts,
                 );
       rememberBotMessage(sent.message_id);
+    }
+    if (imageProgressReporter) {
+      await (imageProgressReporter as ImageProgressReporter).delete().catch(() => undefined);
     }
     if (outcome.companionTaskId && services.companionWork) {
       for (const [index, messageId] of botMessageIds.entries()) {
@@ -1409,6 +1442,9 @@ function buildImagePlaygroundKeyboard(params: {
     await sendResponse(ctx, localized).catch(() => undefined);
   } finally {
     clearInterval(actionTimer);
+    if (imageProgressReporter) {
+      await (imageProgressReporter as ImageProgressReporter).delete().catch(() => undefined);
+    }
   }
 }
 

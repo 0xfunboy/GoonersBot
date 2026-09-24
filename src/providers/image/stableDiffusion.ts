@@ -48,6 +48,8 @@ export interface ImageGenerationOptions {
   model?: string;
   /** Whether the chat or turn has NSFW enabled. When true, visual QA bypasses rating checks. */
   nsfwEnabled?: boolean;
+  /** Live progress reporter callback for Telegram status/progress bar updates. */
+  onProgress?: (percent: number, stage?: string) => void | Promise<void>;
 }
 
 interface SdModel {

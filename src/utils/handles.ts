@@ -18,3 +18,11 @@ export function fallbackHandle(telegramId: number): string {
 export function isFallbackHandle(handle: string): boolean {
   return /^@id\d+$/.test(handle);
 }
+
+/** Return user handle if named (@username), else first name or fallback id handle. */
+export function formatPersonMention(person: { userHandle: string; firstName?: string }): string {
+  if (person.userHandle && !isFallbackHandle(person.userHandle)) {
+    return person.userHandle;
+  }
+  return person.firstName || person.userHandle;
+}

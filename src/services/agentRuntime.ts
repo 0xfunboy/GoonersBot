@@ -172,6 +172,8 @@ export interface AgentRuntimeInput {
   allowCapabilityInstall?: boolean;
   nsfwEnabled?: boolean;
   signal?: AbortSignal;
+  /** Live image generation progress callback for chat status messages. */
+  onImageProgress?: (update: { prompt: string; percent: number; stage?: string }) => void | Promise<void>;
 }
 
 export type RuntimeArtifactData = Extract<
@@ -191,6 +193,9 @@ export interface AgentRuntimeResult {
   visionCalls: number;
   imageBuffer?: Buffer;
   imageSpoiler?: boolean;
+  imagePrompt?: string;
+  imageProfile?: string;
+  imageAspectRatio?: string;
   videoBuffer?: Buffer;
   videoSpoiler?: boolean;
   videoMeta?: VideoSendMeta;
@@ -308,13 +313,25 @@ export class AgentRuntime {
       const data = asRuntimeData(run.output?.data);
       return Boolean(data && transportKinds.has(data.kind));
     });
-    const pureTransportPlan =
-      hasTransportResult &&
+    const hasMediaResult = result.execution.results.some((run) => {
+      if (run.status !== 'succeeded') return false;
+      const data = asRuntimeData(run.output?.data);
+      return Boolean(data && (data.kind === 'image' || data.kind === 'video' || data.kind === 'music'));
+    });
+    const pureMediaOrTransportPlan =
+      (hasTransportResult || hasMediaResult) &&
       !result.plan.unmetOperations?.length &&
-      result.plan.actions.every(
-        (action) => action.tool === 'link_media' || action.tool === 'anime_archive',
+      result.plan.actions.every((action) =>
+        [
+          'media_prompt',
+          'image_gen',
+          'video_gen',
+          'music',
+          'link_media',
+          'anime_archive',
+        ].includes(action.tool),
       );
-    const guardedText = pureTransportPlan
+    const guardedText = pureMediaOrTransportPlan
       ? ''
       : await this.guardFinalAnswer(result.answer.message, result, input);
 
@@ -359,6 +376,9 @@ export class AgentRuntime {
       if (data.kind === 'image' && !output.imageBuffer) {
         output.imageBuffer = data.buffer;
         output.imageSpoiler = data.spoiler;
+        output.imagePrompt = data.prompt;
+        output.imageProfile = data.profile;
+        output.imageAspectRatio = data.aspectRatio;
       } else if (data.kind === 'video' && !output.videoBuffer) {
         output.videoBuffer = data.buffer;
         output.videoSpoiler = data.spoiler;
@@ -1176,6 +1196,7 @@ export class AgentRuntime {
         const request = enrichedMediaRequest(toolCtx, input.request, ['image_prompt']);
         if (containsMinorMediaReference(request)) return mediaSafetyFailure(input.language);
         if (!(await this.reserveImage(input))) return failedOutput('Image quota exhausted.');
+        await input.onImageProgress?.({ prompt: request, percent: 5, stage: 'Pianificazione...' });
         const dependency = dependencyData(toolCtx, 'image_prompt');
         const dependencyPrompt = dependency?.prepared;
         const requestedProfile = imageProfile(stringArg(toolCtx, 'profile'));
@@ -1198,6 +1219,11 @@ export class AgentRuntime {
               signal: toolCtx.signal,
             }));
           assertMediaGenerationSafe(prepared.prompt);
+          await input.onImageProgress?.({
+            prompt: prepared.prompt,
+            percent: 15,
+            stage: 'Avvio generazione...',
+          });
         } catch (error) {
           if (error instanceof MediaSafetyError) return mediaSafetyFailure(input.language);
           throw error;
@@ -1224,8 +1250,16 @@ export class AgentRuntime {
           nsfwEnabled: input.nsfwEnabled,
           ...(poseReference ? { poseReference: poseReference.buffer } : {}),
           signal: toolCtx.signal,
+          onProgress: async (percent, stage) => {
+            await input.onImageProgress?.({ prompt: prepared.prompt, percent, stage });
+          },
         });
         if (!image?.buffer) return failedOutput('Image generation returned no artifact.');
+        await input.onImageProgress?.({
+          prompt: prepared.prompt,
+          percent: 100,
+          stage: 'Immagine completata',
+        });
         return {
           summary: `Generated the requested image: ${prepared.creativeBrief}`,
           data: {

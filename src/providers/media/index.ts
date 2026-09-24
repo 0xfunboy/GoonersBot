@@ -311,6 +311,7 @@ export class MediaProcessor {
     const requestedRating = options.rating ?? (options.nsfwEnabled ? 'explicit' : 'safe');
     const isAdultRated = options.nsfwEnabled || requestedRating === 'suggestive' || requestedRating === 'explicit';
     const requireAdultOnly = isAdultRated && (options.expectsPeople ?? true);
+    await options.onProgress?.(95, 'verifica conformità visiva...');
     const firstQa = await this.inspectGeneratedImage(
       first.buffer,
       options.qualityBrief,

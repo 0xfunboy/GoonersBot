@@ -50,6 +50,7 @@ async function prepare(
     args,
     botUsername,
     addressed: true,
+    api: ctx.api,
   };
 
   const ok = await services.permissions.checkAll(permissions, person, context);

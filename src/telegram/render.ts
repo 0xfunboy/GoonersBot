@@ -100,7 +100,7 @@ export async function sendResponse(
   ctx: Context,
   response: LocalizedResponse,
 ): Promise<Message | undefined> {
-  const replyTo = ctx.message?.message_id;
+  const replyTo = ctx.message?.message_id ?? ctx.callbackQuery?.message?.message_id;
   const reply_markup = response.keyboard
     ? buildInlineKeyboard(response.keyboard, response.keyboard.page ?? 0)
     : response.customInlineKeyboard

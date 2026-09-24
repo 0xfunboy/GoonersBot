@@ -20,6 +20,8 @@ import {
 import { getCachedCodeSnippet } from '../../../services/codeSnippetCache.js';
 import type { ImageProfile } from '../../../providers/image/stableDiffusion.js';
 import type { ImageMedium } from '../../../services/imagePrompt.js';
+import { formatPersonMention } from '../../../utils/handles.js';
+import { ImageProgressReporter } from '../../imageProgress.js';
 
 /** set_chat_mode|<modeId> - activate a mode. */
 const setChatMode: CallbackSpec = {
@@ -237,7 +239,7 @@ const sampleStyle: CallbackSpec = {
   action: 'sample_style',
   permissions: ['allowed_user', 'not_banned'],
   needsTermsAccepted: true,
-  async handle({ services, args, context }) {
+  async handle({ services, args, context, person, api }) {
     const promptId = args[0];
     if (!promptId) return null;
     const cached = getCachedImagePrompt(promptId);
@@ -248,6 +250,7 @@ const sampleStyle: CallbackSpec = {
         ephemeralMs: 5000,
       };
     }
+    const userMention = formatPersonMention(person);
     const nextMedium = nextArtisticMedium(cached.medium);
     const profile = cached.profile as ImageProfile | undefined;
     const medium = nextMedium as ImageMedium;
@@ -256,41 +259,64 @@ const sampleStyle: CallbackSpec = {
       services.config.env.LLM_NSFW_DEFAULT_MODE,
     );
     const nsfwEnabled = chatNsfwMode !== 'off';
-    const prepared = await services.imagePrompts.prepare(cached.prompt, {
-      ...(profile ? { profile } : {}),
-      context: {
-        intent: `${cached.prompt} in ${nextMedium} style`,
-        recentMessages: [],
-        relevantLore: [],
-      },
-    });
-    const image = await services.media.generateImage(prepared.prompt, {
-      profile: profile ?? prepared.profile,
-      medium,
-      rating: prepared.rating,
-      negativePrompt: prepared.negativePrompt,
-      aspectRatio: cached.aspectRatio ?? prepared.aspectRatio,
-      preferredProvider: 'pony',
-      nsfwEnabled,
-    });
-    if (!image?.buffer) {
-      return { text: 'image_unavailable' };
+
+    let progressReporter: ImageProgressReporter | null = null;
+    if (api) {
+      progressReporter = new ImageProgressReporter({
+        api,
+        chatId: context.chatId,
+        replyToMessageId: context.messageId,
+        initialPrompt: cached.prompt,
+        prefix: `Sto preparando lo stile ${nextMedium} per ${userMention}`,
+      });
+      await progressReporter.start(cached.prompt);
     }
-    const newId = cacheGeneratedImagePrompt({
-      prompt: cached.prompt,
-      profile: cached.profile,
-      medium: nextMedium,
-      aspectRatio: cached.aspectRatio,
-      rating: prepared.rating,
-    });
-    return {
-      rawText: `🎨 Stile: *${nextMedium}*`,
-      textFormat: 'markdown',
-      imageBuffer: image.buffer,
-      imageSpoiler: prepared.rating !== 'safe',
-      customInlineKeyboard: buildImagePlaygroundRows(newId),
-      usage: { imageCalls: image.generationAttempts ?? 1 },
-    };
+
+    try {
+      const prepared = await services.imagePrompts.prepare(cached.prompt, {
+        ...(profile ? { profile } : {}),
+        context: {
+          intent: `${cached.prompt} in ${nextMedium} style`,
+          recentMessages: [],
+          relevantLore: [],
+        },
+      });
+      await progressReporter?.update(15, prepared.prompt, 'Avvio generazione...');
+      const image = await services.media.generateImage(prepared.prompt, {
+        profile: profile ?? prepared.profile,
+        medium,
+        rating: prepared.rating,
+        negativePrompt: prepared.negativePrompt,
+        aspectRatio: cached.aspectRatio ?? prepared.aspectRatio,
+        preferredProvider: 'pony',
+        nsfwEnabled,
+        onProgress: async (percent, stage) => {
+          await progressReporter?.update(percent, prepared.prompt, stage);
+        },
+      });
+      await progressReporter?.delete();
+      if (!image?.buffer) {
+        return { text: 'image_unavailable' };
+      }
+      const newId = cacheGeneratedImagePrompt({
+        prompt: cached.prompt,
+        profile: cached.profile,
+        medium: nextMedium,
+        aspectRatio: cached.aspectRatio,
+        rating: prepared.rating,
+      });
+      return {
+        rawText: `Ecco la tua versione in stile ${nextMedium} ${userMention}`,
+        textFormat: 'plain',
+        imageBuffer: image.buffer,
+        imageSpoiler: prepared.rating !== 'safe',
+        customInlineKeyboard: buildImagePlaygroundRows(newId),
+        usage: { imageCalls: image.generationAttempts ?? 1 },
+      };
+    } catch (err) {
+      await progressReporter?.delete();
+      throw err;
+    }
   },
 };
 
@@ -299,7 +325,7 @@ const sampleRatio: CallbackSpec = {
   action: 'sample_ratio',
   permissions: ['allowed_user', 'not_banned'],
   needsTermsAccepted: true,
-  async handle({ services, args, context }) {
+  async handle({ services, args, context, person, api }) {
     const [ratio, promptId] = args;
     if (!ratio || !promptId) return null;
     const validRatio = ['16:9', '9:16', '1:1'].includes(ratio)
@@ -313,35 +339,62 @@ const sampleRatio: CallbackSpec = {
         ephemeralMs: 5000,
       };
     }
+    const userMention = formatPersonMention(person);
+    let ratioLabel = 'quadrata';
+    if (validRatio === '9:16') ratioLabel = 'verticale';
+    else if (validRatio === '16:9') ratioLabel = 'orizzontale';
+
     const chatNsfwMode = await services.storage.chats.getNsfwMode(
       context.chatId,
       services.config.env.LLM_NSFW_DEFAULT_MODE,
     );
     const nsfwEnabled = chatNsfwMode !== 'off';
-    const image = await services.media.generateImage(cached.prompt, {
-      profile: cached.profile as ImageProfile | undefined,
-      medium: cached.medium as ImageMedium | undefined,
-      aspectRatio: validRatio,
-      rating: cached.rating,
-      negativePrompt: cached.negativePrompt,
-      preferredProvider: 'pony',
-      nsfwEnabled,
-    });
-    if (!image?.buffer) {
-      return { text: 'image_unavailable' };
+
+    let progressReporter: ImageProgressReporter | null = null;
+    if (api) {
+      progressReporter = new ImageProgressReporter({
+        api,
+        chatId: context.chatId,
+        replyToMessageId: context.messageId,
+        initialPrompt: cached.prompt,
+        prefix: `Sto preparando la versione ${ratioLabel} per ${userMention}`,
+      });
+      await progressReporter.start(cached.prompt);
     }
-    const newId = cacheGeneratedImagePrompt({
-      ...cached,
-      aspectRatio: validRatio,
-    });
-    return {
-      rawText: `📐 Proporzione: *${validRatio}*`,
-      textFormat: 'markdown',
-      imageBuffer: image.buffer,
-      imageSpoiler: cached.rating !== 'safe',
-      customInlineKeyboard: buildImagePlaygroundRows(newId),
-      usage: { imageCalls: image.generationAttempts ?? 1 },
-    };
+
+    try {
+      const image = await services.media.generateImage(cached.prompt, {
+        profile: cached.profile as ImageProfile | undefined,
+        medium: cached.medium as ImageMedium | undefined,
+        aspectRatio: validRatio,
+        rating: cached.rating,
+        negativePrompt: cached.negativePrompt,
+        preferredProvider: 'pony',
+        nsfwEnabled,
+        onProgress: async (percent, stage) => {
+          await progressReporter?.update(percent, cached.prompt, stage);
+        },
+      });
+      await progressReporter?.delete();
+      if (!image?.buffer) {
+        return { text: 'image_unavailable' };
+      }
+      const newId = cacheGeneratedImagePrompt({
+        ...cached,
+        aspectRatio: validRatio,
+      });
+      return {
+        rawText: `Ecco la tua versione ${ratioLabel} ${userMention}`,
+        textFormat: 'plain',
+        imageBuffer: image.buffer,
+        imageSpoiler: cached.rating !== 'safe',
+        customInlineKeyboard: buildImagePlaygroundRows(newId),
+        usage: { imageCalls: image.generationAttempts ?? 1 },
+      };
+    } catch (err) {
+      await progressReporter?.delete();
+      throw err;
+    }
   },
 };
 
@@ -350,7 +403,7 @@ const sampleRemix: CallbackSpec = {
   action: 'sample_remix',
   permissions: ['allowed_user', 'not_banned'],
   needsTermsAccepted: true,
-  async handle({ services, args, context }) {
+  async handle({ services, args, context, person, api }) {
     const promptId = args[0];
     if (!promptId) return null;
     const cached = getCachedImagePrompt(promptId);
@@ -361,36 +414,59 @@ const sampleRemix: CallbackSpec = {
         ephemeralMs: 5000,
       };
     }
+    const userMention = formatPersonMention(person);
     const chatNsfwMode = await services.storage.chats.getNsfwMode(
       context.chatId,
       services.config.env.LLM_NSFW_DEFAULT_MODE,
     );
     const nsfwEnabled = chatNsfwMode !== 'off';
     const remixPrompt = `${cached.prompt}, creative remix variation, alternate details`;
-    const image = await services.media.generateImage(remixPrompt, {
-      profile: cached.profile as ImageProfile | undefined,
-      medium: cached.medium as ImageMedium | undefined,
-      aspectRatio: cached.aspectRatio,
-      rating: cached.rating,
-      negativePrompt: cached.negativePrompt,
-      preferredProvider: 'pony',
-      nsfwEnabled,
-    });
-    if (!image?.buffer) {
-      return { text: 'image_unavailable' };
+
+    let progressReporter: ImageProgressReporter | null = null;
+    if (api) {
+      progressReporter = new ImageProgressReporter({
+        api,
+        chatId: context.chatId,
+        replyToMessageId: context.messageId,
+        initialPrompt: remixPrompt,
+        prefix: `Sto preparando il remix per ${userMention}`,
+      });
+      await progressReporter.start(remixPrompt);
     }
-    const newId = cacheGeneratedImagePrompt({
-      ...cached,
-      prompt: remixPrompt,
-    });
-    return {
-      rawText: '🔁 Remix generato',
-      textFormat: 'markdown',
-      imageBuffer: image.buffer,
-      imageSpoiler: cached.rating !== 'safe',
-      customInlineKeyboard: buildImagePlaygroundRows(newId),
-      usage: { imageCalls: image.generationAttempts ?? 1 },
-    };
+
+    try {
+      const image = await services.media.generateImage(remixPrompt, {
+        profile: cached.profile as ImageProfile | undefined,
+        medium: cached.medium as ImageMedium | undefined,
+        aspectRatio: cached.aspectRatio,
+        rating: cached.rating,
+        negativePrompt: cached.negativePrompt,
+        preferredProvider: 'pony',
+        nsfwEnabled,
+        onProgress: async (percent, stage) => {
+          await progressReporter?.update(percent, remixPrompt, stage);
+        },
+      });
+      await progressReporter?.delete();
+      if (!image?.buffer) {
+        return { text: 'image_unavailable' };
+      }
+      const newId = cacheGeneratedImagePrompt({
+        ...cached,
+        prompt: remixPrompt,
+      });
+      return {
+        rawText: `Ecco il tuo remix ${userMention}`,
+        textFormat: 'plain',
+        imageBuffer: image.buffer,
+        imageSpoiler: cached.rating !== 'safe',
+        customInlineKeyboard: buildImagePlaygroundRows(newId),
+        usage: { imageCalls: image.generationAttempts ?? 1 },
+      };
+    } catch (err) {
+      await progressReporter?.delete();
+      throw err;
+    }
   },
 };
 
