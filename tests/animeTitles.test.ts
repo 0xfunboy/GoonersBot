@@ -4,6 +4,8 @@ import {
   diceSimilarity,
   isDecisiveMatch,
   normalizeTitle,
+  parseNaturalAnimeRequest,
+  parseSemanticEpisodeNumber,
   rankByTitle,
   titleKeys,
   titleSimilarity,
@@ -143,3 +145,51 @@ describe('isDecisiveMatch', () => {
     expect(isDecisiveMatch([])).toBe(false);
   });
 });
+
+describe('parseSemanticEpisodeNumber and parseNaturalAnimeRequest', () => {
+  it('parses digits, ordinals and typos in Italian', () => {
+    expect(parseSemanticEpisodeNumber('3')).toBe(3);
+    expect(parseSemanticEpisodeNumber('terzo')).toBe(3);
+    expect(parseSemanticEpisodeNumber('terzo episo dio')).toBe(3);
+    expect(parseSemanticEpisodeNumber('episodio 12')).toBe(12);
+    expect(parseSemanticEpisodeNumber('quarta puntata')).toBe(4);
+    expect(parseSemanticEpisodeNumber('ep03')).toBe(3);
+    expect(parseSemanticEpisodeNumber('e05')).toBe(5);
+    expect(parseSemanticEpisodeNumber('24esimo')).toBe(24);
+    expect(parseSemanticEpisodeNumber('28°')).toBe(28);
+    expect(parseSemanticEpisodeNumber('ventiquattresimo')).toBe(24);
+    expect(parseSemanticEpisodeNumber('trentesimo')).toBe(30);
+    expect(parseSemanticEpisodeNumber('s02e08')).toBe(8);
+    expect(parseSemanticEpisodeNumber('latest')).toBeNull();
+    expect(parseSemanticEpisodeNumber(null)).toBeNull();
+  });
+
+  it('parses natural conversational anime download requests', () => {
+    const parsed1 = parseNaturalAnimeRequest(
+      'hey scaricami il terzo episo dio della seconda serie di mushoku tensei',
+    );
+    expect(parsed1.episode).toBe(3);
+    expect(parsed1.season).toBe(2);
+    expect(parsed1.cleanQuery).toContain('mushoku tensei');
+
+    const parsed2 = parseNaturalAnimeRequest(
+      'scaricami la puntata quattro della prima serie di frieren',
+    );
+    expect(parsed2.episode).toBe(4);
+    expect(parsed2.season).toBe(1);
+    expect(parsed2.cleanQuery).toContain('frieren');
+
+    const parsedSxxExx = parseNaturalAnimeRequest('scaricami mushoku tensei s02e03');
+    expect(parsedSxxExx.episode).toBe(3);
+    expect(parsedSxxExx.season).toBe(2);
+    expect(parsedSxxExx.cleanQuery).toBe('mushoku tensei');
+    expect(parsedSxxExx.seasonTitle).toBe('mushoku tensei 2');
+
+    const parsedOrdinals = parseNaturalAnimeRequest(
+      'mandami il ventiquattresimo episodio di jujutsu kaisen',
+    );
+    expect(parsedOrdinals.episode).toBe(24);
+    expect(parsedOrdinals.cleanQuery).toBe('jujutsu kaisen');
+  });
+});
+

@@ -68,6 +68,7 @@ export function emptyQuota(chatId: number, plan: QuotaPlanId, now: Date): ChatQu
     hourly: emptyHourlyCounters(),
     minute: { chatRequests: 0, userRequests: {} },
     lastUserRequestAt: {},
+    warnedThresholds: {},
     updatedAt: now,
   };
 }

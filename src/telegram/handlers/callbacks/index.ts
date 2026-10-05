@@ -154,7 +154,14 @@ const animeArchiveConfirmation: CallbackSpec = {
       quotaBypass: services.bypassesGroupPlan(person, context),
       signal: AbortSignal.timeout(20_000),
     });
-    return archiveConfirmationResponse(result);
+    const resp = archiveConfirmationResponse(result);
+    if (result.status === 'queued' && !services.bypassesGroupPlan(person, context)) {
+      const mediaQuota = await services.quota.getMediaQuotaStatus(context.chatId).catch(() => null);
+      if (mediaQuota?.nearLimit && resp?.rawText) {
+        resp.rawText += `\n⚠️ Attenzione quota: Posso rehostare al massimo altri ${mediaQuota.remainingCount} video o ${mediaQuota.remainingMb}MB oggi prima del reset della quota Telegram API.`;
+      }
+    }
+    return resp;
   },
 };
 

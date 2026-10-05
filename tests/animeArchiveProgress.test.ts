@@ -103,5 +103,32 @@ describe('AnimeArchiveProgressReporter', () => {
     expect(sendMessage).toHaveBeenCalledOnce();
     expect(editMessageText).not.toHaveBeenCalled();
   });
+
+  it('updates message cleanly when paused for quota', async () => {
+    let resolveSend: ((value: { message_id: number }) => void) | undefined;
+    const sendMessage = vi.fn(
+      () =>
+        new Promise<{ message_id: number }>((resolve) => {
+          resolveSend = resolve;
+        }),
+    );
+    const editMessageText = vi.fn().mockResolvedValue({});
+    const reporter = new AnimeArchiveProgressReporter(
+      { sendMessage, editMessageText } as never,
+      job,
+    );
+
+    await reporter.start();
+    resolveSend?.({ message_id: 888 });
+
+    await reporter.paused(episode, 5);
+    await vi.waitFor(() => {
+      expect(editMessageText).toHaveBeenLastCalledWith(
+        -100,
+        888,
+        expect.stringContaining('download in pausa per limite quota Telegram'),
+      );
+    });
+  });
 });
 

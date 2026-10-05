@@ -81,6 +81,10 @@ export interface ChatQuotaDoc {
   };
   lastChatRequestAt?: Date;
   lastUserRequestAt: Record<string, Date>;
+  warnedThresholds?: {
+    daily50?: boolean;
+    daily90?: boolean;
+  };
   updatedAt: Date;
 }
 

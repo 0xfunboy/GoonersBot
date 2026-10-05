@@ -18,6 +18,7 @@ import {
   EXACT_MATCH_SCORE,
   canonicalTitleKey,
   isDecisiveMatch,
+  parseSemanticEpisodeNumber,
   rankByTitle,
   type RankedTitle,
 } from '../titles.js';
@@ -1504,15 +1505,7 @@ export function parseAnimeArchiveConfirmationDecision(
 }
 
 function normalizeExpectedEpisodeNumber(value: number | string | undefined): number | null {
-  if (value === undefined) return null;
-  if (typeof value === 'string') {
-    const text = value.trim().replace(',', '.');
-    if (!/^\d+(?:\.\d+)?$/u.test(text)) return null;
-    const normalized = Number(text);
-    return Number.isFinite(normalized) && normalized >= 0 ? normalized : null;
-  }
-  const normalized = value;
-  return Number.isFinite(normalized) && normalized >= 0 ? normalized : null;
+  return parseSemanticEpisodeNumber(value);
 }
 
 function actorFrom(input: AnimeArchiveConfirmationInput) {

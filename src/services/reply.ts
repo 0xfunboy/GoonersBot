@@ -28,6 +28,7 @@ import type {
   AnimeKnowledgeService,
 } from '../anime/knowledgeService.js';
 import { parseAnimeIntent } from '../anime/knowledgeService.js';
+import { parseSemanticEpisodeNumber, parseNaturalAnimeRequest } from '../anime/titles.js';
 import type { AnimeArchivePreparationResult } from '../anime/archive/service.js';
 import type { AmbientRecallResult, AmbientRetriever } from '../ambient/retriever.js';
 import type { SocialStandingService } from '../social/standingService.js';
@@ -570,8 +571,12 @@ export interface AnimeArchiveLookup {
 export function animeArchiveLookupFromAnswer(
   intent: AnimeIntent,
   answer: AnimeKnowledgeAnswer | null | undefined,
+  requestedEpisode?: number | string | null | undefined,
 ): AnimeArchiveLookup | undefined {
   if (intent !== 'lookup' || !answer?.series) return undefined;
+  const parsedEpisode = parseSemanticEpisodeNumber(requestedEpisode);
+  const episodeNumber =
+    (parsedEpisode != null ? parsedEpisode : answer.series.latestEpisode) ?? undefined;
   return {
     titles: [
       answer.series.title,
@@ -580,9 +585,7 @@ export function animeArchiveLookupFromAnswer(
       answer.series.titleNative,
       ...answer.series.aliases,
     ].filter((title): title is string => Boolean(title?.trim())),
-    ...(answer.series.latestEpisode !== undefined
-      ? { episodeNumber: answer.series.latestEpisode }
-      : {}),
+    ...(episodeNumber !== undefined ? { episodeNumber } : {}),
   };
 }
 
@@ -2127,7 +2130,11 @@ export class ReplyService {
       // Ambient recall is unconditional: unlike every other provider here it is not gated on a
       // classified intent, because its whole purpose is knowing things nobody thought to ask for.
     ]);
-    const animeArchiveLookup = animeArchiveLookupFromAnswer(animeIntent, animeAnswer);
+    const rawEpisodeArg =
+      callFor('anime_archive')?.args?.['episode'] ??
+      callFor('anime_knowledge')?.args?.['episode'] ??
+      (ctx.message.messageText ? parseNaturalAnimeRequest(ctx.message.messageText).episode : undefined);
+    const animeArchiveLookup = animeArchiveLookupFromAnswer(animeIntent, animeAnswer, rawEpisodeArg);
     const news = wants('news', 'news')
       ? await this.newsContext(ctx, history, retrieved, scene)
       : { sources: [] };

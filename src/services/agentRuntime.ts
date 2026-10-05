@@ -21,6 +21,10 @@ import type { GroundingService } from '../search/groundingService.js';
 import type { KnowledgeRetriever } from '../knowledge/knowledgeRetriever.js';
 import type { AnimeKnowledgeService } from '../anime/knowledgeService.js';
 import { parseAnimeIntent } from '../anime/knowledgeService.js';
+import {
+  parseNaturalAnimeRequest,
+  parseSemanticEpisodeNumber,
+} from '../anime/titles.js';
 import type {
   AnimeArchivePreparationResult,
   AnimeArchiveService,
@@ -858,13 +862,31 @@ export class AgentRuntime {
             preferredSource,
           });
         } else {
-          const concreteTitle = title ?? actionQuery;
+          let concreteTitle = title ?? actionQuery;
           if (!concreteTitle) {
             return failedOutput(
               'Anime archive episode/series action requires a concrete title selected by Cortex.',
             );
           }
-          const episode = stringArg(toolCtx, 'episode');
+          let episode = stringArg(toolCtx, 'episode');
+
+          // Semantic resolution on the natural user request (e.g. "terzo episo dio della seconda serie")
+          const natural = parseNaturalAnimeRequest(input.request || concreteTitle);
+          if (
+            natural.season &&
+            !/\b(?:2|3|4|5|6|ii|iii|iv|v|vi|season\s*\d|serie\s*\d)\b/i.test(concreteTitle)
+          ) {
+            concreteTitle = `${concreteTitle} ${natural.season}`;
+          }
+          if ((!episode || episode === 'latest') && natural.episode !== undefined) {
+            episode = String(natural.episode);
+          } else if (episode && episode !== 'latest') {
+            const parsedEp = parseSemanticEpisodeNumber(episode);
+            if (parsedEp !== null) {
+              episode = String(parsedEp);
+            }
+          }
+
           const common = {
             ...shared,
             query: concreteTitle,

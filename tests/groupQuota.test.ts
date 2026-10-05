@@ -83,11 +83,11 @@ describe('GroupQuotaService', () => {
   it('changes the entire policy through one plan assignment', async () => {
     const { service } = quotaService();
     const report = await service.setPlan(-100, 'pro');
-    expect(report.plan.conversationDaily).toBe(144);
-    expect(report.plan.conversationHourly).toBe(30);
-    expect(report.plan.llmTokensDaily).toBe(2_000_000);
-    expect(report.plan.webSearchDaily).toBe(75);
-    expect(report.plan.imagesDaily).toBe(48);
+    expect(report.plan.conversationDaily).toBe(500);
+    expect(report.plan.conversationHourly).toBe(120);
+    expect(report.plan.llmTokensDaily).toBe(10_000_000);
+    expect(report.plan.webSearchDaily).toBe(150);
+    expect(report.plan.imagesDaily).toBe(100);
   });
 
   it('blocks passive replies after the plan-specific hourly allowance', async () => {
@@ -106,7 +106,7 @@ describe('GroupQuotaService', () => {
     await service.setPlan(-100, 'pro');
     const doc = getDoc();
     if (!doc) throw new Error('quota document missing');
-    doc.hourly.conversations = 30;
+    doc.hourly.conversations = 120;
     const decision = await service.admitConversation({
       chatId: -100,
       telegramId: 42,
@@ -126,7 +126,7 @@ describe('GroupQuotaService', () => {
     await service.setPlan(-100, 'pro');
     const doc = getDoc();
     if (!doc) throw new Error('quota document missing');
-    doc.daily.conversations = 144;
+    doc.daily.conversations = 500;
     const decision = await service.admitConversation({
       chatId: -100,
       telegramId: 42,
@@ -137,5 +137,64 @@ describe('GroupQuotaService', () => {
       reason: 'conversation_daily',
       retryAfterSeconds: 2_190,
     });
+  });
+
+  it('triggers in-character threshold alerts at 50% and 90% of daily quota', async () => {
+    const { service, getDoc } = quotaService();
+    await service.setPlan(-100, 'pro'); // 500 daily conversations, 0 cooldown
+    const doc = getDoc();
+    if (!doc) throw new Error('quota document missing');
+
+    // Set conversations to 249 (just under 50%)
+    doc.daily.conversations = 249;
+    const decision1 = await service.admitConversation({
+      chatId: -100,
+      telegramId: 42,
+      passive: false,
+    });
+    expect(decision1.allowed).toBe(true);
+    // After admit: 250 / 500 = 50%
+    expect(decision1.thresholdAlert).toBe('quota_50');
+
+    // Next message should NOT trigger 50% again
+    const decision2 = await service.admitConversation({
+      chatId: -100,
+      telegramId: 43,
+      passive: false,
+    });
+    expect(decision2.allowed).toBe(true);
+    expect(decision2.thresholdAlert).toBeUndefined();
+
+    // Now advance to 449 (just under 90% = 450)
+    getDoc()!.daily.conversations = 449;
+    const decision3 = await service.admitConversation({
+      chatId: -100,
+      telegramId: 44,
+      passive: false,
+    });
+    // 450 / 500 = 90% -> crosses 90%!
+    expect(decision3.allowed).toBe(true);
+    expect(decision3.thresholdAlert).toBe('quota_90');
+    expect(decision3.conversationsLeft).toBe(50);
+  });
+
+  it('detects near-limit media quota when <= 3 videos or <= 300MB remaining', async () => {
+    const { service, getDoc } = quotaService();
+    await service.setPlan(-100, 'pro'); // 80 media items, 5000MB
+    const doc = getDoc();
+    if (!doc) throw new Error('quota document missing');
+
+    // Set media to 78 (2 remaining <= 3)
+    doc.daily.media = 78;
+    const status1 = await service.getMediaQuotaStatus(-100);
+    expect(status1.nearLimit).toBe(true);
+    expect(status1.remainingCount).toBe(2);
+
+    // Reset media to 10, but consume 4800MB (200MB remaining <= 300MB)
+    doc.daily.media = 10;
+    doc.daily.mediaBytes = 4800 * 1024 * 1024;
+    const status2 = await service.getMediaQuotaStatus(-100);
+    expect(status2.nearLimit).toBe(true);
+    expect(status2.remainingMb).toBeLessThanOrEqual(200);
   });
 });

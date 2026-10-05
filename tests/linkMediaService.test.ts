@@ -373,7 +373,7 @@ describe('LinkMediaService', () => {
     expect(result).toMatchObject({
       handled: false,
       reason: 'duration_exceeded',
-      durationLimit: { durationSeconds: 1_050, maxDurationSeconds: 300 },
+      durationLimit: { durationSeconds: 1_050, maxDurationSeconds: 900 },
     });
     expect(mocks.ytdlpDownload).not.toHaveBeenCalled();
     expect(mocks.ytdlpSnapshot).not.toHaveBeenCalled();
@@ -571,7 +571,7 @@ describe('LinkMediaService', () => {
       addressed: false,
     });
 
-    expect(result).toMatchObject({ handled: false, reason: 'download_failed' });
+    expect(result).toMatchObject({ handled: false, reason: 'quota_denied' });
     expect(mocks.extract).not.toHaveBeenCalled();
     expect(mocks.download).not.toHaveBeenCalled();
   });

@@ -150,11 +150,14 @@ function mediaRehostFailureText(
   url: string,
   language: string,
 ): string {
+  if (result.reason === 'size_exceeded') {
+    return '⚠️ Il video supera il limite massimo di 100MB per l\'upload tramite le API di Telegram.';
+  }
   const durationVars = durationLimitVars(result);
   if (durationVars) {
     return (
       services.localizer.t('media_rehost_duration_exceeded', durationVars, language) ??
-      `Rehost disabled: video ${durationVars['duration']}, limit ${durationVars['limit']}.`
+      `Rehost non disponibile: durata ${durationVars['duration']}, limite consentito ${durationVars['limit']}.`
     );
   }
   return services.localizer.t('media_rehost_failed', { url }, language) ?? url;
@@ -567,12 +570,30 @@ export async function handleMessage(
     }
 
     if ((linkMedia.failedUrls?.length ?? 0) > 0) {
-      const durationVars = durationLimitVars(linkMedia);
-      const notice = await localizeResponse(services, context.chatId, {
-        text: durationVars ? 'media_rehost_duration_exceeded' : 'media_rehost_auto_failed',
-        ...(durationVars ? { vars: durationVars } : {}),
-      });
-      initialFailureNoticeMessageId = (await sendResponse(ctx, notice))?.message_id;
+      if (linkMedia.reason === 'quota_denied') {
+        const notice =
+          '⚠️ Quota media giornaliera esaurita per questo gruppo! I rehost e i download riprenderanno automaticamente dopo la mezzanotte (00:00).';
+        initialFailureNoticeMessageId = (await ctx.reply(notice).catch(() => null))?.message_id;
+      } else if (linkMedia.reason === 'size_exceeded') {
+        const notice = '⚠️ Il video supera il limite massimo di 100MB per l\'upload tramite le API di Telegram.';
+        initialFailureNoticeMessageId = (await ctx.reply(notice).catch(() => null))?.message_id;
+      } else {
+        const durationVars = durationLimitVars(linkMedia);
+        const notice = await localizeResponse(services, context.chatId, {
+          text: durationVars ? 'media_rehost_duration_exceeded' : 'media_rehost_auto_failed',
+          ...(durationVars ? { vars: durationVars } : {}),
+        });
+        initialFailureNoticeMessageId = (await sendResponse(ctx, notice))?.message_id;
+      }
+    }
+
+    if (linkMedia.handled && !bypassGroupPlan) {
+      void services.quota.getMediaQuotaStatus(context.chatId).then((mediaQuota) => {
+        if (mediaQuota.nearLimit) {
+          const quotaAlert = `⚠️ *Attenzione quota rehost:* Posso rehostare al massimo altri ${mediaQuota.remainingCount} video o ${mediaQuota.remainingMb}MB oggi, poi dovrai aspettare domani per il reset della quota Telegram API.`;
+          void ctx.reply(quotaAlert, { parse_mode: 'Markdown' }).catch(() => undefined);
+        }
+      }).catch(() => undefined);
     }
 
     if (linkMedia.injectedText) {
@@ -722,6 +743,16 @@ export async function handleMessage(
       await sendResponse(ctx, localized);
     }
     return;
+  }
+
+  if (quota.thresholdAlert) {
+    const alertText =
+      quota.thresholdAlert === 'quota_90'
+        ? `🚨 *Allerta secca:* siamo al 90% della quota giornaliera! Rimane solo il 10% dei messaggi (${quota.conversationsLeft ?? 0} rimasti su ${quota.totalConversations ?? 0}) prima che io vada in letargo fino a mezzanotte. Usateli con saggezza (o no)!`
+        : `⚠️ *Occhio rega:* questa chat ha appena superato il 50% della quota giornaliera (${quota.conversationsLeft ?? 0} messaggi rimasti su ${quota.totalConversations ?? 0}). Cerchiamo di regolarci per non finire a secco prima di stasera!`;
+    void ctx.reply(alertText, { parse_mode: 'Markdown' }).catch((err) => {
+      log.warn({ err, chatId: context.chatId }, 'failed to send quota threshold alert');
+    });
   }
 
   // Model routing (NSFW) followed by plan policy. Free is pinned to the economy model and cannot
@@ -1535,6 +1566,14 @@ async function sendArchiveResult(
       await services.animeArchive
         .attachSearchResultMessage(result.session.id, sent.message_id)
         .catch((err) => log.warn({ err }, 'anime archive search result attach failed'));
+    }
+    if (ctx.chat?.id && result.status === 'queued') {
+      void services.quota.getMediaQuotaStatus(ctx.chat.id).then((mediaQuota) => {
+        if (mediaQuota.nearLimit) {
+          const quotaAlert = `⚠️ *Attenzione quota rehost:* Posso rehostare al massimo altri ${mediaQuota.remainingCount} video o ${mediaQuota.remainingMb}MB oggi, poi dovrai attendere domani per il reset della quota Telegram API.`;
+          void ctx.reply(quotaAlert, { parse_mode: 'Markdown' }).catch(() => undefined);
+        }
+      }).catch(() => undefined);
     }
     return sent ? [sent.message_id] : [];
   }

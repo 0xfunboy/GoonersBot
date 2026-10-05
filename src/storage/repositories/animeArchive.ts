@@ -1184,7 +1184,14 @@ export class AnimeArchiveJobsRepo {
     const leaseExpiresAt = futureLease(now, leaseMs);
     const filter: Filter<AnimeArchiveJobDoc> = {
       $or: [
-        { state: 'queued' },
+        {
+          state: 'queued',
+          $or: [
+            { leaseExpiresAt: { $lte: now } },
+            { leaseExpiresAt: null },
+            { leaseExpiresAt: { $exists: false } },
+          ],
+        },
         {
           state: 'running',
           $or: [{ leaseExpiresAt: { $lte: now } }, { leaseExpiresAt: null }],
@@ -1202,6 +1209,7 @@ export class AnimeArchiveJobsRepo {
             ],
           },
           state: 'running',
+          paused: false,
           leaseOwner: owner,
           leaseExpiresAt,
           leaseRenewedAt: now,
@@ -1618,6 +1626,58 @@ export class AnimeArchiveJobsRepo {
             leaseExpiresAt: null,
             leaseRenewedAt: null,
             cancelledAt: now,
+            updatedAt: now,
+          },
+        },
+      ],
+      { returnDocument: 'after' },
+    );
+  }
+
+  /** Pause a running job when Telegram media quota is exhausted; will auto-resume after resetAt. */
+  async pauseJobForQuota(
+    id: string,
+    resumeAt: Date,
+    reason: string,
+    now: Date = new Date(),
+  ): Promise<AnimeArchiveJobDoc | null> {
+    return this.col.findOneAndUpdate(
+      { id, state: 'running' },
+      [
+        {
+          $set: {
+            episodes: {
+              $map: {
+                input: '$episodes',
+                as: 'episode',
+                in: {
+                  $cond: [
+                    { $eq: ['$$episode.status', 'running'] },
+                    {
+                      $mergeObjects: [
+                        '$$episode',
+                        {
+                          status: 'pending',
+                          deliveryToken: null,
+                          deliveryStartedAt: null,
+                          deliveryOutcomeUnknown: false,
+                          failureReason: reason,
+                          startedAt: null,
+                          completedAt: null,
+                          updatedAt: now,
+                        },
+                      ],
+                    },
+                    '$$episode',
+                  ],
+                },
+              },
+            },
+            state: 'queued',
+            paused: true,
+            leaseOwner: null,
+            leaseExpiresAt: resumeAt,
+            leaseRenewedAt: null,
             updatedAt: now,
           },
         },

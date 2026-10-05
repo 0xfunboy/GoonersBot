@@ -84,11 +84,18 @@ export interface LinkMediaResult {
   reason?: string;
   /** Present only when extraction proved that a bounded VOD exceeds the configured duration. */
   durationLimit?: LinkMediaDurationLimit;
+  /** Present when media file exceeds maximum upload size (e.g. 100MB limit). */
+  sizeLimit?: LinkMediaSizeLimit;
 }
 
 export interface LinkMediaDurationLimit {
   durationSeconds: number;
   maxDurationSeconds: number;
+}
+
+export interface LinkMediaSizeLimit {
+  sizeBytes: number;
+  maxSizeBytes: number;
 }
 
 type ItemProcessingResult =
@@ -99,7 +106,8 @@ type ItemProcessingResult =
       partialFailure?: boolean;
     }
   | { status: 'skipped' | 'quota_denied' }
-  | ({ status: 'duration_exceeded' } & LinkMediaDurationLimit);
+  | ({ status: 'duration_exceeded' } & LinkMediaDurationLimit)
+  | ({ status: 'size_exceeded' } & LinkMediaSizeLimit);
 
 interface ProcessedUrlResult {
   contextText?: string;
@@ -108,7 +116,9 @@ interface ProcessedUrlResult {
   mediaDetected?: boolean;
   /** At least one item in a multi-media post could not be delivered. */
   partialFailure?: boolean;
+  quotaDenied?: boolean;
   durationLimit?: LinkMediaDurationLimit;
+  sizeLimit?: LinkMediaSizeLimit;
 }
 
 export class LinkMediaService {
@@ -143,6 +153,19 @@ export class LinkMediaService {
 
   get autoRehostEnabled(): boolean {
     return this.enabled && this.cfg.autoRehost;
+  }
+
+  /** Maximum duration allowed, with at least 15m (900s) allowed for YouTube. */
+  maxDurationFor(url: string | URL): number {
+    try {
+      const u = typeof url === 'string' ? new URL(url) : url;
+      if (/\b(?:youtube\.com|youtu\.be)\b/i.test(u.hostname)) {
+        return Math.max(900, this.cfg.maxDurationSeconds);
+      }
+    } catch {
+      // ignore
+    }
+    return this.cfg.maxDurationSeconds;
   }
 
   /** Abort downloads/transcodes, wait for their finally blocks, then remove this process' scratch. */
@@ -208,6 +231,8 @@ export class LinkMediaService {
     const attemptedUrls: string[] = [];
     const failedUrls: string[] = [];
     let durationLimit: LinkMediaDurationLimit | undefined;
+    let sizeLimit: LinkMediaSizeLimit | undefined;
+    let quotaDenied = false;
     let sentAny = false;
 
     for (const url of urls) {
@@ -225,6 +250,8 @@ export class LinkMediaService {
         return null;
       });
       if (result?.durationLimit) durationLimit ??= result.durationLimit;
+      if (result?.sizeLimit) sizeLimit ??= result.sizeLimit;
+      if (result?.quotaDenied) quotaDenied = true;
       if (!result || result.messageIds.length === 0) {
         if (result?.mediaDetected || this.isRecognizedMediaUrl(url))
           failedUrls.push(url.toString());
@@ -245,13 +272,18 @@ export class LinkMediaService {
       ...(attemptedUrls.length ? { attemptedUrls } : {}),
       ...(failedUrls.length ? { failedUrls } : {}),
       ...(durationLimit ? { durationLimit } : {}),
+      ...(sizeLimit ? { sizeLimit } : {}),
     };
     if (!sentAny) {
-      outcome.reason = durationLimit
-        ? 'duration_exceeded'
-        : failedUrls.length
-          ? 'download_failed'
-          : 'no_media_rehosted';
+      outcome.reason = quotaDenied
+        ? 'quota_denied'
+        : sizeLimit
+          ? 'size_exceeded'
+          : durationLimit
+            ? 'duration_exceeded'
+            : failedUrls.length
+              ? 'download_failed'
+              : 'no_media_rehosted';
     }
     return outcome;
   }
@@ -395,7 +427,7 @@ export class LinkMediaService {
         return null;
       }
       if (!quotaBypass && !(await this.quota.reserveMedia(chatId, cached.byteSize ?? 0)).allowed) {
-        return null;
+        return { messageIds: [], mediaDetected: true, quotaDenied: true };
       }
       await this.storage.linkMediaCache
         .touch(key)
@@ -434,7 +466,9 @@ export class LinkMediaService {
       }
     }
 
-    if (!quotaBypass && !(await this.quota.canReserveMedia(chatId)).allowed) return null;
+    if (!quotaBypass && !(await this.quota.canReserveMedia(chatId)).allowed) {
+      return { messageIds: [], mediaDetected: true, quotaDenied: true };
+    }
 
     const host = hostOf(url);
     const cookies = this.cookieFor(host);
@@ -492,6 +526,8 @@ export class LinkMediaService {
     const messageIds: number[] = [];
     let failedItems = 0;
     let durationLimit: LinkMediaDurationLimit | undefined;
+    let sizeLimit: LinkMediaSizeLimit | undefined;
+    let quotaDenied = false;
     for (const [index, item] of items.entries()) {
       const result = await this.processExtractedItem({
         ctx,
@@ -530,6 +566,7 @@ export class LinkMediaService {
       });
 
       if (result.status === 'quota_denied') {
+        quotaDenied = true;
         failedItems += items.length - index;
         break;
       }
@@ -537,6 +574,14 @@ export class LinkMediaService {
         durationLimit ??= {
           durationSeconds: result.durationSeconds,
           maxDurationSeconds: result.maxDurationSeconds,
+        };
+        failedItems += 1;
+        continue;
+      }
+      if (result.status === 'size_exceeded') {
+        sizeLimit ??= {
+          sizeBytes: result.sizeBytes,
+          maxSizeBytes: result.maxSizeBytes,
         };
         failedItems += 1;
         continue;
@@ -554,7 +599,9 @@ export class LinkMediaService {
       return {
         messageIds,
         mediaDetected: true,
+        ...(quotaDenied ? { quotaDenied: true } : {}),
         ...(durationLimit ? { durationLimit } : {}),
+        ...(sizeLimit ? { sizeLimit } : {}),
       };
     }
     const uniqueContext = [...new Set(contextTexts)];
@@ -562,13 +609,17 @@ export class LinkMediaService {
       ? {
           contextText: uniqueContext.join('\n'),
           messageIds,
+          ...(quotaDenied ? { quotaDenied: true } : {}),
           ...(failedItems > 0 ? { partialFailure: true } : {}),
           ...(durationLimit ? { durationLimit } : {}),
+          ...(sizeLimit ? { sizeLimit } : {}),
         }
       : {
           messageIds,
+          ...(quotaDenied ? { quotaDenied: true } : {}),
           ...(failedItems > 0 ? { partialFailure: true } : {}),
           ...(durationLimit ? { durationLimit } : {}),
+          ...(sizeLimit ? { sizeLimit } : {}),
         };
   }
 
@@ -598,11 +649,12 @@ export class LinkMediaService {
       // cross that boundary; arbitrary generic pages remain on the redirect-guarded HTTP path.
       return { status: 'skipped' };
     }
-    if (item.durationSeconds && item.durationSeconds > this.cfg.maxDurationSeconds) {
+    const itemMaxDuration = this.maxDurationFor(item.url);
+    if (item.durationSeconds && item.durationSeconds > itemMaxDuration) {
       return {
         status: 'duration_exceeded',
         durationSeconds: item.durationSeconds,
-        maxDurationSeconds: this.cfg.maxDurationSeconds,
+        maxDurationSeconds: itemMaxDuration,
       };
     }
     if (
@@ -631,7 +683,7 @@ export class LinkMediaService {
           ytdlpBin: this.cfg.ytdlpBin,
           ffmpegBin: this.cfg.ffmpegBin,
           maxDownloadBytes: this.cfg.maxDownloadBytes,
-          maxDurationSeconds: this.cfg.maxDurationSeconds,
+          maxDurationSeconds: itemMaxDuration,
           timeoutMs: this.cfg.timeoutMs,
           proxy: this.cfg.proxy,
           cookies: cookieForUrl(item.url, (targetHost) => this.cookieFor(targetHost)),
@@ -670,7 +722,7 @@ export class LinkMediaService {
               try {
                 const probe = await probeVideo(this.cfg.ffmpegBin, dl.file, 15_000, signal);
                 const durationSec = dl.durationSec ?? probe.duration ?? item.durationSeconds;
-                if (durationSec && durationSec > this.cfg.maxDurationSeconds) {
+                if (durationSec && durationSec > itemMaxDuration) {
                   failed = true;
                   continue;
                 }
@@ -741,11 +793,11 @@ export class LinkMediaService {
         if (dl) {
           const downloadedProbe = await probeVideo(this.cfg.ffmpegBin, dl.file, 15_000, signal);
           durationSec = dl.durationSec ?? downloadedProbe.duration ?? durationSec;
-          if (durationSec && durationSec > this.cfg.maxDurationSeconds) {
+          if (durationSec && durationSec > itemMaxDuration) {
             return {
               status: 'duration_exceeded',
               durationSeconds: durationSec,
-              maxDurationSeconds: this.cfg.maxDurationSeconds,
+              maxDurationSeconds: itemMaxDuration,
             };
           }
           deliveryPost = mergeYtdlpPostMetadata(post, dl);
@@ -806,7 +858,7 @@ export class LinkMediaService {
       if (item.kind === 'video' || item.kind === 'audio') {
         const rawProbe = await probeVideo(this.cfg.ffmpegBin, raw, 15_000, signal);
         durationSec = rawProbe.duration ?? durationSec;
-        if (durationSec && durationSec > this.cfg.maxDurationSeconds) return { status: 'skipped' };
+        if (durationSec && durationSec > itemMaxDuration) return { status: 'skipped' };
       }
       const prepared = join(
         workdir,
@@ -859,7 +911,9 @@ export class LinkMediaService {
     assetSuffix: string;
   }): Promise<ItemProcessingResult> {
     const size = (await stat(input.prepared)).size;
-    if (size > this.cfg.maxUploadBytes) return { status: 'skipped' };
+    if (size > this.cfg.maxUploadBytes) {
+      return { status: 'size_exceeded', sizeBytes: size, maxSizeBytes: this.cfg.maxUploadBytes };
+    }
     if (!input.quotaBypass && !(await this.quota.reserveMedia(input.chatId, size)).allowed) {
       return { status: 'quota_denied' };
     }

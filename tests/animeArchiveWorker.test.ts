@@ -254,6 +254,7 @@ interface WorkerHarness {
     failPendingEpisodes: ReturnType<typeof vi.fn>;
     finalizeJob: ReturnType<typeof vi.fn>;
     releaseJob: ReturnType<typeof vi.fn>;
+    pauseJobForQuota: ReturnType<typeof vi.fn>;
     listTerminal: ReturnType<typeof vi.fn>;
   };
   notifications: {
@@ -322,6 +323,7 @@ function harness(
   const failPendingEpisodes = vi.fn().mockResolvedValue(job);
   const finalizeJob = vi.fn().mockResolvedValue(null);
   const releaseJob = vi.fn().mockResolvedValue(true);
+  const pauseJobForQuota = vi.fn().mockResolvedValue(job);
   const listTerminal = vi.fn().mockResolvedValue(options.terminal ?? []);
   const notifications = {
     claim: vi.fn().mockResolvedValue(true),
@@ -340,6 +342,7 @@ function harness(
     failPendingEpisodes,
     finalizeJob,
     releaseJob,
+    pauseJobForQuota,
     listTerminal,
   };
   const storage = {
@@ -407,7 +410,12 @@ async function runHarness(
   worker.attachTelegramApi(state.api);
   await vi.waitFor(() => {
     if (options.waitFor === 'complete') expect(state.jobs.completeEpisode).toHaveBeenCalled();
-    if (options.waitFor === 'failure') expect(state.jobs.failEpisode).toHaveBeenCalled();
+    if (options.waitFor === 'failure') {
+      expect(
+        state.jobs.failEpisode.mock.calls.length > 0 ||
+        state.jobs.pauseJobForQuota.mock.calls.length > 0,
+      ).toBe(true);
+    }
     if (options.waitFor === 'summary') expect(state.sendMessage).toHaveBeenCalled();
     if (options.waitFor === 'uncertain') {
       expect(state.jobs.markEpisodeDeliveryUnknown).toHaveBeenCalled();
@@ -614,7 +622,7 @@ describe('anime archive worker safety boundaries', () => {
     expect(state.jobs.markEpisodeDeliveryUnknown).not.toHaveBeenCalled();
     expect(mocks.send).not.toHaveBeenCalled();
     expect(state.releaseMedia).not.toHaveBeenCalled();
-    expect(state.jobs.failEpisode.mock.calls[0]?.[4]).toBe(false);
+    expect(state.jobs.pauseJobForQuota).toHaveBeenCalledOnce();
   });
 
   it('treats a Telegram 5xx response as ambiguous and never retries or refunds it', async () => {
@@ -676,7 +684,7 @@ describe('anime archive worker safety boundaries', () => {
     expect(state.getEpisode).not.toHaveBeenCalled();
     expect(state.resolveMedia).not.toHaveBeenCalled();
     expect(mocks.download).not.toHaveBeenCalled();
-    expect(state.jobs.failEpisode.mock.calls[0]?.[4]).toBe(false);
+    expect(state.jobs.pauseJobForQuota).toHaveBeenCalledOnce();
   });
 
   it('rechecks the HentaiSaturn NSFW policy at execution time', async () => {

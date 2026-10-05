@@ -77,6 +77,16 @@ export class AnimeArchiveProgressReporter {
     );
   }
 
+  async paused(episode: AnimeArchiveJobEpisode, remaining: number): Promise<void> {
+    const position = this.position(episode);
+    const total = this.job.episodes.length;
+    await this.write(
+      `⏸️ ${this.job.series.title} · download in pausa per limite quota Telegram.\n` +
+        `Episodio ${formatEpisode(episode.number)} (${position}/${total}) in attesa. Rimangono ${remaining} episodi in coda.\n` +
+        `I download riprenderanno automaticamente dopo la mezzanotte (00:00)!`,
+    );
+  }
+
   async finishing(): Promise<void> {
     const bar = renderProgressBar(100);
     await this.write(

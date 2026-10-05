@@ -11,7 +11,7 @@ import {
 import { downloadToFile } from '../../providers/media/linkMedia/http.js';
 import { sendPreparedMediaToChat } from '../../providers/media/linkMedia/telegramSender.js';
 import { downloadWithYtdlp } from '../../providers/media/linkMedia/ytdlp.js';
-import type { GroupQuotaService } from '../../services/groupQuota.js';
+import { type GroupQuotaService, secondsToNextWindow } from '../../services/groupQuota.js';
 import type { Storage } from '../../storage/index.js';
 import type {
   AnimeArchiveJobDoc,
@@ -23,6 +23,7 @@ import { redactSecrets } from '../../utils/secrets.js';
 import { ANIMEUNITY_MEDIA_HOSTS } from './animeUnity.js';
 import { HENTAISATURN_MEDIA_HOSTS } from './hentaiSaturn.js';
 import { assertAllowedArchiveUrl } from './http.js';
+import { escapeTelegramHtml } from '../../telegram/format.js';
 import { AnimeArchiveProgressReporter } from './progress.js';
 import type { AnimeSourceRegistry } from './registry.js';
 import {
@@ -248,6 +249,56 @@ export class AnimeArchiveWorker {
             );
             await progress.failed(episode, false);
             continue;
+          }
+          if (isQuotaError(error)) {
+            const nowDate = new Date();
+            const resetSeconds = secondsToNextWindow(nowDate, false);
+            const resumeAt = new Date(nowDate.getTime() + resetSeconds * 1000 + 5000);
+            await this.storage.animeArchive.jobs.pauseJobForQuota(
+              job.id,
+              resumeAt,
+              safeFailureReason(error),
+              nowDate,
+            );
+            log.warn(
+              {
+                jobId: job.id,
+                source: job.source,
+                episode: episode.number,
+                resumeAt,
+                resetSeconds,
+              },
+              'anime archive job paused due to quota exhaustion; will resume after window reset',
+            );
+            const currentJob = await this.storage.animeArchive.jobs.get(job.id);
+            const remaining = currentJob?.episodes.filter((e) => e.status !== 'done').length ?? 1;
+            await progress.paused(episode, remaining).catch(() => null);
+
+            const alertMsg =
+              `⚠️ <b>Quota download Telegram API esaurita per oggi!</b>\n` +
+              `Ho messo in pausa la serie <b>${escapeTelegramHtml(job.series.title)}</b> all'episodio ${episode.number} (rimangono <b>${remaining}</b> episodi in coda).\n` +
+              `Per rispettare i limiti delle API di Telegram, i download riprenderanno automaticamente dopo la mezzanotte (00:00) non appena la quota si resetta!`;
+            void api
+              .sendMessage(job.destination.chatId, alertMsg, {
+                parse_mode: 'HTML',
+                ...(job.destination.threadId === null
+                  ? {}
+                  : { message_thread_id: job.destination.threadId }),
+              })
+              .catch((err) => {
+                log.warn(
+                  { err, chatId: job.destination.chatId },
+                  'failed to send quota pause notice',
+                );
+              });
+
+            const wakeMs = Math.min((resetSeconds + 5) * 1000, 24 * 60 * 60 * 1000);
+            const wakeTimer = setTimeout(() => {
+              this.kick();
+            }, wakeMs);
+            wakeTimer.unref();
+
+            break;
           }
           const retryable = isRetryableFailure(error);
           const failed = await this.storage.animeArchive.jobs.failEpisode(
@@ -865,6 +916,14 @@ function safeForwardHeaders(headers: Readonly<Record<string, string>>): Record<s
     safe[name] = value;
   }
   return safe;
+}
+
+function isQuotaError(error: unknown): boolean {
+  if (error instanceof ArchiveEpisodeFailure) {
+    return error.message.startsWith('Media quota unavailable');
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return message.startsWith('Media quota unavailable');
 }
 
 function isRetryableFailure(error: unknown): boolean {

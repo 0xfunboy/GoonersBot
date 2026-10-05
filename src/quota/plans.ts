@@ -1,4 +1,4 @@
-export const QUOTA_PLAN_IDS = ['free', 'plus', 'pro'] as const;
+export const QUOTA_PLAN_IDS = ['free', 'plus', 'pro', 'vip'] as const;
 
 export type QuotaPlanId = (typeof QUOTA_PLAN_IDS)[number];
 
@@ -65,21 +65,40 @@ export const QUOTA_PLANS: Record<QuotaPlanId, QuotaPlan> = {
   },
   pro: {
     id: 'pro',
-    conversationDaily: 144,
-    conversationHourly: 30,
-    llmTokensDaily: 2_000_000,
-    webSearchDaily: 75,
-    pageScanDaily: 200,
-    newsDaily: 24,
-    imagesDaily: 48,
-    mediaDaily: 40,
-    mediaBytesDaily: 1200 * MB,
-    passiveHourly: 12,
+    conversationDaily: 500,
+    conversationHourly: 120,
+    llmTokensDaily: 10_000_000,
+    webSearchDaily: 150,
+    pageScanDaily: 400,
+    newsDaily: 50,
+    imagesDaily: 100,
+    mediaDaily: 80,
+    mediaBytesDaily: 5000 * MB,
+    passiveHourly: 40,
     antiFlood: {
-      userCooldownSeconds: 1,
-      chatCooldownSeconds: 1,
-      userBurstPerMinute: 20,
-      chatBurstPerMinute: 60,
+      userCooldownSeconds: 0,
+      chatCooldownSeconds: 0,
+      userBurstPerMinute: 40,
+      chatBurstPerMinute: 100,
+    },
+  },
+  vip: {
+    id: 'vip',
+    conversationDaily: 1500,
+    conversationHourly: 300,
+    llmTokensDaily: 25_000_000,
+    webSearchDaily: 300,
+    pageScanDaily: 1000,
+    newsDaily: 100,
+    imagesDaily: 200,
+    mediaDaily: 150,
+    mediaBytesDaily: 10_000 * MB,
+    passiveHourly: 100,
+    antiFlood: {
+      userCooldownSeconds: 0,
+      chatCooldownSeconds: 0,
+      userBurstPerMinute: 60,
+      chatBurstPerMinute: 120,
     },
   },
 };

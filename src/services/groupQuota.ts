@@ -21,6 +21,9 @@ export interface QuotaDecision {
   reason?: QuotaDenyReason;
   retryAfterSeconds?: number;
   tokenReservation?: number;
+  thresholdAlert?: 'quota_50' | 'quota_90';
+  conversationsLeft?: number;
+  totalConversations?: number;
 }
 
 export interface GroupQuotaReport {
@@ -126,7 +129,31 @@ export class GroupQuotaService {
       doc.minute.userRequests[userKey] = (doc.minute.userRequests[userKey] ?? 0) + 1;
       doc.lastChatRequestAt = now;
       doc.lastUserRequestAt[userKey] = now;
-      return { allowed: true, ...(tokenReservation > 0 ? { tokenReservation } : {}) };
+
+      // Threshold warnings: 50% and 90% (10% remaining)
+      let thresholdAlert: 'quota_50' | 'quota_90' | undefined;
+      const usageRatio = doc.daily.conversations / plan.conversationDaily;
+      doc.warnedThresholds ??= {};
+      if (usageRatio >= 0.9 && !doc.warnedThresholds.daily90) {
+        doc.warnedThresholds.daily90 = true;
+        doc.warnedThresholds.daily50 = true;
+        thresholdAlert = 'quota_90';
+      } else if (usageRatio >= 0.5 && !doc.warnedThresholds.daily50) {
+        doc.warnedThresholds.daily50 = true;
+        thresholdAlert = 'quota_50';
+      }
+
+      return {
+        allowed: true,
+        ...(tokenReservation > 0 ? { tokenReservation } : {}),
+        ...(thresholdAlert
+          ? {
+              thresholdAlert,
+              conversationsLeft: Math.max(0, plan.conversationDaily - doc.daily.conversations),
+              totalConversations: plan.conversationDaily,
+            }
+          : {}),
+      };
     });
   }
 
@@ -189,6 +216,21 @@ export class GroupQuotaService {
       doc.daily.llmTokens = Math.max(0, doc.daily.llmTokens + tokens - reservedTokens);
       return { allowed: true };
     });
+  }
+
+  /** Current media allowance status and remaining limits for chat notifications. */
+  async getMediaQuotaStatus(chatId: number): Promise<{
+    remainingCount: number;
+    remainingBytes: number;
+    remainingMb: number;
+    nearLimit: boolean;
+  }> {
+    const report = await this.getReport(chatId);
+    const remainingCount = Math.max(0, report.plan.mediaDaily - report.daily.media);
+    const remainingBytes = Math.max(0, report.plan.mediaBytesDaily - report.daily.mediaBytes);
+    const remainingMb = Math.round(remainingBytes / (1024 * 1024));
+    const nearLimit = remainingCount <= 3 || remainingBytes <= 300 * 1024 * 1024;
+    return { remainingCount, remainingBytes, remainingMb, nearLimit };
   }
 
   private async mutate(
@@ -271,6 +313,7 @@ function normalizeWindows(doc: ChatQuotaDoc, now: Date): void {
   if (doc.dayKey !== dayKey) {
     doc.dayKey = dayKey;
     doc.daily = emptyDailyCounters();
+    doc.warnedThresholds = {};
   }
   if (doc.hourKey !== hourKey) {
     doc.hourKey = hourKey;
@@ -317,6 +360,7 @@ function cloneQuota(doc: ChatQuotaDoc): ChatQuotaDoc {
     hourly: { ...doc.hourly },
     minute: { chatRequests: doc.minute.chatRequests, userRequests: { ...doc.minute.userRequests } },
     lastUserRequestAt: { ...doc.lastUserRequestAt },
+    warnedThresholds: { ...doc.warnedThresholds },
   };
 }
 
