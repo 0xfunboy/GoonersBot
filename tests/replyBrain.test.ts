@@ -449,7 +449,64 @@ describe('ResponseGenerator', () => {
     expect(result.candidates).toEqual(['rescue riuscito']);
     expect(result.model).toBe('qwen/qwen3.5-397b-a17b');
     expect(chatCompletion).toHaveBeenCalledTimes(2);
-    expect(chatCompletion.mock.calls[1]?.[0].model).toBe('qwen/qwen3.5-397b-a17b');
+  });
+
+  it('cascades through comma-separated rescue models until one succeeds', async () => {
+    const chatCompletion = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('primary timeout'))
+      .mockRejectedValueOnce(new Error('rescue1 overloaded'))
+      .mockResolvedValueOnce({
+        text: 'second rescue succeeded',
+        model: 'gemini-2.5-flash',
+        finishReason: 'stop',
+        usage: { inputTokens: 10, outputTokens: 20, estimated: false },
+      });
+    const styleEngine = new StyleEngine();
+    const currentScene = scene({ userIntent: 'random_chatter' });
+    const generator = new ResponseGenerator({ chatCompletion } as never, styleEngine, {
+      model: 'gemini-3.7-flash',
+      rescueModel: 'gemini-3.1-flash-lite,gemini-2.5-flash',
+      temperature: 0.8,
+      topP: 0.9,
+      frequencyPenalty: 0,
+      presencePenalty: 0,
+      candidateCount: 1,
+      maxReplyChars: 420,
+    });
+    const result = await generator.generate({
+      botUsername: '@bot',
+      chatName: 'test',
+      language: 'italian',
+      modeName: 'Default',
+      modeDescription: 'natural',
+      nsfwEnabled: false,
+      scene: currentScene,
+      plan: emptyPlan({ action: 'react_short', replyIntent: 'react_short', maxChars: 90 }),
+      style: styleEngine.sample({
+        modeName: 'Default',
+        modeDescription: 'natural',
+        scene: currentScene,
+        recentBotReplies: [],
+        nsfwEnabled: false,
+        valueTarget: 'social_glue',
+        roastBudget: 'none',
+        socialRole: 'friend',
+      }),
+      history: [],
+      currentUser: { telegramId: 1, userHandle: '@bob' },
+      currentMessage: { messageText: 'ciao', timestamp: new Date() },
+      retrievedMemories: [],
+      botLabel: 'bot',
+      model: 'gemini-3.7-flash',
+    });
+
+    expect(result.candidates).toEqual(['second rescue succeeded']);
+    expect(result.model).toBe('gemini-2.5-flash');
+    expect(chatCompletion).toHaveBeenCalledTimes(3);
+    expect(chatCompletion.mock.calls[0]?.[0].model).toBe('gemini-3.7-flash');
+    expect(chatCompletion.mock.calls[1]?.[0].model).toBe('gemini-3.1-flash-lite');
+    expect(chatCompletion.mock.calls[2]?.[0].model).toBe('gemini-2.5-flash');
   });
 
   it('preserves provider failure reasons when primary and rescue generation both reject', async () => {

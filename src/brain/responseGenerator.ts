@@ -178,35 +178,47 @@ export class ResponseGenerator {
     }
     if (ok.length > 0) return this.aggregate(ok, system, userPrompt);
 
-    const rescueModel = this.cfg.rescueModel?.trim() || undefined;
-    if (rescueModel && rescueModel !== model) {
-      try {
-        const rescued = await this.callOne(
-          system,
-          userPrompt,
-          rescueModel,
-          input.plan.maxChars ?? this.cfg.maxReplyChars,
-        );
-        log.warn(
-          { requestedModel: model, rescueModel, returnedModel: rescued.model },
-          'reply generation recovered on last-mile rescue model',
-        );
-        return this.aggregate([rescued], system, userPrompt);
-      } catch (error) {
-        const rescueFailure = errorSummary(error);
-        log.error(
-          { requestedModel: model, rescueModel, failures, rescueFailure },
-          'reply generation rescue model also failed',
-        );
-        throw new ReplyGenerationUnavailableError(
-          [...failures, `rescue(${rescueModel}): ${rescueFailure}`],
-          model,
-          rescueModel,
-        );
+    const rescueModels = (this.cfg.rescueModel ?? '')
+      .split(',')
+      .map((m) => m.trim())
+      .filter((m) => m.length > 0 && m !== model);
+
+    if (rescueModels.length > 0) {
+      const rescueFailures: string[] = [];
+      for (const rescueCandidate of rescueModels) {
+        try {
+          const rescued = await this.callOne(
+            system,
+            userPrompt,
+            rescueCandidate,
+            input.plan.maxChars ?? this.cfg.maxReplyChars,
+          );
+          log.warn(
+            { requestedModel: model, rescueModel: rescueCandidate, returnedModel: rescued.model },
+            'reply generation recovered on last-mile rescue model',
+          );
+          return this.aggregate([rescued], system, userPrompt);
+        } catch (error) {
+          const rescueFailure = errorSummary(error);
+          rescueFailures.push(`rescue(${rescueCandidate}): ${rescueFailure}`);
+          log.error(
+            { requestedModel: model, rescueModel: rescueCandidate, failures, rescueFailure },
+            'reply generation rescue model also failed',
+          );
+        }
       }
+      throw new ReplyGenerationUnavailableError(
+        [...failures, ...rescueFailures],
+        model,
+        this.cfg.rescueModel?.trim() || undefined,
+      );
     }
 
-    throw new ReplyGenerationUnavailableError(failures, model, rescueModel);
+    throw new ReplyGenerationUnavailableError(
+      failures,
+      model,
+      this.cfg.rescueModel?.trim() || undefined,
+    );
   }
 
   /** Regenerate candidates with a stricter anti-repetition note appended. */
