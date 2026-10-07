@@ -24,6 +24,7 @@ logs/
 # Test / coverage
 coverage/
 .vitest/
+scratch/
 
 # Generated image artifacts are transient and must never be committed.
 generated-images/
