@@ -6,6 +6,8 @@ All notable changes to GoonersBot are documented here.
 
 ### Fixed
 
+- Migrated GemRouter configuration examples and the mining route test to
+  `https://gemr.airewardrop.xyz`, preserving the root chat surface and `/v1` routes.
 - Added a conservative rolling token budget to the dedicated Gemma miner, alongside its existing
   serial 3-RPM gate. Oversized calls are rejected before reaching GemRouter.
 - Replaced the 300-item episodic memory dump with deterministic relevance selection over the full
@@ -78,7 +80,7 @@ All notable changes to GoonersBot are documented here.
 - Set the dedicated background route:
 
   ```env
-  MINING_LLM_BASE_URL=http://192.168.178.27:4024
+  MINING_LLM_BASE_URL=https://gemr.airewardrop.xyz
   MINING_LLM_MODEL=gemma-4-31b-it
   MINING_LLM_REQUEST_TIMEOUT_MS=180000
   MINING_LLM_MAX_REQUESTS_PER_MINUTE=3

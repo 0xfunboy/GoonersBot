@@ -168,6 +168,13 @@ unit declares the Local Bot API service as a dependency. See
 
 ## LLM providers
 
+GemRouter is hosted at `https://gemr.airewardrop.xyz`; its health endpoint is
+`https://gemr.airewardrop.xyz/health`. Update the same URLs in an existing deployment's
+private `.env` and restart `goonerbot.service` after validating its app token. Chat and mining
+use the root surface below; clients configured for the OpenAI surface can use `/v1`.
+The optional `/v1/vision` and `/v1/embeddings` routes additionally require their backends to be
+configured on the VPS; changing their hostname alone does not enable those backends.
+
 Pick a provider with `LLM_PROVIDER`. Base URL and model are configurable, nothing is hardcoded in
 business logic. Media capabilities activate only when you set the matching model var; if unset, that
 capability is disabled and the bot degrades gracefully instead of crashing.
@@ -175,20 +182,20 @@ capability is disabled and the bot degrades gracefully instead of crashing.
 ```env
 # GemRouter (OpenAI-compatible root surface)
 LLM_PROVIDER=custom_openai_compatible
-LLM_BASE_URL=http://192.168.178.27:4024
+LLM_BASE_URL=https://gemr.airewardrop.xyz
 LLM_API_KEY=<GemRouter app bearer token>
 LLM_MODEL=gemini-2.5-flash
 SCENE_MODEL=gemini-2.5-flash-lite
 REALISTIC_EVALUATOR_MODEL=gemini-2.5-flash-lite
 CORTEX_MODEL=gemini-2.5-flash-lite
-EMBEDDING_BASE_URL=http://192.168.178.27:4024/v1
+EMBEDDING_BASE_URL=https://gemr.airewardrop.xyz/v1
 EMBEDDING_MODEL=bge-m3
-LLM_VISION_ENDPOINT_URL=http://192.168.178.27:4024/v1/vision
+LLM_VISION_ENDPOINT_URL=https://gemr.airewardrop.xyz/v1/vision
 LLM_VISION_MODEL=minicpm-v4.5:8b
 # Every Free-group LLM stage uses this economy model instead of LLM_MODEL.
 FREE_LLM_MODEL=gemma-4-26b-a4b-it
 # Background learning is pinned independently and never consumes chat-plan quota.
-MINING_LLM_BASE_URL=http://192.168.178.27:4024
+MINING_LLM_BASE_URL=https://gemr.airewardrop.xyz
 MINING_LLM_MODEL=gemma-4-31b-it
 MINING_LLM_REQUEST_TIMEOUT_MS=180000
 MINING_LLM_MAX_REQUESTS_PER_MINUTE=3
@@ -593,7 +600,7 @@ The bot can look at photos and at a frame extracted from a video, then react. Vi
 ```bash
 # in .env:
 LLM_VISION_MODEL=minicpm-v4.5:8b
-LLM_VISION_ENDPOINT_URL=http://192.168.178.27:4024/v1/vision
+LLM_VISION_ENDPOINT_URL=https://gemr.airewardrop.xyz/v1/vision
 LLM_VISION_API_KEY=                              # empty reuses LLM_API_KEY
 ```
 

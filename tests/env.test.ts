@@ -171,7 +171,7 @@ describe('resolveMiningLLMConfig', () => {
   it('honours and normalizes an independent quota-free mining route', () => {
     const env = loadEnv({
       ...base,
-      MINING_LLM_BASE_URL: 'http://192.168.178.27:4024/v1/',
+      MINING_LLM_BASE_URL: 'https://gemr.airewardrop.xyz/v1/',
       MINING_LLM_API_KEY: 'mining-key',
       MINING_LLM_MODEL: 'gemma-4-31b-it',
       MINING_LLM_MAX_REQUESTS_PER_MINUTE: '2',
@@ -182,7 +182,7 @@ describe('resolveMiningLLMConfig', () => {
     const cfg = resolveMiningLLMConfig(env);
 
     expect(cfg).toEqual({
-      baseUrl: 'http://192.168.178.27:4024/v1',
+      baseUrl: 'https://gemr.airewardrop.xyz/v1',
       apiKey: 'mining-key',
       model: 'gemma-4-31b-it',
       maxRequestsPerMinute: 2,
