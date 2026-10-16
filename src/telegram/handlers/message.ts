@@ -588,12 +588,12 @@ export async function handleMessage(
     }
 
     if (linkMedia.handled && !bypassGroupPlan) {
-      void services.quota.getMediaQuotaStatus(context.chatId).then((mediaQuota) => {
-        if (mediaQuota.nearLimit) {
+      void services.quota?.getMediaQuotaStatus?.(context.chatId)?.then((mediaQuota) => {
+        if (mediaQuota?.nearLimit) {
           const quotaAlert = `⚠️ *Attenzione quota rehost:* Posso rehostare al massimo altri ${mediaQuota.remainingCount} video o ${mediaQuota.remainingMb}MB oggi, poi dovrai aspettare domani per il reset della quota Telegram API.`;
           void ctx.reply(quotaAlert, { parse_mode: 'Markdown' }).catch(() => undefined);
         }
-      }).catch(() => undefined);
+      })?.catch(() => undefined);
     }
 
     if (linkMedia.injectedText) {
@@ -1568,12 +1568,12 @@ async function sendArchiveResult(
         .catch((err) => log.warn({ err }, 'anime archive search result attach failed'));
     }
     if (ctx.chat?.id && result.status === 'queued') {
-      void services.quota.getMediaQuotaStatus(ctx.chat.id).then((mediaQuota) => {
-        if (mediaQuota.nearLimit) {
+      void services.quota?.getMediaQuotaStatus?.(ctx.chat.id)?.then((mediaQuota) => {
+        if (mediaQuota?.nearLimit) {
           const quotaAlert = `⚠️ *Attenzione quota rehost:* Posso rehostare al massimo altri ${mediaQuota.remainingCount} video o ${mediaQuota.remainingMb}MB oggi, poi dovrai attendere domani per il reset della quota Telegram API.`;
           void ctx.reply(quotaAlert, { parse_mode: 'Markdown' }).catch(() => undefined);
         }
-      }).catch(() => undefined);
+      })?.catch(() => undefined);
     }
     return sent ? [sent.message_id] : [];
   }

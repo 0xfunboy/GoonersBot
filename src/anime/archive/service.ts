@@ -1725,6 +1725,8 @@ function archiveSlugFromUrl(raw: string): string {
 function archiveSearchQueryVariants(query: string): string[] {
   const base = query.trim().replace(/\s+/gu, ' ');
   const variants = [base];
+
+  // 1. Compact season format (e.g. season 2 -> 2)
   const compactSeason = base
     .replace(/\b(?:season|stagione)\s*(\d+(?:[.,]\d+)?)\b/giu, '$1')
     .replace(/\b(\d+)(?:st|nd|rd|th)\s+season\b/giu, '$1')
@@ -1732,9 +1734,7 @@ function archiveSearchQueryVariants(query: string): string[] {
     .trim();
   if (compactSeason && compactSeason !== base) variants.push(compactSeason);
 
-  // Some archives publish sequel seasons with Roman numerals even when users/catalogs say
-  // "Season 3" / "stagione 3". Generate only a bounded 1..20 equivalent; this is title
-  // normalization, not intent detection, and keeps the source search deterministic.
+  // 2. Roman season format (e.g. season 2 -> II, season 3 -> III)
   const romanSeason = base
     .replace(/\b(?:season|stagione)\s*(\d{1,2})\b/giu, (_match, digits: string) => {
       const value = Number(digits);
@@ -1748,9 +1748,28 @@ function archiveSearchQueryVariants(query: string): string[] {
     })
     .replace(/\s+/gu, ' ')
     .trim();
-  if (romanSeason && romanSeason !== base && romanSeason !== compactSeason)
+  if (romanSeason && romanSeason !== base && romanSeason !== compactSeason) {
     variants.push(romanSeason);
-  return [...new Set(variants)];
+  }
+
+  // 3. Hyphens and underscores to space (e.g. URL slugs chainsmoker-cat-ita -> chainsmoker cat ita)
+  const noDashes = base.replace(/[-_]+/gu, ' ').replace(/\s+/gu, ' ').trim();
+  if (noDashes && noDashes !== base) {
+    variants.push(noDashes);
+  }
+
+  // 4. Strip trailing language tags from slug queries (ita, sub, dub)
+  for (const v of [...variants]) {
+    const strippedLang = v
+      .replace(/\b(?:ita|sub\s*ita|sub|dub)\b/giu, '')
+      .replace(/\s+/gu, ' ')
+      .trim();
+    if (strippedLang && strippedLang.length >= 2 && strippedLang !== v) {
+      variants.push(strippedLang);
+    }
+  }
+
+  return [...new Set(variants.filter((v) => v.length >= 2))];
 }
 
 function romanNumeral(value: number): string {

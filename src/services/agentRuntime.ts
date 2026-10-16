@@ -848,8 +848,25 @@ export class AgentRuntime {
           quotaBypass: input.quotaBypass ?? false,
           signal: toolCtx.signal,
         };
+        const explicitUrl =
+          stringArg(toolCtx, 'url') ??
+          firstUrl(toolCtx.action.query) ??
+          firstUrl(input.request) ??
+          firstUrl(input.context.repliedToText);
+
+        const directUrlMatch = explicitUrl
+          ? (this.deps.animeArchive.classifyUrl(explicitUrl) ??
+             this.deps.animeArchive.classifyText(explicitUrl)[0])
+          : undefined;
+
         let result: AnimeArchivePreparationResult;
-        if (intent === 'search') {
+        if (directUrlMatch) {
+          result = await this.deps.animeArchive.prepareUrl({
+            ...shared,
+            url: directUrlMatch.url,
+            isAdmin: Boolean(input.animeArchiveAdmin),
+          });
+        } else if (intent === 'search') {
           if (!preferredSource) {
             return failedOutput('Anime archive search requires an explicit supported source.');
           }
@@ -862,7 +879,9 @@ export class AgentRuntime {
             preferredSource,
           });
         } else {
-          let concreteTitle = title ?? actionQuery;
+          // Semantic resolution fallback only when Cortex did not provide a structured title
+          const natural = parseNaturalAnimeRequest(input.request || actionQuery || '');
+          let concreteTitle = title || natural.cleanQuery || actionQuery;
           if (!concreteTitle) {
             return failedOutput(
               'Anime archive episode/series action requires a concrete title selected by Cortex.',
@@ -870,10 +889,9 @@ export class AgentRuntime {
           }
           let episode = stringArg(toolCtx, 'episode');
 
-          // Semantic resolution on the natural user request (e.g. "terzo episo dio della seconda serie")
-          const natural = parseNaturalAnimeRequest(input.request || concreteTitle);
           if (
             natural.season &&
+            natural.season > 1 &&
             !/\b(?:2|3|4|5|6|ii|iii|iv|v|vi|season\s*\d|serie\s*\d)\b/i.test(concreteTitle)
           ) {
             concreteTitle = `${concreteTitle} ${natural.season}`;
@@ -1416,6 +1434,7 @@ export class AgentRuntime {
           stringArg(toolCtx, 'url') ||
           firstUrl(toolCtx.action.query) ||
           firstUrl(input.request) ||
+          firstUrl(input.context.repliedToText) ||
           dependencyEvidence(toolCtx);
         const query = toolQuery(toolCtx, input.request);
         const url =

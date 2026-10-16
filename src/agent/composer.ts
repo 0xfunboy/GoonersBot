@@ -56,19 +56,13 @@ export class FinalAnswerComposer {
     const deterministic = deterministicAnswer(report);
     if (!this.llm?.capabilities.chat || report.results.length === 0) return deterministic;
 
-    const pureMediaOrTransport =
+    const pureMedia =
       report.results.length > 0 &&
+      report.results.every((r) => r.status === 'succeeded') &&
       report.results.every((r) =>
-        [
-          'media_prompt',
-          'image_gen',
-          'video_gen',
-          'music',
-          'link_media',
-          'anime_archive',
-        ].includes(r.action.tool),
+        ['media_prompt', 'image_gen', 'video_gen', 'music'].includes(r.action.tool),
       );
-    if (pureMediaOrTransport) return deterministic;
+    if (pureMedia) return deterministic;
 
     try {
       const draft = await this.llm.jsonCompletion({

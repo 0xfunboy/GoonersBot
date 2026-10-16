@@ -229,6 +229,9 @@ describe('Cortex', () => {
     expect(prompt).toContain('passami Gatte Calde');
     expect(prompt).toContain('preserve that exact series/edition');
     expect(prompt).toContain('after YOU have classified the intent');
+    expect(prompt).toContain('args.title must be the clean canonical anime title');
+    expect(prompt).toContain("cercami hunter per hunter serie 1 ep 1");
+    expect(prompt).toContain('"query":"Hunter x Hunter"');
     expect(prompt).not.toContain('official streaming links');
   });
 

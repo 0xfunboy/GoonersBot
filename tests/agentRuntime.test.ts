@@ -932,6 +932,121 @@ describe('AgentRuntime live provider bridge', () => {
     expect(result?.styleVariant).toBe('agent:anime_archive');
   });
 
+  it('routes an explicit AnimeUnity URL in a reply or conversational request directly to prepareUrl', async () => {
+    const directUrl = 'https://www.animeunity.so/anime/7708-chainsmoker-cat-ita/108660';
+    const jsonCompletion = vi
+      .fn()
+      .mockResolvedValueOnce({
+        goal: 'rehost anime episode from replied link',
+        actions: [
+          {
+            id: 'anime_archive_1',
+            tool: 'anime_archive',
+            purpose: 'queue the anime episode from the direct url',
+            query: 'chainsmoker cat',
+            args: {
+              intent: 'rehost',
+              title: 'chainsmoker cat',
+            },
+            dependsOn: [],
+            optional: false,
+            timeoutMs: 20_000,
+            acceptance: { requireOutput: true, minEvidence: 0, requiredArtifactKinds: [] },
+          },
+        ],
+        finalResponse: {
+          language: 'Italian',
+          format: 'text',
+          mustInclude: [],
+          tone: 'direct',
+        },
+      })
+      .mockResolvedValueOnce({
+        message: 'Episodio Chainsmoker Cat preparato.',
+        usedActionIds: ['anime_archive_1'],
+        uncertainties: [],
+      });
+    const queued = {
+      status: 'queued' as const,
+      created: true,
+      job: {
+        series: { title: 'Yani Neko' },
+        episodes: [{ number: '1' }],
+      },
+    };
+    const prepareUrl = vi.fn().mockResolvedValue(queued);
+    const classifyUrl = vi.fn((url: string) =>
+      url.includes('animeunity.so') ? { source: 'animeunity' as const, url } : null,
+    );
+    const runtime = new AgentRuntime({
+      config: {
+        brain: { cortex: { model: 'test' }, replyModel: 'test' },
+        env: { REPETITION_SIMILARITY_THRESHOLD: 0.78 },
+        animeArchive: { enabled: true },
+        linkMedia: { enabled: false },
+      } as never,
+      llm: { capabilities: { chat: true }, jsonCompletion } as never,
+      media: { canGenerateImage: false } as never,
+      music: { enabled: false } as never,
+      video: { enabled: false } as never,
+      tts: { enabled: false } as never,
+      grounding: { enabled: false } as never,
+      knowledge: { enabled: false } as never,
+      imageFinder: {} as never,
+      imagePrompts: {} as never,
+      videoPrompts: {} as never,
+      quota: {} as never,
+      capabilities: { enabled: false } as never,
+      anime: { enabled: false } as never,
+      animeArchive: {
+        enabled: true,
+        prepareUrl,
+        classifyUrl,
+        classifyText: () => [],
+      } as never,
+    });
+
+    const result = await runtime.run({
+      request: '@GooNeuroBot come mai non hai intercettato questo episodio? rehostalo',
+      language: 'italian',
+      person: { telegramId: 1, userHandle: '@alice' },
+      context: {
+        chatId: -100,
+        messageId: 99,
+        repliedToMessageId: 88,
+        repliedToText: directUrl,
+        isGroup: true,
+        isBotMentioned: true,
+        isGroupAdmin: false,
+        isReplyToBot: false,
+      },
+      recentMessages: [],
+      requestedActions: [
+        {
+          tool: 'anime_archive',
+          query: 'chainsmoker cat',
+          args: { intent: 'rehost', title: 'chainsmoker cat' },
+          reason: 'Cortex classified direct anime rehost from replied link',
+        },
+      ],
+      quotaBypass: true,
+      allowAnimeArchiveWrite: true,
+    });
+
+    expect(prepareUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: directUrl,
+        chatId: -100,
+        replyToMessageId: 99,
+        contextMessageId: 88,
+        requesterTelegramId: 1,
+      }),
+    );
+    expect(result?.animeArchiveResult).toBe(queued);
+    expect(result?.text).toBe('');
+    expect(result?.styleVariant).toBe('agent:anime_archive');
+  });
+
   it('executes a Cortex-selected HentaiSaturn discovery as a source-backed archive search', async () => {
     const jsonCompletion = vi
       .fn()
