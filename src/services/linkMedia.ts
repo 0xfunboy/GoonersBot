@@ -155,12 +155,15 @@ export class LinkMediaService {
     return this.enabled && this.cfg.autoRehost;
   }
 
-  /** Maximum duration allowed, with at least 15m (900s) allowed for YouTube. */
+  /** Maximum duration allowed, with at least 15m (900s) allowed for YouTube, and 4h (14400s) for StreamingCommunity/VixCloud. */
   maxDurationFor(url: string | URL): number {
     try {
       const u = typeof url === 'string' ? new URL(url) : url;
       if (/\b(?:youtube\.com|youtu\.be)\b/i.test(u.hostname)) {
         return Math.max(900, this.cfg.maxDurationSeconds);
+      }
+      if (/(?:^|\.)(?:streamingcommunity[a-z0-9-]*\.[a-z]{2,}|vixcloud\.co|vix-content\.net)$/i.test(u.hostname)) {
+        return Math.max(14400, this.cfg.maxDurationSeconds);
       }
     } catch {
       // ignore
@@ -688,6 +691,7 @@ export class LinkMediaService {
           proxy: this.cfg.proxy,
           cookies: cookieForUrl(item.url, (targetHost) => this.cookieFor(targetHost)),
           userAgent: this.cfg.userAgent,
+          referer: item.headers?.Referer ?? item.headers?.referer,
           jsRuntime: this.cfg.ytdlpJsRuntime,
           impersonate: this.cfg.ytdlpImpersonate,
           bwrapBin: this.cfg.bwrapBin,

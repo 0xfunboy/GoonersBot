@@ -67,6 +67,9 @@ export const YTDLP_VIDEO_HOSTS = [
   'tv.naver.com',
   // Imgur's native extractor provides direct media and a title first; yt-dlp is only a fallback.
   'imgur.com',
+  // StreamingCommunity HLS video hosts
+  'vixcloud.co',
+  'vix-content.net',
 ] as const;
 
 /** Adult/cam video hosts supported by yt-dlp. They are also covered by the shared NSFW gate. */

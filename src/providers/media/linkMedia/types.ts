@@ -35,6 +35,7 @@ export type LinkMediaPlatform =
   | 'spotify'
   | 'soundcloud'
   | 'bandcamp'
+  | 'streamingcommunity'
   | 'generic';
 
 export interface ExtractedMediaItem {

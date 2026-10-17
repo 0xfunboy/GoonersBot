@@ -10,12 +10,13 @@ import { imgurExtractor } from './extractors/imgur.js';
 import { giphyExtractor } from './extractors/giphy.js';
 import { tenorExtractor } from './extractors/tenor.js';
 import { musicLinksExtractor } from './extractors/musicLinks.js';
+import { streamingCommunityExtractor } from './extractors/streamingCommunity.js';
 import { genericHtmlExtractor } from './genericHtmlExtractor.js';
 
 // Order matters:
 //  1. direct file extensions
 //  2. native social extractors (media + context: text, author, likes and reposts)
-//  3. native image/gif/music hosts
+//  3. native image/gif/music/streaming hosts
 //  4. yt-dlp for known video/stream/adult sites
 //  5. generic OpenGraph fallback (catch-all)
 //
@@ -23,6 +24,7 @@ import { genericHtmlExtractor } from './genericHtmlExtractor.js';
 // video, while retaining context which a bare yt-dlp result cannot provide.
 const nativeExtractors: readonly LinkExtractor[] = [
   directExtractor,
+  streamingCommunityExtractor,
   twitterExtractor,
   redditExtractor,
   blueskyExtractor,

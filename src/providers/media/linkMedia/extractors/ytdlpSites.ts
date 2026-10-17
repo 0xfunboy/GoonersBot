@@ -32,6 +32,7 @@ const PLATFORM_HOSTS: ReadonlyArray<
   ['vk', ['vk.com', 'vkvideo.ru']],
   ['odysee', ['odysee.com']],
   ['imgur', ['imgur.com']],
+  ['streamingcommunity', ['vixcloud.co', 'vix-content.net']],
 ];
 
 export function ytdlpPlatformFor(host: string | URL): LinkMediaPlatform {
