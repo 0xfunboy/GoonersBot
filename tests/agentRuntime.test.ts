@@ -932,6 +932,107 @@ describe('AgentRuntime live provider bridge', () => {
     expect(result?.styleVariant).toBe('agent:anime_archive');
   });
 
+  it('executes a Cortex-selected StreamingCommunity movie rehost as a transport-owned action', async () => {
+    const jsonCompletion = vi
+      .fn()
+      .mockResolvedValueOnce({
+        goal: 'rehost movie from StreamingCommunity',
+        planConfidence: 0.98,
+        actions: [
+          {
+            id: 'action-1',
+            tool: 'anime_archive',
+            query: 'Spider-Man Brand New Day',
+            dependsOn: [],
+            reason: 'queue movie from StreamingCommunity',
+          },
+        ],
+      });
+    const queued: AnimeArchivePreparationResult = {
+      status: 'queued',
+      created: true,
+      job: {
+        id: 'job-sc-1',
+        source: 'streamingcommunity',
+        series: { id: '12824', canonicalUrl: 'https://streamingcommunityz.shiksha/it/watch/12824', title: 'Spider-Man Brand New Day' },
+        episodes: [
+          {
+            sourceId: '12824',
+            number: 1,
+            title: 'Spider-Man Brand New Day',
+            canonicalUrl: 'https://streamingcommunityz.shiksha/it/watch/12824',
+          },
+        ],
+      } as never,
+    };
+    const prepareNaturalEpisodeRequest = vi.fn().mockResolvedValue(queued);
+    const runtime = new AgentRuntime({
+      config: {
+        brain: { cortex: { model: 'test' }, replyModel: 'test' },
+        env: { REPETITION_SIMILARITY_THRESHOLD: 0.78 },
+        animeArchive: { enabled: true },
+        linkMedia: { enabled: false },
+      } as never,
+      llm: { capabilities: { chat: true }, jsonCompletion } as never,
+      media: { canGenerateImage: false } as never,
+      music: { enabled: false } as never,
+      video: { enabled: false } as never,
+      tts: { enabled: false } as never,
+      grounding: { enabled: false } as never,
+      knowledge: { enabled: false } as never,
+      imageFinder: {} as never,
+      imagePrompts: {} as never,
+      videoPrompts: {} as never,
+      quota: {} as never,
+      capabilities: { enabled: false } as never,
+      anime: { enabled: false } as never,
+      animeArchive: {
+        enabled: true,
+        prepareNaturalEpisodeRequest,
+      } as never,
+    });
+
+    const result = await runtime.run({
+      request: 'scaricami il film Spider-Man Brand New Day da streamingcommunity',
+      language: 'italian',
+      person: { telegramId: 1, userHandle: '@funboy' },
+      context: {
+        chatId: -100,
+        messageId: 88,
+        isGroup: false,
+        isBotMentioned: true,
+        isGroupAdmin: true,
+        isReplyToBot: false,
+      },
+      requestedActions: [
+        {
+          tool: 'anime_archive',
+          query: 'Spider-Man Brand New Day',
+          args: {
+            intent: 'rehost',
+            title: 'Spider-Man Brand New Day',
+            source: 'streamingcommunity',
+          },
+          reason: 'movie download from StreamingCommunity',
+        },
+      ],
+      recentMessages: [],
+      quotaBypass: true,
+      allowAnimeArchiveWrite: true,
+    });
+
+    expect(prepareNaturalEpisodeRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: 'Spider-Man Brand New Day',
+        preferredSource: 'streamingcommunity',
+        chatId: -100,
+        replyToMessageId: 88,
+        requesterTelegramId: 1,
+      }),
+    );
+    expect(result?.animeArchiveResult).toBe(queued);
+  });
+
   it('routes an explicit AnimeUnity URL in a reply or conversational request directly to prepareUrl', async () => {
     const directUrl = 'https://www.animeunity.so/anime/7708-chainsmoker-cat-ita/108660';
     const jsonCompletion = vi

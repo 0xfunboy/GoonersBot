@@ -24,6 +24,10 @@ import {
   parseHentaiSaturnSearchResults,
   parseHentaiSaturnSeriesPage,
 } from '../src/anime/archive/hentaiSaturn.js';
+import {
+  StreamingCommunityAdapter,
+  classifyStreamingCommunityUrl,
+} from '../src/anime/archive/streamingCommunity.js';
 import { AnimeSourceRegistry } from '../src/anime/archive/registry.js';
 import type {
   AnimeArchiveEpisode,
@@ -369,6 +373,97 @@ describe('anime source registry and safe URL helpers', () => {
     expect(
       redactSignedUrl('https://media.example.test/video.mp4?token=secret&expires=2000000000#x'),
     ).toBe('https://media.example.test/video.mp4?[redacted]');
+  });
+});
+
+describe('StreamingCommunityAdapter', () => {
+  const MOVIE_WATCH_URL = 'https://streamingcommunityz.shiksha/it/watch/12824';
+  const TV_WATCH_URL = 'https://streamingcommunityz.shiksha/it/watch/4609?e=26970';
+  const MOVIE_PAGE = `<div id="app" data-page='{"props":{"title":{"id":12824,"name":"Spider-Man: Brand New Day","slug":"spider-man-brand-new-day","type":"movie","plot":"Film plot","release_date":"2026-05-01","score":"8.5"}}}'></div>`;
+  const IFRAME_PAGE = `<html><body><iframe src="https://vixcloud.co/embed/793125?canPlayFHD=1&amp;scz=1"></iframe></body></html>`;
+  const VIX_PAGE = `<script>
+    url: 'https://vixcloud.co/playlist/793125?b=1',
+    params: {
+      'token': 'fixture-token',
+      'expires': '2000000000'
+    }
+  </script>`;
+  const SEARCH_RESPONSE = JSON.stringify({
+    data: [
+      {
+        id: 12824,
+        slug: 'spider-man-brand-new-day',
+        name: 'Spider-Man: Brand New Day',
+        type: 'movie',
+        last_air_date: '2026-05-01',
+      },
+    ],
+  });
+
+  it('classifies StreamingCommunity movie and episode URLs', () => {
+    expect(classifyStreamingCommunityUrl(MOVIE_WATCH_URL)).toMatchObject({
+      source: 'streamingcommunity',
+      kind: 'series',
+      seriesId: '12824',
+      slug: '12824',
+      canonicalUrl: MOVIE_WATCH_URL,
+    });
+
+    expect(classifyStreamingCommunityUrl(TV_WATCH_URL)).toMatchObject({
+      source: 'streamingcommunity',
+      kind: 'episode',
+      seriesId: '4609',
+      episodeId: '26970',
+      canonicalUrl: TV_WATCH_URL,
+    });
+  });
+
+  it('fetches movie metadata and resolves 1080p FHD VixCloud master playlist', async () => {
+    const http = new FixtureHttpClient((url) => {
+      if (url.pathname.includes('/watch/12824')) return MOVIE_PAGE;
+      if (url.pathname.includes('/iframe/12824')) return IFRAME_PAGE;
+      if (url.hostname.includes('vixcloud.co')) return VIX_PAGE;
+      throw new Error(`unexpected url: ${url.toString()}`);
+    });
+
+    const adapter = new StreamingCommunityAdapter(http);
+    const series = await adapter.getSeries(MOVIE_WATCH_URL);
+
+    expect(series.title).toBe('Spider-Man: Brand New Day');
+    expect(series.status).toBe('completed');
+    expect(series.episodes).toHaveLength(1);
+    expect(series.episodes[0]).toMatchObject({
+      order: 1,
+      number: '1',
+      sourceId: '12824',
+    });
+
+    const media = await adapter.resolveMedia(series.episodes[0]!);
+    expect(media.candidates).toHaveLength(1);
+    const candidate = media.candidates[0]!;
+    expect(candidate.url).toContain('h=1');
+    expect(candidate.url).toContain('scz=1');
+    expect(candidate.url).toContain('lang=it');
+    expect(candidate.requestHeaders.referer).toContain('vixcloud.co/embed/793125');
+  });
+
+  it('searches StreamingCommunity titles and maps result format', async () => {
+    const http = new FixtureHttpClient((url) => {
+      if (url.pathname.includes('/search')) return SEARCH_RESPONSE;
+      throw new Error(`unexpected url: ${url.toString()}`);
+    });
+
+    const adapter = new StreamingCommunityAdapter(http);
+    const hits = await adapter.search('spider-man');
+
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatchObject({
+      source: 'streamingcommunity',
+      sourceId: '12824',
+      title: 'Spider-Man: Brand New Day',
+      status: 'completed',
+      episodeCount: 1,
+    });
   });
 });
 

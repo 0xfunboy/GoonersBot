@@ -50,7 +50,7 @@ afterEach(async () => {
 });
 
 describe('yt-dlp argument hardening', () => {
-  it('prefers split H.264/AAC MP4 up to 720p and has bounded network retries', async () => {
+  it('prefers highest resolution H.264/AAC MP4 and has bounded network retries', async () => {
     const args = await buildYtdlpDownloadArgs(
       'https://www.youtube.com/shorts/example',
       '/tmp/ytdlp-test',
@@ -59,14 +59,10 @@ describe('yt-dlp argument hardening', () => {
 
     expect(optionValue(args, '-f')).toBe(YTDLP_VIDEO_FORMAT);
     expect(YTDLP_VIDEO_FORMAT).toContain(
-      'bestvideo[height<=?720][ext=mp4][vcodec^=avc]+bestaudio[ext=m4a][acodec^=mp4a]',
+      'bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a][acodec^=mp4a]',
     );
-    expect(YTDLP_VIDEO_FORMAT).toContain(
-      'bestvideo[width<=?720][ext=mp4][vcodec^=avc]+bestaudio[ext=m4a][acodec^=mp4a]',
-    );
-    expect(YTDLP_VIDEO_FORMAT).toContain('bestvideo[height<=?720]+bestaudio');
-    expect(YTDLP_VIDEO_FORMAT).toContain('bestvideo[width<=?720]+bestaudio');
-    expect(YTDLP_VIDEO_FORMAT.endsWith('/best')).toBe(false);
+    expect(YTDLP_VIDEO_FORMAT).toContain('bestvideo+bestaudio');
+    expect(YTDLP_VIDEO_FORMAT.endsWith('/best')).toBe(true);
     expect(optionValue(args, '--merge-output-format')).toBe('mp4');
     expect(optionValue(args, '--playlist-items')).toBe('1');
     expect(optionValue(args, '--socket-timeout')).toBe('20');

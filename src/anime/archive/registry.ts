@@ -5,6 +5,7 @@ import {
   type SafeAnimeArchiveHttpClientOptions,
 } from './http.js';
 import { HentaiSaturnAdapter } from './hentaiSaturn.js';
+import { StreamingCommunityAdapter } from './streamingCommunity.js';
 import {
   AnimeArchiveError,
   type AnimeArchiveSearchResult,
@@ -115,5 +116,9 @@ export function createDefaultAnimeSourceRegistry(
 ): AnimeSourceRegistry {
   const { http, ...httpOptions } = options;
   const client = http ?? new SafeAnimeArchiveHttpClient(httpOptions);
-  return new AnimeSourceRegistry([new AnimeUnityAdapter(client), new HentaiSaturnAdapter(client)]);
+  return new AnimeSourceRegistry([
+    new AnimeUnityAdapter(client),
+    new HentaiSaturnAdapter(client),
+    new StreamingCommunityAdapter(client),
+  ]);
 }

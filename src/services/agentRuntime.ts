@@ -1717,7 +1717,15 @@ function archiveSearchQueries(raw: string | undefined, fallback: string): string
 
 function animeArchiveSource(value: string | undefined): AnimeArchiveSource | undefined {
   const normalized = value?.trim().toLowerCase();
-  return normalized === 'animeunity' || normalized === 'hentaisaturn' ? normalized : undefined;
+  if (normalized === 'animeunity' || normalized === 'hentaisaturn') return normalized;
+  if (
+    normalized === 'streamingcommunity' ||
+    normalized === 'streaming_community' ||
+    normalized === 'sc'
+  ) {
+    return 'streamingcommunity';
+  }
+  return undefined;
 }
 
 function animeArchiveSummary(result: AnimeArchivePreparationResult): string {

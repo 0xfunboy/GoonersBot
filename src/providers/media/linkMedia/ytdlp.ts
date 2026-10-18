@@ -82,19 +82,14 @@ server.listen(Number(portText), '127.0.0.1', () => {
 });
 `;
 
-// Prefer a Telegram-friendly H.264/AAC pair, then progressively relax the codec/container
-// constraints. Landscape formats are bounded by height and portrait formats by width: limiting
-// height alone rejects perfectly valid 720x1280 Reels. The `?` admits formats whose extractor does
-// not report the compared dimension.
+// Prefer the highest resolution Telegram-friendly H.264/AAC pair, then progressively relax
+// the container and codec constraints to guarantee the highest resolution video possible.
 export const YTDLP_VIDEO_FORMAT =
-  'bestvideo[height<=?720][ext=mp4][vcodec^=avc]+bestaudio[ext=m4a][acodec^=mp4a]/' +
-  'bestvideo[width<=?720][ext=mp4][vcodec^=avc]+bestaudio[ext=m4a][acodec^=mp4a]/' +
-  'bestvideo[height<=?720][ext=mp4]+bestaudio[ext=m4a]/' +
-  'bestvideo[width<=?720][ext=mp4]+bestaudio[ext=m4a]/' +
-  'bestvideo[height<=?720]+bestaudio/' +
-  'bestvideo[width<=?720]+bestaudio/' +
-  'best[height<=?720][ext=mp4]/best[width<=?720][ext=mp4]/' +
-  'best[height<=?720]/best[width<=?720]';
+  'bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a][acodec^=mp4a]/' +
+  'bestvideo[ext=mp4]+bestaudio[ext=m4a]/' +
+  'bestvideo+bestaudio/' +
+  'best[ext=mp4]/' +
+  'best';
 
 // Some extractors expose incomplete dimensions or unusual format layouts. A single bounded retry
 // lets yt-dlp choose a valid pair; the byte/duration caps still apply and the normalizer enforces

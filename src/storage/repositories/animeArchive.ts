@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Collection, Db, Document, Filter } from 'mongodb';
 
-export type AnimeArchiveSource = 'animeunity' | 'hentaisaturn';
+export type AnimeArchiveSource = 'animeunity' | 'hentaisaturn' | 'streamingcommunity';
 export type AnimeArchiveScope = 'episode' | 'series';
 
 export interface AnimeArchiveSeriesRef {

@@ -4,5 +4,6 @@ export * from './http.js';
 export * from './progress.js';
 export * from './registry.js';
 export * from './types.js';
+export * from './streamingCommunity.js';
 export * from './service.js';
 export * from './worker.js';

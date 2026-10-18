@@ -1,9 +1,15 @@
-export const ANIME_ARCHIVE_SOURCES = ['animeunity', 'hentaisaturn'] as const;
+export const ANIME_ARCHIVE_SOURCES = [
+  'animeunity',
+  'hentaisaturn',
+  'streamingcommunity',
+] as const;
 
 export type AnimeArchiveSource = (typeof ANIME_ARCHIVE_SOURCES)[number];
 
 export function animeArchiveSourceLabel(source: AnimeArchiveSource): string {
-  return source === 'animeunity' ? 'AnimeUnity' : 'HentaiSaturn';
+  if (source === 'animeunity') return 'AnimeUnity';
+  if (source === 'hentaisaturn') return 'HentaiSaturn';
+  return 'StreamingCommunity';
 }
 export type AnimeArchiveUrlKind = 'series' | 'episode';
 export type AnimeArchiveStatus = 'ongoing' | 'completed' | 'unknown';

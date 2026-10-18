@@ -894,6 +894,7 @@ function isDefinitiveTelegramApiRejection(error: unknown): boolean {
 }
 
 function mediaHostsFor(source: AnimeArchiveSource): readonly string[] {
+  if (source === 'streamingcommunity') return ['vixcloud.co', 'vix-content.net'];
   return source === 'animeunity' ? ANIMEUNITY_MEDIA_HOSTS : HENTAISATURN_MEDIA_HOSTS;
 }
 

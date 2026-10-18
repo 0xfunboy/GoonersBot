@@ -131,9 +131,20 @@ export function normalizeHost(value: string | URL): string {
   return domainToASCII(raw).toLowerCase();
 }
 
+export const STREAMING_COMMUNITY_HOST_REGEX =
+  /(?:^|\.)streamingcommunity[a-z0-9-]*\.[a-z]{2,}$/i;
+
+export function isStreamingCommunityHost(host: string | URL): boolean {
+  const normalized = normalizeHost(host);
+  return STREAMING_COMMUNITY_HOST_REGEX.test(normalized);
+}
+
 /** Match an exact host or one of its subdomains without accepting lookalike suffixes. */
 export function hostMatches(host: string | URL, candidate: string): boolean {
   const normalized = normalizeHost(host);
+  if (candidate === 'streamingcommunity' || candidate === 'streamingcommunity.*') {
+    return isStreamingCommunityHost(normalized);
+  }
   const suffix = normalizeHost(candidate);
   return Boolean(suffix) && (normalized === suffix || normalized.endsWith(`.${suffix}`));
 }
