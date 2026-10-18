@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
-import { chmod, lstat, readdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { childLogger } from '../../../utils/logger.js';
 import { runProcessChecked } from '../../../utils/process.js';
@@ -766,7 +767,17 @@ async function runYtdlpProcess(
     );
   }
 
-  const socketPath = join(workdir, '.safe-egress.sock');
+  const defaultSocketPath = join(workdir, '.safe-egress.sock');
+  let socketPath = defaultSocketPath;
+  let fallbackDir: string | undefined;
+
+  // Linux sockaddr_un.sun_path is capped at 108 bytes (107 chars + null terminator).
+  // If workdir path causes the socket path to exceed safe length, allocate a short path in /tmp.
+  if (Buffer.byteLength(defaultSocketPath, 'utf8') >= 104) {
+    fallbackDir = await mkdtemp(join(tmpdir(), 'gb-'));
+    socketPath = join(fallbackDir, 's.sock');
+  }
+
   const proxy = await startSafeEgressProxy(socketPath, {
     signal: cfg.signal,
     validateUrl: cfg.validateUrl,
@@ -781,6 +792,9 @@ async function runYtdlpProcess(
     );
   } finally {
     await proxy.close();
+    if (fallbackDir) {
+      await rm(fallbackDir, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 }
 
@@ -812,6 +826,7 @@ export function buildYtdlpSandboxArgs(
     '--bind',
     workdir,
     workdir,
+    ...(proxySocketPath.startsWith(workdir) ? [] : ['--bind', proxySocketPath, proxySocketPath]),
     '--setenv',
     'HOME',
     workdir,

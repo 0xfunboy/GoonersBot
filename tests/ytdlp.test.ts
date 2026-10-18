@@ -119,6 +119,21 @@ describe('yt-dlp argument hardening', () => {
     expect(args.at(-1)).toBe('https://example.com/video');
   });
 
+  it('binds an external proxy socket path into the sandbox when socket path is outside workdir', () => {
+    const args = buildYtdlpSandboxArgs(
+      '/opt/yt-dlp',
+      ['--proxy', 'http://127.0.0.1:39173', 'https://example.com/video'],
+      '/very/long/nested/workdir/path',
+      '/tmp/gb-123/s.sock',
+    );
+
+    expect(args).toContain('--bind');
+    const bindIndex = args.indexOf('/tmp/gb-123/s.sock');
+    expect(bindIndex).toBeGreaterThan(-1);
+    expect(args[bindIndex - 1]).toBe('--bind');
+    expect(args[bindIndex + 1]).toBe('/tmp/gb-123/s.sock');
+  });
+
   it('only enables the configured JS runtime and browser impersonation explicitly', async () => {
     const defaults = await buildYtdlpDownloadArgs(
       'https://www.tiktok.com/@person/video/1',
