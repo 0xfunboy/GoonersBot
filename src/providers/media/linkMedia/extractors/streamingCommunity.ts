@@ -146,18 +146,54 @@ export const streamingCommunityExtractor: LinkExtractor = {
     });
 
     const urlMatch = /url:\s*['"]([^'"]+)['"]/.exec(vixHtml);
-    const tokenMatch = /['"]token['"]:\s*['"]([^'"]+)['"]/.exec(vixHtml);
-    const expiresMatch = /['"]expires['"]:\s*['"]([^'"]+)['"]/.exec(vixHtml);
+    const paramsBlockMatch = /params:\s*\{([^}]+)\}/s.exec(vixHtml);
+    const params: Record<string, string> = {};
+    if (paramsBlockMatch?.[1]) {
+      const lineRegex = /['"]?([a-zA-Z0-9_]+)['"]?\s*:\s*['"]([^'"]*)['"]/g;
+      let m: RegExpExecArray | null;
+      while ((m = lineRegex.exec(paramsBlockMatch[1])) !== null) {
+        if (m[1] && m[2]) {
+          params[m[1]] = m[2];
+        }
+      }
+    }
 
-    if (!urlMatch?.[1] || !tokenMatch?.[1] || !expiresMatch?.[1]) {
+    if (!params.token) {
+      const tokenMatch = /['"]token['"]:\s*['"]([^'"]+)['"]/.exec(vixHtml);
+      if (tokenMatch?.[1]) params.token = tokenMatch[1];
+    }
+    if (!params.expires) {
+      const expiresMatch = /['"]expires['"]:\s*['"]([^'"]+)['"]/.exec(vixHtml);
+      if (expiresMatch?.[1]) params.expires = expiresMatch[1];
+    }
+
+    if (!urlMatch?.[1] || !params.token || !params.expires) {
       return null;
     }
 
     const playlistBase = urlMatch[1].replace(/\\\//g, '/');
-    const token = tokenMatch[1];
-    const expires = expiresMatch[1];
-    const separator = playlistBase.includes('?') ? '&' : '?';
-    const masterPlaylistUrl = `${playlistBase}${separator}token=${token}&expires=${expires}`;
+    const playlistUrl = new URL(playlistBase);
+    let embedUrlObj: URL | undefined;
+    try {
+      embedUrlObj = new URL(vixEmbedUrl);
+    } catch {
+      // ignore
+    }
+
+    for (const [key, value] of Object.entries(params)) {
+      if (value) playlistUrl.searchParams.set(key, value);
+    }
+
+    if (embedUrlObj?.searchParams.has('canPlayFHD')) {
+      playlistUrl.searchParams.set('h', '1');
+    }
+    if (embedUrlObj?.searchParams.has('scz')) {
+      playlistUrl.searchParams.set('scz', '1');
+    }
+    const lang = embedUrlObj?.searchParams.get('lang') || 'it';
+    playlistUrl.searchParams.set('lang', lang);
+
+    const masterPlaylistUrl = playlistUrl.toString();
 
     const vixIdMatch =
       /\/(?:embed|playlist)\/(\d+)/i.exec(vixEmbedUrl) ||
@@ -188,3 +224,4 @@ export const streamingCommunityExtractor: LinkExtractor = {
     };
   },
 };
+

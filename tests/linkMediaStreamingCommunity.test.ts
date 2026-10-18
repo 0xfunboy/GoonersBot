@@ -126,7 +126,7 @@ describe('StreamingCommunity extractor', () => {
       expect(item.mime).toBe('application/x-mpegurl');
       expect(item.durationSeconds).toBe(101 * 60);
       expect(item.url).toBe(
-        'https://vixcloud.co/playlist/791471?b=1&token=secrettoken123&expires=1797441000',
+        'https://vixcloud.co/playlist/791471?b=1&token=secrettoken123&expires=1797441000&lang=it',
       );
       expect(item.headers?.Referer).toBe('https://vixcloud.co/embed/791471');
 
@@ -147,7 +147,7 @@ describe('StreamingCommunity extractor', () => {
         <!DOCTYPE html>
         <html>
         <body>
-          <iframe src="https://vixcloud.co/embed/794489?token=eptoken&amp;expires=1792257000&amp;lang=it"></iframe>
+          <iframe src="https://vixcloud.co/embed/794489?token=eptoken&amp;expires=1792257000&amp;lang=it&amp;canPlayFHD=1&amp;scz=1"></iframe>
         </body>
         </html>
       `;
@@ -184,7 +184,7 @@ describe('StreamingCommunity extractor', () => {
       expect(post?.title).toBe('Friends Sex and Games - S1E1 (Episodio 1)');
       expect(post?.items[0].durationSeconds).toBe(32 * 60);
       expect(post?.items[0].url).toBe(
-        'https://vixcloud.co/playlist/794489?b=1&token=eptokenabc&expires=1797442000',
+        'https://vixcloud.co/playlist/794489?b=1&token=eptokenabc&expires=1797442000&h=1&scz=1&lang=it',
       );
       expect(post?.items[0].headers?.Referer).toBe('https://vixcloud.co/embed/794489');
     });
@@ -214,3 +214,4 @@ describe('StreamingCommunity extractor', () => {
     });
   });
 });
+
